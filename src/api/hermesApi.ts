@@ -47,6 +47,7 @@ export const hermesApi = {
   runInboxCommand: (id: string, action: string, body: Record<string, unknown> = {}) => jsonPost(`/api/inbox/commands/${encodeURIComponent(id)}/${encodeURIComponent(action)}`, body),
   getWorkboard: () => hermesJson<ApiEnvelope>('/api/workboard'),
   getDocuments: () => hermesJson<ApiEnvelope>('/api/documents'),
+  createDocument: (body: Record<string, unknown>) => jsonPost('/api/documents', body),
   getWiki: (options: { path?: string; query?: string } = {}) => {
     const params = new URLSearchParams();
     if (options.path) params.set('path', options.path);
@@ -55,6 +56,7 @@ export const hermesApi = {
   },
   askWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/ask', body),
   getAgents: () => hermesJson<ApiEnvelope>('/api/agents'),
+  createAgent: (body: Record<string, unknown>) => jsonPost('/api/agents', body),
   getChannels: () => hermesJson<ApiEnvelope>('/api/channels/status'),
   getAutomation: () => hermesJson<ApiEnvelope>('/api/scheduler/jobs'),
   createSchedulerJob: (body: Record<string, unknown>) => jsonPost('/api/scheduler/jobs', body),
@@ -62,10 +64,13 @@ export const hermesApi = {
   getUsage: () => hermesJson<ApiEnvelope>('/api/usage'),
   getTools: () => hermesJson<ApiEnvelope>('/api/tools'),
   getSettings: () => hermesJson<ApiEnvelope>('/api/settings'),
+  saveSettings: (body: Record<string, unknown>) => jsonPost('/api/settings', body),
   getChatMessages: (target?: string) => hermesJson<ApiEnvelope>(`/api/chat/messages${target ? `?target=${encodeURIComponent(target)}` : ''}`),
   getEvents: () => fetch(url('/api/events'), { headers: { accept: 'text/event-stream' } }),
   createRun: (body: Record<string, unknown>) => jsonPost('/api/runs', body),
+  launchMission: (body: Record<string, unknown>) => jsonPost('/api/missions/launch', body),
   getRun: (id: string) => hermesJson<ApiEnvelope>(`/api/runs/${encodeURIComponent(id)}`),
+  approveRun: (id: string) => jsonPost(`/api/runs/${encodeURIComponent(id)}/approve`),
   draftCalendarWork: (body: Record<string, unknown>) => jsonPost('/api/calendar/draft', body),
   quickAddCalendarWork: (body: Record<string, unknown>) => jsonPost('/api/calendar/quick-add', body),
   convertWorkboard: (body: Record<string, unknown>) => jsonPost('/api/workboard/convert', body),

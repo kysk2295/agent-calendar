@@ -1,10 +1,14 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApiProxyServer } from './proxy.js';
 import { publicSettings, readSettings, saveSettings } from './settings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const WIDGET_APP_GROUP_ID = 'group.com.hermes.tasks';
+const WIDGET_SNAPSHOT_FILE = 'HermesWidgetSnapshot.json';
 let mainWindow: BrowserWindow | null = null;
 let proxyBaseUrl = '';
 
@@ -28,7 +32,7 @@ function createWindow() {
     backgroundColor: '#EAE5DA',
     trafficLightPosition: { x: 14, y: 14 },
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -55,6 +59,18 @@ ipcMain.handle('settings:save', (_event, settings: unknown) => {
   return publicSettings(saveSettings(settings));
 });
 ipcMain.handle('proxy:get-base-url', () => proxyBaseUrl);
+ipcMain.handle('widget:snapshot-save', async (_event, snapshot: unknown) => {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    throw new Error('Invalid Hermes widget snapshot');
+  }
+  const groupDir = path.join(os.homedir(), 'Library', 'Group Containers', WIDGET_APP_GROUP_ID);
+  await mkdir(groupDir, { recursive: true });
+  const snapshotPath = path.join(groupDir, WIDGET_SNAPSHOT_FILE);
+  const body = `${JSON.stringify(snapshot, null, 2)}\n`;
+  const previous = await readFile(snapshotPath, 'utf8').catch(() => '');
+  if (previous !== body) await writeFile(snapshotPath, body, 'utf8');
+  return { ok: true, path: snapshotPath, changed: previous !== body };
+});
 
 app.whenReady().then(async () => {
   await startProxy();

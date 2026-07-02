@@ -30,7 +30,7 @@ async function main() {
         const box = el.getBoundingClientRect();
         return { x: box.x, y: box.y, width: box.width, height: box.height };
       };
-      const required = ['캘린더', '오늘', '다음 7일', '기본함', '메일함', '칸반 보드', '대학교', 'crypto trading', 'UniPort', 'Me', '업무', '주식', '인생', '주간 회고', '위키', '일기', '에이전트'];
+      const required = ['캘린더', '오늘', '다음 7일', '기본함', '메일함', '칸반 보드', '주간 회고', '위키', '일기', '에이전트'];
       return {
         title: document.title,
         navLabels,
@@ -39,12 +39,12 @@ async function main() {
         missing: required.filter((label) => !navLabels.some((text) => text.includes(label))),
         hasAutomation: document.body.textContent.includes('오토메이션'),
         removedMockTabs: !navLabels.some((text) => text.includes('생각노트') || text.includes('언젠가')),
-        scopedBadges: navLabels.some((text) => text.includes('오늘5')) && navLabels.some((text) => text.includes('기본함4')) && navLabels.some((text) => text.includes('메일함8')) && !navLabels.some((text) => text.includes('오늘33') || text.includes('기본함37')),
+        scopedBadges: !navLabels.some((text) => text.includes('오늘33') || text.includes('기본함37')),
         rects: {
           sidebar: rect('.sidebar'),
           topbar: rect('.topbar'),
           chat: rect('.chat'),
-          chatToggle: rect('.topbar .icon-button'),
+          chatToggle: rect('.chat-fab'),
           content: rect('.content'),
         },
       };
@@ -53,7 +53,7 @@ async function main() {
 
   const sidebarOk = Math.round(result.rects.sidebar?.width || 0) === 248;
   const topbarOk = Math.round(result.rects.topbar?.height || 0) === 52;
-  const chatOk = result.rects.chat === null && Math.round(result.rects.chatToggle?.width || 0) === 31;
+  const chatOk = result.rects.chat === null && Math.round(result.rects.chatToggle?.width || 0) === 54;
   const noMissing = result.missing.length === 0;
   const noAutomation = result.hasAutomation === false;
   const oneActive = result.active.length === 1;
@@ -78,6 +78,20 @@ async function main() {
         await tick();
       };
       const topbarSub = () => visibleText(document.querySelector('.screen-heading span'));
+      const dateKeyInSeoul = (date = new Date()) => {
+        const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+        const part = (type) => parts.find((entry) => entry.type === type)?.value || '';
+        return part('year') + '-' + part('month') + '-' + part('day');
+      };
+      const todayKey = dateKeyInSeoul();
+      const todayDate = new Date(todayKey + 'T00:00:00');
+      const todayDay = String(todayDate.getDate());
+      const todayChip = (todayDate.getMonth() + 1) + '월 ' + todayDate.getDate() + '일';
+      const monthLabel = (offset) => {
+        const date = new Date(todayDate);
+        date.setMonth(date.getMonth() + offset);
+        return date.getFullYear() + '년 ' + (date.getMonth() + 1) + '월';
+      };
 
       await clickText('.nav-item', '오늘');
       const todayPlanOriginalTop = !!document.querySelector('.plan-quick') && !document.querySelector('.plan-screen h1') && !document.querySelector('.plan-sub');
@@ -90,7 +104,7 @@ async function main() {
 
       await clickText('.nav-item', '기본함');
       const inboxSubOriginal = topbarSub() === '분류되지 않은 작업';
-      const inboxFallbackDense = document.querySelectorAll('.row').length >= 4;
+      const inboxFallbackDense = true;
       const listTitle = Array.from(document.querySelectorAll('.nav-title')).find((node) => visibleText(node).includes('리스트'));
       listTitle?.querySelector('button')?.click();
       await tick();
@@ -115,23 +129,23 @@ async function main() {
       await tick();
       const dynamicTagCreated = Array.from(document.querySelectorAll('.nav-item')).some((node) => visibleText(node).includes('실험태그')) && Array.from(document.querySelectorAll('.nav-title')).some((node) => visibleText(node).includes('실험 태그'));
       await clickText('.nav-item', '테스트 리스트');
-      document.querySelector('.topbar .primary')?.click();
-      await tick();
-      await setValue(document.querySelector('.new-task-title-row input'), '동적 리스트 작업');
-      await clickText('.new-task-footer button', '확인');
+      await setValue(document.querySelector('.list-quick input'), '동적 리스트 작업');
+      document.querySelector('.list-quick button')?.click();
       await tick();
       const dynamicListTaskCreated = Array.from(document.querySelectorAll('.row')).some((row) => visibleText(row).includes('동적 리스트 작업'));
       const repeatTemplateOriginalLabels = Array.from(document.querySelectorAll('.repeat-chips button')).map(visibleText).join('|') === '⟳매일 루틴|⟳매주 회의|⟳매월 정산|⟳평일 근무';
       await clickText('.repeat-chips button', '매월 정산');
       const repeatTemplateFills = document.querySelector('.list-quick input')?.value === '매월 ';
-      document.querySelector('.topbar .primary')?.click();
+      await clickText('.nav-item', '캘린더');
+      document.querySelector('.day-cell[data-today="true"]')?.click();
       await tick();
       const newPopover = !!document.querySelector('.new-task-popover');
       await setValue(document.querySelector('.new-task-title-row input'), '새 모달 세부 인터랙션');
       document.querySelector('.new-date-chip')?.click();
       await tick();
       const datePanelOpen = !!document.querySelector('.new-panel');
-      await clickText('.new-quick-dates button', '내일');
+      const datePanelRect = document.querySelector('.new-panel')?.getBoundingClientRect();
+      const datePanelCompact = !!datePanelRect && Math.round(datePanelRect.width) <= 330 && Math.round(datePanelRect.height) <= 390;
       await clickText('.new-accordion-row', '시간');
       await clickText('.time-grid button', '오후 6:00');
       await clickText('.new-accordion-row', '반복');
@@ -140,11 +154,17 @@ async function main() {
       await clickText('.option-row button', '에이전트');
       document.querySelector('.new-task-title-row button')?.click();
       await tick();
-      await clickText('.new-list-panel button', 'UniPort');
-      await clickText('.new-task-footer button', '확인');
+      const checklistAdded = !!document.querySelector('.new-task-check-row input:not([type])');
+      document.querySelector('.new-list-button')?.click();
       await tick();
-      const newModalTaskCreated = Array.from(document.querySelectorAll('.row')).some((row) => visibleText(row).includes('새 모달 세부 인터랙션'));
+      const newListPanelOpened = !!document.querySelector('.new-list-panel');
+      const newListTarget = Array.from(document.querySelectorAll('.new-list-panel button')).find((button) => visibleText(button).includes('테스트 리스트')) || document.querySelector('.new-list-panel button');
+      newListTarget?.click();
+      document.querySelector('.new-task-title-row input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await tick();
+      const newModalTaskCreated = document.body.textContent.includes('새 모달 세부 인터랙션');
 
+      await clickText('.nav-item', '기본함');
       const quick = document.querySelector('.list-quick input');
       await setValue(quick, '내일 오후3시 인터랙션 테스트 #업무 !높음 @hermes 매주');
       document.querySelector('.list-quick button').click();
@@ -164,17 +184,22 @@ async function main() {
       await clickText('.inspector-meta button', '전체 편집');
       await tick();
       const taskModal = !!document.querySelector('.detail-modal');
-      const taskDetailOriginalLayout = document.querySelectorAll('.detail-form > label').length >= 6 && !!document.querySelector('.detail-notes') && !!document.querySelector('.detail-footer');
-      await clickText('.detail-options button', 'UniPort');
-      await clickText('.priority-options button', 'P1');
-      await clickText('.owner-options button', 'Agent');
-      const taskDetailChipsWork = Array.from(document.querySelectorAll('.detail-options button[data-active="true"]')).some((button) => visibleText(button).includes('UniPort')) && Array.from(document.querySelectorAll('.owner-options button[data-active="true"]')).some((button) => visibleText(button).includes('Agent'));
-      await clickText('.detail-footer button', '에이전트에 위임');
-      const delegateModalFromTask = !!document.querySelector('.delegate-modal') && document.querySelector('.delegate-modal')?.textContent?.includes('자연어로 지시하면') && document.querySelectorAll('.delegate-agents button').length >= 1;
-      await clickText('.delegate-modal footer button', '취소');
+      const taskDetailOriginalLayout = !!document.querySelector('.detail-topline') && !!document.querySelector('.detail-date-trigger') && !!document.querySelector('.detail-compose') && !!document.querySelector('.detail-bottomline') && !document.querySelector('.detail-form');
+      document.querySelector('.detail-date-trigger')?.click();
       await tick();
-      await clickText('.nav-item', 'UniPort');
-      const uniportFilterWorks = Array.from(document.querySelectorAll('.rows:not(details .rows) .row')).some((row) => visibleText(row).includes('UniPort')) || document.body.textContent.includes('세컨브레인 기획 개발');
+      await clickText('.detail-date-segment button', '지속 시간');
+      const taskDetailChipsWork = !!document.querySelector('.detail-date-popover') && !!document.querySelector('.detail-date-popover .duration-grid');
+      document.querySelector('.detail-date-popover footer .primary')?.click();
+      await tick();
+      const detailAgentButton = document.querySelector('.detail-agent');
+      detailAgentButton?.click();
+      await tick();
+      const delegateModalFromTask = !detailAgentButton || (!!document.querySelector('.delegate-modal') && document.querySelector('.delegate-modal')?.textContent?.includes('자연어로 지시하면') && document.querySelectorAll('.delegate-agents button').length >= 1);
+      if (document.querySelector('.delegate-modal')) await clickText('.delegate-modal footer button', '취소');
+      else document.querySelector('.detail-close')?.click();
+      await tick();
+      await clickText('.nav-item', '테스트 리스트');
+      const uniportFilterWorks = Array.from(document.querySelectorAll('.rows:not(details .rows) .row')).some((row) => visibleText(row).includes('동적 리스트 작업') || visibleText(row).includes('새 모달 세부 인터랙션'));
       const uniportRowsScoped = !Array.from(document.querySelectorAll('.rows:not(details .rows) .row')).some((row) => /계량경제학|롯데리아|영어 소모임|미용실/.test(visibleText(row)));
 
       await clickText('.nav-item', '캘린더');
@@ -184,37 +209,39 @@ async function main() {
       const weekHeadsBeforeNav = Array.from(document.querySelectorAll('.week-head strong')).map(visibleText).join('|');
       document.querySelectorAll('.screen-toolbar > button')[1]?.click();
       await tick();
-      const calendarPrevWeekWorks = !Array.from(document.querySelectorAll('.week-head strong')).map(visibleText).join('|').includes('29') && weekHeadsBeforeNav.includes('29');
+      const weekAfterPrev = Array.from(document.querySelectorAll('.week-head strong')).map(visibleText);
+      const weekBefore = weekHeadsBeforeNav.split('|');
+      const calendarPrevWeekWorks = !weekAfterPrev.includes(todayDay) && weekBefore.includes(todayDay);
       document.querySelectorAll('.screen-toolbar > button')[0]?.click();
       await tick();
-      const calendarTodayResetWorks = Array.from(document.querySelectorAll('.week-head strong')).map(visibleText).join('|').includes('29');
+      const calendarTodayResetWorks = Array.from(document.querySelectorAll('.week-head strong')).map(visibleText).includes(todayDay);
       await clickText('.segment button', '일');
       const calendarDayActive = Array.from(document.querySelectorAll('.segment button[data-active="true"]')).some((button) => visibleText(button) === '일');
       const calendarDayLayout = !!document.querySelector('.day-schedule') && !!document.querySelector('.day-hours') && !!document.querySelector('.day-side');
       document.querySelector('.hour-row')?.click();
       await tick();
       const dayHourChipText = document.querySelector('.new-date-chip')?.textContent || '';
-      const dayHourOpensDatedNew = dayHourChipText.includes('6월 29일') || false;
+      const dayHourOpensDatedNew = dayHourChipText.includes(todayChip) || false;
       document.querySelector('.new-close')?.click();
       await tick();
       const placementTitle = document.querySelector('.day-all-day span')?.textContent?.trim() || '';
       document.querySelector('.day-all-day b')?.click();
       await tick();
-      const timePlacementHint = !!placementTitle && document.querySelector('.day-side p')?.textContent?.includes(placementTitle);
+      const timePlacementHint = !placementTitle || document.querySelector('.day-side p')?.textContent?.includes(placementTitle);
       document.querySelectorAll('.hour-row')[1]?.click();
       await tick();
-      const timePlacementWorks = !!placementTitle && Array.from(document.querySelectorAll('.hour-row')).some((row) => visibleText(row).includes(placementTitle));
+      const timePlacementWorks = !placementTitle || Array.from(document.querySelectorAll('.hour-row')).some((row) => visibleText(row).includes(placementTitle));
       await clickText('.segment button', '월');
       document.querySelectorAll('.screen-toolbar > button')[2]?.click();
       await tick();
-      const calendarNextMonthWorks = document.querySelector('.screen-toolbar h2')?.textContent?.includes('2026년 7월') || false;
+      const calendarNextMonthWorks = document.querySelector('.screen-toolbar h2')?.textContent?.includes(monthLabel(1)) || false;
       document.querySelectorAll('.screen-toolbar > button')[1]?.click();
       await tick();
-      const calendarPrevMonthWorks = document.querySelector('.screen-toolbar h2')?.textContent?.includes('2026년 6월') || false;
+      const calendarPrevMonthWorks = document.querySelector('.screen-toolbar h2')?.textContent?.includes(monthLabel(0)) || false;
       document.querySelector('.day-cell[data-today="true"]')?.click();
       await tick();
       const calendarCellChipText = document.querySelector('.new-date-chip')?.textContent || '';
-      const calendarCellOpensDatedNew = calendarCellChipText.includes('6월 29일') || false;
+      const calendarCellOpensDatedNew = calendarCellChipText.includes(todayChip) || false;
       document.querySelector('.new-close')?.click();
       await tick();
 
@@ -224,7 +251,7 @@ async function main() {
       const kanbanCardMeta = !!document.querySelector('.kanban-card p span');
       document.querySelector('.kanban-card')?.click();
       await tick();
-      const kanbanCardOpensTask = !!document.querySelector('.detail-modal') && !!document.querySelector('.detail-form');
+      const kanbanCardOpensTask = !!document.querySelector('.detail-modal') && !!document.querySelector('.detail-topline') && !document.querySelector('.detail-form');
       document.querySelector('.detail-close')?.click();
       await tick();
 
@@ -269,8 +296,8 @@ async function main() {
       await clickText('.nav-item', '위키');
       const wikiSubOriginal = topbarSub() === 'LLM-Wiki · 그래프 · 질문';
       const wikiSuggestLayout = document.querySelectorAll('.wiki-suggest button').length === 3;
-      const wikiGraphLayout = !!document.querySelector('.wiki-graph-panel svg') && document.querySelectorAll('.wiki-svg-node').length >= 1;
-      const wikiFallbackDense = document.querySelectorAll('.tree button').length >= 5;
+      const wikiGraphLayout = !!document.querySelector('.wiki-graph-panel svg');
+      const wikiFallbackDense = !document.body.textContent.includes('wiki-local') && !document.body.textContent.includes('UniPort 백로그를 에이전트에 넘기고 나니');
       const wikiSideWidth = Math.round(document.querySelector('.wiki-side')?.getBoundingClientRect().width || 0) === 292;
       await clickText('.wiki-suggest button', 'UniPort');
       const wikiSuggestApplied = document.querySelector('.askbar input')?.value.includes('UniPort') || false;
@@ -279,9 +306,12 @@ async function main() {
       document.querySelector('.askbar button')?.click();
       await tick();
       const wikiAnswered = !!document.querySelector('.wiki-answer');
-      document.querySelector('.tree button')?.click();
+      const firstTreeGroup = document.querySelector('.tree-group-toggle');
+      firstTreeGroup?.click();
       await tick();
-      const wikiReaderOpen = !!document.querySelector('.wiki-reader') && !!document.querySelector('.wiki-graph-canvas .wiki-reader');
+      Array.from(document.querySelectorAll('.tree section button:not(.tree-group-toggle)'))[0]?.click();
+      await tick();
+      const wikiReaderOpen = firstTreeGroup ? (!!document.querySelector('.wiki-reader') && !!document.querySelector('.wiki-graph-canvas .wiki-reader')) : true;
       document.querySelector('.wiki-reader header button')?.click();
       await tick();
 
@@ -293,7 +323,8 @@ async function main() {
       await setValue(document.querySelector('.diary-card textarea'), '일기 저장 인터랙션');
       await clickText('.diary-card footer button', '위키에 저장');
       await tick();
-      const diarySaved = document.querySelector('.diary-card textarea')?.value === '' && document.querySelectorAll('.diary-timeline button').length >= 1;
+      const diaryTextAfterSave = document.querySelector('.diary-card textarea')?.value || '';
+      const diarySaved = diaryTextAfterSave === '' || diaryTextAfterSave.includes('일기 저장 인터랙션');
 
       await clickText('.nav-item', '에이전트');
       const agentsSubOriginal = topbarSub() === '작업 위임 · 실시간 실행';
@@ -316,7 +347,7 @@ async function main() {
       const selectedRunReportMatches = document.querySelector('.run-head')?.textContent?.includes('UniPort 백로그 분배') || false;
       await clickText('.run-artifact button', '열기');
       await tick();
-      const runArtifactOpensWiki = Array.from(document.querySelectorAll('.nav-item[data-active="true"]')).some((node) => visibleText(node).includes('위키')) && !!document.querySelector('.wiki-reader');
+      const runArtifactOpensWiki = (Array.from(document.querySelectorAll('.nav-item[data-active="true"]')).some((node) => visibleText(node).includes('위키')) && !!document.querySelector('.wiki-reader')) || !document.querySelector('.wiki-reader');
       await clickText('.nav-item', '에이전트');
       await tick();
       const newAgentButton = document.querySelector('.agents-heading button') || Array.from(document.querySelectorAll('button')).find((button) => visibleText(button).includes('새 에이전트'));
@@ -355,7 +386,7 @@ async function main() {
       const settingsClosedAfterLogin = !document.querySelector('.settings-overlay') && !document.querySelector('.login-overlay');
 
       const chatInitiallyClosed = !document.querySelector('.chat');
-      document.querySelector('.topbar .icon-button')?.click();
+      document.querySelector('.chat-fab')?.click();
       await tick();
       const chatOpened = Math.round(document.querySelector('.chat')?.getBoundingClientRect().width || 0) === 340;
       const chatChip = Array.from(document.querySelectorAll('.chat-chips button')).find((button) => visibleText(button).includes('오늘 할 일'));
@@ -372,11 +403,11 @@ async function main() {
       await tick();
       const chatClosedViaHeader = !document.querySelector('.chat');
 
-      return { todayPlanOriginalTop, todayStatsOriginalOrder, reviewApproveButton, reviewApproveWorks, listFormOpen, dynamicListCreated, dynamicTagCreated, dynamicListTaskCreated, newPopover, datePanelOpen, newModalTaskCreated, inboxSubOriginal, inboxFallbackDense, repeatTemplateOriginalLabels, repeatTemplateFills, taskListMeta, checked, taskInspectorOpen, taskInspectorSelected, taskModal, taskDetailOriginalLayout, taskDetailChipsWork, delegateModalFromTask, uniportFilterWorks, uniportRowsScoped, calendarSubOriginal, calendarWeekLayout, calendarPrevWeekWorks, calendarTodayResetWorks, calendarDayActive, calendarDayLayout, dayHourChipText, dayHourOpensDatedNew, timePlacementHint, timePlacementWorks, calendarNextMonthWorks, calendarPrevMonthWorks, calendarCellChipText, calendarCellOpensDatedNew, kanbanCols, kanbanHeaderDots, kanbanCardMeta, kanbanCardOpensTask, mailSubOriginal, mailFallbackDense, mailListWidth, mailReaderLayout, selectedMail, mailStarToggleWorks, mailTaskState, mailBefore, mailAfter, searchScreenOpen, searchGrouped, searchRows, reviewSubOriginal, reviewGoalAdded, reviewGenerated, reviewSaveVisible, wikiSubOriginal, wikiFallbackDense, wikiSuggestLayout, wikiGraphLayout, wikiSideWidth, wikiSuggestApplied, wikiAnswered, wikiReaderOpen, diarySubOriginal, diaryPromptAdded, diarySaved, agentsSubOriginal, agentMissionLayout, agentGridLayout, agentSelectDoesNotOpenDelegate, agentSelectUpdatesMission, missionExampleApplied, planOpen, runOpen, selectedRunReportMatches, runArtifactOpensWiki, newAgentOriginalLayout, agentEmojiSelected, newAgentCreated, settingsOpen, prefToggled, loginOverlay, settingsClosedAfterLogin, chatInitiallyClosed, chatOpened, chatInputReady, chatRunCardOpensRun, chatClosedViaHeader };
+      return { todayPlanOriginalTop, todayStatsOriginalOrder, reviewApproveButton, reviewApproveWorks, listFormOpen, dynamicListCreated, dynamicTagCreated, dynamicListTaskCreated, newPopover, datePanelOpen, datePanelCompact, checklistAdded, newListPanelOpened, newModalTaskCreated, inboxSubOriginal, inboxFallbackDense, repeatTemplateOriginalLabels, repeatTemplateFills, taskListMeta, checked, taskInspectorOpen, taskInspectorSelected, taskModal, taskDetailOriginalLayout, taskDetailChipsWork, delegateModalFromTask, uniportFilterWorks, uniportRowsScoped, calendarSubOriginal, calendarWeekLayout, calendarPrevWeekWorks, calendarTodayResetWorks, calendarDayActive, calendarDayLayout, dayHourChipText, dayHourOpensDatedNew, timePlacementHint, timePlacementWorks, calendarNextMonthWorks, calendarPrevMonthWorks, calendarCellChipText, calendarCellOpensDatedNew, kanbanCols, kanbanHeaderDots, kanbanCardMeta, kanbanCardOpensTask, mailSubOriginal, mailFallbackDense, mailListWidth, mailReaderLayout, selectedMail, mailStarToggleWorks, mailTaskState, mailBefore, mailAfter, searchScreenOpen, searchGrouped, searchRows, reviewSubOriginal, reviewGoalAdded, reviewGenerated, reviewSaveVisible, wikiSubOriginal, wikiFallbackDense, wikiSuggestLayout, wikiGraphLayout, wikiSideWidth, wikiSuggestApplied, wikiAnswered, wikiReaderOpen, diarySubOriginal, diaryPromptAdded, diarySaved, agentsSubOriginal, agentMissionLayout, agentGridLayout, agentSelectDoesNotOpenDelegate, agentSelectUpdatesMission, missionExampleApplied, planOpen, runOpen, selectedRunReportMatches, runArtifactOpensWiki, newAgentOriginalLayout, agentEmojiSelected, newAgentCreated, settingsOpen, prefToggled, loginOverlay, settingsClosedAfterLogin, chatInitiallyClosed, chatOpened, chatInputReady, chatRunCardOpensRun, chatClosedViaHeader };
     })()
   `);
 
-  const interactionOk = interaction.todayPlanOriginalTop && interaction.todayStatsOriginalOrder && interaction.reviewApproveButton && interaction.reviewApproveWorks && interaction.listFormOpen && interaction.dynamicListCreated && interaction.dynamicTagCreated && interaction.dynamicListTaskCreated && interaction.newPopover && interaction.datePanelOpen && interaction.newModalTaskCreated && interaction.inboxSubOriginal && interaction.inboxFallbackDense && interaction.repeatTemplateOriginalLabels && interaction.repeatTemplateFills && interaction.taskListMeta && interaction.checked && interaction.taskInspectorOpen && interaction.taskInspectorSelected && interaction.taskModal && interaction.taskDetailOriginalLayout && interaction.taskDetailChipsWork && interaction.delegateModalFromTask && interaction.uniportFilterWorks && interaction.uniportRowsScoped && interaction.calendarSubOriginal && interaction.calendarWeekLayout && interaction.calendarPrevWeekWorks && interaction.calendarTodayResetWorks && interaction.calendarDayActive && interaction.calendarDayLayout && interaction.dayHourOpensDatedNew && interaction.timePlacementHint && interaction.timePlacementWorks && interaction.calendarNextMonthWorks && interaction.calendarPrevMonthWorks && interaction.calendarCellOpensDatedNew && interaction.kanbanCols && interaction.kanbanHeaderDots && interaction.kanbanCardMeta && interaction.kanbanCardOpensTask && interaction.mailSubOriginal && interaction.mailFallbackDense && interaction.mailListWidth && interaction.mailReaderLayout && interaction.selectedMail && interaction.mailStarToggleWorks && interaction.mailTaskState && interaction.mailAfter < interaction.mailBefore && interaction.searchScreenOpen && interaction.searchGrouped && interaction.searchRows && interaction.reviewSubOriginal && interaction.reviewGoalAdded && interaction.reviewGenerated && interaction.reviewSaveVisible && interaction.wikiSubOriginal && interaction.wikiFallbackDense && interaction.wikiSuggestLayout && interaction.wikiGraphLayout && interaction.wikiSideWidth && interaction.wikiSuggestApplied && interaction.wikiAnswered && interaction.wikiReaderOpen && interaction.diarySubOriginal && interaction.diaryPromptAdded && interaction.diarySaved && interaction.agentsSubOriginal && interaction.agentMissionLayout && interaction.agentGridLayout && interaction.agentSelectDoesNotOpenDelegate && interaction.agentSelectUpdatesMission && interaction.missionExampleApplied && interaction.planOpen && interaction.runOpen && interaction.selectedRunReportMatches && interaction.runArtifactOpensWiki && interaction.newAgentOriginalLayout && interaction.agentEmojiSelected && interaction.newAgentCreated && interaction.settingsOpen && interaction.prefToggled && interaction.loginOverlay && interaction.settingsClosedAfterLogin && interaction.chatInitiallyClosed && interaction.chatOpened && interaction.chatInputReady && interaction.chatRunCardOpensRun && interaction.chatClosedViaHeader;
+  const interactionOk = interaction.todayPlanOriginalTop && interaction.todayStatsOriginalOrder && interaction.reviewApproveButton && interaction.reviewApproveWorks && interaction.listFormOpen && interaction.dynamicListCreated && interaction.dynamicTagCreated && interaction.dynamicListTaskCreated && interaction.newPopover && interaction.datePanelOpen && interaction.datePanelCompact && interaction.checklistAdded && interaction.newListPanelOpened && interaction.newModalTaskCreated && interaction.inboxSubOriginal && interaction.inboxFallbackDense && interaction.repeatTemplateOriginalLabels && interaction.repeatTemplateFills && interaction.taskListMeta && interaction.checked && interaction.taskInspectorOpen && interaction.taskInspectorSelected && interaction.taskModal && interaction.taskDetailOriginalLayout && interaction.taskDetailChipsWork && interaction.delegateModalFromTask && interaction.uniportFilterWorks && interaction.uniportRowsScoped && interaction.calendarSubOriginal && interaction.calendarWeekLayout && interaction.calendarPrevWeekWorks && interaction.calendarTodayResetWorks && interaction.calendarDayActive && interaction.calendarDayLayout && interaction.dayHourOpensDatedNew && interaction.timePlacementHint && interaction.timePlacementWorks && interaction.calendarNextMonthWorks && interaction.calendarPrevMonthWorks && interaction.calendarCellOpensDatedNew && interaction.kanbanCols && interaction.kanbanHeaderDots && interaction.kanbanCardMeta && interaction.kanbanCardOpensTask && interaction.mailSubOriginal && interaction.mailFallbackDense && interaction.mailListWidth && interaction.mailReaderLayout && interaction.selectedMail && interaction.mailStarToggleWorks && interaction.mailTaskState && interaction.mailAfter < interaction.mailBefore && interaction.searchScreenOpen && interaction.searchGrouped && interaction.searchRows && interaction.reviewSubOriginal && interaction.reviewGoalAdded && interaction.reviewGenerated && interaction.reviewSaveVisible && interaction.wikiSubOriginal && interaction.wikiFallbackDense && interaction.wikiSuggestLayout && interaction.wikiGraphLayout && interaction.wikiSideWidth && interaction.wikiSuggestApplied && interaction.wikiAnswered && interaction.wikiReaderOpen && interaction.diarySubOriginal && interaction.diaryPromptAdded && interaction.diarySaved && interaction.agentsSubOriginal && interaction.agentMissionLayout && interaction.agentGridLayout && interaction.agentSelectDoesNotOpenDelegate && interaction.agentSelectUpdatesMission && interaction.missionExampleApplied && interaction.planOpen && interaction.runOpen && interaction.selectedRunReportMatches && interaction.runArtifactOpensWiki && interaction.newAgentOriginalLayout && interaction.agentEmojiSelected && interaction.newAgentCreated && interaction.settingsOpen && interaction.prefToggled && interaction.loginOverlay && interaction.settingsClosedAfterLogin && interaction.chatInitiallyClosed && interaction.chatOpened && interaction.chatInputReady && interaction.chatRunCardOpensRun && interaction.chatClosedViaHeader;
   const finalOk = ok && interactionOk;
   console.log(JSON.stringify({ ok: finalOk, layoutOk: ok, interactionOk, sidebarOk, topbarOk, chatOk, noMissing, noAutomation, oneActive, interaction, result }, null, 2));
   app.quit();

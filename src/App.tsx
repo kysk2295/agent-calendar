@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { hermesApi, setApiBaseUrl, type ApiEnvelope } from './api/hermesApi';
 
-type ScreenId = 'calendar' | 'today' | 'next7' | 'tasks' | 'kanban' | 'mail' | 'notes' | 'someday' | 'review' | 'wiki' | 'diary' | 'search' | 'agents' | 'settings' | 'login';
-type ModalId = 'task' | 'new' | 'delegate' | 'run' | 'plan' | 'agent' | 'settings' | 'taxonomy' | null;
+type ScreenId = 'calendar' | 'today' | 'next7' | 'tasks' | 'kanban' | 'mail' | 'notes' | 'someday' | 'review' | 'wiki' | 'diary' | 'search' | 'agents' | 'widgets' | 'settings' | 'login';
+type ModalId = 'task' | 'new' | 'delegate' | 'run' | 'agent' | 'settings' | 'taxonomy' | null;
 type Item = Record<string, unknown>;
 type NavItem = { id: ScreenId; icon: string; label: string; navKey?: string };
 type NavGroup = { title: string; kind?: 'list' | 'tag'; group?: string; items: NavItem[] };
 type TaxonomyKind = 'list' | 'tag';
-type TaxonomyItem = { id: string; label: string; icon: string; group: string; kind: TaxonomyKind; imported?: boolean; recordId?: string; hidden?: boolean };
+type TaxonomyItem = { id: string; label: string; icon: string; group: string; kind: TaxonomyKind; recordId?: string; hidden?: boolean };
+type UiPreferences = { notify: boolean; agentShare: boolean; weekStartMon: boolean };
+type DesktopSettingsState = { apiBaseUrl: string; hasApiToken: boolean; theme: HermesDesktopSettings['theme']; uiPreferences: UiPreferences };
+type DesktopTheme = HermesDesktopSettings['theme'];
 type NewTaskControls = {
   date: string;
   setDate: (value: string) => void;
@@ -53,7 +56,7 @@ type AppState = {
   usage: ApiEnvelope;
 };
 
-const DESIGN_TODAY = '2026-06-29';
+const APP_TIME_ZONE = 'Asia/Seoul';
 
 const EMPTY_STATE: AppState = {
   tasks: [],
@@ -75,7 +78,7 @@ const EMPTY_STATE: AppState = {
 
 const screenMeta: Record<ScreenId, { title: string; sub: string }> = {
   calendar: { title: '캘린더', sub: '나 · 에이전트 공유 일정' },
-  today: { title: '오늘', sub: '2026년 6월 29일 (월)' },
+  today: { title: '오늘', sub: '' },
   next7: { title: '다음 7일', sub: '이번 주 + 다음 주' },
   tasks: { title: '기본함', sub: '분류되지 않은 작업' },
   kanban: { title: '칸반 보드', sub: '' },
@@ -87,13 +90,14 @@ const screenMeta: Record<ScreenId, { title: string; sub: string }> = {
   diary: { title: '일기', sub: '매일 쓰고 위키에 쌓기' },
   search: { title: '검색', sub: '' },
   agents: { title: '에이전트', sub: '작업 위임 · 실시간 실행' },
+  widgets: { title: '위젯', sub: 'macOS 데스크톱 위젯 미리보기' },
   settings: { title: '설정', sub: '' },
   login: { title: '로그인', sub: '' },
 };
 
 const TAXONOMY_SOURCE = 'hermes-desktop-taxonomy';
-const TICKTICK_IMPORT_PROJECT = 'TickTick Import';
 const CALENDAR_META_MARKER = '[Hermes Calendar]\n';
+const DEFAULT_UI_PREFERENCES: UiPreferences = { notify: true, agentShare: true, weekStartMon: true };
 
 const smartNavGroups: NavGroup[] = [
   { title: '', items: [
@@ -111,6 +115,7 @@ const smartNavGroups: NavGroup[] = [
   ] },
   { title: 'HERMES', items: [
     { id: 'agents', icon: '🤖', label: '에이전트' },
+    { id: 'widgets', icon: '▣', label: '위젯' },
   ] },
 ];
 
@@ -154,6 +159,26 @@ function itemSub(item: Item, fallback = 'Hermes') {
   return text(item.date || item.due || item.status || item.agent || item.model || item.from || item.folder || item.source, fallback);
 }
 
+function nestedItem(item: Item, ...keys: string[]) {
+  for (const key of keys) {
+    const value = item[key];
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Item;
+  }
+  return null;
+}
+
+function normalizeCalendarEvent(item: Item): Item {
+  const nested = nestedItem(item, 'event', 'calendarEvent', 'task');
+  const source = text(item.source || nested?.source || 'calendar-event');
+  return {
+    ...(nested || item),
+    id: itemId(nested || item, itemId(item, '')),
+    kind: 'calendar-event',
+    type: 'calendar-event',
+    source,
+  };
+}
+
 function isDone(item: Item) {
   return /done|complete|completed|ok|완료/i.test(text(item.status || item.lane || item.lastStatus));
 }
@@ -165,14 +190,37 @@ function taskOwner(item: Item) {
   return 'Me';
 }
 
+function dateKeyInTimeZone(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
 function todayKey() {
-  return DESIGN_TODAY;
+  return dateKeyInTimeZone();
 }
 
 function dateLabel(offset = 0) {
-  const day = new Date(`${DESIGN_TODAY}T00:00:00`);
+  const day = new Date(`${todayKey()}T00:00:00`);
   day.setDate(day.getDate() + offset);
-  return new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' }).format(day);
+  return new Intl.DateTimeFormat('ko-KR', { timeZone: APP_TIME_ZONE, month: 'long', day: 'numeric', weekday: 'short' }).format(day);
+}
+
+function todayMetaLabel() {
+  const day = new Date(`${todayKey()}T00:00:00`);
+  const label = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: APP_TIME_ZONE,
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+  }).format(day);
+  return label.replace(/\s([월화수목금토일])$/, ' ($1)');
 }
 
 function formatTime(value: string) {
@@ -211,6 +259,22 @@ function addMonthsKey(date: string, offset: number) {
   const day = new Date(`${date}T00:00:00`);
   day.setMonth(day.getMonth() + offset);
   return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(day);
+}
+
+function weekRangeLabel(date = todayKey()) {
+  const day = new Date(`${date}T00:00:00`);
+  const dayOfWeek = day.getDay() || 7;
+  day.setDate(day.getDate() - dayOfWeek + 1);
+  const start = new Date(day);
+  const end = new Date(day);
+  end.setDate(start.getDate() + 6);
+  const format = (value: Date) => new Intl.DateTimeFormat('ko-KR', {
+    timeZone: APP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(value).replace(/\. /g, '.').replace(/\.$/, '');
+  return `${format(start)} - ${format(end)}`;
 }
 
 function parseQuick(textValue: string, fallbackDate?: string) {
@@ -294,7 +358,7 @@ function isTaxonomyRecord(item: Item) {
 }
 
 function taskListName(task: Item) {
-  return text(task.category || task.list || task.project, TICKTICK_IMPORT_PROJECT);
+  return text(task.category || task.list || task.project, '');
 }
 
 function taskTags(task: Item) {
@@ -309,7 +373,7 @@ function shouldPersistTask(id: string) {
 function isCalendarEventRecord(item: Item) {
   const kind = text(item.kind || item.type || item.recordType);
   const source = text(item.source);
-  return kind === 'calendar-event' || kind === 'event' || source === 'calendar-event' || source === 'ticktick-calendar' || source === 'external-calendar';
+  return kind === 'calendar-event' || kind === 'event' || source === 'calendar-event' || source === 'external-calendar';
 }
 
 function isTaskRecord(item: Item) {
@@ -345,7 +409,7 @@ function calendarNotes(item: Item) {
 }
 
 function desktopTaskPayload(item: Item) {
-  return { ...taskPayload(item), source: 'desktop-task-db', syncTickTick: false };
+  return { ...taskPayload(item), source: 'desktop-task-db' };
 }
 
 function calendarEventPayload(item: Item) {
@@ -367,7 +431,61 @@ function calendarEventPayload(item: Item) {
     kind: 'calendar-event',
     type: 'calendar-event',
     source: text(item.source || 'desktop-calendar-event'),
-    syncTickTick: false,
+  };
+}
+
+function hermesWidgetOwner(item: Item): HermesWidgetOwner {
+  const owner = taskOwner(item);
+  if (owner === 'Agent') return 'agent';
+  if (owner === 'Hybrid') return 'hybrid';
+  return 'me';
+}
+
+function hermesWidgetTask(item: Item, fallback: string) {
+  const date = widgetItemDate(item) || todayKey();
+  const time = widgetItemTime(item);
+  const status = text(item.status || item.lane || item.state, isDone(item) ? 'Done' : 'Planned');
+  const calendar = calendarMetadata(item);
+  const durationMinutes = (() => {
+    if (!time || !calendar.endTime || (calendar.endDate && calendar.endDate !== date)) return undefined;
+    const [startHour = 0, startMinute = 0] = time.split(':').map((part) => Number(part) || 0);
+    const [endHour = 0, endMinute = 0] = calendar.endTime.split(':').map((part) => Number(part) || 0);
+    const diff = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+    return diff > 0 ? diff : undefined;
+  })();
+  return {
+    id: itemId(item, fallback),
+    title: itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업'),
+    date,
+    ...(time ? { time } : {}),
+    owner: hermesWidgetOwner(item),
+    list: text(item.category || item.project || item.list || item.source, 'Hermes'),
+    status,
+    done: isDone(item),
+    ...(durationMinutes ? { durationMinutes } : {}),
+  };
+}
+
+function hermesWidgetRun(run: Item, fallback: string) {
+  const progressValue = Number(text(run.progress || run.pct || run.percent, '0').replace(/[^\d.]/g, ''));
+  return {
+    id: itemId(run, fallback),
+    title: itemTitle(run, '에이전트 실행'),
+    status: text(run.status || run.state, 'running'),
+    progress: Number.isFinite(progressValue) ? Math.max(0, Math.min(100, Math.round(progressValue))) : 0,
+  };
+}
+
+function buildHermesWidgetSnapshot(tasks: Item[], events: Item[], runs: Item[]): HermesWidgetSnapshotPayload {
+  const widgetTasks = [
+    ...tasks.map((task, index) => hermesWidgetTask(task, `task-${index}`)),
+    ...events.map((event, index) => hermesWidgetTask({ ...event, kind: 'calendar-event', type: 'calendar-event' }, `event-${index}`)),
+  ].filter((task) => task.title && task.date);
+  return {
+    todayDate: todayKey(),
+    tasks: widgetTasks,
+    runs: runs.map((run, index) => hermesWidgetRun(run, `run-${index}`)),
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -425,69 +543,25 @@ function toChatMessage(item: Item) {
   };
 }
 
-const seedTasks: Item[] = [
-  { id: 't1', title: '롯데리아', date: '2026-06-29', time: '08:30', list: 'inbox', category: '기본함', owner: 'Me', priority: '', tags: [], repeat: 'daily', status: 'todo' },
-  { id: 't2', title: '주간학습 보고서 제출', date: '2026-06-29', list: 'university', category: '대학교', owner: 'Me', priority: 'P2', tags: ['업무'], repeat: 'weekly', status: 'todo' },
-  { id: 't3', title: '팀원 일 지시', date: '2026-06-29', list: 'uniport', category: 'UniPort', owner: 'Me', priority: 'P1', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't4', title: '세컨브레인 기획 개발', date: '2026-06-29', list: 'uniport', category: 'UniPort', owner: 'Hybrid', priority: 'P2', tags: [], repeat: 'none', status: 'doing' },
-  { id: 't5', title: '미용실', date: '2026-06-29', time: '14:30', list: 'me', category: 'Me', owner: 'Me', priority: '', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't6', title: 'UniPort 개발 백로그 정리', date: '2026-06-30', list: 'uniport', category: 'UniPort', owner: 'Agent', priority: 'P2', tags: ['업무'], repeat: 'none', status: 'doing' },
-  { id: 't7', title: '계량경제학 퀴즈', date: '2026-06-30', list: 'university', category: '대학교', owner: 'Me', priority: 'P1', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't8', title: '영어 소모임', date: '2026-06-30', time: '17:30', list: 'me', category: 'Me', owner: 'Me', priority: '', tags: [], repeat: 'weekly', status: 'todo' },
-  { id: 't9', title: 'LLM 위키 만들기', date: '2026-06-30', list: 'crypto-trading', category: 'crypto trading', owner: 'Hybrid', priority: 'P1', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't10', title: '캐러셀 파이프라인 수정', date: '2026-07-01', list: 'uniport', category: 'UniPort', owner: 'Agent', priority: 'P2', tags: ['업무'], repeat: 'none', status: 'queued' },
-  { id: 't11', title: '교육 에이전트 디스코드 봇 추가', date: '2026-07-01', list: 'uniport', category: 'UniPort', owner: 'Agent', priority: 'P1', tags: [], repeat: 'none', status: 'queued' },
-  { id: 't12', title: '마케팅 회의', date: '2026-07-02', time: '13:00', list: 'uniport', category: 'UniPort', owner: 'Me', priority: 'P2', tags: ['업무'], repeat: 'none', status: 'todo' },
-  { id: 't13', title: '카드뉴스 파이프라인 설정', date: '2026-07-02', list: 'uniport', category: 'UniPort', owner: 'Agent', priority: 'P1', tags: [], repeat: 'none', status: 'queued' },
-  { id: 't14', title: '펀딩 알아보기', date: '2026-07-02', list: 'uniport', category: 'UniPort', owner: 'Me', priority: 'P1', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't15', title: '피드백 회의', date: '2026-07-03', time: '15:00', list: 'uniport', category: 'UniPort', owner: 'Me', priority: 'P1', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't16', title: '아빠 100만원 드리기', date: '2026-07-03', list: 'me', category: 'Me', owner: 'Me', priority: 'P2', tags: ['인생'], repeat: 'monthly', status: 'todo' },
-  { id: 't17', title: '근무', date: '2026-07-03', time: '08:30', list: 'me', category: 'Me', owner: 'Me', priority: '', tags: [], repeat: 'weekly', status: 'todo' },
-  { id: 't18', title: '헉스필드 사용해서 광고제작', date: '2026-07-04', list: 'uniport', category: 'UniPort', owner: 'Agent', priority: 'P1', tags: [], repeat: 'none', status: 'queued' },
-  { id: 't19', title: '크롤링 스킬 제작', date: '2026-07-04', list: 'crypto-trading', category: 'crypto trading', owner: 'Agent', priority: 'P2', tags: [], repeat: 'none', status: 'queued' },
-  { id: 't20', title: '스마트스토어 출시', date: '2026-07-04', list: 'uniport', category: 'UniPort', owner: 'Me', priority: 'P3', tags: ['업무'], repeat: 'none', status: 'todo' },
-  { id: 't21', title: '헤르메스 실전 응용', date: '2026-07-05', list: 'crypto-trading', category: 'crypto trading', owner: 'Me', priority: 'P1', tags: ['주식'], repeat: 'none', status: 'todo' },
-  { id: 't22', title: '코덱스 프로덕트 디자인', date: '2026-07-05', list: 'uniport', category: 'UniPort', owner: 'Me', priority: 'P2', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't23', title: '주간계획서 작성', date: '2026-07-06', list: 'me', category: 'Me', owner: 'Me', priority: 'P1', tags: [], repeat: 'weekly', status: 'todo' },
-  { id: 't24', title: '미시경제학 퀴즈', date: '2026-07-06', list: 'university', category: '대학교', owner: 'Me', priority: 'P1', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't25', title: '웹사이트 수정', date: '2026-06-25', list: 'uniport', category: 'UniPort', owner: 'Agent', priority: 'P1', tags: [], repeat: 'none', status: 'done', done: true },
-  { id: 't26', title: '나만의 etf 포트폴리오 분석엔진 개선', date: '2026-06-24', list: 'crypto-trading', category: 'crypto trading', owner: 'Me', priority: 'P2', tags: ['주식'], repeat: 'none', status: 'todo' },
-  { id: 't27', title: '헤르메스 에이전트 설정', date: '2026-06-24', list: 'uniport', category: 'UniPort', owner: 'Hybrid', priority: 'P2', tags: [], repeat: 'none', status: 'done', done: true },
-  { id: 't28', title: '이어폰 찾기', date: '2026-06-22', list: 'me', category: 'Me', owner: 'Me', priority: '', tags: [], repeat: 'none', status: 'done', done: true },
-  { id: 't29', title: '맥미니 중고 구매', date: '2026-06-26', time: '19:00', list: 'me', category: 'Me', owner: 'Me', priority: 'P1', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't30', title: '사업자 등록증 신청', date: '2026-06-27', list: 'inbox', category: '기본함', owner: 'Me', priority: 'P2', tags: ['업무'], repeat: 'none', status: 'todo' },
-  { id: 't31', title: '축제 전달용 파일 제작', date: '2026-06-27', list: 'uniport', category: 'UniPort', owner: 'Agent', priority: 'P1', tags: [], repeat: 'none', status: 'done', done: true },
-  { id: 't32', title: '출시까지 해야할 기능 정리', date: '2026-06-28', list: 'uniport', category: 'UniPort', owner: 'Me', priority: 'P2', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't33', title: '투자성향테스트 모바일 환경 웹 만들기', list: 'someday', category: '언젠가', owner: 'Me', priority: 'P1', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't34', title: 'AI로 디자인 하는 방법 정리', list: 'someday', category: '언젠가', owner: 'Me', priority: '', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't35', title: '해외 연수 프로그램 신청', list: 'someday', category: '언젠가', owner: 'Me', priority: 'P1', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't36', title: '카드 재발급', list: 'inbox', category: '기본함', owner: 'Me', priority: '', tags: [], repeat: 'none', status: 'todo' },
-  { id: 't37', title: '예비군 공결 메일 보내기', list: 'inbox', category: '기본함', owner: 'Me', priority: 'P1', tags: [], repeat: 'none', status: 'todo' },
-];
+function settingsPreferences(payload: ApiEnvelope | undefined): UiPreferences {
+  const direct = obj(payload, 'uiPreferences');
+  const nested = obj(obj(payload, 'settings'), 'uiPreferences');
+  const source = Object.keys(direct).length ? direct : nested;
+  return {
+    notify: typeof source.notify === 'boolean' ? source.notify : DEFAULT_UI_PREFERENCES.notify,
+    agentShare: typeof source.agentShare === 'boolean' ? source.agentShare : DEFAULT_UI_PREFERENCES.agentShare,
+    weekStartMon: typeof source.weekStartMon === 'boolean' ? source.weekStartMon : DEFAULT_UI_PREFERENCES.weekStartMon,
+  };
+}
 
-const seedMail: Item[] = [
-  { id: 'm1', from: '박지훈 교수님', addr: 'jhpark@hanyang.ac.kr', subject: '[계량경제학] 기말 프로젝트 제출 안내', preview: '이번 학기 기말 프로젝트는 7월 4일 자정까지 eCampus에 업로드…', body: '안녕하세요, 수강생 여러분.\n\n기말 프로젝트는 7월 4일(토) 23:59까지 eCampus에 제출해 주세요. 주제는 자유이며, 실증 분석이 포함되어야 합니다.', time: '오전 9:12', unread: true },
-  { id: 'm2', from: '카카오벤처스 김민재', addr: 'mjkim@kakaovc.com', subject: '[카카오벤처스] IR 미팅 일정 회신 부탁드립니다', preview: '보내주신 데크 잘 봤습니다. 다음 주 중 30분 미팅 가능하실까요?', body: '윤서님, 안녕하세요. 공유해주신 UniPort 데크 인상 깊게 봤습니다. 다음 주 화~목 중 30분 가능한 시간 알려주세요.', time: '오전 8:40', unread: true, starred: true },
-  { id: 'm3', from: '롯데리아 한양대점', addr: 'store2287@lotteria.com', subject: '6월 4주차 근무표 확정 안내', preview: '윤서님 6월 4주차 근무는 화/목/토 오전으로 확정되었습니다…', body: '화요일 08:30~13:00\n목요일 08:30~13:00\n토요일 08:30~14:00', time: '어제' },
-  { id: 'm4', from: 'UniPort 고객문의', addr: 'help@uniport.app', subject: '[문의] 유니포인트 환급 관련 문의입니다', preview: '적립된 유니포인트를 현금으로 환급받을 수 있나요? 방법이 궁금합니다.', body: '적립된 유니포인트 12,400P를 현금으로 환급받고 싶은데 메뉴를 못 찾겠어요.', time: '어제', unread: true },
-  { id: 'm5', from: '토스증권', addr: 'no-reply@tossinvest.com', subject: '6월 거래내역 및 수수료 정산 안내', preview: '6월 한 달간 거래내역과 수수료가 정산되었습니다.', body: '총 거래금액 8,420,000원, 수수료 12,300원, 실현 손익 -184,000원', time: '6/27' },
-  { id: 'm6', from: '한양대학교 국제처', addr: 'global@hanyang.ac.kr', subject: '[공지] 2026 하계 해외연수 프로그램 선발 결과', preview: '지원하신 해외연수 프로그램 선발 결과를 안내드립니다.', body: '축하합니다. 1차 서류 합격하셨습니다. 2차 면접은 7월 1주차에 진행됩니다.', time: '6/26', unread: true },
-  { id: 'm7', from: 'GitHub', addr: 'notifications@github.com', subject: '[hermes-os] CI 빌드 실패 (main 브랜치)', preview: '워크플로 build가 실패했습니다. 테스트 2건 실패…', body: 'Run failed: build (#412). runner.test.ts에서 2 tests failed.', time: '6/26' },
-  { id: 'm8', from: '디자인 외주 이수민', addr: 'sumin.lee@gmail.com', subject: '카드뉴스 시안 2차 전달드립니다', preview: '피드백 반영해서 2차 시안 작업했습니다.', body: '1차 피드백 반영해 2차 시안 보내드립니다. 확인 후 수정사항 주세요.', time: '6/25', starred: true },
-];
-
-const seedDocs: Item[] = [
-  { id: 'w1', title: 'UniPort 비즈니스 모델 정리', body: '핵심: 대학생 대상 포인트 적립 → 증권사 제휴 쿠폰 교환. 차별점은 쌓은 포인트를 실제 투자 시드로 전환.', tag: '업무', date: '2026-06-27', kind: 'doc' },
-  { id: 'w2', title: '트레이딩 규칙 v2', body: '진입 근거를 한 문장으로 쓸 수 없으면 진입 금지. 손절 라인 -3% 기계적 준수.', tag: '주식', date: '2026-06-26', kind: 'doc' },
-  { id: 'w3', title: '헤르메스 에이전트 운영 노트', body: '맥북=Codex, 맥미니=Claude, 웹=GPT. 위임 → 런 생성 → write-back → 검토 루프.', tag: '업무', date: '2026-06-24', kind: 'doc' },
-  { id: 'w4', title: '계량경제학 기말 준비', body: '실증 분석 주제 자유. R/Python 코드 첨부. 7/4 자정 마감.', tag: '인생', date: '2026-06-29', kind: 'doc' },
-  { id: 'w5', title: '일기 · 6월 28일', body: '정신없는 한 주였다. UniPort 백로그를 에이전트에 넘기고 나니 머리가 좀 비었다.', tag: '일기', date: '2026-06-28', kind: 'diary' },
-  { id: 'n1', title: '시대가 변하고 있는데, 이대로 내가 취업을 생각하는게 맞을까', body: 'AI가 모든 걸 바꾸고 있는데 안정적인 취업을 목표로 두는 게 맞나.', tag: '인생', updated: '2026-06-28', kind: 'note' },
-  { id: 'n2', title: '지금 변해야한다', body: '이번 달 안에 UniPort 출시 가능한 최소 기능을 확정하자.', updated: '2026-06-27', kind: 'note' },
-  { id: 'n3', title: '사업이라는게 뭔지를 이제 감이 좀 오는 거 같다', body: '유저의 진짜 문제를 찾고 반복적으로 풀어주는 시스템을 만드는 일.', tag: '업무', updated: '2026-06-26', kind: 'note' },
-  { id: 'n4', title: '올해목표', body: 'UniPort 출시 / 투자 엔진 v2 / 헤르메스 OS 프로토타입 / 학점 관리', tag: '인생', updated: '2026-06-25', kind: 'note' },
-  { id: 'n5', title: 'VC 미팅', body: '트랙션 수치, 리텐션 곡선, 다음 분기 로드맵 정리 필요.', tag: '업무', updated: '2026-06-24', kind: 'note' },
-];
+function desktopSettingsState(settings: HermesDesktopSettings): DesktopSettingsState {
+  return {
+    apiBaseUrl: settings.apiBaseUrl,
+    hasApiToken: settings.hasApiToken,
+    theme: settings.theme,
+    uiPreferences: settings.uiPreferences || DEFAULT_UI_PREFERENCES,
+  };
+}
 
 export function App() {
   const [screen, setScreen] = useState<ScreenId>('calendar');
@@ -496,7 +570,7 @@ export function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [state, setState] = useState<AppState>(EMPTY_STATE);
-  const [settings, setSettings] = useState({ apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app', hasApiToken: false, theme: 'default' });
+  const [settings, setSettings] = useState<DesktopSettingsState>({ apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app', hasApiToken: false, theme: 'default', uiPreferences: DEFAULT_UI_PREFERENCES });
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState('');
@@ -516,30 +590,18 @@ export function App() {
   const [loggedIn, setLoggedIn] = useState(true);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPw, setLoginPw] = useState('');
-  const [prefs, setPrefs] = useState({ notify: true, agentShare: true, weekStartMon: true });
+  const [prefs, setPrefs] = useState<UiPreferences>(DEFAULT_UI_PREFERENCES);
   const [quickText, setQuickText] = useState('');
-  const [localTasks, setLocalTasks] = useState<Item[]>([]);
-  const [localEvents, setLocalEvents] = useState<Item[]>([]);
-  const [taskOverrides, setTaskOverrides] = useState<Record<string, Item>>({});
-  const [eventOverrides, setEventOverrides] = useState<Record<string, Item>>({});
-  const [deletedTaskIds, setDeletedTaskIds] = useState<Record<string, true>>({});
-  const [deletedEventIds, setDeletedEventIds] = useState<Record<string, true>>({});
   const [selectedTaskId, setSelectedTaskId] = useState('');
-  const [completingTaskIds, setCompletingTaskIds] = useState<Record<string, true>>({});
   const [calView, setCalView] = useState<'month' | 'week' | 'day'>('month');
-  const [calDate, setCalDate] = useState(DESIGN_TODAY);
+  const [calDate, setCalDate] = useState(todayKey());
   const [placingTaskId, setPlacingTaskId] = useState('');
   const [activeMailId, setActiveMailId] = useState('');
-  const [archivedMailIds, setArchivedMailIds] = useState<Record<string, true>>({});
-  const [mailTaskIds, setMailTaskIds] = useState<Record<string, true>>({});
-  const [mailStarIds, setMailStarIds] = useState<Record<string, boolean>>({});
   const [gmailEmail, setGmailEmail] = useState('');
   const [gmailPassword, setGmailPassword] = useState('');
   const [mailSyncing, setMailSyncing] = useState(false);
   const [mailStatus, setMailStatus] = useState('');
   const [activeNoteId, setActiveNoteId] = useState('');
-  const [noteDrafts, setNoteDrafts] = useState<Record<string, Item>>({});
-  const [localDocs, setLocalDocs] = useState<Item[]>([]);
   const [wikiQuestion, setWikiQuestion] = useState('');
   const [wikiAnswer, setWikiAnswer] = useState('');
   const [wikiAnswerSources, setWikiAnswerSources] = useState<Item[]>([]);
@@ -552,11 +614,7 @@ export function App() {
   const [selectedAgentId, setSelectedAgentId] = useState('default');
   const [delegateText, setDelegateText] = useState('');
   const [delegateAgentId, setDelegateAgentId] = useState('default');
-  const [planDraft, setPlanDraft] = useState<Item | null>(null);
   const [selectedRunId, setSelectedRunId] = useState('');
-  const [approvedRunIds, setApprovedRunIds] = useState<Record<string, true>>({});
-  const [customAgents, setCustomAgents] = useState<Item[]>([]);
-  const [localTaxonomy, setLocalTaxonomy] = useState<TaxonomyItem[]>([]);
   const [taxonomyForm, setTaxonomyForm] = useState<{ kind: TaxonomyKind; group: string; editing?: TaxonomyItem } | null>(null);
   const [taxonomyName, setTaxonomyName] = useState('');
   const [taxonomyGroupName, setTaxonomyGroupName] = useState('');
@@ -565,37 +623,20 @@ export function App() {
   const [newAgentRole, setNewAgentRole] = useState('');
   const [newAgentEmoji, setNewAgentEmoji] = useState('🤖');
   const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<Array<{ role: string; text: string }>>([
-    { role: 'assistant', text: 'Hermes 콘솔 준비됨 · Railway gateway로 연결합니다.' },
-  ]);
-  const taskPersistTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [chatMessages, setChatMessages] = useState<Array<{ role: string; text: string }>>([]);
 
-  const baseTasks = state.tasks.length ? state.tasks : seedTasks;
-  const tasks = useMemo(() => [
-    ...localTasks,
-    ...baseTasks
-      .filter((task, index) => !deletedTaskIds[itemId(task, `task-${index}`)])
-      .map((task, index) => ({ ...task, ...(taskOverrides[itemId(task, `task-${index}`)] || {}) })),
-  ], [baseTasks, deletedTaskIds, localTasks, taskOverrides]);
+  const baseTasks = state.tasks;
+  const tasks = useMemo(() => [...baseTasks], [baseTasks]);
   const events = useMemo(() => [
-    ...localEvents,
     ...state.events
-      .filter((event, index) => !deletedEventIds[itemId(event, `event-${index}`)])
-      .map((event, index) => ({ ...event, kind: 'calendar-event', ...(eventOverrides[itemId(event, `event-${index}`)] || {}) })),
-  ], [deletedEventIds, eventOverrides, localEvents, state.events]);
-  const baseAgents = state.agents.length ? state.agents : [
-    { id: 'codex', name: 'Codex', emoji: '⌨️', model: '맥북 · Codex', status: 'ready', role: '개발 작업 — 코드 생성, 리팩터링, 백로그 정리를 담당.' },
-    { id: 'claude', name: 'Claude', emoji: '📚', model: '맥미니 · Claude', status: 'ready', role: '리서치·문서 — 자료 정리, 위키 작성, 분석을 담당.' },
-    { id: 'gpt', name: 'GPT', emoji: '🎨', model: '웹 · GPT', status: 'ready', role: '마케팅·디자인 — 카피, 이미지 기획, 콘텐츠를 담당.' },
-  ];
-  const agents = [...baseAgents, ...customAgents];
-  const runs = state.runs.length ? state.runs : [
-    { id: 'run-local', goal: 'Railway smoke 상태 확인', agent: 'default', status: apiError ? '대기' : '완료', elapsed: '42s' },
-  ];
+      .map((event) => ({ ...event, kind: 'calendar-event' })),
+  ], [state.events]);
+  const agents = state.agents;
+  const runs = state.runs;
   const selectedRun = runs.find((run, index) => itemId(run, `run-${index}`) === selectedRunId) || runs[0];
   const taxonomy = useMemo(() => {
     const byId = new Map<string, TaxonomyItem>();
-    const metadata = [...state.taxonomy.map(parseTaxonomyRecord).filter(Boolean), ...localTaxonomy] as TaxonomyItem[];
+    const metadata = state.taxonomy.map(parseTaxonomyRecord).filter(Boolean) as TaxonomyItem[];
     const hiddenKeys = new Set(metadata
       .filter((entry) => entry.hidden)
       .flatMap((entry) => [`${entry.kind}:${slugify(entry.id)}`, `${entry.kind}:${slugify(entry.label)}`]));
@@ -614,9 +655,8 @@ export function App() {
     tasks.forEach((task) => {
       const listName = taskListName(task);
       if (listName) {
-        const imported = listName === TICKTICK_IMPORT_PROJECT;
         const id = slugify(listName);
-        if (!derivedLists.has(id)) derivedLists.set(id, { id, label: listName, icon: imported ? '📦' : '📁', group: imported ? '가져온 항목' : '리스트', kind: 'list', imported });
+        if (!derivedLists.has(id)) derivedLists.set(id, { id, label: listName, icon: '📁', group: '리스트', kind: 'list' });
       }
       taskTags(task).forEach((tag) => {
         const id = slugify(tag);
@@ -628,11 +668,8 @@ export function App() {
       const key = `${entry.kind}:${slugify(entry.id || entry.label)}`;
       if (!byId.has(key)) byId.set(key, entry);
     });
-    return [...byId.values()].sort((a, b) => {
-      if (a.imported !== b.imported) return a.imported ? 1 : -1;
-      return `${a.group}:${a.label}`.localeCompare(`${b.group}:${b.label}`, 'ko');
-    });
-  }, [localTaxonomy, state.taxonomy, tasks]);
+    return [...byId.values()].sort((a, b) => `${a.group}:${a.label}`.localeCompare(`${b.group}:${b.label}`, 'ko'));
+  }, [state.taxonomy, tasks]);
   const listDefinitions = taxonomy.filter((entry) => entry.kind === 'list' && !['언젠가', 'someday'].includes(text(entry.label).toLowerCase()) && !['언젠가', 'someday'].includes(text(entry.id).toLowerCase()));
   const tagDefinitions = taxonomy.filter((entry) => entry.kind === 'tag');
   const navGroups = useMemo<NavGroup[]>(() => {
@@ -679,7 +716,7 @@ export function App() {
         }
         const desktopSettings = await window.hermesDesktop?.getSettings();
         const proxyBase = await window.hermesDesktop?.getProxyBaseUrl();
-        if (desktopSettings && !cancelled) setSettings(desktopSettings);
+        if (desktopSettings && !cancelled) setSettings(desktopSettingsState(desktopSettings));
         setApiBaseUrl(proxyBase || desktopSettings?.apiBaseUrl || 'https://hermes-os-production-e174.up.railway.app');
         await hydrate();
       } catch (error) {
@@ -696,60 +733,61 @@ export function App() {
   async function hydrate() {
     setLoading(true);
     setApiError('');
-    const results = await Promise.allSettled([
-      hermesApi.getDashboardState(),
-      hermesApi.getTasks(),
-      hermesApi.getCalendarEvents(),
-      hermesApi.getAgents(),
-      hermesApi.getWiki(),
-      hermesApi.getInbox(),
-      hermesApi.getAutomation(),
-      hermesApi.getUsage(),
-      hermesApi.getTools(),
-      hermesApi.getSettings(),
-      hermesApi.getChannels(),
-      hermesApi.getDocuments(),
-      hermesApi.getChatMessages(),
-    ]);
-    const payloads = results.map((result) => (result.status === 'fulfilled' ? result.value : {}));
-    const [dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, usage, tools, settingsPayload, channels, documentsPayload, chatPayload] = payloads;
-    const failed = results.find((result) => result.status === 'rejected') as PromiseRejectedResult | undefined;
-    const rawTasks = arr(tasksPayload, 'tasks', 'ticktickTasks').length ? arr(tasksPayload, 'tasks', 'ticktickTasks') : arr(dashboard, 'tasks', 'ticktickTasks');
-    const taxonomyRecords = rawTasks.filter(isTaxonomyRecord);
-    const tasks = rawTasks.filter(isTaskRecord);
-    const events = [
-      ...arr(eventsPayload, 'events', 'calendarEvents'),
-      ...arr(dashboard, 'events', 'calendarEvents'),
-      ...arr(dashboard, 'externalCalendarEvents'),
-      ...rawTasks.filter(isCalendarEventRecord),
-    ];
-    const agents = arr(agentsPayload, 'agents').length ? arr(agentsPayload, 'agents') : arr(dashboard, 'agents');
-    const runs = arr(dashboard, 'runs').length ? arr(dashboard, 'runs') : arr(agentsPayload, 'runs');
-    const docs = arr(wiki, 'notes').length ? arr(wiki, 'notes') : (arr(documentsPayload, 'documents').length ? arr(documentsPayload, 'documents') : arr(dashboard, 'documents', 'docs'));
-    const inboxItems = arr(inbox, 'items', 'commands', 'commandRows').length ? arr(inbox, 'items', 'commands', 'commandRows') : arr(dashboard, 'mailMessages');
-    const remoteChat = arr(chatPayload, 'messages', 'chatMessages').length ? arr(chatPayload, 'messages', 'chatMessages') : arr(dashboard, 'chatMessages');
-    setState({
-      tasks,
-      events,
-      agents,
-      runs,
-      docs,
-      inbox: inboxItems,
-      automation: arr(automation, 'jobs', 'schedulerJobs').length ? arr(automation, 'jobs', 'schedulerJobs') : arr(dashboard, 'schedulerJobs'),
-      channels: arr(channels, 'channels'),
-      sessions: arr(dashboard, 'sessions'),
-      tools: arr(tools, 'tools', 'skills', 'toolsets'),
-      chatMessages: remoteChat,
-      taxonomy: taxonomyRecords,
-      wiki,
-      settings: settingsPayload,
-      usage,
-    });
-    if (remoteChat.length) {
-      setChatMessages(remoteChat.slice(-40).map(toChatMessage).filter((message) => message.text));
+    try {
+      const [dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, usage, tools, settingsPayload, channels, documentsPayload, chatPayload] = await Promise.all([
+        hermesApi.getDashboardState(),
+        hermesApi.getTasks(),
+        hermesApi.getCalendarEvents(),
+        hermesApi.getAgents(),
+        hermesApi.getWiki(),
+        hermesApi.getInbox(),
+        hermesApi.getAutomation(),
+        hermesApi.getUsage(),
+        hermesApi.getTools(),
+        hermesApi.getSettings(),
+        hermesApi.getChannels(),
+        hermesApi.getDocuments(),
+        hermesApi.getChatMessages(),
+      ]);
+      const rawTasks = arr(tasksPayload, 'tasks');
+      const taxonomyRecords = rawTasks.filter(isTaxonomyRecord);
+      const tasks = rawTasks.filter(isTaskRecord);
+      const events = [
+        ...arr(eventsPayload, 'events', 'calendarEvents').map(normalizeCalendarEvent),
+        ...rawTasks.filter(isCalendarEventRecord).map(normalizeCalendarEvent),
+      ];
+      const agents = arr(agentsPayload, 'agents');
+      const runs = arr(dashboard, 'runs');
+      const docs = arr(documentsPayload, 'documents');
+      const inboxItems = arr(inbox, 'items', 'commands', 'commandRows');
+      const remoteChat = arr(chatPayload, 'messages', 'chatMessages');
+      setState({
+        tasks,
+        events,
+        agents,
+        runs,
+        docs,
+        inbox: inboxItems,
+        automation: arr(automation, 'jobs', 'schedulerJobs'),
+        channels: arr(channels, 'channels'),
+        sessions: arr(dashboard, 'sessions'),
+        tools: arr(tools, 'tools', 'skills', 'toolsets'),
+        chatMessages: remoteChat,
+        taxonomy: taxonomyRecords,
+        wiki,
+        settings: settingsPayload,
+        usage,
+      });
+      setPrefs(settingsPreferences(settingsPayload));
+      setSettings((current) => ({ ...current, uiPreferences: settingsPreferences(settingsPayload) }));
+      if (remoteChat.length) {
+        setChatMessages(remoteChat.slice(-40).map(toChatMessage).filter((message) => message.text));
+      }
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Railway API 응답 실패');
+    } finally {
+      setLoading(false);
     }
-    if (failed) setApiError(failed.reason instanceof Error ? failed.reason.message : '일부 Railway API 응답 실패');
-    setLoading(false);
   }
 
   async function persistCreatedTask(task: Item, source: 'task' | 'calendar' = 'task') {
@@ -760,35 +798,13 @@ export function App() {
       } else {
         await hermesApi.createTask(desktopTaskPayload(task));
       }
-      setLocalTasks((current) => current.filter((entry) => itemId(entry, '') !== itemId(task, '')));
-      setLocalEvents((current) => current.filter((entry) => itemId(entry, '') !== itemId(task, '')));
       await hydrate();
     } catch (error) {
       setApiError(error instanceof Error ? error.message : '작업 생성 실패');
     }
   }
 
-  function scheduleTaskPatch(id: string, snapshot: Item) {
-    if (!shouldPersistTask(id)) return;
-    if (taskPersistTimers.current[id]) clearTimeout(taskPersistTimers.current[id]);
-    taskPersistTimers.current[id] = setTimeout(() => {
-      void hermesApi.updateTask(id, { ...taskPayload(snapshot), syncTickTick: false })
-        .then(() => hydrate())
-        .catch((error) => setApiError(error instanceof Error ? error.message : '작업 업데이트 실패'));
-    }, 650);
-  }
-
-  function scheduleEventPatch(id: string, snapshot: Item) {
-    if (!shouldPersistTask(id)) return;
-    if (taskPersistTimers.current[id]) clearTimeout(taskPersistTimers.current[id]);
-    taskPersistTimers.current[id] = setTimeout(() => {
-      void hermesApi.updateCalendarEvent(id, calendarEventPayload(snapshot))
-        .then(() => hydrate())
-        .catch((error) => setApiError(error instanceof Error ? error.message : '일정 업데이트 실패'));
-    }, 650);
-  }
-
-  async function createTask() {
+  async function createTask(extraNotes = '') {
     const title = newTitle.trim();
     if (!title) return;
     const parsed = parseQuick(title, newDate || (screen === 'today' ? todayKey() : undefined));
@@ -797,7 +813,6 @@ export function App() {
     const targetTag = activeTagForNewTask();
     const tags = Array.from(new Set([...(parsed.tags || []), ...(targetTag ? [targetTag.label] : [])]));
     const task = {
-      id: `draft-${Date.now()}`,
       title: parsed.title,
       date: parsed.date || newDate || todayKey(),
       time: newAllDay ? '' : (parsed.time || newTime),
@@ -808,7 +823,7 @@ export function App() {
       tags,
       repeat: parsed.repeat !== 'none' ? parsed.repeat : newRepeat,
       priority: parsed.priority,
-      notes: newDesc,
+      notes: [newDesc.trim(), extraNotes.trim()].filter(Boolean).join('\n'),
       list: targetList?.id || newList,
       category: targetList?.label || newList,
       project: targetList?.label || newList,
@@ -828,23 +843,18 @@ export function App() {
     setNewSubPanel(null);
     setNewMode('date');
     setModal(null);
-    if (screen === 'calendar') {
-      const eventTask = { ...task, kind: 'calendar-event', type: 'calendar-event' };
-      setLocalEvents((current) => [eventTask, ...current]);
-      await persistCreatedTask(eventTask, 'calendar');
-    } else {
-      setLocalTasks((current) => [task, ...current]);
-      await persistCreatedTask(task, 'task');
-    }
+    await persistCreatedTask(
+      screen === 'calendar' ? { ...task, kind: 'calendar-event', type: 'calendar-event' } : task,
+      screen === 'calendar' ? 'calendar' : 'task',
+    );
   }
 
-  function addLocalTask(rawTitle: string, fallbackDate?: string, persist = true) {
+  async function createQuickTask(rawTitle: string, fallbackDate?: string, options: { owner?: string; status?: string; source?: 'task' | 'calendar' } = {}) {
     const parsed = parseQuick(rawTitle, fallbackDate);
     const targetList = activeListForNewTask();
     const targetTag = activeTagForNewTask();
     const tags = Array.from(new Set([...(parsed.tags || []), ...(targetTag ? [targetTag.label] : [])]));
     const task = {
-      id: `local-${Date.now()}`,
       title: parsed.title,
       date: parsed.date || fallbackDate || '',
       time: parsed.time,
@@ -857,84 +867,86 @@ export function App() {
       category: targetList?.label || '기본함',
       project: targetList?.label || '기본함',
     };
-    if (screen === 'calendar') {
+    if (options.owner) task.owner = options.owner;
+    if (options.status) task.status = options.status;
+    const source = options.source || (screen === 'calendar' ? 'calendar' : 'task');
+    if (source === 'calendar') {
       const eventTask = { ...task, kind: 'calendar-event', type: 'calendar-event' };
-      setLocalEvents((current) => [eventTask, ...current]);
-      if (persist) void persistCreatedTask(eventTask, 'calendar');
+      await persistCreatedTask(eventTask, 'calendar');
       return eventTask;
     }
-    setLocalTasks((current) => [task, ...current]);
-    if (persist) void persistCreatedTask(task, 'task');
+    await persistCreatedTask(task, 'task');
     return task;
   }
 
   function submitQuick(fallbackDate?: string) {
     const value = quickText.trim();
     if (!value) return;
-    addLocalTask(value, fallbackDate);
     setQuickText('');
+    void createQuickTask(value, fallbackDate);
   }
 
   function patchTask(task: Item, patch: Item) {
     const id = itemId(task, '');
     if (!id) return;
-    const snapshot = { ...task, ...(taskOverrides[id] || {}), ...patch };
-    setLocalTasks((current) => current.map((entry) => (itemId(entry, '') === id ? { ...entry, ...patch } : entry)));
-    setTaskOverrides((current) => ({ ...current, [id]: { ...(current[id] || {}), ...patch } }));
-    scheduleTaskPatch(id, snapshot);
+    if (!shouldPersistTask(id)) {
+      setApiError('서버에 저장된 작업만 수정할 수 있습니다.');
+      return;
+    }
+    const snapshot = { ...task, ...patch };
+    void hermesApi.updateTask(id, taskPayload(snapshot))
+      .then(() => hydrate())
+      .catch((error) => setApiError(error instanceof Error ? error.message : '작업 업데이트 실패'));
   }
 
   function patchCalendarEvent(task: Item, patch: Item) {
     const id = itemId(task, '');
     if (!id) return;
-    const snapshot = { ...task, ...(eventOverrides[id] || {}), ...patch, kind: 'calendar-event', type: 'calendar-event' };
-    setLocalEvents((current) => current.map((entry) => (itemId(entry, '') === id ? { ...entry, ...patch } : entry)));
-    setEventOverrides((current) => ({ ...current, [id]: { ...(current[id] || {}), ...patch } }));
-    scheduleEventPatch(id, snapshot);
+    if (!shouldPersistTask(id)) {
+      setApiError('서버에 저장된 일정만 수정할 수 있습니다.');
+      return;
+    }
+    const snapshot = { ...task, ...patch, kind: 'calendar-event', type: 'calendar-event' };
+    void hermesApi.updateCalendarEvent(id, calendarEventPayload(snapshot))
+      .then(() => hydrate())
+      .catch((error) => setApiError(error instanceof Error ? error.message : '일정 업데이트 실패'));
   }
 
   function toggleTask(task: Item) {
-    const id = itemId(task, '');
     const done = !isDone(task);
-    if (done && id) {
-      setCompletingTaskIds((current) => ({ ...current, [id]: true }));
-      setTimeout(() => patchTask(task, { status: 'Done', done: true }), 260);
-      setTimeout(() => setCompletingTaskIds((current) => {
-        const next = { ...current };
-        delete next[id];
-        return next;
-      }), 340);
-      return;
-    }
     patchTask(task, { status: done ? 'Done' : 'Planned', done });
   }
 
   function removeTask(task: Item) {
     const id = itemId(task, '');
     if (!id) return;
-    setLocalTasks((current) => current.filter((entry) => itemId(entry, '') !== id));
-    setDeletedTaskIds((current) => ({ ...current, [id]: true }));
-    setSelectedTaskId('');
-    setModal(null);
-    if (shouldPersistTask(id)) {
-      void hermesApi.deleteTask(id, { syncTickTick: false })
-        .then(() => hydrate())
-        .catch((error) => setApiError(error instanceof Error ? error.message : '작업 삭제 실패'));
+    if (!shouldPersistTask(id)) {
+      setApiError('서버에 저장된 작업만 삭제할 수 있습니다.');
+      return;
     }
+    void hermesApi.deleteTask(id)
+      .then(async () => {
+        await hydrate();
+        setSelectedTaskId('');
+        setModal(null);
+      })
+      .catch((error) => setApiError(error instanceof Error ? error.message : '작업 삭제 실패'));
   }
 
   function removeCalendarEvent(task: Item) {
     const id = itemId(task, '');
     if (!id) return;
-    setLocalEvents((current) => current.filter((entry) => itemId(entry, '') !== id));
-    setDeletedEventIds((current) => ({ ...current, [id]: true }));
-    setSelectedTaskId('');
-    setModal(null);
-    if (shouldPersistTask(id)) {
-      void hermesApi.deleteCalendarEvent(id, { syncTickTick: false })
-        .then(() => hydrate())
-        .catch((error) => setApiError(error instanceof Error ? error.message : '일정 삭제 실패'));
+    if (!shouldPersistTask(id)) {
+      setApiError('서버에 저장된 일정만 삭제할 수 있습니다.');
+      return;
     }
+    void hermesApi.deleteCalendarEvent(id)
+      .then(async () => {
+        await hydrate();
+        setSelectedTaskId('');
+        setModal(null);
+      })
+      .catch((error) => setApiError(error instanceof Error ? error.message : '일정 삭제 실패'));
   }
 
   function openTask(task: Item) {
@@ -947,50 +959,46 @@ export function App() {
     setModal('run');
   }
 
-  function startPlan(goal: string, agentId = selectedAgentId) {
+  async function startPlan(goal: string, agentId = selectedAgentId) {
     const textValue = goal.trim();
     if (!textValue) return;
-    setPlanDraft({
-      id: `plan-${Date.now()}`,
-      goal: textValue,
-      agentId,
-      steps: ['목표 해석', '컨텍스트 수집', '실행', '위키 기록'],
-      artifact: `${textValue.slice(0, 34)} 결과 정리`,
-    });
-    setModal('plan');
+    setModal(null);
+    try {
+      await createQuickTask(textValue, todayKey(), { owner: 'Agent', status: 'Doing', source: 'task' });
+      const runPayload = await hermesApi.launchMission({
+        templateId: 'product-build',
+        goal: textValue,
+        agentId,
+        source: 'desktop-mission',
+      });
+      const run = obj(runPayload, 'run');
+      await hydrate();
+      if (Object.keys(run).length) openRun(run);
+      openScreen('agents');
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '미션 실행 실패');
+    }
   }
 
-  function approvePlan() {
-    if (!planDraft) return;
-    const agent = agents.find((entry) => itemId(entry, '') === text(planDraft.agentId)) || agents[0];
-    const run = {
-      id: `run-${Date.now()}`,
-      goal: text(planDraft.goal),
-      title: text(planDraft.goal),
-      agent: text(agent?.name || agent?.id, 'default'),
-      status: 'running',
-      elapsed: '방금',
-      step: '컨텍스트 수집 중',
-    };
-    const task = addLocalTask(text(planDraft.goal), todayKey());
-    patchTask(task, { owner: 'Agent', status: 'Doing' });
-    setState((current) => ({ ...current, runs: [run, ...current.runs] }));
-    setPlanDraft(null);
-    openRun(run);
-    openScreen('agents');
-    void hermesApi.createRun({ goal: run.goal, title: run.title, agent: run.agent, agentId: planDraft.agentId, source: 'desktop' })
-      .then(() => hydrate())
-      .catch((error) => setApiError(error instanceof Error ? error.message : '런 생성 실패'));
-  }
-
-  function createAgent() {
+  async function createAgent() {
     const name = newAgentName.trim();
     if (!name) return;
-    setCustomAgents((current) => [{ id: `agent-${Date.now()}`, name, emoji: newAgentEmoji, model: '커스텀', role: newAgentRole || '사용자 정의 에이전트' }, ...current]);
-    setNewAgentName('');
-    setNewAgentRole('');
-    setNewAgentEmoji('🤖');
-    setModal(null);
+    try {
+      await hermesApi.createAgent({
+        name,
+        displayName: name,
+        emoji: newAgentEmoji,
+        role: newAgentRole || '사용자 정의 에이전트',
+        source: 'hermes-desktop',
+      });
+      setNewAgentName('');
+      setNewAgentRole('');
+      setNewAgentEmoji('🤖');
+      setModal(null);
+      await hydrate();
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 생성 실패');
+    }
   }
 
   async function sendChat() {
@@ -998,10 +1006,6 @@ export function App() {
     if (!message) return;
     setChatInput('');
     setChatMessages((current) => [...current, { role: 'user', text: message }, { role: 'assistant', text: '' }]);
-    const localTask = addLocalTask(message, todayKey(), false);
-    patchTask(localTask, { owner: 'Agent', status: 'Doing' });
-    const localRun = { id: `chat-run-${Date.now()}`, goal: message, title: message, agent: 'default', status: 'running', elapsed: '방금', step: 'Railway stream 대기' };
-    setState((current) => ({ ...current, runs: [localRun, ...current.runs] }));
     try {
       const response = await hermesApi.streamChat({ message, view: screen, agent: 'default' });
       if (!response.ok || !response.body) throw new Error(`chat stream ${response.status}`);
@@ -1055,12 +1059,113 @@ export function App() {
       const data = obj(payload, 'data');
       const answer = text(payload.answer || payload.text || data.answer || data.text, '');
       const sources = arr(payload, 'sources', 'citations').length ? arr(payload, 'sources', 'citations') : arr(data, 'sources', 'citations');
-      setWikiAnswer(answer || '위키에서 관련 내용을 찾았지만 답변 본문이 비어 있습니다.');
+      setWikiAnswer(answer || '백엔드 위키 답변 본문이 비어 있습니다.');
       setWikiAnswerSources(sources);
     } catch (error) {
       setWikiAnswer(error instanceof Error ? `위키 답변 실패: ${error.message}` : '위키 답변 실패');
     } finally {
       setWikiAsking(false);
+    }
+  }
+
+  async function generateRetroDraft(summary: {
+    range: string;
+    done: number;
+    total: number;
+    overdue: number;
+    delegated: number;
+    goals: string[];
+  }) {
+    const payload = await hermesApi.askWiki({
+      mode: 'weekly_review',
+      limit: 10,
+      question: [
+        `${summary.range} 주간 회고 초안을 작성해줘.`,
+        `완료 ${summary.done}/${summary.total}, 지연 ${summary.overdue}, 위임 ${summary.delegated}.`,
+        `이번 주 목표: ${summary.goals.length ? summary.goals.join(', ') : '백엔드 DB에 저장된 목표 없음'}.`,
+        '좋았던 점, 막힌 점, 다음 주 개선 항목으로 간결하게 정리해줘.',
+      ].join('\n'),
+      context: summary,
+    });
+    const data = obj(payload, 'data');
+    return text(payload.answer || payload.text || data.answer || data.text, '').trim();
+  }
+
+  async function createReviewGoal(title: string) {
+    const value = title.trim();
+    if (!value) return;
+    await hermesApi.createTask({
+      title: value,
+      status: 'Planned',
+      owner: 'Me',
+      list: 'goals',
+      category: '목표',
+      project: '목표',
+      tags: ['goal', 'review'],
+      source: 'desktop-review-goal',
+    });
+    await hydrate();
+  }
+
+  async function saveDocument(body: Record<string, unknown>) {
+    const payload = await hermesApi.createDocument({
+      ...body,
+      date: text(body.date, todayKey()),
+      source: text(body.source, 'hermes-desktop'),
+    });
+    const doc = obj(payload, 'document');
+    if (Object.keys(doc).length) setActiveNoteId(text(doc.id || doc.path || doc.wikiPath, ''));
+    await hydrate();
+    return payload;
+  }
+
+  async function saveDiary() {
+    const body = diaryText.trim();
+    if (!body) return;
+    try {
+      await saveDocument({
+        title: `일기 · ${dateLabel()}`,
+        body: `${diaryMood} ${body}`.trim(),
+        kind: 'diary',
+        tags: ['diary', 'journal'],
+        source: 'hermes-desktop-diary',
+      });
+      setDiaryText('');
+      setDiaryMood('');
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '일기 저장 실패');
+    }
+  }
+
+  async function saveRetro(body: string) {
+    const retro = body.trim();
+    if (!retro) return;
+    try {
+      await saveDocument({
+        title: `주간 회고 · ${dateLabel()}`,
+        body: retro,
+        kind: 'review',
+        tags: ['review', 'weekly-retro'],
+        source: 'hermes-desktop-review',
+      });
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '회고 저장 실패');
+    }
+  }
+
+  async function createNote() {
+    try {
+      const payload = await saveDocument({
+        title: `생각노트 · ${dateLabel()}`,
+        body: '',
+        kind: 'note',
+        tags: ['note'],
+        source: 'hermes-desktop-note',
+      });
+      const doc = obj(payload, 'document');
+      setActiveNoteId(text(doc.id || doc.path || doc.wikiPath, ''));
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '메모 생성 실패');
     }
   }
 
@@ -1088,11 +1193,38 @@ export function App() {
     setModal('new');
   }
 
-  function toggleMailStar(mail: Item) {
+  async function addTaskFromMail(mail: Item) {
+    const id = itemId(mail, '');
+    if (!id) return;
+    try {
+      await hermesApi.runInboxCommand(id, 'task', { message: itemTitle(mail, '메일 작업') });
+      await hydrate();
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '메일 작업 추가 실패');
+    }
+  }
+
+  async function archiveMail(mail: Item) {
+    const id = itemId(mail, '');
+    if (!id) return;
+    try {
+      await hermesApi.runInboxCommand(id, 'archive');
+      await hydrate();
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '메일 보관 실패');
+    }
+  }
+
+  async function toggleMailStar(mail: Item) {
     const id = itemId(mail, '');
     if (!id) return;
     const next = !(mail.star || mail.starred || mail.important);
-    setMailStarIds((current) => ({ ...current, [id]: next }));
+    try {
+      await hermesApi.runInboxCommand(id, next ? 'star' : 'unstar');
+      await hydrate();
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '메일 별표 변경 실패');
+    }
   }
 
   async function connectGmail() {
@@ -1131,24 +1263,49 @@ export function App() {
     }
   }
 
-  function openRunArtifact(run?: Item) {
+  async function openRunArtifact(run?: Item) {
     if (!run) return;
     const runId = itemId(run, `run-${Date.now()}`);
-    const docId = `artifact-${runId}`;
     const title = text(run.artifact || run.document || run.goal || run.title, '실행 결과 정리');
-    const doc = {
-      id: docId,
-      title,
-      body: `🤖 ${text(run.agent, 'Hermes')} 실행 결과\n\n[목표]\n${text(run.goal || run.title, title)}\n\n[상태]\n${text(run.status, 'running')} · ${text(run.step, '실행 타임라인을 확인하세요.')}`,
-      tag: '업무',
-      date: todayKey(),
-      kind: 'doc',
-    };
-    setLocalDocs((current) => (current.some((entry) => itemId(entry, '') === docId) ? current : [doc, ...current]));
-    setActiveWikiId(docId);
-    setWikiReaderOpen(true);
-    openScreen('wiki');
-    setModal(null);
+    try {
+      const payload = await saveDocument({
+        title,
+        body: `🤖 ${text(run.agent, 'Hermes')} 실행 결과\n\n[목표]\n${text(run.goal || run.title, title)}\n\n[상태]\n${text(run.status, 'running')} · ${text(run.step, '실행 타임라인을 확인하세요.')}`,
+        tag: '업무',
+        kind: 'doc',
+        source: 'hermes-desktop-run-artifact',
+        runId,
+      });
+      const doc = obj(payload, 'document');
+      setActiveWikiId(text(doc.path || doc.wikiPath || doc.id, ''));
+      setWikiReaderOpen(true);
+      openScreen('wiki');
+      setModal(null);
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '실행 결과 저장 실패');
+    }
+  }
+
+  async function approveRun(run: Item) {
+    const id = itemId(run, '');
+    if (!id) return;
+    try {
+      await hermesApi.approveRun(id);
+      await hydrate();
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '실행 승인 실패');
+    }
+  }
+
+  async function updatePrefs(nextPrefs: UiPreferences) {
+    try {
+      const payload = await hermesApi.saveSettings({ uiPreferences: nextPrefs });
+      const updated = settingsPreferences(payload);
+      setPrefs(updated);
+      setSettings((current) => ({ ...current, uiPreferences: updated }));
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '환경설정 저장 실패');
+    }
   }
 
   function findTaxonomy(kind: TaxonomyKind, navKey: string) {
@@ -1191,15 +1348,10 @@ export function App() {
       tags: ['hermes-meta'],
       hidden,
       notes: JSON.stringify(payload),
-      syncTickTick: false,
     };
   }
 
   async function updateTaxonomy(item: TaxonomyItem) {
-    setLocalTaxonomy((current) => [
-      item,
-      ...current.filter((entry) => !(entry.kind === item.kind && slugify(entry.id) === slugify(item.id))),
-    ]);
     if (item.recordId && shouldPersistTask(item.recordId)) {
       await hermesApi.updateTask(item.recordId, taxonomyPayload(item));
     } else {
@@ -1210,10 +1362,6 @@ export function App() {
 
   async function hideTaxonomy(item: TaxonomyItem) {
     const hiddenItem = { ...item, hidden: true };
-    setLocalTaxonomy((current) => [
-      hiddenItem,
-      ...current.filter((entry) => !(entry.kind === item.kind && slugify(entry.id) === slugify(item.id))),
-    ]);
     openScreen('tasks');
     try {
       if (item.recordId && shouldPersistTask(item.recordId)) {
@@ -1271,7 +1419,9 @@ export function App() {
       title: activeNavItem.navKey?.startsWith('tag:') ? `#${activeNavItem.label}` : activeNavItem.label,
       sub: '',
     }
-    : screenMeta[screen];
+    : screen === 'today'
+      ? { ...screenMeta.today, sub: todayMetaLabel() }
+      : screenMeta[screen];
   const selectedTaxonomy = useMemo(() => {
     if (screen !== 'tasks') return undefined;
     if (activeNavKey.startsWith('list:') && activeNavKey !== 'list:notes' && activeNavKey !== 'list:someday') return findTaxonomy('list', activeNavKey);
@@ -1318,22 +1468,10 @@ export function App() {
     }
     return 0;
   };
-  const mailItems = useMemo(() => {
-    const source = state.inbox.length ? state.inbox : seedMail;
-    return source
-      .filter((mail, index) => !archivedMailIds[itemId(mail, `mail-${index}`)])
-      .map((mail, index) => {
-        const id = itemId(mail, `mail-${index}`);
-        return id in mailStarIds ? { ...mail, starred: mailStarIds[id], star: mailStarIds[id] } : mail;
-      });
-  }, [archivedMailIds, mailStarIds, state.inbox]);
+  const mailItems = state.inbox;
   const docs = useMemo(() => {
-    const source = state.docs.length ? state.docs : seedDocs;
-    return [
-      ...localDocs,
-      ...source.map((doc, index) => ({ ...doc, ...(noteDrafts[itemId(doc, `note-${index}`)] || {}) })),
-    ];
-  }, [localDocs, noteDrafts, state.docs]);
+    return state.docs;
+  }, [state.docs]);
   const newTaskControls: NewTaskControls = {
     date: newDate,
     setDate: setNewDate,
@@ -1360,6 +1498,18 @@ export function App() {
     endTime: newEndTime,
     setEndTime: setNewEndTime,
   };
+
+  useEffect(() => {
+    if (loading || apiError) return;
+    if (!window.hermesDesktop?.saveWidgetSnapshot) return;
+    const timer = setTimeout(() => {
+      const snapshot = buildHermesWidgetSnapshot(tasks, events, runs);
+      void window.hermesDesktop?.saveWidgetSnapshot(snapshot).catch((error) => {
+        console.warn('Hermes widget snapshot save failed', error);
+      });
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [apiError, events, loading, runs, tasks]);
 
   return (
     <div className="app-root" data-theme={settings.theme}>
@@ -1399,36 +1549,38 @@ export function App() {
       <main className="main">
         <header className="topbar">
           <div className="screen-heading"><strong>{selectedMeta.title}</strong><span>{selectedMeta.sub}</span></div>
-          <button className="primary" onClick={() => openNewTask()}><span>+</span> 새 작업</button>
-          <button className="icon-button" data-active={chatOpen} onClick={() => setChatOpen((open) => !open)} title="Hermes 콘솔">◧</button>
         </header>
         {apiError && <div className="api-banner"><strong>Railway API 확인 필요</strong><span>{apiError}</span><button onClick={() => void hydrate()}>재시도</button></div>}
         {loading ? <Loading /> : (
           <section className="content">
             {screen === 'calendar' && <CalendarScreen tasks={scheduledTaskItems} events={events} openNewTask={openNewTask} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} calView={calView} setCalView={setCalView} calDate={calDate} setCalDate={setCalDate} placingTaskId={placingTaskId} setPlacingTaskId={setPlacingTaskId} />}
-            {screen === 'today' && <TodayScreen tasks={filteredTasks} runs={runs} approvedRunIds={approvedRunIds} approveRun={(run) => setApprovedRunIds((current) => ({ ...current, [itemId(run, '')]: true }))} quickText={quickText} setQuickText={setQuickText} submitQuick={() => submitQuick(todayKey())} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} openRun={openRun} />}
+            {screen === 'today' && <TodayScreen tasks={filteredTasks} runs={runs} approveRun={approveRun} quickText={quickText} setQuickText={setQuickText} submitQuick={() => submitQuick(todayKey())} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} openRun={openRun} />}
             {screen === 'tasks' && selectedTaxonomy && <TaxonomyManager item={selectedTaxonomy} edit={(item) => openTaxonomyForm(item.kind, item.group, item)} hide={(item) => void hideTaxonomy(item)} />}
             {(screen === 'tasks' || screen === 'next7' || screen === 'someday') && <TaskListScreen tasks={filteredTasks} quickText={quickText} setQuickText={setQuickText} submitQuick={() => submitQuick(screen === 'next7' ? todayKey() : undefined)} applyRepeatTemplate={(label) => {
               const templates: Record<string, string> = { '매일 루틴': '매일 ', '매주 회의': '매주 ', '매월 정산': '매월 ', '평일 근무': '근무 평일 ' };
               setQuickText(templates[label] || '');
-            }} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} completingTaskIds={completingTaskIds} />}
+            }} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} />}
             {screen === 'kanban' && <KanbanScreen tasks={filteredTasks} openTask={openTask} />}
-            {screen === 'mail' && <MailScreen inbox={mailItems} activeMailId={activeMailId} setActiveMailId={setActiveMailId} taskAdded={mailTaskIds} addTaskFromMail={(mail) => { addLocalTask(itemTitle(mail, '메일 작업')); setMailTaskIds((current) => ({ ...current, [itemId(mail, '')]: true })); }} archiveMail={(mail) => setArchivedMailIds((current) => ({ ...current, [itemId(mail, '')]: true }))} delegateMail={(mail, reply) => { setDelegateText(reply ? `아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n${itemTitle(mail, '메일')}` : `다음 메일을 처리해줘.\n\n${itemTitle(mail, '메일')}`); setModal('delegate'); }} toggleStar={toggleMailStar} gmailEmail={gmailEmail} setGmailEmail={setGmailEmail} gmailPassword={gmailPassword} setGmailPassword={setGmailPassword} mailSyncing={mailSyncing} mailStatus={mailStatus} connectGmail={connectGmail} />}
-            {screen === 'notes' && <NotesScreen docs={docs} activeNoteId={activeNoteId} setActiveNoteId={setActiveNoteId} patchNote={(doc, patch) => setNoteDrafts((current) => ({ ...current, [itemId(doc, '')]: { ...(current[itemId(doc, '')] || {}), ...patch } }))} newNote={() => { const note = { id: `note-${Date.now()}`, title: '', body: '', date: todayKey() }; setNoteDrafts((current) => ({ ...current, [itemId(note, '')]: note })); setActiveNoteId(itemId(note, '')); }} />}
-            {screen === 'review' && <ReviewScreen tasks={tasks} saveRetro={() => setLocalDocs((current) => [{ id: `retro-${Date.now()}`, title: '주간 회고', body: '자동 생성된 주간 회고', date: todayKey(), kind: 'doc' }, ...current])} />}
+            {screen === 'mail' && <MailScreen inbox={mailItems} activeMailId={activeMailId} setActiveMailId={setActiveMailId} addTaskFromMail={(mail) => { void addTaskFromMail(mail); }} archiveMail={(mail) => { void archiveMail(mail); }} delegateMail={(mail, reply) => { setDelegateText(reply ? `아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n${itemTitle(mail, '메일')}` : `다음 메일을 처리해줘.\n\n${itemTitle(mail, '메일')}`); setModal('delegate'); }} toggleStar={(mail) => { void toggleMailStar(mail); }} gmailEmail={gmailEmail} setGmailEmail={setGmailEmail} gmailPassword={gmailPassword} setGmailPassword={setGmailPassword} mailSyncing={mailSyncing} mailStatus={mailStatus} connectGmail={connectGmail} />}
+            {screen === 'notes' && <NotesScreen docs={docs} activeNoteId={activeNoteId} setActiveNoteId={setActiveNoteId} newNote={createNote} />}
+            {screen === 'review' && <ReviewScreen tasks={tasks} generateRetroDraft={generateRetroDraft} createReviewGoal={createReviewGoal} saveRetro={saveRetro} />}
             {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} asking={wikiAsking} ask={askWiki} />}
-            {screen === 'diary' && <DiaryScreen docs={docs} diaryText={diaryText} setDiaryText={setDiaryText} diaryMood={diaryMood} setDiaryMood={setDiaryMood} saveDiary={() => { if (!diaryText.trim()) return; setLocalDocs((current) => [{ id: `diary-${Date.now()}`, title: `일기 · ${dateLabel()}`, body: `${diaryMood} ${diaryText}`.trim(), date: todayKey(), kind: 'diary' }, ...current]); setDiaryText(''); setDiaryMood(''); }} />}
+            {screen === 'diary' && <DiaryScreen docs={docs} diaryText={diaryText} setDiaryText={setDiaryText} diaryMood={diaryMood} setDiaryMood={setDiaryMood} saveDiary={saveDiary} />}
             {screen === 'search' && <SearchScreen query={query} tasks={tasks} docs={docs} openTask={openTask} />}
             {screen === 'agents' && <AgentsScreen agents={agents} runs={runs} missionText={missionText} setMissionText={setMissionText} selectedAgentId={selectedAgentId} setSelectedAgentId={setSelectedAgentId} startPlan={() => startPlan(missionText)} openModal={setModal} openRun={openRun} />}
+            {screen === 'widgets' && <WidgetsScreen tasks={tasks} events={events} runs={runs} />}
             {screen === 'settings' && <SettingsScreen settings={settings} setSettings={setSettings} refresh={hydrate} />}
             {screen === 'login' && <LoginScreen />}
           </section>
         )}
       </main>
 
+      <button className="chat-fab" data-active={chatOpen} onClick={() => setChatOpen((open) => !open)} aria-label={chatOpen ? 'Hermes 콘솔 닫기' : 'Hermes 콘솔 열기'} title="Hermes 콘솔">
+        <span>H</span>
+      </button>
       {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} send={sendChat} runs={runs} setChip={setChatInput} close={() => setChatOpen(false)} openRun={openRun} />}
       {modal === 'taxonomy' && taxonomyForm && <TaxonomyModal form={taxonomyForm} name={taxonomyName} setName={setTaxonomyName} groupName={taxonomyGroupName} setGroupName={setTaxonomyGroupName} icon={taxonomyIcon} setIcon={setTaxonomyIcon} close={() => { setTaxonomyForm(null); setModal(null); }} submit={() => void createTaxonomy()} />}
-      <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} planDraft={planDraft} approvePlan={approvePlan} openRunArtifact={openRunArtifact} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} setSettings={setSettings} refresh={hydrate} loggedIn={loggedIn} setLoggedIn={setLoggedIn} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} setPrefs={setPrefs} />
+      <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} setSettings={setSettings} refresh={hydrate} loggedIn={loggedIn} setLoggedIn={setLoggedIn} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
       {!loggedIn && <LoginOverlay email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} submit={() => { setLoggedIn(true); setLoginPw(''); setModal(null); }} />}
     </div>
   );
@@ -1438,13 +1590,186 @@ function Loading() {
   return <div className="loading"><span />Railway gateway에서 상태를 불러오는 중</div>;
 }
 
+function widgetItemDate(item: Item) {
+  return text(item._calendarDate || item.date || item.startDate || item.day);
+}
+
+function widgetItemTime(item: Item) {
+  return text(item.time || item.t || item.startTime);
+}
+
+function widgetOwnerClass(item: Item) {
+  const owner = taskOwner(item);
+  if (owner === 'Agent') return 'agent';
+  if (owner === 'Hybrid') return 'hybrid';
+  return 'me';
+}
+
+function widgetMonthCells(items: Item[], activeKey = todayKey()) {
+  const active = new Date(`${activeKey}T00:00:00`);
+  const first = new Date(active.getFullYear(), active.getMonth(), 1);
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay());
+  const today = todayKey();
+  const dateFmt = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    const key = dateFmt.format(date);
+    const events = items
+      .filter((item) => widgetItemDate(item) === key)
+      .sort((a, b) => `${widgetItemTime(a) || '99:99'}${itemTitle(a)}`.localeCompare(`${widgetItemTime(b) || '99:99'}${itemTitle(b)}`, 'ko'));
+    return {
+      key,
+      day: date.getDate(),
+      inMonth: date.getMonth() === active.getMonth(),
+      today: key === today,
+      weekend: date.getDay() === 0 || date.getDay() === 6,
+      events,
+    };
+  });
+}
+
+function widgetDateMeta(value = todayKey()) {
+  const date = new Date(`${value}T00:00:00`);
+  const month = date.getMonth() + 1;
+  const year = date.getFullYear();
+  const weekday = new Intl.DateTimeFormat('ko-KR', { weekday: 'short', timeZone: APP_TIME_ZONE }).format(date);
+  return { month, year, dayLabel: `${month}월 ${date.getDate()}일 (${weekday})` };
+}
+
+function WidgetsScreen({ tasks, events, runs }: { tasks: Item[]; events: Item[]; runs: Item[] }) {
+  const today = todayKey();
+  const allCalendarItems: Item[] = [
+    ...events.map((event) => ({ ...event, kind: 'calendar-event', type: 'calendar-event' })),
+    ...tasks,
+  ];
+  const monthCells = widgetMonthCells(allCalendarItems, today);
+  const dateMeta = widgetDateMeta(today);
+  const todayItems = tasks
+    .filter((task) => widgetItemDate(task) === today)
+    .sort((a, b) => Number(isDone(a)) - Number(isDone(b)) || `${widgetItemTime(a) || '99:99'}${itemTitle(a)}`.localeCompare(`${widgetItemTime(b) || '99:99'}${itemTitle(b)}`, 'ko'));
+  const remaining = todayItems.filter((task) => !isDone(task)).length;
+  const nowStamp = Date.now();
+  const nextEvent: Item | undefined = allCalendarItems
+    .filter((item) => widgetItemDate(item) && widgetItemTime(item) && !isDone(item))
+    .map((item) => ({ item, stamp: new Date(`${widgetItemDate(item)}T${widgetItemTime(item)}`).getTime() }))
+    .filter((entry) => Number.isFinite(entry.stamp) && entry.stamp >= nowStamp)
+    .sort((a, b) => a.stamp - b.stamp)[0]?.item;
+  const runningRuns = runs.filter((run) => /running|doing|active|진행|실행/i.test(text(run.status || run.state)));
+  const topRun = runningRuns[0] || runs[0];
+  const reviewPending = tasks.filter((task) => /review|검토/i.test(text(task.status || task.lane))).length;
+  const progress = text(topRun?.pct || topRun?.progress || topRun?.percent, topRun ? '진행 중' : '대기');
+
+  return <div className="widgets-showcase screen-in">
+    <div className="widgets-sky" aria-hidden="true"><i /><b /></div>
+    <header className="widgets-title">
+      <div className="brand-mark">H</div>
+      <div><strong>Hermes 위젯</strong><span>macOS 데스크톱 위젯 · 알림 센터</span></div>
+    </header>
+    <div className="widgets-layout">
+      <section className="widget-card widget-month" aria-label="월 캘린더 Large 위젯">
+        <header><strong>{dateMeta.month}월</strong><span>{dateMeta.year}</span><i>H</i></header>
+        <div className="widget-weekdays">{['일', '월', '화', '수', '목', '금', '토'].map((day) => <b key={day}>{day}</b>)}</div>
+        <div className="widget-month-grid">
+          {monthCells.map((cell) => {
+            const visibleEvents = cell.events.slice(0, 2);
+            return <div className="widget-day" data-muted={!cell.inMonth} data-today={cell.today} key={cell.key}>
+              <span>{cell.day}</span>
+              <div>
+                {visibleEvents.map((item, index) => <em className={`widget-pill ${widgetOwnerClass(item)}`} key={`${cell.key}-${itemId(item, index.toString())}`}>{itemTitle(item, '일정')}</em>)}
+                {cell.events.length > visibleEvents.length && <em className="widget-pill more">+{cell.events.length - visibleEvents.length}</em>}
+                {!visibleEvents.length && cell.weekend && cell.inMonth && <em className="widget-pill weekend">주말</em>}
+              </div>
+            </div>;
+          })}
+        </div>
+      </section>
+
+      <div className="widgets-column">
+        <section className="widget-card widget-today" aria-label="오늘 Medium 위젯">
+          <header><strong>오늘 — Medium</strong><span>{dateMeta.dayLabel}</span><i>{remaining} 남음</i></header>
+          <div className="widget-today-list">
+            {todayItems.slice(0, 4).map((task, index) => <div className="widget-task" data-done={isDone(task)} key={itemId(task, `widget-today-${index}`)}>
+              <b>{isDone(task) ? '✓' : ''}</b>
+              <span>{itemTitle(task, '작업')}</span>
+              {widgetItemTime(task) && <small>{formatTime(widgetItemTime(task))}</small>}
+              <em className={widgetOwnerClass(task)}>{taskOwner(task) === 'Agent' ? '에이전트' : taskOwner(task) === 'Hybrid' ? '공동' : '나'}</em>
+            </div>)}
+            {!todayItems.length && <div className="widget-empty">오늘 작업 없음</div>}
+          </div>
+        </section>
+
+        <div className="widgets-small-row">
+          <section className="widget-card widget-small widget-next" aria-label="다음 일정 Small 위젯">
+            <span>다음 일정</span>
+            <strong>{nextEvent ? itemTitle(nextEvent, '다음 일정') : '예정 없음'}</strong>
+            <p>{nextEvent ? `${formatTime(widgetItemTime(nextEvent))} · ${text(nextEvent.category || nextEvent.project || nextEvent.list, 'Hermes')}` : '시간 지정 일정이 없습니다'}</p>
+            <footer><i className={nextEvent ? widgetOwnerClass(nextEvent) : 'me'} />{nextEvent ? `${taskOwner(nextEvent) === 'Agent' ? '에이전트' : '내 일정'} · 30분` : '캘린더 대기'}</footer>
+          </section>
+
+          <section className="widget-card widget-small widget-agent" aria-label="에이전트 상태 Small 위젯">
+            <header><i>H</i><span>에이전트 상태</span><b /></header>
+            <strong>{runningRuns.length}</strong>
+            <small>실행 중</small>
+            <p>{topRun ? itemTitle(topRun, '에이전트 실행') : '대기 중'}<br />{progress}</p>
+            {reviewPending > 0 && <em>{reviewPending} 검토</em>}
+          </section>
+        </div>
+      </div>
+    </div>
+    <footer className="widgets-caption">
+      <span>월 캘린더 — Large</span>
+      <span>오늘 — Medium</span>
+      <span>다음 일정 · 에이전트 상태 — Small</span>
+    </footer>
+  </div>;
+}
+
 function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patchTask, calView, setCalView, calDate, setCalDate, placingTaskId, setPlacingTaskId }: { tasks: Item[]; events: Item[]; openNewTask: (date?: string, time?: string) => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; patchTask: (task: Item, patch: Item) => void; calView: 'month' | 'week' | 'day'; setCalView: (view: 'month' | 'week' | 'day') => void; calDate: string; setCalDate: (date: string) => void; placingTaskId: string; setPlacingTaskId: (id: string) => void }) {
   const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
   const calendarItems: Item[] = [
     ...events.map((event) => ({ ...event, kind: 'calendar-event', type: 'calendar-event' })),
     ...tasks.map((task) => ({ ...task, kind: text(task.kind || 'scheduled-task') })),
   ];
+  const itemStartDate = (item: Item) => text(item.date || item.startDate || item.day);
+  const itemEndDate = (item: Item, start: string) => {
+    const raw = text(item.endDate || item.until || item.end);
+    return /^\d{4}-\d{2}-\d{2}$/.test(raw) && raw >= start ? raw : start;
+  };
+  const rangeDates = (start: string, end: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return [];
+    const dates: string[] = [];
+    let cursor = start;
+    while (cursor <= end && dates.length < 60) {
+      dates.push(cursor);
+      cursor = addDaysKey(cursor, 1);
+    }
+    return dates;
+  };
+  const expandedCalendarItems: Item[] = calendarItems.flatMap((item): Item[] => {
+    const start = itemStartDate(item);
+    const end = itemEndDate(item, start);
+    const dates = rangeDates(start, end);
+    return dates.map((date, index) => ({ ...item, _calendarDate: date, _rangeStart: start, _rangeEnd: end, _rangeOffset: index, _rangeLength: dates.length }));
+  });
+  const isRangePill = (item: Item) => text(item._rangeStart) && text(item._rangeEnd) && text(item._rangeStart) !== text(item._rangeEnd);
+  const calendarItemClass = (item: Item) => [
+    isCalendarEventRecord(item) ? 'calendar-event-pill' : 'scheduled-task-pill',
+    `owner-${taskOwner(item).toLowerCase()}`,
+    isDone(item) ? 'status-done' : 'status-open',
+    isRangePill(item) ? 'range-pill' : '',
+    isRangePill(item) && text(item._calendarDate) === text(item._rangeStart) ? 'range-start' : '',
+    isRangePill(item) && text(item._calendarDate) === text(item._rangeEnd) ? 'range-end' : '',
+  ].filter(Boolean).join(' ');
+  const calendarPillContent = (item: Item, fallback: string) => {
+    const range = isRangePill(item);
+    const showTitle = !range || Number(item._rangeOffset || 0) === 0;
+    const showTime = !!text(item.time || item.t) && (!range || text(item._calendarDate) === text(item._rangeEnd));
+    return <><span>{showTitle ? itemTitle(item, fallback) : '\u00A0'}</span>{showTime && <b>{formatTime(text(item.time || item.t))}</b>}</>;
+  };
   const activeDate = new Date(`${calDate}T00:00:00`);
+  const today = todayKey();
   const gridStart = new Date(activeDate.getFullYear(), activeDate.getMonth(), 1);
   gridStart.setDate(gridStart.getDate() - gridStart.getDay());
   const label = `${activeDate.getFullYear()}년 ${activeDate.getMonth() + 1}월`;
@@ -1454,14 +1779,16 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     if (calView === 'day') setCalDate(addDaysKey(calDate, direction));
   };
   const itemsFor = (date: string) => {
-    const matched = calendarItems.filter((item) => text(item.date || item.startDate || item.day) === date);
+    const matched = expandedCalendarItems
+      .filter((item) => text(item._calendarDate) === date)
+      .sort((a, b) => Number(b._rangeLength || 1) - Number(a._rangeLength || 1) || text(a._rangeStart).localeCompare(text(b._rangeStart)));
     return matched.slice(0, 4);
   };
   const cells = Array.from({ length: 35 }, (_, index) => {
     const dateValue = new Date(gridStart);
     dateValue.setDate(gridStart.getDate() + index);
     const date = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(dateValue);
-    return { day: dateValue.getDate(), date, inMonth: dateValue.getMonth() === activeDate.getMonth(), today: date === DESIGN_TODAY, selected: date === calDate, items: itemsFor(date) };
+    return { day: dateValue.getDate(), date, inMonth: dateValue.getMonth() === activeDate.getMonth(), today: date === today, selected: date === calDate, items: itemsFor(date) };
   });
   const weekStart = new Date(`${calDate}T00:00:00`);
   weekStart.setDate(weekStart.getDate() - weekStart.getDay());
@@ -1469,7 +1796,7 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     const dateValue = new Date(weekStart);
     dateValue.setDate(weekStart.getDate() + index);
     const date = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(dateValue);
-    return { date, day: dateValue.getDate(), today: date === DESIGN_TODAY, selected: date === calDate, weekday: weekdays[dateValue.getDay()], items: itemsFor(date).slice(0, 5) };
+    return { date, day: dateValue.getDate(), today: date === today, selected: date === calDate, weekday: weekdays[dateValue.getDay()], items: itemsFor(date).slice(0, 5) };
   });
   const dayDate = calDate;
   const dayDateObj = new Date(`${dayDate}T00:00:00`);
@@ -1482,19 +1809,19 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
   });
   const allDayItems = dayItems.filter((item) => !text(item.time));
   return <div className="calendar screen-in">
-    <div className="screen-toolbar"><h2>{label}</h2><Legend /><Segment items={['월', '주', '일']} active={calView} setActive={(value) => setCalView(value as 'month' | 'week' | 'day')} values={['month', 'week', 'day']} /><button onClick={() => { setCalDate(DESIGN_TODAY); setPlacingTaskId(''); }}>오늘</button><button onClick={() => shiftCalendar(-1)}>‹</button><button onClick={() => shiftCalendar(1)}>›</button></div>
+    <div className="screen-toolbar"><h2>{label}</h2><Legend /><Segment items={['월', '주', '일']} active={calView} setActive={(value) => setCalView(value as 'month' | 'week' | 'day')} values={['month', 'week', 'day']} /><button onClick={() => { setCalDate(todayKey()); setPlacingTaskId(''); }}>오늘</button><button onClick={() => shiftCalendar(-1)}>‹</button><button onClick={() => shiftCalendar(1)}>›</button></div>
     {calView === 'month' && <div className="month-grid">
       {weekdays.map((day) => <div className="weekday" key={day}>{day}</div>)}
       {cells.map((cell) => <button className="day-cell" data-muted={!cell.inMonth} data-today={cell.today} data-selected={cell.selected} key={cell.date} onClick={() => openNewTask(cell.date)}>
         <strong onClick={(event) => { event.stopPropagation(); setCalDate(cell.date); setCalView('day'); }}>{cell.day}</strong>
-        {cell.items.map((item, index) => <span className={`event-pill owner-${taskOwner(item).toLowerCase()} ${isCalendarEventRecord(item) ? 'calendar-event-pill' : 'scheduled-task-pill'}`} key={`${cell.day}-${index}`} onClick={(event) => { event.stopPropagation(); openTask(item); }}>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</span>)}
+        {cell.items.map((item, index) => <span className={`event-pill ${calendarItemClass(item)}`} key={`${cell.day}-${index}`} onClick={(event) => { event.stopPropagation(); openTask(item); }}>{calendarPillContent(item, isCalendarEventRecord(item) ? '일정' : '작업')}</span>)}
       </button>)}
     </div>}
     {calView === 'week' && <div className="week-grid">
       {weekCells.map((cell) => <section className="week-col" data-today={cell.today} data-selected={cell.selected} key={cell.date}>
         <button className="week-head" onClick={() => { setCalDate(cell.date); setCalView('day'); }}><span>{cell.weekday}</span><strong>{cell.day}</strong></button>
         <div className="week-events" onClick={() => openNewTask(cell.date)}>
-          {cell.items.map((item, index) => <button className={`week-event owner-${taskOwner(item).toLowerCase()} ${isCalendarEventRecord(item) ? 'calendar-event-pill' : 'scheduled-task-pill'}`} key={`${cell.date}-${index}`} onClick={(event) => { event.stopPropagation(); openTask(item); }}><small>{text(item.time || item.t, index % 2 ? '오후 2:00' : '오전 9:00')}</small>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</button>)}
+          {cell.items.map((item, index) => <button className={`week-event ${calendarItemClass(item)}`} key={`${cell.date}-${index}`} onClick={(event) => { event.stopPropagation(); openTask(item); }}><small>{text(item.time || item.t, index % 2 ? '오후 2:00' : '오전 9:00')}</small>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</button>)}
         </div>
       </section>)}
     </div>}
@@ -1509,13 +1836,13 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
           }
         }}>
           <span>{formatTime(row.time).replace(':00', '시')}</span>
-          <div>{row.items.map((item, index) => <em className={`owner-${taskOwner(item).toLowerCase()} ${isCalendarEventRecord(item) ? 'calendar-event-pill' : 'scheduled-task-pill'}`} key={`${row.time}-${index}`} onClick={(event) => { event.stopPropagation(); openTask(item); }}><b>{formatTime(text(item.time || item.t, row.time))}</b> {itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</em>)}</div>
+          <div>{row.items.map((item, index) => <em className={calendarItemClass(item)} key={`${row.time}-${index}`} onClick={(event) => { event.stopPropagation(); openTask(item); }}><b>{formatTime(text(item.time || item.t, row.time))}</b> {itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</em>)}</div>
         </button>)}
       </div>
       <aside className="day-side">
         <h3>{dayDateObj.getMonth() + 1}월 {dayDateObj.getDate()}일 ({weekdays[dayDateObj.getDay()]})</h3>
         <p>{placingTask ? `"${itemTitle(placingTask, '작업')}" 배치할 시간 슬롯을 선택하세요` : <>하루 종일 · 시간 미지정 <span>· "시간 잡기"로 타임블록</span></>}</p>
-        {allDayItems.slice(0, 4).map((item, index) => <div className="day-all-day" data-event={isCalendarEventRecord(item)} role="button" tabIndex={0} key={index} onClick={() => openTask(item)} onKeyDown={(event) => { if (event.key === 'Enter') openTask(item); }}>
+        {allDayItems.slice(0, 4).map((item, index) => <div className="day-all-day" data-event={isCalendarEventRecord(item)} data-done={isDone(item)} role="button" tabIndex={0} key={index} onClick={() => openTask(item)} onKeyDown={(event) => { if (event.key === 'Enter') openTask(item); }}>
           {!isCalendarEventRecord(item) && <i onClick={(event) => { event.stopPropagation(); toggleTask(item); }}>{isDone(item) ? '✓' : ''}</i>}<span>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</span>{!isCalendarEventRecord(item) && <b onClick={(event) => { event.stopPropagation(); setPlacingTaskId(itemId(item, `day-${index}`)); }}>⏰ 시간 잡기</b>}
         </div>)}
       </aside>
@@ -1523,7 +1850,7 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
   </div>;
 }
 
-function TodayScreen({ tasks, runs, approvedRunIds, approveRun, quickText, setQuickText, submitQuick, openTask, toggleTask, patchTask, openRun }: { tasks: Item[]; runs: Item[]; approvedRunIds: Record<string, true>; approveRun: (run: Item) => void; quickText: string; setQuickText: (value: string) => void; submitQuick: () => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; patchTask: (task: Item, patch: Item) => void; openRun: (run?: Item) => void }) {
+function TodayScreen({ tasks, runs, approveRun, quickText, setQuickText, submitQuick, openTask, toggleTask, patchTask, openRun }: { tasks: Item[]; runs: Item[]; approveRun: (run: Item) => void; quickText: string; setQuickText: (value: string) => void; submitQuick: () => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; patchTask: (task: Item, patch: Item) => void; openRun: (run?: Item) => void }) {
   const today = todayKey();
   const tomorrow = addDaysKey(today, 1);
   const active = tasks.filter((task) => !isDone(task));
@@ -1532,7 +1859,7 @@ function TodayScreen({ tasks, runs, approvedRunIds, approveRun, quickText, setQu
     const date = text(task.date);
     return date && date < today;
   }).slice(0, 4);
-  const reviewRuns = runs.filter((run, index) => /done|완료|review|검토/i.test(text(run.status)) && !approvedRunIds[itemId(run, `run-${index}`)]).slice(0, 3);
+  const reviewRuns = runs.filter((run) => /done|완료|review|검토/i.test(text(run.status)) && !/approved|승인/i.test(text(run.status))).slice(0, 3);
   const suggestions = active.filter((task) => !text(task.date)).slice(0, 3);
   const stats = [
     ['지연', overdue.length, overdue.length ? '#C0533B' : '#3E9B72'],
@@ -1604,10 +1931,8 @@ function TaxonomyManager({ item, edit, hide }: { item: TaxonomyItem; edit: (item
 
 function TaxonomyModal({ form, name, setName, groupName, setGroupName, icon, setIcon, close, submit }: { form: { kind: TaxonomyKind; group: string; editing?: TaxonomyItem }; name: string; setName: (value: string) => void; groupName: string; setGroupName: (value: string) => void; icon: string; setIcon: (value: string) => void; close: () => void; submit: () => void }) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [emojiQuery, setEmojiQuery] = useState('');
   const emojiOptions = ['🚀', '⌛', '🏐', '💡', '📁', '📝', '💼', '🏃', '🔷', '💌', '🥺', '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🥶', '🥵'];
   const categoryOptions = form.kind === 'list' ? ['🎓', '🏫', '💵', '🏌️', '📈', '👨‍💼', '🚀', '🥺', '📜', '⌛'] : ['🏷', '🔥', '✅', '⭐', '📌', '💡', '🧠', '⚡'];
-  const filteredEmoji = emojiOptions.filter((emoji) => !emojiQuery || emoji.includes(emojiQuery));
   const title = form.kind === 'list' ? '폴더 편집' : '태그 편집';
   const placeholder = form.kind === 'list' ? '폴더 이름' : '태그 이름';
   return <div className="modal-backdrop taxonomy-backdrop" onMouseDown={close}>
@@ -1622,10 +1947,8 @@ function TaxonomyModal({ form, name, setName, groupName, setGroupName, icon, set
         <input value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submit(); }} placeholder={placeholder} autoFocus />
       </div>
       {pickerOpen && <div className="emoji-picker">
-        <label><span>⌕</span><input value={emojiQuery} onChange={(event) => setEmojiQuery(event.target.value)} placeholder="검색" /></label>
-        <nav>{['🕘', '☺', '🐻', '☕', '⚽', '🏙', '💡', '문자', '🏳'].map((label) => <button key={label}>{label}</button>)}<span /> <button>랜덤</button><button>리셋</button></nav>
         <section><strong>자주 사용됨⌄</strong><div className="emoji-grid">{categoryOptions.map((emoji) => <button data-active={icon === emoji} key={`cat-${emoji}`} onClick={() => { setIcon(emoji); setPickerOpen(false); }}>{emoji}</button>)}</div></section>
-        <section><strong>인물 &amp; 몸체⌄</strong><div className="emoji-grid">{filteredEmoji.map((emoji) => <button data-active={icon === emoji} key={emoji} onClick={() => { setIcon(emoji); setPickerOpen(false); }}>{emoji}</button>)}</div></section>
+        <section><strong>인물 &amp; 몸체⌄</strong><div className="emoji-grid">{emojiOptions.map((emoji) => <button data-active={icon === emoji} key={emoji} onClick={() => { setIcon(emoji); setPickerOpen(false); }}>{emoji}</button>)}</div></section>
       </div>}
       <input className="taxonomy-group-input" value={groupName} onChange={(event) => setGroupName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submit(); }} placeholder={form.kind === 'list' ? '리스트 그룹' : '태그 그룹'} />
       <footer>
@@ -1637,7 +1960,7 @@ function TaxonomyModal({ form, name, setName, groupName, setGroupName, icon, set
   </div>;
 }
 
-function TaskListScreen({ tasks, quickText, setQuickText, submitQuick, applyRepeatTemplate, openTask, toggleTask, patchTask, completingTaskIds }: { tasks: Item[]; quickText: string; setQuickText: (value: string) => void; submitQuick: () => void; applyRepeatTemplate: (label: string) => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; patchTask: (task: Item, patch: Item) => void; completingTaskIds: Record<string, true> }) {
+function TaskListScreen({ tasks, quickText, setQuickText, submitQuick, applyRepeatTemplate, openTask, toggleTask, patchTask }: { tasks: Item[]; quickText: string; setQuickText: (value: string) => void; submitQuick: () => void; applyRepeatTemplate: (label: string) => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; patchTask: (task: Item, patch: Item) => void }) {
   const [inspectorTaskId, setInspectorTaskId] = useState('');
   const parsed = quickText ? parseQuick(quickText) : null;
   const active = tasks.filter((task) => !isDone(task));
@@ -1654,10 +1977,10 @@ function TaskListScreen({ tasks, quickText, setQuickText, submitQuick, applyRepe
   }, [selectedTask, tasks]);
   const renderRows = (rows: Item[], prefix: string) => rows.map((task, index) => {
     const id = itemId(task, `${prefix}-${index}`);
-    return <TaskRow key={id} task={task} selected={selectedId === id || (!selectedId && index === 0)} selectTask={() => setInspectorTaskId(id)} openTask={openTask} toggleTask={toggleTask} completing={!!completingTaskIds[id]} />;
+    return <TaskRow key={id} task={task} selected={selectedId === id || (!selectedId && index === 0)} selectTask={() => setInspectorTaskId(id)} openTask={openTask} toggleTask={toggleTask} />;
   });
   const postponeOverdue = () => overdue.forEach((task) => patchTask(task, { date: todayKey() }));
-  return <div className="list-screen ticktick-list-screen screen-in">
+  return <div className="list-screen task-list-screen screen-in">
     <section className="task-list-main">
       <div className="quick-row list-quick"><span>+</span><input value={quickText} onChange={(event) => setQuickText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submitQuick(); }} placeholder="할 일 추가  ·  예: 내일 오후3시 롯데리아 #업무 !높음 매주 @hermes" /><button onClick={submitQuick}>추가</button></div>
       {parsed && quickText.trim() && <div className="quick-preview">{parsed.date && <span>📅 {parsed.date}</span>}{parsed.time && <span>🕑 {parsed.time}</span>}{parsed.repeat !== 'none' && <span>⟳ {parsed.repeat}</span>}{parsed.priority && <span>⚑ {parsed.priority}</span>}{parsed.tags.map((tag) => <span key={tag}>#{tag}</span>)}{parsed.owner === 'Agent' && <span>🤖 에이전트</span>}</div>}
@@ -1668,20 +1991,20 @@ function TaskListScreen({ tasks, quickText, setQuickText, submitQuick, applyRepe
       {!active.length && <div className="task-empty">표시할 작업이 없습니다 · 위에서 추가하세요</div>}
       {!!completed.length && <details className="completed-block"><summary>완료됨 {completed.length}</summary><div className="rows task-rows">{completed.map((task, index) => {
         const id = itemId(task, `done-${index}`);
-        return <TaskRow key={id} task={task} selected={selectedId === id} selectTask={() => setInspectorTaskId(id)} openTask={openTask} toggleTask={toggleTask} completing={false} />;
+        return <TaskRow key={id} task={task} selected={selectedId === id} selectTask={() => setInspectorTaskId(id)} openTask={openTask} toggleTask={toggleTask} />;
       })}</div></details>}
     </section>
-    <TaskInspectorPane task={selectedTask} patchTask={patchTask} toggleTask={toggleTask} openTask={openTask} close={() => setInspectorTaskId('')} />
+    <TaskInspectorPane key={selectedId} task={selectedTask} patchTask={patchTask} toggleTask={toggleTask} openTask={openTask} close={() => setInspectorTaskId('')} />
   </div>;
 }
 
-function TaskRow({ task, selected, selectTask, openTask, toggleTask, completing }: { task: Item; selected: boolean; selectTask: () => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; completing: boolean }) {
+function TaskRow({ task, selected, selectTask, openTask, toggleTask }: { task: Item; selected: boolean; selectTask: () => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void }) {
   const tags = Array.isArray(task.tags) ? task.tags.map(String) : text(task.tags).split(',').filter(Boolean);
   const owner = taskOwner(task);
   const priority = text(task.priority || task.pri);
   const due = text(task.date);
-  return <button className="row task-row" data-active={selected} data-done={isDone(task)} data-completing={completing} onClick={selectTask} onDoubleClick={() => openTask(task)}>
-    <i onClick={(event) => { event.stopPropagation(); toggleTask(task); }}>{isDone(task) || completing ? '✓' : ''}</i>
+  return <button className="row task-row" data-active={selected} data-done={isDone(task)} onClick={selectTask} onDoubleClick={() => openTask(task)}>
+    <i onClick={(event) => { event.stopPropagation(); toggleTask(task); }}>{isDone(task) ? '✓' : ''}</i>
     <span className="task-copy">
       <b>{itemTitle(task, '작업')}</b>{text(task.repeat) && text(task.repeat) !== 'none' && <em title="반복">⟳</em>}
       <small className="task-meta">
@@ -1707,14 +2030,14 @@ function TaskInspectorPane({ task, patchTask, toggleTask, openTask, close }: { t
       <button className="flag" data-active={!!text(task.priority)}>⚑</button>
       <button className="close" onClick={close}>×</button>
     </header>
-    <input className="inspector-title" value={itemTitle(task, '')} onChange={(event) => patchTask(task, { title: event.target.value })} placeholder="제목 없음" />
+    <input className="inspector-title" defaultValue={itemTitle(task, '')} onBlur={(event) => patchTask(task, { title: event.target.value })} placeholder="제목 없음" />
     <div className="inspector-meta">
       <button onClick={() => openTask(task)}>전체 편집</button>
       <span>{text(task.category || task.project || task.source || task.list, '기본함')}</span>
       {owner !== 'Me' && <span>{owner}</span>}
       {tags.map((tag) => <span key={tag}>#{tag}</span>)}
     </div>
-    <textarea value={text(task.notes || task.description)} onChange={(event) => patchTask(task, { notes: event.target.value })} placeholder="메모 추가" />
+    <textarea defaultValue={text(task.notes || task.description)} onBlur={(event) => patchTask(task, { notes: event.target.value })} placeholder="메모 추가" />
     <section className="subtask-box">
       <strong>0 완료된 할일</strong>
       <button>＋ 하위 할일 추가</button>
@@ -1759,7 +2082,7 @@ function KanbanScreen({ tasks, openTask }: { tasks: Item[]; openTask: (task: Ite
   </div>;
 }
 
-function MailScreen({ inbox, activeMailId, setActiveMailId, taskAdded, addTaskFromMail, archiveMail, delegateMail, toggleStar, gmailEmail, setGmailEmail, gmailPassword, setGmailPassword, mailSyncing, mailStatus, connectGmail }: { inbox: Item[]; activeMailId: string; setActiveMailId: (id: string) => void; taskAdded: Record<string, true>; addTaskFromMail: (mail: Item) => void; archiveMail: (mail: Item) => void; delegateMail: (mail: Item, reply?: boolean) => void; toggleStar: (mail: Item) => void; gmailEmail: string; setGmailEmail: (value: string) => void; gmailPassword: string; setGmailPassword: (value: string) => void; mailSyncing: boolean; mailStatus: string; connectGmail: () => void }) {
+function MailScreen({ inbox, activeMailId, setActiveMailId, addTaskFromMail, archiveMail, delegateMail, toggleStar, gmailEmail, setGmailEmail, gmailPassword, setGmailPassword, mailSyncing, mailStatus, connectGmail }: { inbox: Item[]; activeMailId: string; setActiveMailId: (id: string) => void; addTaskFromMail: (mail: Item) => void; archiveMail: (mail: Item) => void; delegateMail: (mail: Item, reply?: boolean) => void; toggleStar: (mail: Item) => void; gmailEmail: string; setGmailEmail: (value: string) => void; gmailPassword: string; setGmailPassword: (value: string) => void; mailSyncing: boolean; mailStatus: string; connectGmail: () => void }) {
   const items = inbox;
   const active = items.find((mail, index) => itemId(mail, `mail-${index}`) === activeMailId) || items[0];
   const activeId = itemId(active || {}, '');
@@ -1801,7 +2124,7 @@ function MailScreen({ inbox, activeMailId, setActiveMailId, taskAdded, addTaskFr
           <footer><span className="mail-avatar large">{avatar(active)}</span><span><b>{text(active.from || active.sender || active.sourceLabel, 'Hermes')}</b><small>{text(active.email || active.addr || active.address, 'hermes@local')}</small></span><time>{text(active.time || active.createdAt, '방금')}</time></footer>
         </section>
         <div className="action-row mail-actions">
-          {taskAdded[activeId] ? <span>✓ 기본함에 추가됨</span> : <button onClick={() => addTaskFromMail(active)}>⊕ 작업으로 추가</button>}
+          <button onClick={() => addTaskFromMail(active)}>⊕ 작업으로 추가</button>
           <button className="delegate" onClick={() => delegateMail(active)}>⚡ 에이전트에 위임</button>
           <button onClick={() => delegateMail(active, true)}>✦ 답장 초안</button>
           <button className="archive" onClick={() => archiveMail(active)}>보관</button>
@@ -1812,7 +2135,7 @@ function MailScreen({ inbox, activeMailId, setActiveMailId, taskAdded, addTaskFr
   </div>;
 }
 
-function NotesScreen({ docs, activeNoteId, setActiveNoteId, patchNote, newNote }: { docs: Item[]; activeNoteId: string; setActiveNoteId: (id: string) => void; patchNote: (doc: Item, patch: Item) => void; newNote: () => void }) {
+function NotesScreen({ docs, activeNoteId, setActiveNoteId, newNote }: { docs: Item[]; activeNoteId: string; setActiveNoteId: (id: string) => void; newNote: () => void }) {
   const active = docs.find((doc, index) => itemId(doc, `note-${index}`) === activeNoteId) || docs[0];
   return <div className="notes-editor screen-in">
     <aside className="note-list">
@@ -1826,20 +2149,21 @@ function NotesScreen({ docs, activeNoteId, setActiveNoteId, patchNote, newNote }
       })}</div>
     </aside>
     <section className="note-editor">
-      {active ? <div><input value={itemTitle(active, '')} onChange={(event) => patchNote(active, { title: event.target.value })} placeholder="제목 없음" /><small>{text(active.date || active.updated || active.tag, '방금 수정')}</small><textarea value={text(active.body || active.summary || active.extract || active.excerpt)} onChange={(event) => patchNote(active, { body: event.target.value })} placeholder="여기에 생각을 적어보세요…" /></div> : <p>메모를 선택하세요</p>}
+      {active ? <div><input value={itemTitle(active, '')} readOnly placeholder="제목 없음" /><small>{text(active.date || active.updated || active.tag, '방금 수정')}</small><textarea value={text(active.body || active.summary || active.extract || active.excerpt)} readOnly placeholder="백엔드에 저장된 노트를 선택하세요" /></div> : <p>메모를 선택하세요</p>}
     </section>
   </div>;
 }
 
-function ReviewScreen({ tasks, saveRetro }: { tasks: Item[]; saveRetro: () => void }) {
+function ReviewScreen({ tasks, generateRetroDraft, createReviewGoal, saveRetro }: { tasks: Item[]; generateRetroDraft: (summary: { range: string; done: number; total: number; overdue: number; delegated: number; goals: string[] }) => Promise<string>; createReviewGoal: (title: string) => Promise<void>; saveRetro: (body: string) => void }) {
   const done = tasks.filter(isDone).length;
   const [goalInput, setGoalInput] = useState('');
-  const [goals, setGoals] = useState([
-    { text: 'UniPort 백로그 정리', done: true },
-    { text: '에이전트 위임 루프 안정화', done: false },
-    { text: '트레이딩 규칙 회고', done: false },
-  ]);
+  const [drafting, setDrafting] = useState(false);
+  const [savingGoal, setSavingGoal] = useState(false);
   const [retro, setRetro] = useState('');
+  const range = weekRangeLabel();
+  const goals = tasks
+    .filter((task) => /goal|objective|목표/i.test(text(task.kind || task.type || task.list || task.category || task.project || (Array.isArray(task.tags) ? task.tags.join(' ') : task.tags))))
+    .map((task) => ({ text: itemTitle(task, '목표'), done: isDone(task) }));
   const overdue = tasks.filter((task) => text(task.date) && text(task.date) < todayKey() && !isDone(task)).length;
   const delegated = tasks.filter((task) => taskOwner(task) === 'Agent' || taskOwner(task) === 'Hybrid').length;
   const kpis = [
@@ -1848,27 +2172,50 @@ function ReviewScreen({ tasks, saveRetro }: { tasks: Item[]; saveRetro: () => vo
     ['지연', overdue, '정리 필요', '#C0533B'],
     ['위임', delegated, '에이전트', '#3E7A52'],
   ];
-  const addGoal = () => {
+  const addGoal = async () => {
     const value = goalInput.trim();
-    if (!value) return;
-    setGoals((current) => [...current, { text: value, done: false }]);
-    setGoalInput('');
+    if (!value || savingGoal) return;
+    setSavingGoal(true);
+    try {
+      await createReviewGoal(value);
+      setGoalInput('');
+    } finally {
+      setSavingGoal(false);
+    }
   };
-  const generateRetro = () => setRetro(`📅 2026.06.23 - 2026.06.29 주간 회고\n\n이번 주에는 ${done}개의 작업을 완료했고, 에이전트에 ${delegated}건을 위임했습니다.\n\n좋았던 점\n· 반복되는 정리 작업을 Hermes에게 넘겨 실행 시간을 줄였습니다.\n· 위키와 캘린더에 작업 맥락이 남기 시작했습니다.\n\n다음 주 개선\n· 지연된 작업 ${overdue}건을 먼저 정리하고, 계획 없는 기본함 항목을 오늘/다음 7일로 옮깁니다.`);
+  const generateRetro = async () => {
+    if (drafting) return;
+    setDrafting(true);
+    try {
+      const draft = await generateRetroDraft({
+        range,
+        done,
+        total: tasks.length,
+        overdue,
+        delegated,
+        goals: goals.map((goal) => `${goal.done ? '[완료]' : '[진행]'} ${goal.text}`),
+      });
+      setRetro(draft || '백엔드 회고 생성 결과가 비어 있습니다.');
+    } catch (error) {
+      setRetro(error instanceof Error ? `회고 생성 실패: ${error.message}` : '회고 생성 실패');
+    } finally {
+      setDrafting(false);
+    }
+  };
   return <div className="review-screen screen-in">
-    <p className="review-range">2026.06.23 - 2026.06.29 · 이번 주 목표와 KPI를 점검하고 회고를 남기세요.</p>
+    <p className="review-range">{range} · 이번 주 목표와 KPI를 점검하고 회고를 남기세요.</p>
     <div className="review-kpis">{kpis.map(([label, value, sub, color]) => <div key={String(label)}><span>{label}</span><strong style={{ color: String(color) }}>{value}</strong><small>{sub}</small></div>)}</div>
     <section className="review-goals">
       <h2>🎯 이번 주 목표</h2>
       <div>
-        {goals.map((goal, index) => <button className="review-goal" data-done={goal.done} key={`${goal.text}-${index}`} onClick={() => setGoals((current) => current.map((entry, goalIndex) => goalIndex === index ? { ...entry, done: !entry.done } : entry))}>
+        {goals.map((goal, index) => <button className="review-goal" data-done={goal.done} key={`${goal.text}-${index}`}>
           <i>{goal.done ? '✓' : ''}</i><span>{goal.text}</span>
         </button>)}
-        <label className="review-add"><span>+</span><input value={goalInput} onChange={(event) => setGoalInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addGoal(); }} placeholder="목표 추가" /></label>
+        <label className="review-add"><span>+</span><input value={goalInput} disabled={savingGoal} onChange={(event) => setGoalInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addGoal(); }} placeholder={savingGoal ? '저장 중' : '목표 추가'} /></label>
       </div>
     </section>
     <section className="review-retro">
-      <header><h2>📝 주간 회고</h2><span /><button className="primary" onClick={generateRetro}>자동 생성</button>{retro && <button onClick={saveRetro}>위키에 저장</button>}</header>
+      <header><h2>📝 주간 회고</h2><span /><button className="primary" onClick={generateRetro} disabled={drafting}>{drafting ? '생성 중' : '자동 생성'}</button>{retro && <button onClick={() => saveRetro(retro)}>위키에 저장</button>}</header>
       {retro && <article>{retro}</article>}
     </section>
   </div>;
@@ -1910,15 +2257,13 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
   const [graphZoom, setGraphZoom] = useState(1);
   const [graphPan, setGraphPan] = useState({ x: 0, y: 0 });
   const [graphPanning, setGraphPanning] = useState(false);
+  const [openTreeGroups, setOpenTreeGroups] = useState<Set<string>>(() => new Set());
   const graphDragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const graph = obj(wiki, 'graph');
   const graphNodesRaw = arr(graph, 'nodes');
   const graphEdges = arr(graph, 'edges');
   const wikiNotes = arr(wiki, 'notes').length ? arr(wiki, 'notes') : (arr(wiki, 'documents').length ? arr(wiki, 'documents') : docs);
-  const list = wikiNotes.length ? wikiNotes : [
-    { id: 'wiki-local', title: '헤르메스 에이전트 운영 노트', body: '맥북=Codex, 맥미니=Claude, 웹=GPT. 위임 → 런 생성 → write-back → 검토 루프.', tag: '업무', kind: 'doc', date: todayKey() },
-    { id: 'wiki-local-2', title: '일기 · 6월 28일', body: 'UniPort 백로그를 에이전트에 넘기고 나니 머리가 조금 비었다.', tag: '일기', kind: 'diary', date: '2026-06-28' },
-  ];
+  const list = wikiNotes;
   const selectedFromApi = wikiDetail(wiki);
   const activeBase = list.find((node, index) => itemId(node, `wiki-${index}`) === activeWikiId || text(node.path) === activeWikiId) || (Object.keys(selectedFromApi).length ? selectedFromApi : list[0]);
   const activePath = text(activeBase?.path || activeBase?.id || activeWikiId);
@@ -1976,6 +2321,14 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
   const resetGraphView = () => {
     setGraphZoom(1);
     setGraphPan({ x: 0, y: 0 });
+  };
+  const toggleTreeGroup = (tag: string) => {
+    setOpenTreeGroups((current) => {
+      const next = new Set(current);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return next;
+    });
   };
   const graphPoint = (event: { currentTarget: HTMLElement | SVGSVGElement; clientX: number; clientY: number }) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -2056,12 +2409,23 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
       </section>
       <aside className="wiki-side">
         <label><span>⌕</span><input placeholder="위키 내용 검색" /></label>
-        <div className="tree"><h3>트리 구조</h3>{docGroups.map((group) => <section key={group.tag}><h4><span style={{ background: colors[group.tag] || colors.기타 }} />{group.tag}<small>{group.docs.length}</small></h4>{group.docs.map((node, index) => {
-          const originalIndex = list.findIndex((entry) => entry === node || itemId(entry, '') === itemId(node, ''));
-          const id = itemId(node, `wiki-${originalIndex >= 0 ? originalIndex : index}`);
-          const path = text(node.path || id, id);
-          return <button data-active={path === activePath || id === activePath} key={id} onClick={() => { setActiveWikiId(path); setReaderOpen(true); }}><span>{text(node.kind) === 'diary' ? '📔' : '📄'} {itemTitle(node, 'Wiki 문서')}</span><small>{text(node.updatedAt || node.updated || node.date || node.path, '최근')}</small></button>;
-        })}</section>)}</div>
+        <div className="tree"><h3>트리 구조</h3>{docGroups.map((group) => {
+          const isOpen = openTreeGroups.has(group.tag);
+          return <section key={group.tag} data-open={isOpen}>
+            <button className="tree-group-toggle" aria-expanded={isOpen} onClick={() => toggleTreeGroup(group.tag)}>
+              <span className="tree-caret">{isOpen ? '▾' : '▸'}</span>
+              <b style={{ background: colors[group.tag] || colors.기타 }} />
+              <strong>{group.tag}</strong>
+              <small>{group.docs.length}</small>
+            </button>
+            {isOpen && group.docs.map((node, index) => {
+              const originalIndex = list.findIndex((entry) => entry === node || itemId(entry, '') === itemId(node, ''));
+              const id = itemId(node, `wiki-${originalIndex >= 0 ? originalIndex : index}`);
+              const path = text(node.path || id, id);
+              return <button data-active={path === activePath || id === activePath} key={id} onClick={() => { setActiveWikiId(path); setReaderOpen(true); }}><span>{text(node.kind) === 'diary' ? '📔' : '📄'} {itemTitle(node, 'Wiki 문서')}</span><small>{text(node.updatedAt || node.updated || node.date || node.path, '최근')}</small></button>;
+            })}
+          </section>;
+        })}</div>
       </aside>
     </div>
   </div>;
@@ -2069,10 +2433,7 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
 
 function DiaryScreen({ docs, diaryText, setDiaryText, diaryMood, setDiaryMood, saveDiary }: { docs: Item[]; diaryText: string; setDiaryText: (value: string) => void; diaryMood: string; setDiaryMood: (value: string) => void; saveDiary: () => void }) {
   const diaryDocs = docs.filter((doc) => text(doc.kind).toLowerCase() === 'diary' || itemTitle(doc).includes('일기'));
-  const past = diaryDocs.length ? diaryDocs : [
-    { id: 'diary-seed-1', title: '일기 · 6월 28일', body: 'UniPort 백로그를 에이전트에 넘기고 나니 머리가 조금 비었다.', date: '2026-06-28' },
-    { id: 'diary-seed-2', title: '일기 · 6월 24일', body: '헤르메스 에이전트 운영 노트를 정리했다.', date: '2026-06-24' },
-  ];
+  const past = diaryDocs;
   const prompts = ['오늘 가장 기억에 남는 일은?', '무엇을 배웠나?', '내일은 무엇을 다르게?', '감사한 것 3가지'];
   const stats = [
     ['🔥', '연속 기록', `${Math.max(1, diaryDocs.length)}일`],
@@ -2179,16 +2540,16 @@ function AgentsScreen({ agents, runs, missionText, setMissionText, selectedAgent
   </div>;
 }
 
-function SettingsScreen({ settings, setSettings, refresh }: { settings: { apiBaseUrl: string; hasApiToken: boolean; theme: string }; setSettings: (settings: { apiBaseUrl: string; hasApiToken: boolean; theme: string }) => void; refresh: () => Promise<void> }) {
+function SettingsScreen({ settings, setSettings, refresh }: { settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void> }) {
   const [apiBaseUrl, setApiBaseUrlInput] = useState(settings.apiBaseUrl);
   const [apiToken, setApiToken] = useState('');
-  const [theme, setTheme] = useState(settings.theme);
+  const [theme, setTheme] = useState<DesktopTheme>(settings.theme);
   async function save() {
-    const next = await window.hermesDesktop?.saveSettings({ apiBaseUrl, apiToken, theme: theme as HermesDesktopSettings['theme'] });
-    if (next) setSettings(next);
+    const next = await window.hermesDesktop?.saveSettings({ apiBaseUrl, apiToken, theme });
+    if (next) setSettings(desktopSettingsState(next));
     await refresh();
   }
-  return <div className="settings screen-in"><Panel title="Railway API"><label>API Base URL<input value={apiBaseUrl} onChange={(event) => setApiBaseUrlInput(event.target.value)} /></label><label>Bearer Token<input type="password" value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder={settings.hasApiToken ? '저장됨 · 새 값 입력 시 교체' : '선택 사항'} /></label><button onClick={() => void save()}>저장하고 재연결</button></Panel><Panel title="테마"><div className="theme-row">{['default', 'warm', 'dark', 'sage', 'mono'].map((item) => <button data-active={theme === item} key={item} onClick={() => setTheme(item)}>{item}</button>)}</div></Panel></div>;
+  return <div className="settings screen-in"><Panel title="Railway API"><label>API Base URL<input value={apiBaseUrl} onChange={(event) => setApiBaseUrlInput(event.target.value)} /></label><label>Bearer Token<input type="password" value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder={settings.hasApiToken ? '저장됨 · 새 값 입력 시 교체' : '선택 사항'} /></label><button onClick={() => void save()}>저장하고 재연결</button></Panel><Panel title="테마"><div className="theme-row">{(['default', 'warm', 'dark', 'sage', 'mono'] as DesktopTheme[]).map((item) => <button data-active={theme === item} key={item} onClick={() => setTheme(item)}>{item}</button>)}</div></Panel></div>;
 }
 
 function LoginScreen() {
@@ -2231,84 +2592,109 @@ function ChatDrawer({ messages, input, setInput, send, runs, setChip, close, ope
   </aside>;
 }
 
-function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, newTask, createTask, lists, tags, agents, runs, selectedRun, selectedTask, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, delegateText, setDelegateText, delegateAgentId, setDelegateAgentId, startPlan, planDraft, approvePlan, openRunArtifact, newAgentName, setNewAgentName, newAgentRole, setNewAgentRole, newAgentEmoji, setNewAgentEmoji, createAgent, settings, setSettings, refresh, loggedIn, setLoggedIn, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, setPrefs }: { modal: ModalId; setModal: (modal: ModalId) => void; newTitle: string; setNewTitle: (value: string) => void; newDesc: string; setNewDesc: (value: string) => void; newTask: NewTaskControls; createTask: () => Promise<void>; lists: TaxonomyItem[]; tags: TaxonomyItem[]; agents: Item[]; runs: Item[]; selectedRun?: Item; selectedTask?: Item; patchTask: (task: Item, patch: Item) => void; patchCalendarEvent: (task: Item, patch: Item) => void; removeTask: (task: Item) => void; removeCalendarEvent: (task: Item) => void; toggleTask: (task: Item) => void; delegateText: string; setDelegateText: (value: string) => void; delegateAgentId: string; setDelegateAgentId: (value: string) => void; startPlan: () => void; planDraft: Item | null; approvePlan: () => void; openRunArtifact: (run?: Item) => void; newAgentName: string; setNewAgentName: (value: string) => void; newAgentRole: string; setNewAgentRole: (value: string) => void; newAgentEmoji: string; setNewAgentEmoji: (value: string) => void; createAgent: () => void; settings: { apiBaseUrl: string; hasApiToken: boolean; theme: string }; setSettings: (settings: { apiBaseUrl: string; hasApiToken: boolean; theme: string }) => void; refresh: () => Promise<void>; loggedIn: boolean; setLoggedIn: (value: boolean) => void; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: { notify: boolean; agentShare: boolean; weekStartMon: boolean }; setPrefs: (value: { notify: boolean; agentShare: boolean; weekStartMon: boolean }) => void }) {
+function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, close, delegate }: { selectedTask: Item; lists: TaxonomyItem[]; patchTask: (task: Item, patch: Item) => void; patchCalendarEvent: (task: Item, patch: Item) => void; removeTask: (task: Item) => void; removeCalendarEvent: (task: Item) => void; toggleTask: (task: Item) => void; close: () => void; delegate: () => void }) {
+  const isEvent = isCalendarEventRecord(selectedTask);
+  const patchItem = isEvent ? patchCalendarEvent : patchTask;
+  const removeItem = isEvent ? removeCalendarEvent : removeTask;
+  const calendar = calendarMetadata(selectedTask);
+  const startDate = text(selectedTask.date || selectedTask.startDate || selectedTask.day, todayKey());
+  const startTime = text(selectedTask.time || selectedTask.t);
+  const endDate = calendar.endDate || startDate;
+  const endTime = calendar.endTime;
+  const hasDuration = Boolean(endTime || (calendar.endDate && calendar.endDate !== startDate));
+  const [dateOpen, setDateOpen] = useState(false);
+  const [dateMode, setDateMode] = useState<'date' | 'duration'>(() => (hasDuration ? 'duration' : 'date'));
+  const repeat = calendar.repeat || text(selectedTask.repeat, 'none');
+  const allDay = calendar.allDay;
+  const listOptions = lists.length ? lists : [{ id: 'inbox', label: '기본함', icon: '📥', group: '리스트', kind: 'list' as TaxonomyKind }];
+  const currentList = slugify(taskListName(selectedTask) || '기본함');
+  const activeList = listOptions.find((option) => currentList === slugify(option.label) || currentList === slugify(option.id)) || listOptions[0];
+  const pickerBase = new Date(`${startDate || todayKey()}T00:00:00`);
+  const [pickerMonth, setPickerMonth] = useState(() => new Date(pickerBase.getFullYear(), pickerBase.getMonth(), 1));
+  const pickerStart = new Date(pickerMonth.getFullYear(), pickerMonth.getMonth(), 1);
+  pickerStart.setDate(1 - pickerStart.getDay());
+  const pickerCells = Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(pickerStart);
+    day.setDate(pickerStart.getDate() + index);
+    const iso = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(day);
+    return { iso, day: day.getDate(), inMonth: day.getMonth() === pickerMonth.getMonth(), selected: iso === startDate };
+  });
+  const dateTitle = (() => {
+    const date = new Date(`${startDate}T00:00:00`);
+    const dayText = Number.isNaN(date.getTime()) ? startDate : `${date.getMonth() + 1}월 ${date.getDate()}일`;
+    const prefix = startDate === todayKey() ? '오늘, ' : '';
+    const timeText = allDay ? '' : startTime ? `, ${formatTime(startTime)}${endTime ? ` - ${formatTime(endTime)}` : ''}` : '';
+    return `${prefix}${dayText}${timeText}`;
+  })();
+  const patchDate = (value: string) => patchItem(selectedTask, { date: value, startDate: value });
+  const patchTime = (value: string) => patchItem(selectedTask, { time: value });
+  const patchEnd = (patch: Item) => (isEvent ? patchCalendarEvent(selectedTask, patch) : patchTask(selectedTask, patch));
+  const shiftPickerMonth = (amount: number) => setPickerMonth((current) => new Date(current.getFullYear(), current.getMonth() + amount, 1));
+  const openDateEditor = () => {
+    setDateMode(hasDuration ? 'duration' : 'date');
+    setDateOpen((open) => !open);
+  };
+
+  return <div className="modal-backdrop detail-backdrop" onMouseDown={close}>
+    <div className="detail-modal" onMouseDown={(event) => event.stopPropagation()}>
+      <header className="detail-topline">
+        {!isEvent && <button className="detail-check" data-done={isDone(selectedTask)} onClick={() => toggleTask(selectedTask)} aria-label="완료 토글">{isDone(selectedTask) ? '✓' : ''}</button>}
+        <span className="detail-divider" />
+        <button className="detail-date-trigger" onClick={openDateEditor}><span>▦</span>{dateTitle}</button>
+        <button className="detail-flag" aria-label="우선순위" onClick={() => patchItem(selectedTask, { priority: text(selectedTask.priority) ? '' : 'P1' })}>⚐</button>
+        <button className="detail-close" onClick={close}>✕</button>
+      </header>
+      <main className="detail-compose">
+        <input className="detail-title-input" defaultValue={itemTitle(selectedTask, '')} onBlur={(event) => patchItem(selectedTask, { title: event.target.value })} placeholder="무엇을 하고 싶으신가요?" autoFocus />
+        <textarea className="detail-notes-input" defaultValue={plainCalendarNotes(selectedTask)} onBlur={(event) => patchItem(selectedTask, { notes: event.target.value })} placeholder="설명 또는 메모 추가" />
+      </main>
+      <footer className="detail-bottomline">
+        <button className="detail-list-pill" onClick={() => patchItem(selectedTask, { list: activeList.id, category: activeList.label, project: activeList.label })}><span>▣</span>{activeList.label}</button>
+        <span />
+        <button className="detail-tool" title="서식">A</button>
+        <button className="detail-tool" title="댓글">▣</button>
+        <button className="detail-tool" title="더보기">•••</button>
+        {!isEvent && <button className="detail-tool detail-agent" title="에이전트에 위임" onClick={delegate}>⚡</button>}
+        <button className="detail-delete" onClick={() => { removeItem(selectedTask); close(); }}>삭제</button>
+      </footer>
+      {dateOpen && <div className="detail-date-popover">
+        <div className="detail-date-segment"><button data-active={dateMode === 'date'} onClick={() => setDateMode('date')}>날짜</button><button data-active={dateMode === 'duration'} onClick={() => setDateMode('duration')}>지속 시간</button></div>
+        {dateMode === 'date' ? <>
+          <div className="detail-date-presets"><button>☼</button><button>⌂</button><button>▣<small>+7</small></button><button>☾</button></div>
+          <div className="detail-month-head"><strong>{pickerMonth.getFullYear()}년 {pickerMonth.getMonth() + 1}월</strong><span /><button onClick={() => shiftPickerMonth(-1)}>‹</button><button onClick={() => setPickerMonth(new Date(`${todayKey()}T00:00:00`))}>○</button><button onClick={() => shiftPickerMonth(1)}>›</button></div>
+          <div className="detail-weekdays">{['일', '월', '화', '수', '목', '금', '토'].map((day) => <span key={day}>{day}</span>)}</div>
+          <div className="detail-date-grid">{pickerCells.map((cell) => <button data-muted={!cell.inMonth} data-active={cell.selected} key={cell.iso} onClick={() => patchDate(cell.iso)}>{cell.day}</button>)}</div>
+          <button className="detail-date-row" onClick={() => setDateMode('duration')}><span>◷</span>{startTime ? formatTime(startTime) : '시간 추가'}<b>›</b></button>
+          <button className="detail-date-row"><span>⏰</span>정각에<b>›</b></button>
+          <button className="detail-date-row" onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none' })}><span>↻</span>{repeatLabel(repeat)}<b>›</b></button>
+        </> : <>
+          <div className="duration-grid">
+            <label>시작</label><input defaultValue={startDate} onBlur={(event) => patchDate(event.target.value)} /><input defaultValue={startTime} onBlur={(event) => patchTime(event.target.value)} placeholder="오후 5:00" />
+            <label>끝</label><input defaultValue={endDate} onBlur={(event) => patchEnd({ endDate: event.target.value })} /><input defaultValue={endTime} onBlur={(event) => patchEnd({ endTime: event.target.value })} placeholder="오후 6:00" />
+            <label>전체</label><button className="duration-toggle" data-active={allDay} onClick={() => patchEnd({ allDay: !allDay, time: allDay ? startTime : '' })}><span /></button>
+          </div>
+          <button className="detail-date-row"><span>⏰</span>정각에<b>›</b></button>
+          <button className="detail-date-row" onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none' })}><span>↻</span>{repeatLabel(repeat)}<b>›</b></button>
+        </>}
+        <footer><button onClick={() => { patchDate(''); patchTime(''); patchEnd({ endDate: '', endTime: '', repeat: 'none', allDay: false }); }}>삭제</button><button className="primary" onClick={() => setDateOpen(false)}>확인</button></footer>
+      </div>}
+    </div>
+  </div>;
+}
+
+function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, newTask, createTask, lists, tags, agents, runs, selectedRun, selectedTask, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, delegateText, setDelegateText, delegateAgentId, setDelegateAgentId, startPlan, openRunArtifact, newAgentName, setNewAgentName, newAgentRole, setNewAgentRole, newAgentEmoji, setNewAgentEmoji, createAgent, settings, setSettings, refresh, loggedIn, setLoggedIn, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { modal: ModalId; setModal: (modal: ModalId) => void; newTitle: string; setNewTitle: (value: string) => void; newDesc: string; setNewDesc: (value: string) => void; newTask: NewTaskControls; createTask: (extraNotes?: string) => Promise<void>; lists: TaxonomyItem[]; tags: TaxonomyItem[]; agents: Item[]; runs: Item[]; selectedRun?: Item; selectedTask?: Item; patchTask: (task: Item, patch: Item) => void; patchCalendarEvent: (task: Item, patch: Item) => void; removeTask: (task: Item) => void; removeCalendarEvent: (task: Item) => void; toggleTask: (task: Item) => void; delegateText: string; setDelegateText: (value: string) => void; delegateAgentId: string; setDelegateAgentId: (value: string) => void; startPlan: () => void; openRunArtifact: (run?: Item) => void; newAgentName: string; setNewAgentName: (value: string) => void; newAgentRole: string; setNewAgentRole: (value: string) => void; newAgentEmoji: string; setNewAgentEmoji: (value: string) => void; createAgent: () => void; settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; loggedIn: boolean; setLoggedIn: (value: boolean) => void; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
   if (!modal) return null;
   if (modal === 'new') {
     return <div className="modal-backdrop new-task-backdrop" onMouseDown={() => setModal(null)}><NewTaskModal title={newTitle} setTitle={setNewTitle} desc={newDesc} setDesc={setNewDesc} controls={newTask} lists={lists} close={() => setModal(null)} submit={createTask} /></div>;
   }
   if (modal === 'settings') {
-    return <SettingsOverlay settings={settings} setSettings={setSettings} refresh={refresh} close={() => setModal(null)} loggedIn={loggedIn} setLoggedIn={setLoggedIn} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} setPrefs={setPrefs} />;
+    return <SettingsOverlay settings={settings} setSettings={setSettings} refresh={refresh} close={() => setModal(null)} loggedIn={loggedIn} setLoggedIn={setLoggedIn} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />;
   }
   if (modal === 'task' && selectedTask) {
-    const isEvent = isCalendarEventRecord(selectedTask);
-    const patchItem = isEvent ? patchCalendarEvent : patchTask;
-    const removeItem = isEvent ? removeCalendarEvent : removeTask;
-    const listOptions = lists.length ? lists : [{ id: 'inbox', label: '기본함', icon: '📥', group: '리스트', kind: 'list' as TaxonomyKind }];
-    const priorityOptions = ['', 'P1', 'P2', 'P3'];
-    const repeatOptions = ['none', 'daily', 'weekday', 'weekly', 'monthly'];
-    const ownerOptions = ['Me', 'Agent', 'Hybrid'];
-    const currentList = slugify(taskListName(selectedTask));
-    const currentPriority = text(selectedTask.priority);
-    const currentCalendar = calendarMetadata(selectedTask);
-    const currentRepeat = currentCalendar.repeat || 'none';
-    const currentAllDay = currentCalendar.allDay;
-    const currentEndDate = currentCalendar.endDate;
-    const currentEndTime = currentCalendar.endTime;
-    const currentRepeatUntil = currentCalendar.repeatUntil;
-    const currentOwner = taskOwner(selectedTask);
-    const currentTags = taskTags(selectedTask);
-    const toggleTag = (tag: TaxonomyItem) => {
-      const exists = currentTags.some((value) => slugify(value) === slugify(tag.label));
-      patchItem(selectedTask, { tags: exists ? currentTags.filter((value) => slugify(value) !== slugify(tag.label)) : [...currentTags, tag.label] });
-    };
-
-    return <div className="modal-backdrop detail-backdrop" onMouseDown={() => setModal(null)}>
-      <div className="detail-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="detail-head">
-          {!isEvent && <button className="detail-check" data-done={isDone(selectedTask)} onClick={() => toggleTask(selectedTask)}>{isDone(selectedTask) ? '✓' : ''}</button>}
-          <input value={itemTitle(selectedTask, '')} onChange={(event) => patchItem(selectedTask, { title: event.target.value })} />
-          <button className="detail-close" onClick={() => setModal(null)}>✕</button>
-        </div>
-        <div className="detail-body">
-          <div className="detail-form">
-            <label>날짜</label>
-            <input value={text(selectedTask.date || selectedTask.startDate)} onChange={(event) => patchItem(selectedTask, { date: event.target.value, startDate: event.target.value })} placeholder="YYYY-MM-DD" />
-            <label>시간</label>
-            <input value={text(selectedTask.time || selectedTask.t)} onChange={(event) => patchItem(selectedTask, { time: event.target.value })} placeholder="예: 15:00 (선택)" />
-            <label>종일</label>
-            <div className="detail-options"><button data-active={currentAllDay} onClick={() => patchItem(selectedTask, { allDay: !currentAllDay, time: currentAllDay ? text(selectedTask.time) : '' })}>{currentAllDay ? '종일' : '시간 사용'}</button></div>
-            <label>종료일</label>
-            <input value={currentEndDate} onChange={(event) => (isEvent ? patchCalendarEvent(selectedTask, { endDate: event.target.value }) : patchTask(selectedTask, { endDate: event.target.value }))} placeholder="YYYY-MM-DD (선택)" />
-            <label>종료 시간</label>
-            <input value={currentEndTime} onChange={(event) => (isEvent ? patchCalendarEvent(selectedTask, { endTime: event.target.value }) : patchTask(selectedTask, { endTime: event.target.value }))} placeholder="예: 16:00 (선택)" />
-            <label>리스트</label>
-            <div className="detail-options">{listOptions.map((option) => <button data-active={currentList === slugify(option.label) || currentList === slugify(option.id)} key={option.id} onClick={() => patchItem(selectedTask, { list: option.id, category: option.label, project: option.label })}>{option.icon} {option.label}</button>)}</div>
-            <label>태그</label>
-            <div className="detail-options tag-options">{tags.length ? tags.map((tag) => <button data-active={currentTags.some((value) => slugify(value) === slugify(tag.label))} key={tag.id} onClick={() => toggleTag(tag)}>{tag.icon} {tag.label}</button>) : <button disabled>태그 없음</button>}</div>
-            <label>우선순위</label>
-            <div className="detail-options priority-options">{priorityOptions.map((option) => <button data-active={currentPriority === option} key={option || 'none'} onClick={() => patchItem(selectedTask, { priority: option })}>{option || '없음'}</button>)}</div>
-            <label>반복</label>
-            <div className="detail-options">{repeatOptions.map((option) => <button data-active={currentRepeat === option} key={option} onClick={() => (isEvent ? patchCalendarEvent(selectedTask, { repeat: option }) : patchTask(selectedTask, { repeat: option }))}>{repeatLabel(option)}</button>)}</div>
-            {currentRepeat !== 'none' && <>
-              <label>반복 종료</label>
-              <input value={currentRepeatUntil} onChange={(event) => (isEvent ? patchCalendarEvent(selectedTask, { repeatUntil: event.target.value }) : patchTask(selectedTask, { repeatUntil: event.target.value }))} placeholder="종료일 YYYY-MM-DD (선택)" />
-            </>}
-            <label>담당</label>
-            <div className="detail-options owner-options">{ownerOptions.map((option) => <button data-active={currentOwner === option} key={option} onClick={() => patchItem(selectedTask, { owner: option })}>{option}</button>)}</div>
-          </div>
-          <textarea className="detail-notes" value={text(selectedTask.notes || selectedTask.description)} onChange={(event) => patchItem(selectedTask, { notes: event.target.value })} placeholder="메모 추가…" />
-        </div>
-        <div className="detail-footer">
-          <button className="danger" onClick={() => { removeItem(selectedTask); setModal(null); }}>삭제</button>
-          <span />
-          {!isEvent && <button onClick={() => { setDelegateText(itemTitle(selectedTask, '')); setModal('delegate'); }}>⚡ 에이전트에 위임</button>}
-          <button className="primary" onClick={() => setModal(null)}>완료</button>
-        </div>
-      </div>
-    </div>;
+    return <TaskDetailModal selectedTask={selectedTask} lists={lists} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} close={() => setModal(null)} delegate={() => { setDelegateText(itemTitle(selectedTask, '')); setModal('delegate'); }} />;
   }
   if (modal === 'delegate') {
-    const visibleAgents = agents.length ? agents.slice(0, 4) : [{ id: 'default', name: 'Hermes', emoji: '⚡' }, { id: 'researcher', name: '리서처', emoji: '🔎' }, { id: 'planner', name: '플래너', emoji: '📋' }];
+    const visibleAgents = agents.slice(0, 4);
     return <div className="modal-backdrop delegate-backdrop" onMouseDown={() => setModal(null)}>
       <div className="delegate-modal" onMouseDown={(event) => event.stopPropagation()}>
         <div className="delegate-title">⚡ 에이전트에 위임</div>
@@ -2317,7 +2703,7 @@ function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, ne
         <div className="delegate-agents">{visibleAgents.map((agent, index) => {
           const id = itemId(agent, `agent-${index}`);
           return <button data-active={delegateAgentId === id || (!delegateAgentId && index === 0)} key={id} onClick={() => setDelegateAgentId(id)}>{text(agent.emoji, '⚡')} {text(agent.name || agent.id, 'Hermes')}</button>;
-        })}</div>
+        })}{!visibleAgents.length && <span className="delegate-empty">백엔드 에이전트를 불러오는 중입니다.</span>}</div>
         <textarea value={delegateText} onChange={(event) => setDelegateText(event.target.value)} placeholder="예: UniPort 개발 백로그를 우선순위별로 정리하고 이번 주 할 일로 분배해줘" />
         <footer>
           <span>결과는 캘린더·태스크에 자동 공유됩니다</span>
@@ -2344,13 +2730,6 @@ function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, ne
       </div>
     </div>;
   }
-  if (modal === 'plan') {
-    return <div className="modal-backdrop plan-backdrop" onMouseDown={() => setModal(null)}>
-      <div className="plan-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <PlanReview planDraft={planDraft} approvePlan={approvePlan} cancel={() => setModal(null)} />
-      </div>
-    </div>;
-  }
   if (modal === 'run') {
     return <div className="modal-backdrop run-backdrop" onMouseDown={() => setModal(null)}>
       <div className="run-modal" onMouseDown={(event) => event.stopPropagation()}>
@@ -2361,8 +2740,13 @@ function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, ne
   return null;
 }
 
-function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, submit }: { title: string; setTitle: (value: string) => void; desc: string; setDesc: (value: string) => void; controls: NewTaskControls; lists: TaxonomyItem[]; close: () => void; submit: () => Promise<void> }) {
+function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, submit }: { title: string; setTitle: (value: string) => void; desc: string; setDesc: (value: string) => void; controls: NewTaskControls; lists: TaxonomyItem[]; close: () => void; submit: (extraNotes?: string) => Promise<void> }) {
   const [pickerMonth, setPickerMonth] = useState(() => new Date(`${controls.date || todayKey()}T00:00:00`));
+  const [checkItems, setCheckItems] = useState<string[]>([]);
+  const [listQuery, setListQuery] = useState('');
+  const [durationTimeMenu, setDurationTimeMenu] = useState<'start' | 'end' | null>(null);
+  const checkRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const durationMenuRef = useRef<HTMLDivElement | null>(null);
   const pickerLabel = `${pickerMonth.getFullYear()}년 ${pickerMonth.getMonth() + 1}월`;
   const pickerStart = new Date(pickerMonth.getFullYear(), pickerMonth.getMonth(), 1);
   pickerStart.setDate(1 - pickerStart.getDay());
@@ -2374,6 +2758,11 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
   });
   const timeSlots = Array.from({ length: 36 }, (_, index) => {
     const hour = 6 + Math.floor(index / 2);
+    const minute = index % 2 ? '30' : '00';
+    return `${String(hour).padStart(2, '0')}:${minute}`;
+  });
+  const durationTimeSlots = Array.from({ length: 48 }, (_, index) => {
+    const hour = Math.floor(index / 2);
     const minute = index % 2 ? '30' : '00';
     return `${String(hour).padStart(2, '0')}:${minute}`;
   });
@@ -2397,65 +2786,145 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
   };
   const dateChip = controls.date ? `${formatDateChip(controls.date)}${controls.time && !controls.allDay ? ` ${formatTime(controls.time)}` : ''}` : '날짜 추가';
 
+  const activeList = listOptions.find((option) => slugify(option.id) === slugify(controls.list) || slugify(option.label) === slugify(controls.list)) || listOptions[0];
+  const filteredListOptions = listOptions.filter((option) => {
+    const query = listQuery.trim().toLowerCase();
+    if (!query) return true;
+    return `${option.label} ${option.group} ${option.id}`.toLowerCase().includes(query);
+  });
+  const checklistNotes = () => checkItems.map((item) => item.trim()).filter(Boolean).map((item) => `- [ ] ${item}`).join('\n');
+  const submitTask = () => submit(checklistNotes());
+  const addCheckItem = () => {
+    controls.setDatePanel(false);
+    controls.setListPanel(false);
+    setCheckItems((current) => [...current, '']);
+  };
+  const updateCheckItem = (index: number, value: string) => {
+    setCheckItems((current) => current.map((item, itemIndex) => (itemIndex === index ? value : item)));
+  };
+  const removeEmptyCheckItem = (index: number) => {
+    setCheckItems((current) => current.length > 1 ? current.filter((_, itemIndex) => itemIndex !== index) : current);
+  };
+  const pickDurationTime = (target: 'start' | 'end', value: string) => {
+    if (target === 'start') controls.setTime(value);
+    else controls.setEndTime(value);
+    controls.setAllDay(false);
+    setDurationTimeMenu(null);
+  };
+  const durationTimeField = (target: 'start' | 'end', value: string, placeholder: string) => (
+    <div className="duration-time-field">
+      <input
+        className="duration-time-input"
+        value={value ? formatTime(value) : ''}
+        onClick={() => setDurationTimeMenu(target)}
+        onFocus={() => setDurationTimeMenu(target)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') setDurationTimeMenu(null);
+        }}
+        placeholder={placeholder}
+        readOnly
+      />
+      {durationTimeMenu === target && <div className="duration-time-menu" ref={durationMenuRef}>
+        {durationTimeSlots.map((slot) => {
+          const active = value === slot;
+          return <button type="button" data-active={active} key={slot} onClick={() => pickDurationTime(target, slot)}><span>{formatTime(slot)}</span><b>{active ? '✓' : ''}</b></button>;
+        })}
+      </div>}
+    </div>
+  );
+
+  useEffect(() => {
+    if (checkItems.length) checkRefs.current[checkItems.length - 1]?.focus();
+  }, [checkItems.length]);
+  useEffect(() => {
+    if (!durationTimeMenu) return;
+    requestAnimationFrame(() => {
+      durationMenuRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'center' });
+    });
+  }, [controls.endTime, controls.time, durationTimeMenu]);
+
   return <div className="new-task-popover" onMouseDown={(event) => event.stopPropagation()}>
     <div className="new-task-scroll">
       <div className="new-task-date-row">
         <button className="new-date-chip" data-has-date={!!controls.date} onClick={() => { controls.setDatePanel(!controls.datePanel); controls.setListPanel(false); }}>🗓 {dateChip}</button>
-        <button className="new-close" onClick={close}>✕</button>
       </div>
       <div className="new-task-title-row">
-        <input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void submit(); }} placeholder="무엇을 하고 싶으신가요?" />
-        <button onClick={() => { controls.setListPanel(!controls.listPanel); controls.setDatePanel(false); }}>☰</button>
+        <input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void submitTask(); }} placeholder="무엇을 하고 싶으신가요?" />
+        <button className="new-checklist-toggle" aria-label="할 일 추가" title="할 일 추가" onClick={addCheckItem}>☰</button>
       </div>
-      <input className="new-task-desc" value={desc} onChange={(event) => setDesc(event.target.value)} placeholder="설명" />
+      <textarea className="new-task-desc" value={desc} onChange={(event) => setDesc(event.target.value)} placeholder="설명" />
+      {checkItems.length > 0 && <div className="new-task-checklist">
+        {checkItems.map((item, index) => <label className="new-task-check-row" key={index}>
+          <input type="checkbox" tabIndex={-1} />
+          <input
+            ref={(element) => { checkRefs.current[index] = element; }}
+            value={item}
+            onChange={(event) => updateCheckItem(index, event.target.value)}
+            onBlur={() => { if (!item.trim()) removeEmptyCheckItem(index); }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                setCheckItems((current) => [...current, '']);
+              }
+              if (event.key === 'Backspace' && !item) removeEmptyCheckItem(index);
+            }}
+            placeholder={'"엔터"를 눌러 할일 생성'}
+          />
+        </label>)}
+      </div>}
+      <div className="new-task-fill" />
 
       {controls.datePanel && <div className="new-panel">
         <div className="new-segment"><button data-active={controls.mode === 'date'} onClick={() => controls.setMode('date')}>날짜</button><button data-active={controls.mode === 'duration'} onClick={startDuration}>지속 시간</button></div>
         {controls.mode === 'date' ? <>
-          <div className="new-quick-dates">
-            <button onClick={() => setQuickDate(todayKey())}>오늘</button>
-            <button onClick={() => setQuickDate(addDaysKey(todayKey(), 1))}>내일</button>
-            <button onClick={() => setQuickDate(addDaysKey(todayKey(), 7))}>다음 주</button>
-            <button onClick={() => setQuickDate(addDaysKey(todayKey(), (6 - new Date(`${todayKey()}T00:00:00`).getDay() + 7) % 7 || 7))}>주말</button>
-          </div>
           <div className="picker-head"><strong>{pickerLabel}</strong><span /><button onClick={() => shiftMonth(-1)}>‹</button><button onClick={() => setQuickDate(todayKey())}>오늘</button><button onClick={() => shiftMonth(1)}>›</button></div>
           <div className="picker-weekdays">{['일', '월', '화', '수', '목', '금', '토'].map((day) => <span key={day}>{day}</span>)}</div>
           <div className="picker-grid">{pickerCells.map((cell) => <button data-muted={!cell.inMonth} data-today={cell.today} data-active={cell.selected} key={cell.iso} onClick={() => setQuickDate(cell.iso)}>{cell.day}</button>)}</div>
-          <NewAccordionRow icon="🕐" label="시간" value={controls.allDay ? '종일' : controls.time ? formatTime(controls.time) : '없음'} panel="time" controls={controls} />
+          <NewAccordionRow label="시간" value={controls.allDay ? '종일' : controls.time ? formatTime(controls.time) : '없음'} panel="time" controls={controls} />
           {controls.subPanel === 'time' && <div className="sub-panel">
             <div className="all-day-row"><span>종일</span><button className="switch" data-active={controls.allDay} onClick={() => { controls.setAllDay(!controls.allDay); if (!controls.allDay) controls.setTime(''); }}><span /></button>{controls.time && <button onClick={() => controls.setTime('')}>지우기</button>}</div>
             <div className="time-grid">{timeSlots.map((slot) => <button data-active={controls.time === slot} key={slot} onClick={() => { controls.setTime(slot); controls.setAllDay(false); controls.setSubPanel(null); }}>{formatTime(slot)}</button>)}</div>
           </div>}
         </> : <div className="duration-grid">
-          <span>시작</span><input value={controls.date} onChange={(event) => controls.setDate(event.target.value)} placeholder="YYYY-MM-DD" /><input value={controls.time} onChange={(event) => controls.setTime(event.target.value)} placeholder="시간" />
-          <span>끝</span><input value={controls.endDate} onChange={(event) => controls.setEndDate(event.target.value)} placeholder="YYYY-MM-DD" /><input value={controls.endTime} onChange={(event) => controls.setEndTime(event.target.value)} placeholder="시간" />
+          <span>시작</span><input value={controls.date} onChange={(event) => controls.setDate(event.target.value)} placeholder="YYYY-MM-DD" />{durationTimeField('start', controls.time, '시간')}
+          <span>끝</span><input value={controls.endDate} onChange={(event) => controls.setEndDate(event.target.value)} placeholder="YYYY-MM-DD" />{durationTimeField('end', controls.endTime, '시간')}
           <span>종일</span><button className="switch" data-active={controls.allDay} onClick={() => controls.setAllDay(!controls.allDay)}><span /></button>
         </div>}
-        <NewAccordionRow icon="⟳" label="반복" value={repeatLabel(controls.repeat)} panel="repeat" controls={controls} />
+        <NewAccordionRow label="반복" value={repeatLabel(controls.repeat)} panel="repeat" controls={controls} />
         {controls.subPanel === 'repeat' && <div className="option-row">{repeatOptions.map(([value, label]) => <button data-active={controls.repeat === value} key={value} onClick={() => controls.setRepeat(value)}>{label}</button>)}</div>}
-        <NewAccordionRow icon="👤" label="담당" value={ownerOptions.find(([value]) => value === controls.owner)?.[1] || '나'} panel="owner" controls={controls} />
+        <NewAccordionRow label="담당" value={ownerOptions.find(([value]) => value === controls.owner)?.[1] || '나'} panel="owner" controls={controls} />
         {controls.subPanel === 'owner' && <div className="option-row">{ownerOptions.map(([value, label]) => <button data-active={controls.owner === value} key={value} onClick={() => controls.setOwner(value)}>{label}</button>)}</div>}
       </div>}
 
-      {controls.listPanel && <div className="new-list-panel">{listOptions.map((option) => <button data-active={slugify(controls.list) === slugify(option.id) || slugify(controls.list) === slugify(option.label)} key={option.id} onClick={() => { controls.setList(option.id); controls.setListPanel(false); }}>{option.icon} {option.label}</button>)}</div>}
-      <div className="new-hint">"엔터"를 눌러 할일 생성</div>
     </div>
     <footer className="new-task-footer">
-      <button className="new-list-button" onClick={() => { controls.setListPanel(!controls.listPanel); controls.setDatePanel(false); }}>{listOptions.find((option) => slugify(option.id) === slugify(controls.list) || slugify(option.label) === slugify(controls.list))?.icon || '📥'} {listOptions.find((option) => slugify(option.id) === slugify(controls.list) || slugify(option.label) === slugify(controls.list))?.label || '기본함'} ▾</button>
+      <button className="new-list-button" onClick={() => { controls.setListPanel(!controls.listPanel); controls.setDatePanel(false); }}>{activeList?.icon || '📥'} {activeList?.label || '기본함'} ▾</button>
       <span />
-      <button onClick={close}>취소</button>
-      <button className="primary" onClick={() => void submit()}>확인</button>
     </footer>
+    {controls.listPanel && <div className="new-list-panel">
+      <label className="new-list-search"><span>⌕</span><input value={listQuery} onChange={(event) => setListQuery(event.target.value)} placeholder="검색" autoFocus /></label>
+      <div className="new-list-options">
+        {filteredListOptions.map((option) => {
+          const active = slugify(controls.list) === slugify(option.id) || slugify(controls.list) === slugify(option.label);
+          return <button className="new-list-row" data-active={active} key={option.id} onClick={() => { controls.setList(option.id); controls.setListPanel(false); setListQuery(''); }}>
+            <span className="new-list-icon">{option.icon}</span>
+            <span className="new-list-label">{option.label}</span>
+            <span className="new-list-state">{active ? '✓' : '›'}</span>
+          </button>;
+        })}
+        {!filteredListOptions.length && <div className="new-list-empty">일치하는 리스트 없음</div>}
+      </div>
+    </div>}
   </div>;
 }
 
-function NewAccordionRow({ icon, label, value, panel, controls }: { icon: string; label: string; value: string; panel: string; controls: NewTaskControls }) {
+function NewAccordionRow({ label, value, panel, controls }: { label: string; value: string; panel: string; controls: NewTaskControls }) {
   const active = controls.subPanel === panel;
-  return <button className="new-accordion-row" onClick={() => controls.setSubPanel(active ? null : panel)}><span>{icon}</span><b>{label}</b><em>{value}</em><i>{active ? '▾' : '›'}</i></button>;
+  return <button className="new-accordion-row" onClick={() => controls.setSubPanel(active ? null : panel)}><b>{label}</b><em>{value}</em><i>{active ? '▾' : '›'}</i></button>;
 }
 
-function SettingsOverlay({ settings, setSettings, refresh, close, loggedIn, setLoggedIn, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, setPrefs }: { settings: { apiBaseUrl: string; hasApiToken: boolean; theme: string }; setSettings: (settings: { apiBaseUrl: string; hasApiToken: boolean; theme: string }) => void; refresh: () => Promise<void>; close: () => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: { notify: boolean; agentShare: boolean; weekStartMon: boolean }; setPrefs: (value: { notify: boolean; agentShare: boolean; weekStartMon: boolean }) => void }) {
-  const themes = [
+function SettingsOverlay({ settings, setSettings, refresh, close, loggedIn, setLoggedIn, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; close: () => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
+  const themes: Array<[DesktopTheme, string, string]> = [
     ['default', 'Terracotta', '#D7613D'],
     ['warm', 'Warm', '#C95035'],
     ['dark', 'Dark', '#3F362F'],
@@ -2467,10 +2936,10 @@ function SettingsOverlay({ settings, setSettings, refresh, close, loggedIn, setL
     ['agentShare', '에이전트와 캘린더 공유', '위임 작업을 캘린더에 자동 표시'],
     ['weekStartMon', '주 시작을 월요일로', '캘린더 주간 뷰 기준 요일'],
   ];
-  async function saveTheme(theme: string) {
+  async function saveTheme(theme: DesktopTheme) {
     setSettings({ ...settings, theme });
-    const next = await window.hermesDesktop?.saveSettings({ theme: theme as HermesDesktopSettings['theme'] });
-    if (next) setSettings(next);
+    const next = await window.hermesDesktop?.saveSettings({ theme });
+    if (next) setSettings(desktopSettingsState(next));
     await refresh();
   }
   const submitLogin = () => {
@@ -2488,35 +2957,25 @@ function SettingsOverlay({ settings, setSettings, refresh, close, loggedIn, setL
       <section className="theme-grid">{themes.map(([key, label, color]) => <button data-active={settings.theme === key} key={key} onClick={() => void saveTheme(key)}><span style={{ background: color }}>{settings.theme === key ? '✓' : ''}</span><b>{label}</b></button>)}</section>
       <section className="theme-preview"><span>H</span><b>선택한 색상이 버튼·강조·캘린더 전반에 즉시 적용됩니다</b></section>
       <div className="settings-label">환경설정</div>
-      <section className="pref-box">{prefRows.map(([key, label, desc]) => <div key={key}><span><b>{label}</b><small>{desc}</small></span><button className="switch" data-active={prefs[key]} onClick={() => setPrefs({ ...prefs, [key]: !prefs[key] })}><span /></button></div>)}</section>
+      <section className="pref-box">{prefRows.map(([key, label, desc]) => <div key={key}><span><b>{label}</b><small>{desc}</small></span><button className="switch" data-active={prefs[key]} onClick={() => void updatePrefs({ ...prefs, [key]: !prefs[key] })}><span /></button></div>)}</section>
     </div>
     <footer><span>Hermes Tasks · v0.9 · 로컬 저장</span><button className="primary" onClick={close}>완료</button></footer>
   </div></div>;
 }
 
-function PlanReview({ planDraft, approvePlan, cancel }: { planDraft: Item | null; approvePlan: () => void; cancel: () => void }) {
-  const steps = (Array.isArray(planDraft?.steps) ? planDraft?.steps : ['목표 해석', '컨텍스트 수집', '실행', '위키 기록']) as unknown[];
-  return <div className="plan-review">
-    <section className="plan-head"><div><strong>📋 실행 계획 검토</strong><p>🎯 {text(planDraft?.goal, '목표')}</p></div><span>🤖 {text(planDraft?.agentId, 'default')}</span></section>
-    <section className="plan-steps"><h3>제안된 단계</h3>{steps.map((step, index) => <div className="plan-step" key={index}><b>{index + 1}</b><span><strong>{text(typeof step === 'object' && step ? (step as Item).title : step, `단계 ${index + 1}`)}</strong><small>{text(typeof step === 'object' && step ? (step as Item).detail : '', '실행 후 결과를 기록합니다.')}</small></span></div>)}</section>
-    <section className="plan-artifact"><b>산출물</b><span>📄 {text(planDraft?.artifact, '결과 정리 문서')}</span></section>
-    <footer><small>승인하면 끝까지 자동 실행되고 위키에 문서가 생성됩니다</small><button onClick={cancel}>취소</button><button className="primary" onClick={approvePlan}>승인하고 실행</button></footer>
-  </div>;
-}
-
 function RunReport({ run: selected, close, openArtifact }: { run?: Item; close: () => void; openArtifact: (run?: Item) => void }) {
-  const run = selected || { title: 'Hermes 실행', goal: '작업 실행', agent: 'default', status: 'running', step: '실행 중' };
-  const pct = /done|완료/i.test(text(run.status)) ? 100 : Number(run.pct || run.progress || 62);
-  const steps = Array.isArray(run.steps) && run.steps.length ? run.steps as Item[] : [
-    { title: '명령 수신', detail: '요청을 분석하고 작업으로 변환', time: '방금' },
-    { title: '컨텍스트 수집', detail: '작업·캘린더·위키에서 관련 정보 확인', time: '1s' },
-    { title: text(run.step, '실행'), detail: '에이전트가 계획을 수행 중', time: '2s' },
-    { title: '위키 기록', detail: '결과를 문서로 남길 준비', time: '예정' },
-  ];
+  if (!selected) {
+    return <div className="run-report">
+      <section className="run-head"><span>대기</span><div><strong>선택된 실행 없음</strong><small>백엔드 런을 선택하세요</small></div><button onClick={close}>✕</button></section>
+    </div>;
+  }
+  const run = selected;
+  const pct = /done|완료/i.test(text(run.status)) ? 100 : Number(run.pct || run.progress || 0);
+  const steps = Array.isArray(run.steps) ? run.steps as Item[] : [];
   return <div className="run-report">
     <section className="run-head"><span>{pct >= 100 ? '완료' : '실행 중'}</span><div><strong>{text(run.title || run.goal, '런')}</strong><small>{text(run.agent, 'default')}</small></div><button onClick={close}>✕</button></section>
     <div className="run-progress"><span style={{ width: `${pct}%` }} /></div>
-    <section className="run-timeline"><h3>실행 타임라인</h3>{steps.map((step, index) => <div className="run-step" key={index}><i data-active={index === steps.length - 1 && pct < 100} /><span><strong>{itemTitle(step, '단계')}</strong><small>{text(step.detail, 'Hermes 실행 단계')}</small></span><em>{text(step.time, `${index + 1}s`)}</em></div>)}</section>
+    <section className="run-timeline"><h3>실행 타임라인</h3>{steps.map((step, index) => <div className="run-step" key={index}><i data-active={index === steps.length - 1 && pct < 100} /><span><strong>{itemTitle(step, '단계')}</strong><small>{text(step.detail)}</small></span><em>{text(step.time)}</em></div>)}</section>
     <section className="run-artifact"><span>📄</span><div><strong>{text(run.artifact || run.document || run.goal, '실행 결과 정리')}</strong><small>위키 문서 · 완료 후 열기</small></div><button onClick={() => openArtifact(run)}>열기 →</button></section>
   </div>;
 }

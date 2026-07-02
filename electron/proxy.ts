@@ -42,6 +42,12 @@ function copyHeaders(headers: Headers, res: ServerResponse) {
   });
 }
 
+function setCorsHeaders(res: ServerResponse) {
+  res.setHeader('access-control-allow-origin', '*');
+  res.setHeader('access-control-allow-methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('access-control-allow-headers', 'content-type,authorization,accept');
+}
+
 function targetUrl(baseUrl: string, requestUrl = '/') {
   const base = new URL(baseUrl.replace(/\/+$/g, ''));
   const source = new URL(requestUrl, 'http://127.0.0.1');
@@ -53,6 +59,13 @@ export async function handleProxyRequest(
   res: ServerResponse,
   options: ProxyOptions,
 ) {
+  setCorsHeaders(res);
+  if (String(req.method || '').toUpperCase() === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   if (!req.url?.startsWith('/api/')) {
     res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ ok: false, error: 'Not found' }));

@@ -10,6 +10,45 @@ test('calendar renders only Railway tasks/events for a date, never fallback fill
   assert.equal(appSource.includes('matched.length ? matched : calendarItems.slice'), false);
 });
 
+test('hydrate does not mask failed backend endpoints with dashboard fallback data', () => {
+  assert.doesNotMatch(appSource, /Promise\.allSettled/);
+  assert.doesNotMatch(appSource, /result\.status === 'fulfilled' \? result\.value : \{\}/);
+  assert.doesNotMatch(appSource, /arr\(dashboard,\s*'tasks'\)/);
+  assert.doesNotMatch(appSource, /arr\(dashboard,\s*'agents'\)/);
+  assert.doesNotMatch(appSource, /arr\(dashboard,\s*'documents'/);
+  assert.doesNotMatch(appSource, /arr\(dashboard,\s*'chatMessages'\)/);
+  assert.doesNotMatch(appSource, /arr\(dashboard,\s*'schedulerJobs'\)/);
+  assert.doesNotMatch(appSource, /arr\(dashboard,\s*'mailMessages'\)/);
+});
+
+test('app does not create client-side seed or local optimistic task/run data', () => {
+  assert.doesNotMatch(appSource, /const seedTasks/);
+  assert.doesNotMatch(appSource, /const seedMail/);
+  assert.doesNotMatch(appSource, /localTasks/);
+  assert.doesNotMatch(appSource, /localEvents/);
+  assert.doesNotMatch(appSource, /addLocalTask/);
+  assert.doesNotMatch(appSource, /taskOverrides/);
+  assert.doesNotMatch(appSource, /eventOverrides/);
+  assert.doesNotMatch(appSource, /deletedTaskIds/);
+  assert.doesNotMatch(appSource, /deletedEventIds/);
+  assert.doesNotMatch(appSource, /setTaskOverrides/);
+  assert.doesNotMatch(appSource, /setEventOverrides/);
+  assert.doesNotMatch(appSource, /id:\s*`chat-run-/);
+  assert.doesNotMatch(appSource, /id:\s*`draft-/);
+  assert.doesNotMatch(appSource, /id:\s*`local-/);
+  assert.doesNotMatch(appSource, /id:\s*`plan-/);
+  assert.doesNotMatch(appSource, /runs: \[localRun/);
+  assert.doesNotMatch(appSource, /const baseAgents = state\.agents\.length \? state\.agents :/);
+  assert.doesNotMatch(appSource, /run-local/);
+  assert.doesNotMatch(appSource, /customAgents/);
+  assert.doesNotMatch(appSource, /localTaxonomy/);
+});
+
+test('chat drawer starts from backend chat history, not a client-side greeting', () => {
+  assert.doesNotMatch(appSource, /Hermes 콘솔 준비됨/);
+  assert.doesNotMatch(appSource, /useState<Array<\{ role: string; text: string \}>>\(\[\s*\{/);
+});
+
 test('calendar-created work is persisted as calendar events, not tasks', () => {
   assert.match(appSource, /hermesApi\.createCalendarEvent\(/);
   assert.match(appSource, /hermesApi\.updateCalendarEvent\(/);
@@ -22,16 +61,16 @@ test('calendar-created work is persisted as calendar events, not tasks', () => {
   assert.match(apiSource, /\/api\/calendar\/events/);
 });
 
-test('desktop task mutations keep TickTick as one-time import source only', () => {
-  assert.match(appSource, /syncTickTick:\s*false/);
-  assert.equal(appSource.includes('hermesApi.updateTask(id, { ...taskPayload(snapshot), syncTickTick: false })'), true);
-  assert.equal(appSource.includes('hermesApi.deleteTask(id, { syncTickTick: false })'), true);
+test('desktop task mutations use the native Hermes database only', () => {
+  assert.equal(appSource.includes('hermesApi.updateTask(id, taskPayload(snapshot))'), true);
+  assert.equal(appSource.includes('hermesApi.deleteTask(id)'), true);
+  assert.doesNotMatch(appSource, /scheduleTaskPatch/);
+  assert.doesNotMatch(appSource, /scheduleEventPatch/);
 });
 
-test('desktop list and tag metadata are persisted to Railway without TickTick sync', () => {
+test('desktop list and tag metadata are persisted to Railway metadata records', () => {
   assert.match(appSource, /source:\s*TAXONOMY_SOURCE/);
   assert.match(appSource, /taxonomyKind:\s*item\.kind/);
-  assert.match(appSource, /syncTickTick:\s*false/);
 });
 
 test('desktop taxonomy can be edited and hidden through Railway metadata records', () => {
@@ -52,8 +91,10 @@ test('calendar CRUD persists duration, all-day, and recurrence through Railway e
   assert.match(appSource, /payload\.endDate\s*=/);
   assert.match(appSource, /payload\.endTime\s*=/);
   assert.match(appSource, /const patchItem = isEvent \? patchCalendarEvent : patchTask/);
-  assert.match(appSource, /patchItem\(selectedTask,\s*\{\s*allDay:/);
-  assert.match(appSource, /patchCalendarEvent\(selectedTask,\s*\{\s*endDate:/);
+  assert.match(appSource, /function TaskDetailModal\(/);
+  assert.match(appSource, /const patchEnd = \(patch: Item\)/);
+  assert.match(appSource, /patchEnd\(\{\s*allDay:/);
+  assert.match(appSource, /patchEnd\(\{\s*endDate:/);
 });
 
 test('task surfaces exclude calendar-only event records', () => {
@@ -67,11 +108,38 @@ test('wiki graph is interactive and wiki ask uses Railway LLM endpoint', () => {
   assert.match(apiSource, /askWiki:/);
   assert.match(apiSource, /\/api\/wiki\/ask/);
   assert.match(appSource, /function askWiki\(/);
+  assert.doesNotMatch(appSource, /wikiRag/);
+  assert.doesNotMatch(appSource, /answerWikiQuestion/);
+  assert.doesNotMatch(appSource, /buildWikiRagContext/);
   assert.doesNotMatch(appSource, /위키 기반 요약입니다\. 관련 문서와 최근 작업을 함께 검토하세요/);
   assert.match(appSource, /const \[graphZoom,\s*setGraphZoom\]/);
   assert.match(appSource, /const \[graphPan,\s*setGraphPan\]/);
   assert.match(appSource, /onWheel=\{/);
   assert.match(appSource, /wiki-graph-controls/);
+});
+
+test('diary and review writes are persisted through backend documents API', () => {
+  assert.match(apiSource, /createDocument:/);
+  assert.match(apiSource, /\/api\/documents/);
+  assert.match(appSource, /async function saveDiary\(/);
+  assert.match(appSource, /async function saveRetro\(/);
+  assert.match(appSource, /hermesApi\.createDocument/);
+  assert.doesNotMatch(appSource, /setLocalDocs/);
+  assert.doesNotMatch(appSource, /diary-seed/);
+});
+
+test('weekly review auto draft is generated by backend LLM instead of a client template', () => {
+  assert.match(appSource, /async function generateRetroDraft\(/);
+  assert.match(appSource, /hermesApi\.askWiki/);
+  assert.match(appSource, /async function createReviewGoal\(/);
+  assert.match(appSource, /hermesApi\.createTask/);
+  assert.match(appSource, /createReviewGoal=\{createReviewGoal\}/);
+  assert.doesNotMatch(appSource, /setRetro\(`📅/);
+  assert.doesNotMatch(appSource, /2026\.06\.23 - 2026\.06\.29 주간 회고/);
+  assert.doesNotMatch(appSource, /반복되는 정리 작업을 Hermes에게 넘겨/);
+  assert.doesNotMatch(appSource, /UniPort 백로그 정리/);
+  assert.doesNotMatch(appSource, /에이전트 위임 루프 안정화/);
+  assert.doesNotMatch(appSource, /트레이딩 규칙 회고/);
 });
 
 test('sidebar removes fixed mock note and someday tabs and topbar search', () => {
@@ -88,26 +156,107 @@ test('list editor uses modal emoji picker and preserves folder-edit image patter
   assert.equal(appSource.includes('onFocus={() => setPickerOpen(true)}'), false);
 });
 
-test('task completion animates before the row disappears', () => {
-  assert.match(appSource, /completingTaskIds/);
-  assert.match(appSource, /setTimeout\(\(\) => patchTask\(task,\s*\{\s*status:\s*'Done'/);
-  assert.match(appSource, /data-completing/);
+test('task completion waits for backend mutation and hydrate instead of local completion override', () => {
+  assert.doesNotMatch(appSource, /completingTaskIds/);
+  assert.doesNotMatch(appSource, /setTimeout\(\(\) => patchTask\(task,\s*\{\s*status:\s*'Done'/);
+  assert.doesNotMatch(appSource, /data-completing/);
+  assert.match(appSource, /patchTask\(task,\s*\{\s*status:\s*done \? 'Done' : 'Planned',\s*done\s*\}\)/);
 });
 
 test('gmail mail connection is wired to Railway mail endpoints', () => {
   assert.match(apiSource, /saveMailAccount:/);
   assert.match(apiSource, /syncMail:/);
+  assert.match(apiSource, /runInboxCommand:/);
   assert.match(appSource, /function connectGmail\(/);
+  assert.match(appSource, /async function addTaskFromMail\(/);
+  assert.match(appSource, /async function archiveMail\(/);
+  assert.match(appSource, /async function toggleMailStar\(/);
   assert.match(appSource, /hermesApi\.saveMailAccount/);
   assert.match(appSource, /hermesApi\.syncMail/);
+  assert.match(appSource, /hermesApi\.runInboxCommand\(id,\s*'task'/);
+  assert.match(appSource, /hermesApi\.runInboxCommand\(id,\s*'archive'/);
+  assert.match(appSource, /hermesApi\.runInboxCommand\(id,\s*next \? 'star' : 'unstar'/);
   assert.match(appSource, /provider:\s*'gmail'/);
+  assert.doesNotMatch(appSource, /archivedMailIds/);
+  assert.doesNotMatch(appSource, /mailTaskIds/);
+  assert.doesNotMatch(appSource, /mailStarIds/);
+  assert.doesNotMatch(appSource, /setArchivedMailIds/);
+  assert.doesNotMatch(appSource, /setMailTaskIds/);
+  assert.doesNotMatch(appSource, /setMailStarIds/);
 });
 
-test('task list adopts TickTick-style inspector and scan-friendly rows', () => {
+test('task list uses an inspector and scan-friendly rows', () => {
   assert.match(appSource, /function TaskInspectorPane\(/);
-  assert.match(appSource, /className="list-screen ticktick-list-screen/);
+  assert.match(appSource, /className="list-screen task-list-screen/);
   assert.match(appSource, /className="task-due"/);
   assert.match(appSource, /만료됨/);
   assert.match(appSource, /연기하다/);
   assert.match(appSource, /onDoubleClick=\{\(\) => openTask\(task\)\}/);
+});
+
+test('widgets screen implements the handoff widget plan with live app data', () => {
+  assert.match(appSource, /type ScreenId = .*'widgets'/);
+  assert.match(appSource, /widgets:\s*\{\s*title:\s*'위젯'/);
+  assert.match(appSource, /id:\s*'widgets',\s*icon:\s*'▣',\s*label:\s*'위젯'/);
+  assert.match(appSource, /function WidgetsScreen\(/);
+  assert.match(appSource, /className="widgets-showcase/);
+  assert.match(appSource, /월 캘린더/);
+  assert.match(appSource, /오늘 — Medium/);
+  assert.match(appSource, /다음 일정/);
+  assert.match(appSource, /에이전트 상태/);
+  assert.match(appSource, /tasks=\{tasks\}\s+events=\{events\}\s+runs=\{runs\}/);
+  assert.match(appSource, /widgetMonthCells/);
+  assert.match(appSource, /widgetOwnerClass/);
+});
+
+test('delegate modal uses backend agents only and does not invent fallback agents', () => {
+  assert.match(appSource, /const visibleAgents = agents\.slice\(0,\s*4\)/);
+  assert.doesNotMatch(appSource, /agents\.length \? agents\.slice\(0,\s*4\) : \[/);
+  assert.doesNotMatch(appSource, /id:\s*'researcher'/);
+  assert.doesNotMatch(appSource, /name:\s*'리서처'/);
+  assert.doesNotMatch(appSource, /name:\s*'플래너'/);
+});
+
+test('agent mission launch does not create a client-side plan draft', () => {
+  assert.match(apiSource, /launchMission:/);
+  assert.match(apiSource, /\/api\/missions\/launch/);
+  assert.match(appSource, /async function startPlan\(/);
+  assert.match(appSource, /hermesApi\.launchMission/);
+  assert.doesNotMatch(appSource, /planDraft/);
+  assert.doesNotMatch(appSource, /setPlanDraft/);
+  assert.doesNotMatch(appSource, /PlanReview/);
+  assert.doesNotMatch(appSource, /'목표 해석'/);
+  assert.doesNotMatch(appSource, /'컨텍스트 수집'/);
+  assert.doesNotMatch(appSource, /'위키 기록'/);
+  assert.doesNotMatch(appSource, /요청을 분석하고 작업으로 변환/);
+  assert.doesNotMatch(appSource, /에이전트가 계획을 수행 중/);
+  assert.doesNotMatch(appSource, /artifact:\s*`\$\{textValue\.slice\(0,\s*34\)\} 결과 정리`/);
+});
+
+test('agent run approval is persisted through Railway run action API', () => {
+  assert.match(apiSource, /approveRun:/);
+  assert.match(apiSource, /\/api\/runs\/\$\{encodeURIComponent\(id\)\}\/approve/);
+  assert.match(appSource, /async function approveRun\(/);
+  assert.match(appSource, /hermesApi\.approveRun\(id\)/);
+  assert.match(appSource, /status\)\)\s*&&\s*!\/approved\|승인/i);
+  assert.doesNotMatch(appSource, /approvedRunIds/);
+  assert.doesNotMatch(appSource, /setApprovedRunIds/);
+  assert.doesNotMatch(appSource, /Record<string,\s*true>/);
+});
+
+test('settings preferences are persisted through backend settings API', () => {
+  assert.match(apiSource, /saveSettings:/);
+  assert.match(apiSource, /\/api\/settings/);
+  assert.match(appSource, /async function updatePrefs\(/);
+  assert.match(appSource, /hermesApi\.saveSettings\(\{\s*uiPreferences:/);
+  assert.match(appSource, /setPrefs\(settingsPreferences\(settingsPayload\)\)/);
+  assert.doesNotMatch(appSource, /onClick=\{\(\) => setPrefs\(\{ \.\.\.prefs, \[key\]: !prefs\[key\] \}\)\}/);
+});
+
+test('new task date panel removes quick date shortcuts and accordion leading icons', () => {
+  assert.doesNotMatch(appSource, /className="new-quick-dates"/);
+  assert.doesNotMatch(appSource, /setQuickDate\(addDaysKey\(todayKey\(\), 1\)\).*내일/s);
+  assert.doesNotMatch(appSource, /NewAccordionRow icon=/);
+  assert.doesNotMatch(appSource, /function NewAccordionRow\(\{ icon,/);
+  assert.doesNotMatch(appSource, /<span>\{icon\}<\/span>/);
 });

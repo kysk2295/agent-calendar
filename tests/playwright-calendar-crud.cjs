@@ -2,13 +2,24 @@ const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 
 const target = process.env.HERMES_UI_URL || 'http://127.0.0.1:5173/';
+const todayKey = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const part = (type) => parts.find((entry) => entry.type === type)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+};
+const TODAY = todayKey();
 
 const state = {
   tasks: [
     {
       id: 'task-existing',
       title: '기존 예약 작업',
-      date: '2026-06-29',
+      date: TODAY,
       time: '09:00',
       owner: 'Me',
       status: 'Planned',
@@ -57,8 +68,8 @@ async function main() {
       const event = {
         id: 'event-calendar-created',
         title: String(jsonBody.title || '새 일정'),
-        date: jsonBody.selectedDate || '2026-06-29',
-        startDate: jsonBody.startDate || jsonBody.date || '2026-06-29',
+        date: jsonBody.selectedDate || TODAY,
+        startDate: jsonBody.startDate || jsonBody.date || TODAY,
         time: jsonBody.time || '',
         endDate: jsonBody.endDate || '',
         endTime: jsonBody.endTime || '',
@@ -117,24 +128,29 @@ async function main() {
   await page.locator('.new-task-title-row input').fill('Playwright 캘린더 일정');
   await page.locator('.new-date-chip').click();
   await page.getByRole('button', { name: '지속 시간' }).click();
-  await page.locator('.duration-grid input').nth(1).fill('10:00');
-  await page.locator('.duration-grid input').nth(2).fill('2026-06-29');
-  await page.locator('.duration-grid input').nth(3).fill('11:30');
-  await page.locator('.duration-grid .switch').click();
+  await page.locator('.new-panel .duration-time-input').first().click();
+  await page.waitForSelector('.new-panel .duration-time-menu');
+  await page.locator('.new-panel .duration-time-menu button', { hasText: '오전 1:00' }).waitFor();
+  await page.locator('.new-panel .duration-time-menu button', { hasText: '오전 10:00' }).click();
+  await page.locator('.duration-grid input').nth(2).fill(TODAY);
+  await page.locator('.new-panel .duration-time-input').nth(1).click();
+  await page.waitForSelector('.new-panel .duration-time-menu');
+  await page.locator('.new-panel .duration-time-menu button', { hasText: '오전 11:30' }).click();
   await page.getByRole('button', { name: '반복' }).click();
   await page.getByRole('button', { name: '매주' }).click();
-  await page.getByRole('button', { name: '확인' }).click();
+  await page.locator('.new-task-title-row input').press('Enter');
 
   await page.waitForFunction(() => !document.querySelector('.new-task-popover'));
   await page.getByRole('button', { name: /Playwright 캘린더 일정/ }).first().click();
   await page.waitForSelector('.detail-modal');
-  await page.locator('.detail-head input').fill('Playwright 캘린더 수정');
-  await page.locator('.detail-form input').nth(0).fill('2026-06-30');
-  await page.locator('.detail-form input').nth(1).fill('12:00');
-  await page.locator('.detail-form input').nth(2).fill('2026-06-30');
-  await page.locator('.detail-form input').nth(3).fill('13:00');
-  await page.getByRole('button', { name: '매월' }).click();
-  await page.locator('.detail-form input').nth(4).fill('2026-12-31');
+  await page.locator('.detail-title-input').fill('Playwright 캘린더 수정');
+  await page.locator('.detail-date-trigger').click();
+  await page.getByRole('button', { name: '지속 시간' }).click();
+  await page.locator('.duration-grid input').nth(0).fill('2026-06-30');
+  await page.locator('.duration-grid input').nth(1).fill('12:00');
+  await page.locator('.duration-grid input').nth(2).fill('2026-06-30');
+  await page.locator('.duration-grid input').nth(3).fill('13:00');
+  await page.getByRole('button', { name: '확인' }).click();
   await page.waitForTimeout(900);
   await page.getByRole('button', { name: '삭제' }).click();
   await page.waitForFunction(() => !document.querySelector('.detail-modal'));
@@ -146,15 +162,14 @@ async function main() {
   const lastPatch = patchCalls.at(-1)?.body || {};
 
   assert.equal(Boolean(createEvent), true);
-  assert.equal(createEvent.body.syncTickTick, false);
+  assert.equal(createEvent.body.time, '10:00');
+  assert.equal(createEvent.body.endTime, '11:30');
+  assert.equal(createEvent.body.recurrence, 'weekly');
   assert.equal(patchCalls.length > 0, true);
-  assert.equal(lastPatch.syncTickTick, false);
-  assert.equal(lastPatch.recurrence, 'monthly');
   assert.equal(lastPatch.endDate, '2026-06-30');
   assert.equal(lastPatch.endTime, '13:00');
   assert.match(String(lastPatch.notes || ''), /\[Hermes Calendar\]/);
   assert.equal(Boolean(deleteCall), true);
-  assert.equal(deleteCall.body.syncTickTick, false);
   assert.deepEqual(calendarTaskCalls, []);
 
   await browser.close();

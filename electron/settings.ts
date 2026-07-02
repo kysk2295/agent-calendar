@@ -10,18 +10,29 @@ export type DesktopSettings = {
   apiBaseUrl: string;
   apiToken: string;
   theme: DesktopTheme;
+  uiPreferences: {
+    notify: boolean;
+    agentShare: boolean;
+    weekStartMon: boolean;
+  };
 };
 
 export type PublicDesktopSettings = {
   apiBaseUrl: string;
   hasApiToken: boolean;
   theme: DesktopTheme;
+  uiPreferences: DesktopSettings['uiPreferences'];
 };
 
 const DEFAULT_SETTINGS: DesktopSettings = {
   apiBaseUrl: DEFAULT_API_BASE_URL,
   apiToken: '',
   theme: 'default',
+  uiPreferences: {
+    notify: true,
+    agentShare: true,
+    weekStartMon: true,
+  },
 };
 
 function settingsPath() {
@@ -37,6 +48,11 @@ function normalizeSettings(input: Partial<DesktopSettings> = {}): DesktopSetting
     apiBaseUrl: apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl,
     apiToken: String(input.apiToken || ''),
     theme,
+    uiPreferences: {
+      notify: typeof input.uiPreferences?.notify === 'boolean' ? input.uiPreferences.notify : DEFAULT_SETTINGS.uiPreferences.notify,
+      agentShare: typeof input.uiPreferences?.agentShare === 'boolean' ? input.uiPreferences.agentShare : DEFAULT_SETTINGS.uiPreferences.agentShare,
+      weekStartMon: typeof input.uiPreferences?.weekStartMon === 'boolean' ? input.uiPreferences.weekStartMon : DEFAULT_SETTINGS.uiPreferences.weekStartMon,
+    },
   };
 }
 
@@ -45,6 +61,7 @@ export function publicSettings(settings: DesktopSettings): PublicDesktopSettings
     apiBaseUrl: settings.apiBaseUrl,
     hasApiToken: Boolean(settings.apiToken),
     theme: settings.theme,
+    uiPreferences: settings.uiPreferences,
   };
 }
 

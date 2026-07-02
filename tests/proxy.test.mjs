@@ -67,6 +67,30 @@ test('proxy preserves streaming responses', async () => {
   });
 });
 
+test('proxy answers browser preflight requests for dev renderer fetches', async () => {
+  let called = false;
+  await withServer(async () => {
+    called = true;
+    return new Response('unused');
+  }, {
+    apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app',
+  }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/state`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'http://127.0.0.1:5174',
+        'access-control-request-method': 'GET',
+        'access-control-request-headers': 'content-type',
+      },
+    });
+    assert.equal(response.status, 204);
+    assert.equal(response.headers.get('access-control-allow-origin'), '*');
+    assert.match(response.headers.get('access-control-allow-headers') || '', /content-type/);
+  });
+
+  assert.equal(called, false);
+});
+
 test('proxy rejects non API paths', async () => {
   await withServer(async () => new Response('unused'), {
     apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app',
