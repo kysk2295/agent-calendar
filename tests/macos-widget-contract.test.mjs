@@ -38,15 +38,51 @@ test('native widgets share a snapshot schema and expose inline widget interactio
   assert.match(sharedSource, /struct HermesWidgetSnapshot:\s*Codable/);
   assert.match(sharedSource, /static let appGroupID/);
   assert.match(sharedSource, /static let snapshotFileName/);
+  assert.match(sharedSource, /static let actionsFileName/);
+  assert.match(sharedSource, /struct HermesWidgetAction:\s*Codable/);
+  assert.match(sharedSource, /static func enqueueAction/);
   assert.match(sharedSource, /dateDecodingStrategy = \.iso8601/);
   assert.match(sharedSource, /sampleDesignSnapshot/);
   assert.match(sharedSource, /emptySnapshot/);
   assert.match(widgetSource, /struct ToggleHermesTaskIntent:\s*AppIntent/);
+  assert.match(widgetSource, /struct OpenHermesDateIntent:\s*AppIntent/);
+  assert.match(widgetSource, /struct OpenHermesScreenIntent:\s*AppIntent/);
+  assert.match(widgetSource, /struct OpenHermesTaskIntent:\s*AppIntent/);
+  assert.match(widgetSource, /HermesWidgetStore\.enqueueAction/);
   assert.match(widgetSource, /WidgetCenter\.shared\.reloadAllTimelines/);
   assert.doesNotMatch(widgetSource, /\.widgetURL\(/);
   assert.doesNotMatch(widgetSource, /hermes:\/\//);
   assert.doesNotMatch(hostSource, /onOpenURL[\s\S]*NSWorkspace\.shared\.open\(url\)/);
   assert.doesNotMatch(hostInfoPlist, /CFBundleURLTypes|CFBundleURLSchemes|hermes/);
+});
+
+test('electron consumes native widget actions and persists them to the API', () => {
+  const appSource = source('src/App.tsx');
+  const mainSource = source('electron/main.ts');
+  const preloadSource = source('electron/preload.ts');
+  const runtimePreloadSource = source('electron/preload.cts');
+  const typeSource = source('src/vite-env.d.ts');
+  assert.match(mainSource, /WIDGET_ACTIONS_FILE/);
+  assert.match(mainSource, /widget:actions-read/);
+  assert.match(mainSource, /widget:actions-clear/);
+  assert.match(mainSource, /widget:actions-available/);
+  assert.match(mainSource, /startWidgetActionBridge/);
+  assert.match(preloadSource, /readWidgetActions/);
+  assert.match(preloadSource, /onWidgetActionsAvailable/);
+  assert.match(runtimePreloadSource, /readWidgetActions/);
+  assert.match(runtimePreloadSource, /onWidgetActionsAvailable/);
+  assert.match(typeSource, /interface HermesWidgetAction/);
+  assert.match(typeSource, /readWidgetActions\(\): Promise<HermesWidgetAction\[\]>/);
+  assert.match(typeSource, /onWidgetActionsAvailable\(callback: \(\) => void\): \(\) => void/);
+  assert.match(appSource, /function handleWidgetAction/);
+  assert.match(appSource, /function drainWidgetActions/);
+  assert.match(appSource, /hermesApi\.updateTask\(id,\s*taskPayload\(snapshot\)\)/);
+  assert.match(appSource, /window\.hermesDesktop\?\.readWidgetActions/);
+  assert.match(appSource, /window\.hermesDesktop\?\.clearWidgetActions/);
+  assert.match(appSource, /onWidgetActionsAvailable/);
+  assert.match(appSource, /case 'toggleTask'/);
+  assert.match(appSource, /case 'openDate'/);
+  assert.match(appSource, /case 'openScreen'/);
 });
 
 test('native widgets never show design sample data as real persisted data', () => {

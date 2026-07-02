@@ -9,8 +9,10 @@ import { publicSettings, readSettings, saveSettings } from './settings.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WIDGET_APP_GROUP_ID = 'group.com.hermes.tasks';
 const WIDGET_SNAPSHOT_FILE = 'HermesWidgetSnapshot.json';
+const WIDGET_ACTIONS_FILE = 'HermesWidgetActions.json';
 let mainWindow: BrowserWindow | null = null;
 let proxyBaseUrl = '';
+let widgetActionPoller: NodeJS.Timeout | null = null;
 
 async function startProxy() {
   const server = createApiProxyServer({ getSettings: readSettings });
@@ -51,6 +53,31 @@ function createWindow() {
   } else {
     void mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
+  startWidgetActionBridge();
+}
+
+function widgetGroupDir() {
+  return path.join(os.homedir(), 'Library', 'Group Containers', WIDGET_APP_GROUP_ID);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+async function readWidgetActions() {
+  const actionsPath = path.join(widgetGroupDir(), WIDGET_ACTIONS_FILE);
+  const raw = await readFile(actionsPath, 'utf8').catch(() => '[]');
+  const parsed = JSON.parse(raw || '[]') as unknown;
+  return Array.isArray(parsed) ? parsed.filter(isRecord) : [];
+}
+
+function startWidgetActionBridge() {
+  if (widgetActionPoller) return;
+  widgetActionPoller = setInterval(async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const actions = await readWidgetActions().catch(() => []);
+    if (actions.length > 0) mainWindow.webContents.send('widget:actions-available');
+  }, 1000);
 }
 
 ipcMain.handle('settings:get', () => publicSettings(readSettings()));
@@ -63,13 +90,25 @@ ipcMain.handle('widget:snapshot-save', async (_event, snapshot: unknown) => {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
     throw new Error('Invalid Hermes widget snapshot');
   }
-  const groupDir = path.join(os.homedir(), 'Library', 'Group Containers', WIDGET_APP_GROUP_ID);
+  const groupDir = widgetGroupDir();
   await mkdir(groupDir, { recursive: true });
   const snapshotPath = path.join(groupDir, WIDGET_SNAPSHOT_FILE);
   const body = `${JSON.stringify(snapshot, null, 2)}\n`;
   const previous = await readFile(snapshotPath, 'utf8').catch(() => '');
   if (previous !== body) await writeFile(snapshotPath, body, 'utf8');
   return { ok: true, path: snapshotPath, changed: previous !== body };
+});
+ipcMain.handle('widget:actions-read', async () => readWidgetActions());
+ipcMain.handle('widget:actions-clear', async (_event, ids: unknown) => {
+  if (!Array.isArray(ids)) return { ok: false, cleared: 0 };
+  const idSet = new Set(ids.map((id) => String(id)).filter(Boolean));
+  const groupDir = widgetGroupDir();
+  await mkdir(groupDir, { recursive: true });
+  const actionsPath = path.join(groupDir, WIDGET_ACTIONS_FILE);
+  const actions = await readWidgetActions();
+  const remaining = actions.filter((action) => !idSet.has(String(action.id || '')));
+  await writeFile(actionsPath, `${JSON.stringify(remaining, null, 2)}\n`, 'utf8');
+  return { ok: true, cleared: actions.length - remaining.length };
 });
 
 app.whenReady().then(async () => {

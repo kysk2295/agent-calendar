@@ -127,6 +127,11 @@ async function main() {
   await page.locator('.hour-row').first().click();
   await page.locator('.new-task-title-row input').fill('Playwright 캘린더 일정');
   await page.locator('.new-date-chip').click();
+  await page.locator('.new-accordion-row', { hasText: '시간' }).click();
+  await page.waitForSelector('.new-panel .date-time-menu');
+  await page.locator('.new-panel .date-time-menu button', { hasText: '오전 1:00' }).waitFor();
+  await page.locator('.new-panel .date-time-menu button', { hasText: '오전 9:30' }).click();
+  await page.locator('.new-panel .date-time-menu button[data-active="true"]', { hasText: '오전 9:30' }).waitFor();
   await page.getByRole('button', { name: '지속 시간' }).click();
   await page.locator('.new-panel .duration-time-input').first().click();
   await page.waitForSelector('.new-panel .duration-time-menu');

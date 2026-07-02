@@ -5,4 +5,11 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   saveSettings: (settings: unknown) => ipcRenderer.invoke('settings:save', settings),
   getProxyBaseUrl: () => ipcRenderer.invoke('proxy:get-base-url'),
   saveWidgetSnapshot: (snapshot: unknown) => ipcRenderer.invoke('widget:snapshot-save', snapshot),
+  readWidgetActions: () => ipcRenderer.invoke('widget:actions-read'),
+  clearWidgetActions: (ids: unknown) => ipcRenderer.invoke('widget:actions-clear', ids),
+  onWidgetActionsAvailable: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('widget:actions-available', handler);
+    return () => ipcRenderer.removeListener('widget:actions-available', handler);
+  },
 });

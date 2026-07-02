@@ -446,6 +446,7 @@ function hermesWidgetTask(item: Item, fallback: string) {
   const time = widgetItemTime(item);
   const status = text(item.status || item.lane || item.state, isDone(item) ? 'Done' : 'Planned');
   const calendar = calendarMetadata(item);
+  const source = isCalendarEventRecord(item) ? 'event' as const : 'task' as const;
   const durationMinutes = (() => {
     if (!time || !calendar.endTime || (calendar.endDate && calendar.endDate !== date)) return undefined;
     const [startHour = 0, startMinute = 0] = time.split(':').map((part) => Number(part) || 0);
@@ -463,6 +464,7 @@ function hermesWidgetTask(item: Item, fallback: string) {
     status,
     done: isDone(item),
     ...(durationMinutes ? { durationMinutes } : {}),
+    source,
   };
 }
 
@@ -624,6 +626,7 @@ export function App() {
   const [newAgentEmoji, setNewAgentEmoji] = useState('🤖');
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<Array<{ role: string; text: string }>>([]);
+  const widgetActionDrainRef = useRef(false);
 
   const baseTasks = state.tasks;
   const tasks = useMemo(() => [...baseTasks], [baseTasks]);
@@ -915,6 +918,87 @@ export function App() {
   function toggleTask(task: Item) {
     const done = !isDone(task);
     patchTask(task, { status: done ? 'Done' : 'Planned', done });
+  }
+
+  function widgetScreen(value: unknown): ScreenId {
+    const screen = text(value);
+    if (['calendar', 'today', 'next7', 'tasks', 'agents', 'widgets'].includes(screen)) return screen as ScreenId;
+    return 'today';
+  }
+
+  async function handleWidgetAction(action: HermesWidgetAction) {
+    switch (action.type) {
+    case 'toggleTask': {
+      const id = text(action.taskID);
+      if (!id) return;
+      const task = tasks.find((item, index) => itemId(item, `task-${index}`) === id);
+      const event = events.find((item, index) => itemId(item, `event-${index}`) === id);
+      const done = typeof action.done === 'boolean' ? action.done : !isDone(task || event || {});
+      if (action.source === 'event' || event) {
+        const snapshot = { ...(event || {}), id, status: done ? 'Done' : 'Planned', done, kind: 'calendar-event', type: 'calendar-event' };
+        await hermesApi.updateCalendarEvent(id, calendarEventPayload(snapshot));
+        await hydrate();
+        return;
+      }
+      if (task || action.source === 'task') {
+        const snapshot = { ...(task || {}), id, status: done ? 'Done' : 'Planned', done };
+        await hermesApi.updateTask(id, taskPayload(snapshot));
+        await hydrate();
+        return;
+      }
+      return;
+    }
+    case 'openDate':
+      if (action.date) setCalDate(action.date);
+      openScreen('calendar');
+      return;
+    case 'openScreen':
+      openScreen(widgetScreen(action.screen));
+      return;
+    case 'openTask': {
+      const id = text(action.taskID);
+      if (!id) return;
+      const task = tasks.find((item, index) => itemId(item, `task-${index}`) === id);
+      const event = events.find((item, index) => itemId(item, `event-${index}`) === id);
+      const item = task || event;
+      if (item) {
+        setSelectedTaskId(id);
+        const date = widgetItemDate(item);
+        if (date) setCalDate(date);
+        openScreen(event ? 'calendar' : date === todayKey() ? 'today' : 'tasks');
+      }
+      return;
+    }
+    case 'openRun':
+      if (action.runID) setSelectedRunId(action.runID);
+      openScreen('agents');
+      return;
+    default:
+      return;
+    }
+  }
+
+  async function drainWidgetActions() {
+    if (widgetActionDrainRef.current || !window.hermesDesktop?.readWidgetActions) return;
+    widgetActionDrainRef.current = true;
+    const completed: string[] = [];
+    try {
+      const actions = await window.hermesDesktop.readWidgetActions();
+      for (const action of actions.sort((a, b) => text(a.createdAt).localeCompare(text(b.createdAt)))) {
+        if (!action.id) continue;
+        completed.push(action.id);
+        try {
+          await handleWidgetAction(action);
+        } catch (error) {
+          console.warn('Hermes widget action failed', action, error);
+        }
+      }
+      if (completed.length) await window.hermesDesktop?.clearWidgetActions(completed);
+    } catch (error) {
+      console.warn('Hermes widget action drain failed', error);
+    } finally {
+      widgetActionDrainRef.current = false;
+    }
   }
 
   function removeTask(task: Item) {
@@ -1510,6 +1594,21 @@ export function App() {
     }, 600);
     return () => clearTimeout(timer);
   }, [apiError, events, loading, runs, tasks]);
+
+  useEffect(() => {
+    if (!window.hermesDesktop?.readWidgetActions) return;
+    const timer = setInterval(() => {
+      void drainWidgetActions();
+    }, 1200);
+    const dispose = window.hermesDesktop.onWidgetActionsAvailable?.(() => {
+      void drainWidgetActions();
+    });
+    void drainWidgetActions();
+    return () => {
+      clearInterval(timer);
+      dispose?.();
+    };
+  }, [events, loading, runs, tasks]);
 
   return (
     <div className="app-root" data-theme={settings.theme}>
@@ -2744,7 +2843,7 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
   const [pickerMonth, setPickerMonth] = useState(() => new Date(`${controls.date || todayKey()}T00:00:00`));
   const [checkItems, setCheckItems] = useState<string[]>([]);
   const [listQuery, setListQuery] = useState('');
-  const [durationTimeMenu, setDurationTimeMenu] = useState<'start' | 'end' | null>(null);
+  const [timeMenu, setTimeMenu] = useState<'date' | 'start' | 'end' | null>(null);
   const checkRefs = useRef<Array<HTMLInputElement | null>>([]);
   const durationMenuRef = useRef<HTMLDivElement | null>(null);
   const pickerLabel = `${pickerMonth.getFullYear()}년 ${pickerMonth.getMonth() + 1}월`;
@@ -2756,12 +2855,7 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
     const iso = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(day);
     return { iso, day: day.getDate(), inMonth: day.getMonth() === pickerMonth.getMonth(), today: iso === todayKey(), selected: iso === controls.date };
   });
-  const timeSlots = Array.from({ length: 36 }, (_, index) => {
-    const hour = 6 + Math.floor(index / 2);
-    const minute = index % 2 ? '30' : '00';
-    return `${String(hour).padStart(2, '0')}:${minute}`;
-  });
-  const durationTimeSlots = Array.from({ length: 48 }, (_, index) => {
+  const timeSlots = Array.from({ length: 48 }, (_, index) => {
     const hour = Math.floor(index / 2);
     const minute = index % 2 ? '30' : '00';
     return `${String(hour).padStart(2, '0')}:${minute}`;
@@ -2805,31 +2899,34 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
   const removeEmptyCheckItem = (index: number) => {
     setCheckItems((current) => current.length > 1 ? current.filter((_, itemIndex) => itemIndex !== index) : current);
   };
-  const pickDurationTime = (target: 'start' | 'end', value: string) => {
-    if (target === 'start') controls.setTime(value);
-    else controls.setEndTime(value);
+  const pickTime = (target: 'date' | 'start' | 'end', value: string) => {
+    if (target === 'end') controls.setEndTime(value);
+    else controls.setTime(value);
     controls.setAllDay(false);
-    setDurationTimeMenu(null);
+    setTimeMenu(target === 'date' ? 'date' : null);
   };
+  const timeMenuList = (target: 'date' | 'start' | 'end', value: string, className = '') => (
+    <div className={`duration-time-menu ${className}`} ref={durationMenuRef}>
+      {timeSlots.map((slot) => {
+        const active = value === slot;
+        return <button type="button" data-active={active} key={slot} onClick={() => pickTime(target, slot)}><span>{formatTime(slot)}</span><b>{active ? '✓' : ''}</b></button>;
+      })}
+    </div>
+  );
   const durationTimeField = (target: 'start' | 'end', value: string, placeholder: string) => (
     <div className="duration-time-field">
       <input
         className="duration-time-input"
         value={value ? formatTime(value) : ''}
-        onClick={() => setDurationTimeMenu(target)}
-        onFocus={() => setDurationTimeMenu(target)}
+        onClick={() => setTimeMenu(target)}
+        onFocus={() => setTimeMenu(target)}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') setDurationTimeMenu(null);
+          if (event.key === 'Escape') setTimeMenu(null);
         }}
         placeholder={placeholder}
         readOnly
       />
-      {durationTimeMenu === target && <div className="duration-time-menu" ref={durationMenuRef}>
-        {durationTimeSlots.map((slot) => {
-          const active = value === slot;
-          return <button type="button" data-active={active} key={slot} onClick={() => pickDurationTime(target, slot)}><span>{formatTime(slot)}</span><b>{active ? '✓' : ''}</b></button>;
-        })}
-      </div>}
+      {timeMenu === target && timeMenuList(target, value)}
     </div>
   );
 
@@ -2837,11 +2934,11 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
     if (checkItems.length) checkRefs.current[checkItems.length - 1]?.focus();
   }, [checkItems.length]);
   useEffect(() => {
-    if (!durationTimeMenu) return;
+    if (!timeMenu) return;
     requestAnimationFrame(() => {
       durationMenuRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'center' });
     });
-  }, [controls.endTime, controls.time, durationTimeMenu]);
+  }, [controls.endTime, controls.time, timeMenu]);
 
   return <div className="new-task-popover" onMouseDown={(event) => event.stopPropagation()}>
     <div className="new-task-scroll">
@@ -2883,7 +2980,7 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
           <NewAccordionRow label="시간" value={controls.allDay ? '종일' : controls.time ? formatTime(controls.time) : '없음'} panel="time" controls={controls} />
           {controls.subPanel === 'time' && <div className="sub-panel">
             <div className="all-day-row"><span>종일</span><button className="switch" data-active={controls.allDay} onClick={() => { controls.setAllDay(!controls.allDay); if (!controls.allDay) controls.setTime(''); }}><span /></button>{controls.time && <button onClick={() => controls.setTime('')}>지우기</button>}</div>
-            <div className="time-grid">{timeSlots.map((slot) => <button data-active={controls.time === slot} key={slot} onClick={() => { controls.setTime(slot); controls.setAllDay(false); controls.setSubPanel(null); }}>{formatTime(slot)}</button>)}</div>
+            {timeMenuList('date', controls.time, 'date-time-menu')}
           </div>}
         </> : <div className="duration-grid">
           <span>시작</span><input value={controls.date} onChange={(event) => controls.setDate(event.target.value)} placeholder="YYYY-MM-DD" />{durationTimeField('start', controls.time, '시간')}

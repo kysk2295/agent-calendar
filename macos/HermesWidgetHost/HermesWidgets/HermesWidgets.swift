@@ -38,8 +38,89 @@ struct ToggleHermesTaskIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        HermesWidgetStore.toggleTask(taskID)
+        let updatedTask = HermesWidgetStore.toggleTask(taskID)
+        HermesWidgetStore.enqueueAction(HermesWidgetAction(type: "toggleTask", taskID: taskID, source: updatedTask?.source, done: updatedTask?.done))
         WidgetCenter.shared.reloadAllTimelines()
+        return .result()
+    }
+}
+
+struct OpenHermesDateIntent: AppIntent {
+    static let title: LocalizedStringResource = "Hermes date open"
+
+    @Parameter(title: "Date")
+    var date: String
+
+    init() {
+        date = ""
+    }
+
+    init(date: String) {
+        self.date = date
+    }
+
+    func perform() async throws -> some IntentResult {
+        HermesWidgetStore.enqueueAction(HermesWidgetAction(type: "openDate", date: date, screen: "calendar"))
+        return .result()
+    }
+}
+
+struct OpenHermesScreenIntent: AppIntent {
+    static let title: LocalizedStringResource = "Hermes screen open"
+
+    @Parameter(title: "Screen")
+    var screen: String
+
+    init() {
+        screen = "today"
+    }
+
+    init(screen: String) {
+        self.screen = screen
+    }
+
+    func perform() async throws -> some IntentResult {
+        HermesWidgetStore.enqueueAction(HermesWidgetAction(type: "openScreen", screen: screen))
+        return .result()
+    }
+}
+
+struct OpenHermesTaskIntent: AppIntent {
+    static let title: LocalizedStringResource = "Hermes task open"
+
+    @Parameter(title: "Task ID")
+    var taskID: String
+
+    init() {
+        taskID = ""
+    }
+
+    init(taskID: String) {
+        self.taskID = taskID
+    }
+
+    func perform() async throws -> some IntentResult {
+        HermesWidgetStore.enqueueAction(HermesWidgetAction(type: "openTask", taskID: taskID))
+        return .result()
+    }
+}
+
+struct OpenHermesRunIntent: AppIntent {
+    static let title: LocalizedStringResource = "Hermes run open"
+
+    @Parameter(title: "Run ID")
+    var runID: String
+
+    init() {
+        runID = ""
+    }
+
+    init(runID: String) {
+        self.runID = runID
+    }
+
+    func perform() async throws -> some IntentResult {
+        HermesWidgetStore.enqueueAction(HermesWidgetAction(type: runID.isEmpty ? "openScreen" : "openRun", screen: "agents", runID: runID.isEmpty ? nil : runID))
         return .result()
     }
 }
@@ -138,25 +219,31 @@ struct MonthCalendarWidgetView: View {
                     }
                     ForEach(monthCells) { cell in
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("\(cell.day)")
-                                .font(.system(size: 11, weight: cell.isToday ? .black : .semibold))
-                                .foregroundStyle(cell.isToday ? .white : dayColor(cell))
-                                .frame(width: 17, height: 17)
-                                .background(cell.isToday ? Color(hex: "#D7613D") : .clear)
-                                .clipShape(Circle())
+                            Button(intent: OpenHermesDateIntent(date: cell.date)) {
+                                Text("\(cell.day)")
+                                    .font(.system(size: 11, weight: cell.isToday ? .black : .semibold))
+                                    .foregroundStyle(cell.isToday ? .white : dayColor(cell))
+                                    .frame(width: 17, height: 17)
+                                    .background(cell.isToday ? Color(hex: "#D7613D") : .clear)
+                                    .clipShape(Circle())
+                            }
+                            .buttonStyle(.plain)
 
                             VStack(spacing: 1.5) {
                                 ForEach(cell.events.prefix(2)) { task in
-                                    Text(task.title.isEmpty ? " " : task.title)
-                                        .font(.system(size: 8.5, weight: .semibold))
-                                        .lineLimit(1)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 1)
-                                        .foregroundStyle(ownerStyle(task.owner).foreground)
-                                        .background(ownerStyle(task.owner).background)
-                                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(ownerStyle(task.owner).border, lineWidth: 0.5))
-                                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                    Button(intent: OpenHermesTaskIntent(taskID: task.id)) {
+                                        Text(task.title.isEmpty ? " " : task.title)
+                                            .font(.system(size: 8.5, weight: .semibold))
+                                            .lineLimit(1)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .foregroundStyle(ownerStyle(task.owner).foreground)
+                                            .background(ownerStyle(task.owner).background)
+                                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(ownerStyle(task.owner).border, lineWidth: 0.5))
+                                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                                 if cell.events.count > 2 {
                                     Text("+\(cell.events.count - 2)")
@@ -205,7 +292,7 @@ struct MonthCalendarWidgetView: View {
             let shownDay = rawDay < 1 ? previousDays + rawDay : rawDay > days ? rawDay - days : rawDay
             let date = String(format: "%04d-%02d-%02d", year, month, max(1, min(rawDay, days)))
             let events = inMonth ? snapshot.monthItems.filter { $0.date == date } : []
-            return MonthCell(id: "\(index)-\(shownDay)", day: shownDay, inMonth: inMonth, isToday: inMonth && date == snapshot.todayDate, events: events)
+            return MonthCell(id: "\(index)-\(shownDay)", day: shownDay, date: date, inMonth: inMonth, isToday: inMonth && date == snapshot.todayDate, events: events)
         }
     }
 
@@ -228,9 +315,12 @@ struct TodayWidgetView: View {
         HermesGlassCard(cornerRadius: 22) {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    Text("오늘")
-                        .font(.system(size: 14, weight: .black))
-                        .foregroundStyle(Color(hex: "#2B2620"))
+                    Button(intent: OpenHermesScreenIntent(screen: "today")) {
+                        Text("오늘")
+                            .font(.system(size: 14, weight: .black))
+                            .foregroundStyle(Color(hex: "#2B2620"))
+                    }
+                    .buttonStyle(.plain)
                     Text(todayLabel)
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(Color(hex: "#A0967F"))
@@ -259,11 +349,14 @@ struct TodayWidgetView: View {
                             }
                             .buttonStyle(.plain)
 
-                            Text(task.title)
-                                .font(.system(size: 12.5, weight: .medium))
-                                .foregroundStyle(task.done ? Color(hex: "#A89E8E") : Color(hex: "#2B2620"))
-                                .strikethrough(task.done)
-                                .lineLimit(1)
+                            Button(intent: OpenHermesTaskIntent(taskID: task.id)) {
+                                Text(task.title)
+                                    .font(.system(size: 12.5, weight: .medium))
+                                    .foregroundStyle(task.done ? Color(hex: "#A89E8E") : Color(hex: "#2B2620"))
+                                    .strikethrough(task.done)
+                                    .lineLimit(1)
+                            }
+                            .buttonStyle(.plain)
                             Spacer(minLength: 4)
                             if let time = task.time {
                                 Text(formatTime(time))
@@ -321,11 +414,25 @@ struct NextEventWidgetView: View {
                     .textCase(.uppercase)
                     .foregroundStyle(Color(hex: "#C0826A"))
                     .padding(.bottom, 2)
-                Text(snapshot.nextEvent?.title ?? "예정 없음")
-                    .font(.system(size: 13.5, weight: .black))
-                    .foregroundStyle(Color(hex: "#2B2620"))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
+                if let event = snapshot.nextEvent {
+                    Button(intent: OpenHermesTaskIntent(taskID: event.id)) {
+                        Text(event.title)
+                            .font(.system(size: 13.5, weight: .black))
+                            .foregroundStyle(Color(hex: "#2B2620"))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.85)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button(intent: OpenHermesScreenIntent(screen: "calendar")) {
+                        Text("예정 없음")
+                            .font(.system(size: 13.5, weight: .black))
+                            .foregroundStyle(Color(hex: "#2B2620"))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.85)
+                    }
+                    .buttonStyle(.plain)
+                }
                 Text(nextEventSubtitle)
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(Color(hex: "#9A9080"))
@@ -383,15 +490,18 @@ struct AgentStatusWidgetView: View {
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.white.opacity(0.60))
                     .padding(.bottom, 8)
-                Text(agentBody)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.80))
-                    .lineSpacing(2)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.white.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Button(intent: agentIntent) {
+                    Text(agentBody)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.80))
+                        .lineSpacing(2)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.white.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.white)
@@ -419,6 +529,10 @@ struct AgentStatusWidgetView: View {
     private var agentBody: String {
         guard let run = snapshot.runningRuns.first ?? snapshot.runs.first else { return "대기 중\n진행률 0%" }
         return "\(run.title)\n진행률 \(run.progress)%"
+    }
+
+    private var agentIntent: OpenHermesRunIntent {
+        OpenHermesRunIntent(runID: (snapshot.runningRuns.first ?? snapshot.runs.first)?.id ?? "")
     }
 }
 
@@ -469,6 +583,7 @@ struct HermesMark: View {
 struct MonthCell: Identifiable {
     var id: String
     var day: Int
+    var date: String
     var inMonth: Bool
     var isToday: Bool
     var events: [HermesWidgetTask]

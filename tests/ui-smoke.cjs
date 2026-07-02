@@ -147,7 +147,7 @@ async function main() {
       const datePanelRect = document.querySelector('.new-panel')?.getBoundingClientRect();
       const datePanelCompact = !!datePanelRect && Math.round(datePanelRect.width) <= 330 && Math.round(datePanelRect.height) <= 390;
       await clickText('.new-accordion-row', '시간');
-      await clickText('.time-grid button', '오후 6:00');
+      await clickText('.date-time-menu button', '오후 6:00');
       await clickText('.new-accordion-row', '반복');
       await clickText('.option-row button', '매주');
       await clickText('.new-accordion-row', '담당');

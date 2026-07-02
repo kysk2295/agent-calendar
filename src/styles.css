@@ -4014,7 +4014,10 @@ textarea { resize: vertical; min-height: 72px; }
   text-align: right;
 }
 .new-accordion-row i { color: #B6AC99; font-style: normal; font-size: 11px; }
-.sub-panel { padding: 0 2px 8px; }
+.sub-panel {
+  position: relative;
+  padding: 0 2px 8px;
+}
 .all-day-row {
   display: flex;
   align-items: center;
@@ -4135,6 +4138,13 @@ textarea { resize: vertical; min-height: 72px; }
 .duration-time-menu button[data-active="true"] {
   color: var(--accent-dark);
   background: var(--accent-soft);
+}
+.date-time-menu {
+  position: absolute;
+  right: -6px;
+  top: 31px;
+  width: 118px;
+  max-height: 246px;
 }
 .option-row {
   display: flex;
