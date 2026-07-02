@@ -1,0 +1,2279 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{--accent:#D7613D;--accent-dark:#B8492C;--accent-soft:#FAEDE6;--accent-softer:#FBF3EC;--accent-line:#E4C3B5}
+  html,body{height:100%}
+  body{font-family:'Pretendard','Pretendard Variable',-apple-system,system-ui,sans-serif;background:#EAE5DA;color:#2B2620;-webkit-font-smoothing:antialiased;font-feature-settings:'cv01','ss01';letter-spacing:-0.01em}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#D7CFBF;border-radius:6px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#C4BAA6;background-clip:content-box}
+  ::-webkit-scrollbar-track{background:transparent}
+  @keyframes hPulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes hIn{from{transform:translateY(6px)}to{transform:none}}
+  @keyframes hBar{0%{transform:translateX(-100%)}100%{transform:translateX(260%)}}
+  @keyframes hSpin{to{transform:rotate(360deg)}}
+  @keyframes hModal{from{transform:translateY(10px) scale(.98)}to{transform:none}}
+  input,textarea,button{font-family:inherit}
+  input:focus,textarea:focus{outline:none}
+</style>
+</helmet>
+<div style="display:flex;height:100vh;width:100%;max-width:100%;overflow:hidden;background:#EAE5DA">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside style="width:248px;flex-shrink:0;background:#EFEADF;border-right:1px solid #E0D8C8;display:flex;flex-direction:column;height:100%">
+    <div style="padding:16px 16px 12px;display:flex;align-items:center;gap:10px">
+      <div style="width:30px;height:30px;border-radius:8px;background:linear-gradient(150deg,var(--accent),var(--accent-dark));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px;box-shadow:0 2px 6px rgba(183,73,44,.28)">H</div>
+      <div style="line-height:1.15">
+        <div style="font-size:14px;font-weight:700;color:#2B2620">Hermes Tasks</div>
+        <div style="font-size:10px;color:#A0967f;font-weight:500">할 일 · 캘린더 · 에이전트</div>
+      </div>
+    </div>
+
+    <div style="margin:0 12px 10px;padding:8px 11px;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:9px;display:flex;align-items:center;gap:7px;cursor:pointer" onClick="{{ focusSearch }}" style-hover="border-color:#D7C9B2">
+      <span style="font-size:12px;color:#A89E8E">⌕</span>
+      <span style="font-size:12px;color:#A89E8E;flex:1">검색</span>
+      <span style="font-size:9.5px;background:#EDE7D9;border-radius:4px;padding:1px 5px;color:#8A8070;font-weight:600">⌘K</span>
+    </div>
+
+    <nav style="flex:1;overflow-y:auto;padding:0 8px 14px">
+      <sc-for list="{{ navGroups }}" as="group" hint-placeholder-count="4">
+        <sc-if value="{{ group.title }}" hint-placeholder-val="">
+          <div style="margin:13px 8px 4px;font-size:9.5px;font-weight:800;letter-spacing:.08em;color:#AEA391;text-transform:uppercase">{{ group.title }}</div>
+        </sc-if>
+        <sc-for list="{{ group.items }}" as="item" hint-placeholder-count="4">
+          <div onClick="{{ item.onClick }}" style="{{ item.style }}" style-hover="background:#F3EEE2">
+            <span style="display:flex;align-items:center;gap:9px;min-width:0">
+              <span style="{{ item.iconStyle }}">{{ item.icon }}</span>
+              <span style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ item.label }}</span>
+            </span>
+            <sc-if value="{{ item.badge }}" hint-placeholder-val="">
+              <span style="{{ item.badgeStyle }}">{{ item.badge }}</span>
+            </sc-if>
+          </div>
+        </sc-for>
+      </sc-for>
+    </nav>
+
+    <div onClick="{{ openSettings }}" style="padding:10px 14px;border-top:1px solid #E2DACA;display:flex;align-items:center;gap:9px;cursor:pointer" style-hover="background:#F3EEE2">
+      <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">윤</div>
+      <div style="line-height:1.2;flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600">{{ userName }}</div>
+        <div style="font-size:10px;color:#A0967f">{{ userStatus }}</div>
+      </div>
+      <span style="color:#B6AC99;font-size:14px">⚙</span>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main style="flex:1;min-width:0;display:flex;flex-direction:column;height:100%;background:#F4F0E8">
+    <header style="height:52px;flex-shrink:0;border-bottom:1px solid #E4DCCC;display:flex;align-items:center;gap:12px;padding:0 18px;background:#F7F3EB">
+      <div style="display:flex;align-items:baseline;gap:9px;min-width:0;flex-shrink:1">
+        <span style="font-size:15.5px;font-weight:700;white-space:nowrap;flex-shrink:0">{{ screenTitle }}</span>
+        <span style="font-size:12px;color:#A0967f;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ screenSub }}</span>
+      </div>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:7px;height:31px;padding:0 11px;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:8px;flex:1 1 140px;min-width:0;max-width:240px">
+        <span style="font-size:12px;color:#A89E8E">⌕</span>
+        <input value="{{ query }}" onInput="{{ onSearchInput }}" placeholder="작업 · 노트 · 일정 검색" style="flex:1;border:none;background:transparent;font-size:12px;color:#2B2620"/>
+      </div>
+      <button onClick="{{ openNew }}" style="height:31px;padding:0 13px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(183,73,44,.3)"><span style="font-size:15px;font-weight:400">+</span> 새 작업</button>
+      <button onClick="{{ toggleChat }}" style="{{ chatToggleStyle }}" title="Hermes 콘솔">◧</button>
+    </header>
+
+    <div style="flex:1;overflow-y:auto;min-height:0">
+
+      <!-- ===== CALENDAR ===== -->
+      <sc-if value="{{ isCalendar }}" hint-placeholder-val="{{ true }}">
+      <div style="padding:10px 20px 14px;animation:hIn .25s ease;height:100%;min-height:340px;display:flex;flex-direction:column;min-width:0;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+          <span style="font-size:17px;font-weight:800;white-space:nowrap">{{ calLabel }}</span>
+          <div style="display:flex;align-items:center;gap:10px;font-size:11px;color:#7A7062;flex-wrap:wrap">
+            <span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap"><span style="width:9px;height:9px;border-radius:3px;background:#E7ECF4;border:1px solid #C9D2E2"></span>나</span>
+            <span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap"><span style="width:9px;height:9px;border-radius:3px;background:#E3EFE4;border:1px solid #C2DAC6"></span>에이전트</span>
+            <span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap"><span style="width:9px;height:9px;border-radius:3px;background:#ECE6F4;border:1px solid #D5C9E6"></span>공동</span>
+          </div>
+          <span style="flex:1"></span>
+          <div style="display:inline-flex;gap:2px;background:#EAE3D4;border-radius:8px;padding:3px">
+            <sc-for list="{{ calViewTabs }}" as="v" hint-placeholder-count="3"><div onClick="{{ v.onClick }}" style="{{ v.style }}">{{ v.label }}</div></sc-for>
+          </div>
+          <button onClick="{{ calToday }}" style="height:29px;padding:0 13px;background:#FBF9F4;color:#5C5346;border:1px solid #E0D8C8;border-radius:8px;font-size:11.5px;font-weight:600;cursor:pointer">오늘</button>
+          <div style="display:flex;gap:4px">
+            <button onClick="{{ calPrev }}" style="width:29px;height:29px;background:#FBF9F4;color:#7A7062;border:1px solid #E0D8C8;border-radius:8px;font-size:13px;cursor:pointer">‹</button>
+            <button onClick="{{ calNext }}" style="width:29px;height:29px;background:#FBF9F4;color:#7A7062;border:1px solid #E0D8C8;border-radius:8px;font-size:13px;cursor:pointer">›</button>
+          </div>
+        </div>
+
+        <!-- MONTH -->
+        <sc-if value="{{ isMonth }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid #EBE4D6;border-radius:12px;overflow:hidden;background:#FBF9F4">
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid #EBE4D6;flex-shrink:0">
+            <sc-for list="{{ weekdays }}" as="wd" hint-placeholder-count="7">
+              <div style="{{ wd.style }}">{{ wd.label }}</div>
+            </sc-for>
+          </div>
+          <div style="flex:1;min-height:0;display:grid;grid-template-rows:repeat({{ weekCount }},1fr)">
+            <sc-for list="{{ calWeeks }}" as="week" hint-placeholder-count="6">
+              <div style="display:grid;grid-template-columns:repeat(7,1fr);min-height:0">
+                <sc-for list="{{ week }}" as="cell" hint-placeholder-count="7">
+                  <div style="{{ cell.cellStyle }}" onClick="{{ cell.onAdd }}">
+                    <div style="display:flex;align-items:center;margin-bottom:3px;flex-shrink:0">
+                      <span style="{{ cell.dateStyle }}" onClick="{{ cell.onOpenDay }}">{{ cell.date }}</span>
+                      <span style="flex:1"></span>
+                      <sc-if value="{{ cell.hasMore }}" hint-placeholder-val=""><span style="font-size:9.5px;color:#B6AC99;font-weight:600">+{{ cell.more }}</span></sc-if>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:2px;min-height:0;overflow:hidden">
+                      <sc-for list="{{ cell.events }}" as="e" hint-placeholder-count="0">
+                        <span style="{{ e.pillStyle }}" onClick="{{ e.onClick }}">{{ e.label }}</span>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- WEEK -->
+        <sc-if value="{{ isWeek }}" hint-placeholder-val="">
+        <div style="flex:1;min-height:520px;display:grid;grid-template-columns:repeat(7,1fr);gap:8px">
+          <sc-for list="{{ weekCols }}" as="col" hint-placeholder-count="7">
+            <div style="{{ col.colStyle }}">
+              <div style="{{ col.headStyle }}" onClick="{{ col.onOpenDay }}">
+                <span style="font-size:10.5px;font-weight:600;color:#9A9080">{{ col.wd }}</span>
+                <span style="{{ col.numStyle }}">{{ col.num }}</span>
+              </div>
+              <div style="flex:1;overflow-y:auto;padding:7px;display:flex;flex-direction:column;gap:5px" onClick="{{ col.onAdd }}">
+                <sc-for list="{{ col.events }}" as="e" hint-placeholder-count="0">
+                  <div style="{{ e.cardStyle }}" onClick="{{ e.onClick }}">
+                    <sc-if value="{{ e.time }}" hint-placeholder-val=""><div style="font-size:9.5px;font-weight:700;opacity:.7;margin-bottom:1px">{{ e.time }}</div></sc-if>
+                    <div style="font-size:11px;font-weight:500;line-height:1.3">{{ e.label }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        </sc-if>
+
+        <!-- DAY -->
+        <sc-if value="{{ isDay }}" hint-placeholder-val="">
+        <div style="flex:1;min-height:520px;display:grid;grid-template-columns:1fr 300px;gap:14px">
+          <div style="background:#FBF9F4;border:1px solid #EBE4D6;border-radius:12px;overflow-y:auto;padding:6px 0">
+            <sc-if value="{{ placing }}" hint-placeholder-val="">
+              <div style="position:sticky;top:0;z-index:2;margin:0 8px 4px;background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:8px;padding:8px 11px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--accent-dark);font-weight:600">📍 '{{ placingTitle }}' 놓을 시간대를 클릭하세요<span style="flex:1"></span><span onClick="{{ cancelPlacing }}" style="cursor:pointer;color:#A0967f;font-weight:500">취소</span></div>
+            </sc-if>
+            <sc-for list="{{ dayHours }}" as="h" hint-placeholder-count="12">
+              <div style="{{ h.rowStyle }}" onClick="{{ h.onSlot }}" style-hover="background:var(--accent-softer)">
+                <div style="font-size:10.5px;color:#A89E8E;text-align:right;padding:5px 9px 0 0;font-weight:600">{{ h.label }}</div>
+                <div style="padding:5px 10px;display:flex;flex-direction:column;gap:4px;border-left:1px solid #F2ECDE">
+                  <sc-for list="{{ h.events }}" as="e" hint-placeholder-count="0">
+                    <div style="{{ e.cardStyle }}" onClick="{{ e.onClick }}"><span style="font-weight:600">{{ e.time }}</span> {{ e.label }}</div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:12px;padding:14px">
+              <div style="font-size:13px;font-weight:700;margin-bottom:3px">{{ dayTitle }}</div>
+              <div style="font-size:11px;color:#A0967f;margin-bottom:12px">하루 종일 · 시간 미지정 <span style="color:#C0826A">· "시간 잡기"로 타임블록</span></div>
+              <sc-for list="{{ dayAllDay }}" as="t" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid #F2ECDE">
+                  <span onClick="{{ t.onToggle }}" style="{{ t.checkStyle }}">{{ t.check }}</span>
+                  <span style="{{ t.titleStyle }};cursor:pointer" onClick="{{ t.onOpen }}">{{ t.title }}</span>
+                  <button onClick="{{ t.onPlace }}" style="height:23px;padding:0 8px;background:#FBF9F4;color:var(--accent-dark);border:1px solid #E4CBC2;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap">⏰ 시간 잡기</button>
+                </div>
+              </sc-for>
+              <sc-if value="{{ dayEmpty }}" hint-placeholder-val=""><div style="font-size:11.5px;color:#B6AC99;padding:8px 0">일정 없음</div></sc-if>
+            </div>
+          </div>
+        </div>
+        </sc-if>
+      </div>
+      </sc-if>
+
+      <!-- ===== TASK LIST (smart lists / lists / tags) ===== -->
+      <sc-if value="{{ isTaskList }}" hint-placeholder-val="">
+      <div style="padding:16px 22px 36px;animation:hIn .25s ease;max-width:920px">
+        <!-- quick add -->
+        <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:11px;padding:4px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
+          <span style="font-size:15px;color:var(--accent);padding-left:9px;font-weight:300">+</span>
+          <input value="{{ quickText }}" onInput="{{ onQuickInput }}" onKeyDown="{{ onQuickKey }}" placeholder="할 일 추가  ·  예: 내일 오후3시 롯데리아 #업무 !높음 매주 @hermes" style="flex:1;border:none;background:transparent;font-size:13px;padding:9px 4px;color:#2B2620"/>
+          <button onClick="{{ submitQuick }}" style="height:30px;padding:0 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin-right:3px">추가</button>
+        </div>
+        <!-- parsed preview -->
+        <sc-if value="{{ hasQuickPreview }}" hint-placeholder-val="">
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;padding:2px 4px">
+            <sc-for list="{{ quickChips }}" as="c" hint-placeholder-count="0"><span style="{{ c.style }}">{{ c.label }}</span></sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noQuickPreview }}" hint-placeholder-val="{{ true }}"><div style="height:8px"></div></sc-if>
+
+        <!-- repeat templates row -->
+        <sc-if value="{{ showRepeatChips }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:14px;flex-wrap:wrap">
+          <span style="font-size:10.5px;font-weight:700;color:#AEA391;text-transform:uppercase;letter-spacing:.05em">반복 템플릿</span>
+          <sc-for list="{{ repeatTemplates }}" as="r" hint-placeholder-count="4"><div onClick="{{ r.onClick }}" style="height:27px;padding:0 11px;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:20px;font-size:11px;font-weight:600;color:#6E6456;display:flex;align-items:center;gap:5px;cursor:pointer" style-hover="border-color:var(--accent);color:var(--accent-dark)"><span style="font-size:10px;opacity:.6">⟳</span>{{ r.label }}</div></sc-for>
+        </div>
+        </sc-if>
+
+        <!-- active tasks -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <sc-for list="{{ taskRows }}" as="t" hint-placeholder-count="6">
+            <div style="{{ t.rowStyle }}" onClick="{{ t.onOpen }}" style-hover="border-color:#D7C9B2">
+              <span onClick="{{ t.onToggle }}" style="{{ t.checkStyle }}">{{ t.check }}</span>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:7px">
+                  <span style="{{ t.titleStyle }}">{{ t.title }}</span>
+                  <sc-if value="{{ t.repeatIcon }}" hint-placeholder-val=""><span style="font-size:10px;color:#A89E8E" title="반복">⟳</span></sc-if>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
+                  <sc-if value="{{ t.dateLabel }}" hint-placeholder-val=""><span style="{{ t.dateStyle }}">{{ t.dateLabel }}</span></sc-if>
+                  <span style="{{ t.listStyle }}">{{ t.listLabel }}</span>
+                  <sc-for list="{{ t.tags }}" as="tag" hint-placeholder-count="0"><span style="{{ tag.style }}">#{{ tag.label }}</span></sc-for>
+                  <sc-if value="{{ t.ownerBadge }}" hint-placeholder-val=""><span style="{{ t.ownerStyle }}">{{ t.ownerBadge }}</span></sc-if>
+                </div>
+              </div>
+              <sc-if value="{{ t.priFlag }}" hint-placeholder-val=""><span style="color:{{ t.priColor }};font-size:14px;flex-shrink:0">⚑</span></sc-if>
+            </div>
+          </sc-for>
+        </div>
+        <sc-if value="{{ taskListEmpty }}" hint-placeholder-val=""><div style="padding:40px;text-align:center;color:#B6AC99;font-size:13px">표시할 작업이 없습니다 · 위에서 추가하세요</div></sc-if>
+
+        <!-- completed -->
+        <sc-if value="{{ hasCompleted }}" hint-placeholder-val="">
+        <div onClick="{{ toggleCompleted }}" style="margin:18px 0 10px;font-size:11.5px;font-weight:700;color:#A89E8E;cursor:pointer;display:flex;align-items:center;gap:6px">{{ completedCaret }} 완료됨 {{ completedCount }}</div>
+        <sc-if value="{{ showCompletedList }}" hint-placeholder-val="">
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <sc-for list="{{ completedRows }}" as="t" hint-placeholder-count="3">
+            <div style="{{ t.rowStyle }}" onClick="{{ t.onOpen }}">
+              <span onClick="{{ t.onToggle }}" style="{{ t.checkStyle }}">{{ t.check }}</span>
+              <div style="flex:1;min-width:0"><span style="{{ t.titleStyle }}">{{ t.title }}</span></div>
+              <span style="{{ t.listStyle }}">{{ t.listLabel }}</span>
+            </div>
+          </sc-for>
+        </div>
+        </sc-if>
+        </sc-if>
+      </div>
+      </sc-if>
+
+      <!-- ===== KANBAN ===== -->
+      <sc-if value="{{ isKanban }}" hint-placeholder-val="">
+      <div style="padding:16px 22px 30px;animation:hIn .25s ease;height:100%;min-height:560px">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:13px;height:100%;align-items:start">
+          <sc-for list="{{ kanbanCols }}" as="k" hint-placeholder-count="4">
+            <div style="background:#F1ECE1;border:1px solid #E6DFD0;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;max-height:100%">
+              <div style="display:flex;align-items:center;gap:8px;padding:3px 4px 5px">
+                <span style="{{ k.dotStyle }}"></span>
+                <span style="font-size:12.5px;font-weight:700;color:#3B362E">{{ k.label }}</span>
+                <span style="font-size:11px;font-weight:600;color:#A89E8E;background:#E6DFD0;border-radius:20px;padding:0 8px">{{ k.count }}</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;overflow-y:auto">
+                <sc-for list="{{ k.cards }}" as="c" hint-placeholder-count="3">
+                  <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:10px;padding:10px 11px;cursor:pointer" onClick="{{ c.onOpen }}" style-hover="border-color:#D7C9B2">
+                    <div style="font-size:12.5px;font-weight:500;color:#2B2620;line-height:1.35;margin-bottom:7px">{{ c.title }}</div>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                      <span style="{{ c.listStyle }}">{{ c.listLabel }}</span>
+                      <sc-if value="{{ c.dateLabel }}" hint-placeholder-val=""><span style="font-size:10px;color:#A89E8E">{{ c.dateLabel }}</span></sc-if>
+                      <span style="flex:1"></span>
+                      <sc-if value="{{ c.ownerBadge }}" hint-placeholder-val=""><span style="{{ c.ownerStyle }}">{{ c.ownerBadge }}</span></sc-if>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ===== NOTES ===== -->
+      <sc-if value="{{ isNotes }}" hint-placeholder-val="">
+      <div style="display:flex;height:100%;min-height:600px;animation:hIn .25s ease">
+        <div style="width:340px;flex-shrink:0;border-right:1px solid #E4DCCC;display:flex;flex-direction:column;background:#F7F3EB">
+          <div style="padding:12px 16px;border-bottom:1px solid #EBE4D6;display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px;font-weight:700">📝 생각노트</span>
+            <span style="font-size:11px;color:#A89E8E">{{ notesCount }}</span>
+            <span style="flex:1"></span>
+            <button onClick="{{ newNote }}" style="height:26px;padding:0 10px;background:var(--accent);color:#fff;border:none;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer">+ 메모</button>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:6px">
+            <sc-for list="{{ noteList }}" as="n" hint-placeholder-count="8">
+              <div onClick="{{ n.onOpen }}" style="{{ n.style }}" style-hover="background:#F1ECE1">
+                <div style="display:flex;align-items:center;gap:7px;margin-bottom:3px">
+                  <span style="font-size:11px">📄</span>
+                  <span style="font-size:12.5px;font-weight:600;color:#2B2620;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1">{{ n.title }}</span>
+                </div>
+                <div style="font-size:11px;color:#9A9080;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:18px">{{ n.preview }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#FBF9F4">
+          <sc-if value="{{ hasActiveNote }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:26px 40px;max-width:760px;width:100%;margin:0 auto;flex:1;display:flex;flex-direction:column">
+            <input value="{{ activeNoteTitle }}" onInput="{{ onNoteTitle }}" placeholder="제목 없음" style="border:none;background:transparent;font-size:24px;font-weight:800;color:#2B2620;margin-bottom:8px;letter-spacing:-0.02em"/>
+            <div style="font-size:11px;color:#B6AC99;margin-bottom:18px">{{ activeNoteMeta }}</div>
+            <textarea value="{{ activeNoteBody }}" onInput="{{ onNoteBody }}" placeholder="여기에 생각을 적어보세요…" style="flex:1;border:none;background:transparent;font-size:14px;line-height:1.7;color:#3B362E;resize:none;min-height:300px"></textarea>
+          </div>
+          </sc-if>
+          <sc-if value="{{ noActiveNote }}" hint-placeholder-val=""><div style="flex:1;display:flex;align-items:center;justify-content:center;color:#B6AC99;font-size:13px">메모를 선택하세요</div></sc-if>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ===== MAIL ===== -->
+      <sc-if value="{{ isMail }}" hint-placeholder-val="">
+      <div style="display:flex;height:100%;min-height:600px;animation:hIn .25s ease">
+        <div style="width:392px;flex-shrink:0;border-right:1px solid #E4DCCC;display:flex;flex-direction:column;background:#F7F3EB">
+          <div style="padding:12px 16px;border-bottom:1px solid #EBE4D6;display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px;font-weight:700">✉️ 받은편지함</span>
+            <span style="font-size:10.5px;font-weight:700;color:var(--accent-dark);background:var(--accent-soft);border-radius:20px;padding:1px 8px">{{ mailUnread }} 안 읽음</span>
+            <span style="flex:1"></span>
+            <span style="font-size:12px;color:#A89E8E;cursor:pointer">⟳</span>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:6px">
+            <sc-for list="{{ mailList }}" as="m" hint-placeholder-count="8">
+              <div onClick="{{ m.onOpen }}" style="{{ m.style }}" style-hover="background:#F1ECE1">
+                <span style="{{ m.dotStyle }}"></span>
+                <div style="{{ m.avatarStyle }}">{{ m.avatar }}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <span style="{{ m.fromStyle }}">{{ m.from }}</span>
+                    <span style="flex:1"></span>
+                    <sc-if value="{{ m.star }}" hint-placeholder-val=""><span style="font-size:11px;color:{{ m.starColor }}">★</span></sc-if>
+                    <span style="font-size:10px;color:#A89E8E;flex-shrink:0">{{ m.time }}</span>
+                  </div>
+                  <div style="{{ m.subjectStyle }}">{{ m.subject }}</div>
+                  <div style="font-size:11px;color:#9A9080;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">{{ m.preview }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#FBF9F4">
+          <sc-if value="{{ hasActiveMail }}" hint-placeholder-val="">
+          <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+            <div style="padding:22px 32px 16px;border-bottom:1px solid #EBE4D6">
+              <div style="display:flex;align-items:flex-start;gap:12px">
+                <div style="font-size:21px;font-weight:800;letter-spacing:-0.02em;flex:1;line-height:1.3">{{ amSubject }}</div>
+                <span onClick="{{ amToggleStar }}" style="{{ amStarStyle }}">{{ amStar }}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:11px;margin-top:14px">
+                <div style="width:38px;height:38px;border-radius:50%;background:#E4D9C6;color:#6E6456;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700">{{ amAvatar }}</div>
+                <div style="line-height:1.3;flex:1;min-width:0">
+                  <div style="font-size:13px;font-weight:600">{{ amFrom }}</div>
+                  <div style="font-size:11px;color:#A0967f">{{ amAddr }}</div>
+                </div>
+                <span style="font-size:11.5px;color:#A89E8E">{{ amTime }}</span>
+              </div>
+            </div>
+            <!-- action bar: mail → task/agent -->
+            <div style="padding:11px 32px;border-bottom:1px solid #F0EADC;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <sc-if value="{{ amTaskAdded }}" hint-placeholder-val="">
+                <span style="height:32px;display:flex;align-items:center;gap:6px;padding:0 13px;background:#E3EFE4;color:#3E7A52;border:1px solid #C2DAC6;border-radius:8px;font-size:12px;font-weight:700">✓ 기본함에 추가됨</span>
+              </sc-if>
+              <sc-if value="{{ amTaskAddedNo }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ mailAddTask }}" style="height:32px;padding:0 13px;background:#FBF9F4;color:#5C5346;border:1px solid #E0D8C8;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px" style-hover="border-color:var(--accent)">⊕ 작업으로 추가</button>
+              </sc-if>
+              <button onClick="{{ mailDelegate }}" style="height:32px;padding:0 13px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">⚡ 에이전트에 위임</button>
+              <button onClick="{{ mailReply }}" style="height:32px;padding:0 13px;background:#FBF9F4;color:#5C5346;border:1px solid #E0D8C8;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px" style-hover="border-color:var(--accent)">✦ 답장 초안</button>
+              <span style="flex:1"></span>
+              <button onClick="{{ mailArchive }}" style="height:32px;padding:0 13px;background:transparent;color:#8A8070;border:1px solid #E0D8C8;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">보관</button>
+            </div>
+            <div style="flex:1;overflow-y:auto;padding:24px 32px 40px;font-size:13.5px;line-height:1.75;color:#3B362E;white-space:pre-wrap">{{ amBody }}</div>
+          </div>
+          </sc-if>
+          <sc-if value="{{ noActiveMail }}" hint-placeholder-val="{{ true }}"><div style="flex:1;display:flex;align-items:center;justify-content:center;color:#B6AC99;font-size:13px">메일을 선택하세요</div></sc-if>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ===== PLAN (오늘 계획) ===== -->
+      <sc-if value="{{ isPlan }}" hint-placeholder-val="">
+      <div style="padding:20px 22px 40px;animation:hIn .25s ease;max-width:780px">
+        <div style="font-size:21px;font-weight:800;letter-spacing:-0.02em;margin-bottom:4px">{{ planGreeting }}</div>
+        <div style="font-size:12px;color:#A0967f;margin-bottom:16px">지연된 일을 정리하고, 오늘 하루를 계획해보세요.</div>
+        <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:11px;padding:4px;margin-bottom:18px;display:flex;align-items:center;gap:8px">
+          <span style="font-size:15px;color:var(--accent);padding-left:9px;font-weight:300">+</span>
+          <input value="{{ quickText }}" onInput="{{ onQuickInput }}" onKeyDown="{{ onQuickKey }}" placeholder="오늘 할 일 추가  ·  예: 오후3시 롯데리아 #업무 !높음 @hermes" style="flex:1;border:none;background:transparent;font-size:13px;padding:9px 4px;color:#2B2620"/>
+          <button onClick="{{ submitQuick }}" style="height:30px;padding:0 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin-right:3px">추가</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-bottom:22px">
+          <sc-for list="{{ planStats }}" as="k" hint-placeholder-count="3">
+            <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:12px;padding:14px 16px">
+              <div style="font-size:11.5px;font-weight:600;color:#6E6456;margin-bottom:8px">{{ k.label }}</div>
+              <div style="font-size:28px;font-weight:800;line-height:1;color:{{ k.color }}">{{ k.value }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <!-- 오늘 -->
+        <div style="font-size:13.5px;font-weight:700;margin-bottom:9px">📅 오늘 할 일</div>
+        <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:22px">
+          <sc-for list="{{ planToday }}" as="t" hint-placeholder-count="3">
+            <div onClick="{{ t.onOpen }}" style="display:flex;align-items:center;gap:11px;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:11px;padding:11px 13px;cursor:pointer" style-hover="border-color:#D7C9B2">
+              <span onClick="{{ t.onToggle }}" style="{{ t.checkStyle }}">{{ t.check }}</span>
+              <span style="{{ t.titleStyle }};flex:1">{{ t.title }}</span>
+              <sc-if value="{{ t.timeLabel }}" hint-placeholder-val=""><span style="font-size:11px;font-weight:600;color:var(--accent-dark)">{{ t.timeLabel }}</span></sc-if>
+              <span style="font-size:10.5px;color:#9A9080;background:#EFE8DA;border-radius:5px;padding:1px 7px;white-space:nowrap">{{ t.listLabel }}</span>
+            </div>
+          </sc-for>
+          <sc-if value="{{ planTodayEmpty }}" hint-placeholder-val=""><div style="padding:16px;text-align:center;color:#B6AC99;font-size:12px;background:#FBF9F4;border:1px dashed #E0D8C8;border-radius:11px">오늘 잡힌 작업이 없습니다</div></sc-if>
+        </div>
+
+        <!-- 지연 -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+          <span style="font-size:13.5px;font-weight:700;color:#C0533B;white-space:nowrap">⏰ 지연된 작업</span>
+          <span style="font-size:11px;color:#A89E8E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">오늘로 당기거나 다시 잡으세요</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:22px">
+          <sc-for list="{{ planOverdue }}" as="t" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;gap:11px;background:#FBF9F4;border:1px solid #ECD7CE;border-radius:11px;padding:11px 13px">
+              <span onClick="{{ t.onToggle }}" style="{{ t.checkStyle }}">{{ t.check }}</span>
+              <div style="flex:1;min-width:0">
+                <div style="{{ t.titleStyle }}">{{ t.title }}</div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:3px"><span style="font-size:10.5px;font-weight:600;color:#C0533B">{{ t.late }}</span><span style="font-size:10.5px;color:#9A9080;background:#EFE8DA;border-radius:5px;padding:1px 7px;white-space:nowrap">{{ t.listLabel }}</span></div>
+              </div>
+              <button onClick="{{ t.onToday }}" style="height:28px;padding:0 11px;background:var(--accent);color:#fff;border:none;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0">오늘로</button>
+              <button onClick="{{ t.onTomorrow }}" style="height:28px;padding:0 11px;background:#FBF9F4;color:#6E6456;border:1px solid #E0D8C8;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0">내일로</button>
+            </div>
+          </sc-for>
+          <sc-if value="{{ planOverdueEmpty }}" hint-placeholder-val=""><div style="padding:16px;text-align:center;color:#3E9B72;font-size:12px;background:#FBF9F4;border:1px dashed #C2DAC6;border-radius:11px">✓ 지연된 작업 없음 — 깔끔하네요!</div></sc-if>
+        </div>
+
+        <!-- 에이전트 검토 -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+          <span style="font-size:13.5px;font-weight:700;color:#3E7A52;white-space:nowrap">🤖 에이전트가 끝냈어요</span>
+          <span style="font-size:11px;color:#A89E8E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">검토하고 승인하세요</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:22px">
+          <sc-for list="{{ planReview }}" as="t" hint-placeholder-count="2">
+            <div onClick="{{ t.onOpen }}" style="display:flex;align-items:center;gap:11px;background:#F3F7F2;border:1px solid #CFE3D2;border-radius:11px;padding:11px 13px;cursor:pointer">
+              <span style="font-size:14px">✦</span>
+              <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500;color:#2B2620">{{ t.title }}</div><div style="font-size:10.5px;color:#3E7A52;margin-top:2px">{{ t.agent }} · 완료 · 검토 대기</div></div>
+              <button onClick="{{ t.onApprove }}" style="height:28px;padding:0 13px;background:#3E9B72;color:#fff;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">승인</button>
+            </div>
+          </sc-for>
+          <sc-if value="{{ planReviewEmpty }}" hint-placeholder-val=""><div style="padding:16px;text-align:center;color:#B6AC99;font-size:12px;background:#FBF9F4;border:1px dashed #E0D8C8;border-radius:11px">검토할 에이전트 결과가 없습니다</div></sc-if>
+        </div>
+
+        <!-- 추천 -->
+        <sc-if value="{{ planHasSuggest }}" hint-placeholder-val="">
+        <div style="font-size:13.5px;font-weight:700;margin-bottom:9px">💡 기본함에서 오늘로?</div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <sc-for list="{{ planSuggest }}" as="t" hint-placeholder-count="2">
+            <div style="display:flex;align-items:center;gap:11px;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:11px;padding:10px 13px">
+              <span style="flex:1;font-size:12.5px;color:#5C5346">{{ t.title }}</span>
+              <span style="font-size:10.5px;color:#9A9080;background:#EFE8DA;border-radius:5px;padding:1px 7px;white-space:nowrap">{{ t.listLabel }}</span>
+              <button onClick="{{ t.onPlan }}" style="height:27px;padding:0 11px;background:#FBF9F4;color:var(--accent-dark);border:1px solid #E4CBC2;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0">+ 오늘</button>
+            </div>
+          </sc-for>
+        </div>
+        </sc-if>
+      </div>
+      </sc-if>
+
+      <!-- ===== WEEKLY REVIEW ===== -->
+      <sc-if value="{{ isReview }}" hint-placeholder-val="">
+      <div style="padding:18px 22px 40px;animation:hIn .25s ease;max-width:760px">
+        <div style="font-size:12px;color:#A0967f;margin-bottom:14px">{{ reviewRange }} · 이번 주 목표와 KPI를 점검하고 회고를 남기세요.</div>
+        <!-- KPI -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-bottom:22px">
+          <sc-for list="{{ reviewKpis }}" as="k" hint-placeholder-count="4">
+            <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:12px;padding:13px 15px">
+              <div style="font-size:11px;font-weight:600;color:#6E6456;margin-bottom:8px">{{ k.label }}</div>
+              <div style="font-size:24px;font-weight:800;line-height:1;color:{{ k.color }}">{{ k.value }}</div>
+              <div style="font-size:10.5px;color:#A89E8E;margin-top:6px">{{ k.sub }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <!-- 주간 목표 -->
+        <div style="font-size:13.5px;font-weight:700;margin-bottom:9px">🎯 이번 주 목표</div>
+        <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:12px;padding:6px 14px;margin-bottom:22px">
+          <sc-for list="{{ reviewGoals }}" as="g" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid #F2ECDE">
+              <span onClick="{{ g.onToggle }}" style="{{ g.checkStyle }}">{{ g.check }}</span>
+              <span style="{{ g.titleStyle }}">{{ g.text }}</span>
+            </div>
+          </sc-for>
+          <div style="display:flex;align-items:center;gap:9px;padding:9px 0">
+            <span style="font-size:15px;color:var(--accent);font-weight:300">+</span>
+            <input value="{{ goalInput }}" onInput="{{ onGoalInput }}" onKeyDown="{{ onGoalKey }}" placeholder="목표 추가" style="flex:1;border:none;background:transparent;font-size:13px;color:#2B2620"/>
+          </div>
+        </div>
+        <!-- 회고 -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">
+          <span style="font-size:13.5px;font-weight:700">📝 주간 회고</span>
+          <span style="flex:1"></span>
+          <button onClick="{{ genRetro }}" style="height:30px;padding:0 13px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">자동 생성</button>
+          <sc-if value="{{ hasRetro }}" hint-placeholder-val=""><button onClick="{{ saveRetroToWiki }}" style="height:30px;padding:0 13px;background:#FBF9F4;color:#5C5346;border:1px solid #E0D8C8;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">위키에 저장</button></sc-if>
+        </div>
+        <sc-if value="{{ hasRetro }}" hint-placeholder-val="">
+          <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:12px;padding:16px 18px;font-size:13px;line-height:1.75;color:#3B362E;white-space:pre-wrap">{{ retro }}</div>
+        </sc-if>
+        <sc-if value="{{ noRetro }}" hint-placeholder-val="{{ true }}"></sc-if>
+      </div>
+      </sc-if>
+
+      <!-- ===== WIKI ===== -->
+      <sc-if value="{{ isWiki }}" hint-placeholder-val="">
+      <div style="padding:14px 22px 26px;animation:hIn .25s ease;height:100%;min-height:580px;display:flex;flex-direction:column">
+        <!-- AI 질문 바 -->
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:10px;flex:1;height:46px;padding:0 14px;background:#FBF9F4;border:1px solid #E0D8C8;border-radius:13px">
+            <div style="width:26px;height:26px;border-radius:7px;background:linear-gradient(150deg,var(--accent),var(--accent-dark));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px;flex-shrink:0">H</div>
+            <input value="{{ wikiQ }}" onInput="{{ onWikiQ }}" onKeyDown="{{ onWikiQKey }}" placeholder="위키에게 물어보세요 — AI가 쌓인 지식으로 답합니다" style="flex:1;border:none;background:transparent;font-size:14px;color:#2B2620"/>
+          </div>
+          <button onClick="{{ askWiki }}" style="height:46px;padding:0 20px;background:var(--accent);color:#fff;border:none;border-radius:12px;font-size:13.5px;font-weight:700;cursor:pointer;box-shadow:0 1px 3px rgba(183,73,44,.3)">질문</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+          <sc-for list="{{ wikiSuggest }}" as="q" hint-placeholder-count="3"><span onClick="{{ q.onClick }}" style="font-size:11.5px;font-weight:600;color:#6E6456;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:20px;padding:5px 11px;cursor:pointer" style-hover="border-color:var(--accent)">{{ q.label }}</span></sc-for>
+        </div>
+        <sc-if value="{{ hasWikiA }}" hint-placeholder-val="">
+          <div style="display:flex;gap:11px;background:#F5F0E6;border:1px solid #E4DCC9;border-radius:13px;padding:15px 17px;margin-bottom:14px">
+            <div style="width:26px;height:26px;border-radius:7px;background:linear-gradient(150deg,var(--accent),var(--accent-dark));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px;flex-shrink:0">H</div>
+            <sc-if value="{{ wikiLoading }}" hint-placeholder-val="">
+              <div style="flex:1;display:flex;align-items:center;gap:8px;font-size:13px;color:#A0967f"><span style="display:inline-block;width:14px;height:14px;border:2px solid #E4DCC9;border-top-color:var(--accent);border-radius:50%;animation:hSpin .7s linear infinite"></span>위키를 읽고 답변 생성 중…</div>
+            </sc-if>
+            <sc-if value="{{ wikiAReady }}" hint-placeholder-val="{{ true }}">
+              <div style="flex:1;font-size:13px;line-height:1.7;color:#3B362E;white-space:pre-wrap">{{ wikiA }}</div>
+              <span onClick="{{ clearWikiA }}" style="color:#B6AC99;font-size:14px;cursor:pointer;flex-shrink:0">✕</span>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- main: graph (left) + search/tree (right) -->
+        <div style="flex:1;min-height:0;display:flex;gap:14px">
+          <!-- graph -->
+          <div style="flex:1;min-width:0;background:#FBF9F4;border:1px solid #EBE4D6;border-radius:14px;overflow:hidden;position:relative;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;gap:9px;padding:12px 15px;border-bottom:1px solid #EBE4D6;flex-shrink:0">
+              <span style="font-size:12.5px;font-weight:700">🕸 지식 그래프</span>
+              <span style="font-size:10.5px;color:#A89E8E;font-weight:600">{{ wikiDocCount }}개 노트 · {{ wikiTagCount }}개 주제</span>
+              <span style="flex:1"></span>
+              <div style="display:flex;gap:9px">
+                <sc-for list="{{ wikiLegend }}" as="l" hint-placeholder-count="4"><span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#7A7062;font-weight:600"><span style="width:8px;height:8px;border-radius:50%;background:{{ l.color }}"></span>{{ l.tag }}</span></sc-for>
+              </div>
+            </div>
+            <div style="flex:1;min-height:0;position:relative">
+            <svg viewBox="0 0 {{ graphW }} {{ graphH }}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block">
+              <sc-for list="{{ graphEdges }}" as="e" hint-placeholder-count="0"><line x1="{{ e.x1 }}" y1="{{ e.y1 }}" x2="{{ e.x2 }}" y2="{{ e.y2 }}" stroke="#C9BEA9" stroke-width="1.2" stroke-opacity="{{ e.op }}"></line></sc-for>
+              <sc-for list="{{ graphNodes }}" as="n" hint-placeholder-count="0">
+                <g onClick="{{ n.onClick }}" style="cursor:pointer" opacity="{{ n.op }}">
+                  <circle cx="{{ n.x }}" cy="{{ n.y }}" r="{{ n.r }}" fill="{{ n.fill }}" stroke="{{ n.stroke }}" stroke-width="1.8"></circle>
+                  <text x="{{ n.x }}" y="{{ n.lblY }}" text-anchor="middle" font-size="11" font-weight="{{ n.fontW }}" fill="{{ n.text }}" font-family="Pretendard,sans-serif">{{ n.label }}</text>
+                </g>
+              </sc-for>
+            </svg>
+            <!-- floating reader -->
+            <sc-if value="{{ wikiReaderOpen }}" hint-placeholder-val="">
+            <div style="position:absolute;top:14px;right:14px;bottom:14px;width:300px;background:#fff;border:1px solid #E6DFD0;border-radius:13px;box-shadow:0 12px 32px rgba(43,38,32,.14);padding:18px 20px;overflow-y:auto;animation:hModal .18s ease">
+              <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:5px">
+                <div style="font-size:16px;font-weight:800;letter-spacing:-0.02em;flex:1;line-height:1.3">{{ awTitle }}</div>
+                <span onClick="{{ closeWikiReader }}" style="color:#B6AC99;font-size:15px;cursor:pointer">✕</span>
+              </div>
+              <div style="font-size:10.5px;color:#B6AC99;margin-bottom:14px">{{ awMeta }}</div>
+              <div style="font-size:12.5px;line-height:1.75;color:#3B362E;white-space:pre-wrap">{{ awBody }}</div>
+            </div>
+            </sc-if>
+            </div>
+          </div>
+          <!-- search + tree -->
+          <div style="width:292px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;min-height:0">
+            <div style="display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;background:#FBF9F4;border:1px solid #E0D8C8;border-radius:10px;flex-shrink:0">
+              <span style="font-size:13px;color:#A89E8E">⌕</span>
+              <input value="{{ wikiSearch }}" onInput="{{ onWikiSearch }}" placeholder="위키 내용 검색" style="flex:1;border:none;background:transparent;font-size:12.5px;color:#2B2620"/>
+            </div>
+            <div style="flex:1;min-height:0;overflow-y:auto;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:12px;padding:10px">
+              <div style="font-size:10.5px;font-weight:700;color:#AEA391;letter-spacing:.04em;padding:2px 6px 8px">트리 구조</div>
+              <sc-for list="{{ wikiTree }}" as="g" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:7px;padding:6px 8px;font-size:12px;font-weight:700;color:#5C5346">
+                  <span style="font-size:9px;color:#B6AC99">▾</span>
+                  <span style="{{ g.dotStyle }}"></span>
+                  <span>{{ g.tag }}</span>
+                  <span style="font-size:10px;color:#B6AC99;font-weight:600">{{ g.count }}</span>
+                </div>
+                <sc-for list="{{ g.docs }}" as="d" hint-placeholder-count="0">
+                  <div onClick="{{ d.onOpen }}" style="{{ d.style }}" style-hover="background:#F1ECE1">
+                    <span style="font-size:11px;flex-shrink:0">{{ d.icon }}</span>
+                    <span style="font-size:12px;color:#3B362E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.title }}</span>
+                  </div>
+                </sc-for>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ===== DIARY ===== -->
+      <sc-if value="{{ isDiary }}" hint-placeholder-val="">
+      <div style="display:flex;height:100%;min-height:560px;animation:hIn .25s ease">
+        <div style="flex:1;min-width:0;overflow-y:auto;background:#F4F0E8">
+          <div style="padding:22px 36px 36px;max-width:720px;width:100%;margin:0 auto">
+            <!-- stats -->
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px">
+              <sc-for list="{{ diaryStats }}" as="k" hint-placeholder-count="3">
+                <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:12px;padding:13px 15px">
+                  <div style="font-size:11.5px;font-weight:600;color:#6E6456;margin-bottom:7px">{{ k.icon }} {{ k.label }}</div>
+                  <div style="font-size:23px;font-weight:800;line-height:1;color:#2B2620">{{ k.value }}</div>
+                </div>
+              </sc-for>
+            </div>
+            <!-- editor card -->
+            <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:14px;padding:20px 22px">
+              <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:3px">
+                <span style="font-size:18px;font-weight:800;letter-spacing:-0.02em">오늘의 일기</span>
+                <span style="font-size:11.5px;color:#A0967f">{{ diaryToday }}</span>
+              </div>
+              <div style="font-size:11px;color:#B6AC99;margin-bottom:14px">저장하면 위키에 일기로 쌓여 질문 검색에 활용됩니다.</div>
+              <!-- mood -->
+              <div style="font-size:10.5px;font-weight:700;color:#AEA391;letter-spacing:.04em;margin-bottom:7px">오늘의 기분</div>
+              <div style="display:flex;gap:7px;margin-bottom:16px">
+                <sc-for list="{{ diaryMoods }}" as="m" hint-placeholder-count="6"><div onClick="{{ m.onClick }}" style="{{ m.style }}">{{ m.emoji }}</div></sc-for>
+              </div>
+              <textarea value="{{ diaryText }}" onInput="{{ onDiary }}" placeholder="오늘 하루는 어땠나요? 무엇을 배웠고, 내일은 무엇을 다르게 할까요?" style="width:100%;border:1px solid #E0D8C8;background:#FFFEFB;border-radius:11px;font-size:14px;line-height:1.8;padding:16px;resize:none;min-height:200px;color:#3B362E;margin-bottom:12px"></textarea>
+              <!-- prompts -->
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+                <sc-for list="{{ diaryPrompts }}" as="p" hint-placeholder-count="4"><span onClick="{{ p.onClick }}" style="font-size:11px;font-weight:600;color:#6E6456;background:#F3EEE2;border:1px solid #E6DFD0;border-radius:20px;padding:5px 11px;cursor:pointer" style-hover="border-color:var(--accent)">+ {{ p.label }}</span></sc-for>
+              </div>
+              <div style="display:flex;align-items:center;gap:9px;border-top:1px solid #EBE4D6;padding-top:14px">
+                <span style="font-size:11px;color:#A0967f">매일 기록이 위키의 컨텍스트가 됩니다</span>
+                <span style="flex:1"></span>
+                <button onClick="{{ saveDiary }}" style="height:38px;padding:0 20px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 1px 3px rgba(183,73,44,.3)">위키에 저장</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- past diaries -->
+        <div style="width:332px;flex-shrink:0;border-left:1px solid #E4DCCC;background:#F7F3EB;display:flex;flex-direction:column">
+          <div style="padding:15px 18px 11px;border-bottom:1px solid #EBE4D6;display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px;font-weight:700">지난 일기</span>
+            <span style="flex:1"></span>
+            <span style="font-size:10.5px;color:#A89E8E;font-weight:600">타임라인</span>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:12px">
+            <sc-for list="{{ diaryList }}" as="d" hint-placeholder-count="3">
+              <div onClick="{{ d.onOpen }}" style="display:flex;gap:12px;cursor:pointer;margin-bottom:4px;padding:10px 11px;border-radius:11px" style-hover="background:#F1ECE1">
+                <div style="display:flex;flex-direction:column;align-items:center;width:38px;flex-shrink:0">
+                  <div style="font-size:19px;line-height:1">{{ d.mood }}</div>
+                  <div style="width:2px;flex:1;background:{{ d.accent }};opacity:.35;margin-top:4px;border-radius:2px;min-height:14px"></div>
+                </div>
+                <div style="flex:1;min-width:0;padding-bottom:6px">
+                  <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:3px">
+                    <span style="font-size:13px;font-weight:800;color:#2B2620">{{ d.day }}</span>
+                    <span style="font-size:10.5px;color:#9A9080;font-weight:600">{{ d.month }} · {{ d.wd }}</span>
+                  </div>
+                  <div style="font-size:12px;color:#6E6456;line-height:1.55">{{ d.preview }}</div>
+                </div>
+              </div>
+            </sc-for>
+            <sc-if value="{{ diaryEmpty }}" hint-placeholder-val=""><div style="padding:24px;text-align:center;color:#B6AC99;font-size:12px">아직 일기가 없습니다 ·<br>오늘 첫 일기를 남겨보세요</div></sc-if>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ===== SEARCH ===== -->
+      <sc-if value="{{ isSearch }}" hint-placeholder-val="">
+      <div style="padding:18px 22px 36px;animation:hIn .25s ease;max-width:860px">
+        <div style="font-size:13px;color:#7A7062;margin-bottom:16px">"<b style="color:#2B2620">{{ query }}</b>" 검색 결과 {{ searchTotal }}건</div>
+        <sc-for list="{{ searchGroups }}" as="g" hint-placeholder-count="3">
+          <div style="margin-bottom:20px">
+            <div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:#AEA391;text-transform:uppercase;margin-bottom:8px">{{ g.title }} · {{ g.count }}</div>
+            <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:12px;overflow:hidden">
+              <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="3">
+                <div onClick="{{ r.onOpen }}" style="display:flex;align-items:center;gap:11px;padding:11px 15px;border-bottom:1px solid #F4EFE4;cursor:pointer" style-hover="background:#F6F1E8">
+                  <span style="font-size:13px;width:18px;text-align:center">{{ r.icon }}</span>
+                  <span style="font-size:12.5px;font-weight:500;color:#2B2620;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</span>
+                  <span style="font-size:11px;color:#A89E8E">{{ r.meta }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+        <sc-if value="{{ searchEmpty }}" hint-placeholder-val=""><div style="padding:40px;text-align:center;color:#B6AC99;font-size:13px">결과가 없습니다</div></sc-if>
+      </div>
+      </sc-if>
+
+      <!-- ===== AGENTS ===== -->
+      <sc-if value="{{ isAgents }}" hint-placeholder-val="">
+      <div style="padding:18px 22px 40px;animation:hIn .25s ease;max-width:920px">
+        <!-- mission composer -->
+        <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:14px;padding:16px 18px;margin-bottom:14px">
+          <div style="display:flex;align-items:center;gap:9px;margin-bottom:11px">
+            <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(150deg,var(--accent),var(--accent-dark));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:14px">H</div>
+            <span style="font-size:14px;font-weight:700">새 미션 위임</span>
+            <span style="font-size:11px;color:#A0967f">목표를 적으면 에이전트가 계획을 세웁니다</span>
+          </div>
+          <textarea value="{{ missionText }}" onInput="{{ onMissionText }}" onKeyDown="{{ onMissionKey }}" placeholder="예: UniPort 경쟁사 3곳을 리서치해서 비교표로 위키에 정리해줘" style="width:100%;border:1px solid #E0D8C8;background:#fff;border-radius:11px;font-size:13.5px;line-height:1.6;padding:12px 13px;resize:none;height:74px;color:#2B2620;margin-bottom:11px"></textarea>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:700;color:#9A9080">담당</span>
+            <sc-for list="{{ missionAgentOpts }}" as="o" hint-placeholder-count="3"><span onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.emoji }} {{ o.label }}</span></sc-for>
+            <span style="flex:1"></span>
+            <button onClick="{{ startMission }}" style="height:36px;padding:0 18px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 1px 3px rgba(183,73,44,.3)">계획 세우기 →</button>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:11px">
+            <sc-for list="{{ missionExamples }}" as="e" hint-placeholder-count="3"><span onClick="{{ e.onClick }}" style="font-size:11px;font-weight:600;color:#6E6456;background:#F3EEE2;border:1px solid #E6DFD0;border-radius:20px;padding:4px 10px;cursor:pointer" style-hover="border-color:var(--accent)">{{ e.label }}</span></sc-for>
+          </div>
+        </div>
+
+        <!-- roster -->
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
+          <span style="font-size:13px;font-weight:700">에이전트</span>
+          <span style="flex:1"></span>
+          <button onClick="{{ openNewAgent }}" style="height:28px;padding:0 12px;background:#FBF9F4;color:#5C5346;border:1px solid #E0D8C8;border-radius:8px;font-size:11.5px;font-weight:600;cursor:pointer" style-hover="border-color:var(--accent)">+ 새 에이전트</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px;margin-bottom:24px">
+          <sc-for list="{{ agentCards }}" as="a" hint-placeholder-count="3">
+            <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:12px;padding:15px">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:11px">
+                <div style="{{ a.avatarStyle }}">{{ a.emoji }}</div>
+                <div style="line-height:1.25;flex:1;min-width:0">
+                  <div style="font-size:13px;font-weight:700">{{ a.name }}</div>
+                  <div style="font-size:10.5px;color:#A0967f">{{ a.model }}</div>
+                </div>
+                <span style="{{ a.statusStyle }}">{{ a.status }}</span>
+              </div>
+              <div style="font-size:11.5px;color:#6E6456;line-height:1.5;margin-bottom:12px;min-height:34px">{{ a.persona }}</div>
+              <div style="display:flex;gap:14px;border-top:1px solid #F0EADC;padding-top:10px">
+                <div><div style="font-size:9.5px;color:#A89E8E;font-weight:600">진행 중</div><div style="font-size:15px;font-weight:800;color:#2B2620">{{ a.active }}</div></div>
+                <div><div style="font-size:9.5px;color:#A89E8E;font-weight:600">완료</div><div style="font-size:15px;font-weight:800;color:#2B2620">{{ a.done }}</div></div>
+                <span style="flex:1"></span>
+                <button onClick="{{ a.onDelegate }}" style="align-self:flex-end;height:28px;padding:0 12px;background:var(--accent-soft);color:var(--accent-dark);border:1px solid var(--accent-line);border-radius:7px;font-size:11px;font-weight:700;cursor:pointer">선택</button>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+        <!-- runs -->
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px">실행 / 검토</div>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <sc-for list="{{ runRows }}" as="r" hint-placeholder-count="2">
+            <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:11px;padding:12px 14px;cursor:pointer" onClick="{{ r.onOpen }}" style-hover="border-color:#D7C9B2">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">
+                <span style="{{ r.statusStyle }}">{{ r.statusLabel }}</span>
+                <span style="font-size:12.5px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</span>
+                <span style="font-size:11px;color:#A0967f">{{ r.agent }}</span>
+              </div>
+              <div style="height:5px;background:#EDE6D7;border-radius:4px;overflow:hidden"><div style="height:100%;background:linear-gradient(90deg,#E8916F,var(--accent));width:{{ r.pct }}%;border-radius:4px;transition:width .4s"></div></div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:7px">
+                <span style="font-size:10.5px;color:#8A8070;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.step }}</span>
+                <sc-if value="{{ r.hasArtifact }}" hint-placeholder-val=""><span onClick="{{ r.onOpenArtifact }}" style="font-size:10.5px;font-weight:600;color:var(--accent-dark);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:6px;padding:2px 8px;cursor:pointer;white-space:nowrap;flex-shrink:0">{{ r.artifactLabel }}</span></sc-if>
+              </div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noRuns }}" hint-placeholder-val=""><div style="padding:24px;text-align:center;color:#B6AC99;font-size:12.5px;background:#FBF9F4;border:1px dashed #E0D8C8;border-radius:11px">아직 실행한 미션이 없습니다 · 위에서 목표를 위임해보세요</div></sc-if>
+        </div>
+      </div>
+      </sc-if>
+
+    </div>
+  </main>
+
+  <!-- ============ CHAT / HERMES CONSOLE DRAWER ============ -->
+  <sc-if value="{{ chatOpen }}" hint-placeholder-val="">
+  <aside style="width:340px;flex-shrink:0;border-left:1px solid #E0D8C8;background:#F7F3EB;display:flex;flex-direction:column;height:100%;animation:hIn .2s ease">
+    <div style="padding:13px 16px;border-bottom:1px solid #EBE4D6;display:flex;align-items:center;gap:9px">
+      <div style="width:24px;height:24px;border-radius:7px;background:linear-gradient(150deg,var(--accent),var(--accent-dark));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:12px">H</div>
+      <span style="font-size:13px;font-weight:700">Hermes 콘솔</span>
+      <span style="flex:1"></span>
+      <span onClick="{{ toggleChat }}" style="color:#B6AC99;font-size:16px;cursor:pointer">✕</span>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:11px">
+      <sc-for list="{{ chatMsgs }}" as="m" hint-placeholder-count="3">
+        <div style="{{ m.wrapStyle }}">
+          <div style="{{ m.bubbleStyle }}">{{ m.text }}</div>
+          <sc-if value="{{ m.run }}" hint-placeholder-val="">
+            <div style="margin-top:7px;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:10px;padding:10px;width:100%;cursor:pointer" onClick="{{ m.onOpenRun }}">
+              <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px"><span style="{{ m.run.statusStyle }}">{{ m.run.statusLabel }}</span><span style="font-size:11.5px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ m.run.title }}</span></div>
+              <div style="height:4px;background:#EDE6D7;border-radius:3px;overflow:hidden"><div style="height:100%;background:linear-gradient(90deg,#E8916F,var(--accent));width:{{ m.run.pct }}%;transition:width .4s"></div></div>
+              <div style="font-size:10px;color:#8A8070;margin-top:5px">{{ m.run.step }}</div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+    <div style="padding:12px;border-top:1px solid #EBE4D6">
+      <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+        <sc-for list="{{ chatChips }}" as="c" hint-placeholder-count="3"><span onClick="{{ c.onClick }}" style="font-size:10.5px;font-weight:600;color:#6E6456;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:20px;padding:4px 9px;cursor:pointer" style-hover="border-color:var(--accent)">{{ c.label }}</span></sc-for>
+      </div>
+      <div style="display:flex;gap:7px;align-items:flex-end">
+        <textarea value="{{ chatInput }}" onInput="{{ onChatInput }}" onKeyDown="{{ onChatKey }}" placeholder="Hermes에게 작업을 위임…" style="flex:1;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:9px;font-size:12.5px;padding:9px 11px;resize:none;height:38px;line-height:1.4;color:#2B2620"></textarea>
+        <button onClick="{{ sendChat }}" style="width:38px;height:38px;flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:15px;cursor:pointer">↑</button>
+      </div>
+    </div>
+  </aside>
+  </sc-if>
+
+  <!-- ============ TASK DETAIL MODAL ============ -->
+  <sc-if value="{{ detailOpen }}" hint-placeholder-val="">
+  <div onClick="{{ closeDetail }}" style="position:fixed;inset:0;background:rgba(43,38,32,.32);display:flex;align-items:flex-start;justify-content:center;padding-top:8vh;z-index:60;backdrop-filter:blur(2px)">
+    <div onClick="{{ stop }}" style="width:540px;max-width:92vw;background:#F7F3EB;border:1px solid #E0D8C8;border-radius:16px;box-shadow:0 24px 60px rgba(43,38,32,.28);animation:hModal .22s ease;overflow:hidden">
+      <div style="padding:18px 20px;display:flex;align-items:flex-start;gap:13px;border-bottom:1px solid #EBE4D6">
+        <span onClick="{{ detailToggle }}" style="{{ detailCheckStyle }}">{{ detailCheck }}</span>
+        <input value="{{ detailTitle }}" onInput="{{ onDetailTitle }}" style="flex:1;border:none;background:transparent;font-size:16.5px;font-weight:700;color:#2B2620"/>
+        <span onClick="{{ closeDetail }}" style="color:#B6AC99;font-size:17px;cursor:pointer">✕</span>
+      </div>
+      <div style="padding:16px 20px;display:flex;flex-direction:column;gap:13px">
+        <div style="display:grid;grid-template-columns:80px 1fr;gap:11px;align-items:center">
+          <span style="font-size:11.5px;font-weight:600;color:#9A9080">날짜</span>
+          <input value="{{ detailDate }}" onInput="{{ onDetailDate }}" placeholder="YYYY-MM-DD" style="height:32px;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:8px;padding:0 10px;font-size:12.5px;color:#2B2620"/>
+          <span style="font-size:11.5px;font-weight:600;color:#9A9080">시간</span>
+          <input value="{{ detailTime }}" onInput="{{ onDetailTime }}" placeholder="예: 15:00 (선택)" style="height:32px;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:8px;padding:0 10px;font-size:12.5px;color:#2B2620"/>
+          <span style="font-size:11.5px;font-weight:600;color:#9A9080">리스트</span>
+          <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ detailListOpts }}" as="o" hint-placeholder-count="4"><span onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</span></sc-for></div>
+          <span style="font-size:11.5px;font-weight:600;color:#9A9080">우선순위</span>
+          <div style="display:flex;gap:6px"><sc-for list="{{ detailPriOpts }}" as="o" hint-placeholder-count="4"><span onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</span></sc-for></div>
+          <span style="font-size:11.5px;font-weight:600;color:#9A9080">반복</span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><sc-for list="{{ detailRepeatOpts }}" as="o" hint-placeholder-count="4"><span onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</span></sc-for></div>
+          <sc-if value="{{ detailHasRepeat }}" hint-placeholder-val="">
+          <span style="font-size:11.5px;font-weight:600;color:#9A9080">반복 종료</span>
+          <input value="{{ detailRepeatUntil }}" onInput="{{ onDetailRepeatUntil }}" placeholder="종료일 YYYY-MM-DD (선택)" style="height:32px;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:8px;padding:0 10px;font-size:12.5px;color:#2B2620"/>
+          </sc-if>
+          <span style="font-size:11.5px;font-weight:600;color:#9A9080">담당</span>
+          <div style="display:flex;gap:6px"><sc-for list="{{ detailOwnerOpts }}" as="o" hint-placeholder-count="3"><span onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</span></sc-for></div>
+        </div>
+        <textarea value="{{ detailNotes }}" onInput="{{ onDetailNotes }}" placeholder="메모 추가…" style="border:1px solid #E0D8C8;background:#FBF9F4;border-radius:9px;font-size:12.5px;padding:10px;resize:none;height:64px;line-height:1.5;color:#3B362E"></textarea>
+      </div>
+      <div style="padding:13px 20px;border-top:1px solid #EBE4D6;display:flex;align-items:center;gap:9px">
+        <button onClick="{{ deleteTask }}" style="height:32px;padding:0 13px;background:transparent;color:#C0533B;border:1px solid #E4CBC2;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">삭제</button>
+        <span style="flex:1"></span>
+        <button onClick="{{ openDelegateFromDetail }}" style="height:32px;padding:0 14px;background:#EFE8DA;color:#6E6456;border:1px solid #E0D8C8;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">⚡ 에이전트에 위임</button>
+        <button onClick="{{ closeDetail }}" style="height:32px;padding:0 16px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">완료</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ NEW / EVENT MODAL ============ -->
+  <sc-if value="{{ newOpen }}" hint-placeholder-val="">
+  <div onClick="{{ closeNew }}" style="position:fixed;inset:0;background:rgba(43,38,32,.22);display:flex;align-items:flex-start;justify-content:center;padding-top:8vh;z-index:60">
+    <div onClick="{{ stop }}" style="width:288px;max-width:92vw;max-height:74vh;display:flex;flex-direction:column;background:#FBF9F4;border:1px solid #E0D8C8;border-radius:14px;box-shadow:0 20px 56px rgba(43,38,32,.26);animation:hModal .2s ease;overflow:hidden">
+      <div style="overflow-y:auto;flex:1;min-height:0">
+      <!-- date + close -->
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 14px 2px">
+        <span onClick="{{ toggleDatePanel }}" style="{{ newDateChipStyle }}"><span style="font-size:13px">🗓</span>{{ newDateLabel }}</span>
+        <span style="flex:1"></span>
+        <span onClick="{{ closeNew }}" style="font-size:17px;cursor:pointer;color:#B6AC99" title="닫기">✕</span>
+      </div>
+      <!-- title -->
+      <div style="display:flex;align-items:center;gap:8px;padding:5px 14px 0">
+        <input value="{{ newTitle }}" onInput="{{ onNewTitle }}" onKeyDown="{{ onNewKey }}" placeholder="무엇을 하고 싶으신가요?" autofocus style="flex:1;border:none;background:transparent;font-size:14.5px;font-weight:600;color:#2B2620;letter-spacing:-0.01em"/>
+        <span onClick="{{ toggleListPanel }}" style="font-size:16px;color:#B6AC99;cursor:pointer" title="리스트">☰</span>
+      </div>
+      <!-- description -->
+      <input value="{{ newDesc }}" onInput="{{ onNewDesc }}" placeholder="설명" style="width:100%;border:none;background:transparent;font-size:12.5px;color:#6E6456;padding:6px 14px 4px"/>
+
+      <!-- date / time / repeat panel -->
+      <sc-if value="{{ newDatePanel }}" hint-placeholder-val="">
+      <div style="margin:5px 11px 4px;padding:11px 12px;background:#FBF9F4;border:1px solid #EBE4D6;border-radius:12px">
+        <!-- 날짜 / 지속 시간 -->
+        <div style="display:flex;gap:2px;background:#EAE3D4;border-radius:8px;padding:3px;margin-bottom:9px">
+          <div onClick="{{ setDateMode }}" style="{{ segDateStyle }}">날짜</div>
+          <div onClick="{{ setDurationMode }}" style="{{ segDurStyle }}">지속 시간</div>
+        </div>
+        <sc-if value="{{ isDateMode }}" hint-placeholder-val="{{ true }}">
+        <!-- quick chips -->
+        <div style="display:flex;gap:5px;margin-bottom:11px">
+          <sc-for list="{{ pickerQuick }}" as="q" hint-placeholder-count="4">
+            <div onClick="{{ q.onClick }}" style="{{ q.style }}">{{ q.label }}</div>
+          </sc-for>
+        </div>
+        <!-- month header -->
+        <div style="display:flex;align-items:center;margin-bottom:9px">
+          <span style="font-size:13.5px;font-weight:700">{{ pickerLabel }}</span>
+          <span style="flex:1"></span>
+          <div style="display:flex;gap:4px">
+            <span onClick="{{ pickerPrev }}" style="width:25px;height:25px;display:flex;align-items:center;justify-content:center;background:#FBF9F4;border:1px solid #E0D8C8;color:#7A7062;font-size:12px;cursor:pointer;border-radius:7px">‹</span>
+            <span onClick="{{ pickerToday }}" style="height:25px;padding:0 9px;display:flex;align-items:center;justify-content:center;background:#FBF9F4;border:1px solid #E0D8C8;color:#7A7062;font-size:11px;font-weight:600;cursor:pointer;border-radius:7px">오늘</span>
+            <span onClick="{{ pickerNext }}" style="width:25px;height:25px;display:flex;align-items:center;justify-content:center;background:#FBF9F4;border:1px solid #E0D8C8;color:#7A7062;font-size:12px;cursor:pointer;border-radius:7px">›</span>
+          </div>
+        </div>
+        <!-- weekday header -->
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:3px">
+          <sc-for list="{{ pickerWeekdays }}" as="w" hint-placeholder-count="7"><div style="{{ w.style }}">{{ w.label }}</div></sc-for>
+        </div>
+        <!-- weeks -->
+        <sc-for list="{{ pickerWeeks }}" as="week" hint-placeholder-count="6">
+          <div style="display:grid;grid-template-columns:repeat(7,1fr)">
+            <sc-for list="{{ week }}" as="c" hint-placeholder-count="7"><div onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.day }}</div></sc-for>
+          </div>
+        </sc-for>
+        <!-- 접힌 시간 행 -->
+        <div onClick="{{ toggleTimeRow }}" style="display:flex;align-items:center;gap:9px;margin-top:11px;padding:9px 2px;border-top:1px solid #EBE4D6;cursor:pointer">
+          <span style="font-size:14px;color:#C0826A">🕐</span>
+          <span style="font-size:12.5px;color:#6E6456;font-weight:600">시간</span>
+          <span style="flex:1"></span>
+          <span style="font-size:12px;color:{{ newTimeValColor }};font-weight:600">{{ newTimeRowVal }}</span>
+          <span style="font-size:11px;color:#B6AC99">{{ newTimeCaret }}</span>
+        </div>
+        <sc-if value="{{ newTimePanel }}" hint-placeholder-val="">
+          <div style="display:flex;align-items:center;gap:8px;padding:0 2px 8px">
+            <span style="font-size:11px;color:#9A9080;font-weight:600">종일</span>
+            <span onClick="{{ toggleAllDay }}" style="{{ newAllDayToggle }}"><span style="{{ newAllDayKnob }}"></span></span>
+            <span style="flex:1"></span>
+            <sc-if value="{{ hasTime }}" hint-placeholder-val=""><span onClick="{{ clearTime }}" style="font-size:11px;color:#C0533B;font-weight:600;cursor:pointer">지우기</span></sc-if>
+          </div>
+          <div style="max-height:116px;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:0 2px 4px">
+            <sc-for list="{{ timeSlots }}" as="t" hint-placeholder-count="12"><div onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</div></sc-for>
+          </div>
+        </sc-if>
+        </sc-if>
+        <sc-if value="{{ isDurationMode }}" hint-placeholder-val="">
+        <div style="display:grid;grid-template-columns:30px 1fr 96px;gap:10px;align-items:center">
+          <span style="font-size:11.5px;color:#9A9080;font-weight:600">시작</span>
+          <input value="{{ newDate }}" onInput="{{ onNewDate }}" placeholder="YYYY-MM-DD" style="height:33px;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:8px;padding:0 11px;font-size:12.5px;color:#2B2620;font-weight:600"/>
+          <input value="{{ newTime }}" onInput="{{ onNewTime }}" placeholder="시간" style="height:33px;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:8px;padding:0 10px;font-size:12.5px;color:#2B2620;font-weight:600;text-align:center"/>
+          <span style="font-size:11.5px;color:#9A9080;font-weight:600">끝</span>
+          <input value="{{ newEndDate }}" onInput="{{ onNewEndDate }}" placeholder="YYYY-MM-DD" style="height:33px;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:8px;padding:0 11px;font-size:12.5px;color:#2B2620;font-weight:600"/>
+          <input value="{{ newEndTime }}" onInput="{{ onNewEndTime }}" placeholder="시간" style="height:33px;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:8px;padding:0 10px;font-size:12.5px;color:#2B2620;font-weight:600;text-align:center"/>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #EBE4D6">
+          <span style="font-size:11.5px;color:#9A9080;font-weight:600;width:34px">종일</span>
+          <span onClick="{{ toggleAllDay }}" style="{{ newAllDayToggle }}"><span style="{{ newAllDayKnob }}"></span></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:11px;padding-top:12px;border-top:1px solid #EBE4D6">
+          <span style="font-size:12.5px;color:#6E6456;font-weight:600">정각에</span>
+          <span style="flex:1"></span>
+          <span style="font-size:11px;color:#B6AC99">›</span>
+        </div>
+        </sc-if>
+        <!-- 접힌 반복 행 -->
+        <div onClick="{{ toggleRepeatRow }}" style="display:flex;align-items:center;gap:9px;padding:9px 2px;border-top:1px solid #EBE4D6;cursor:pointer">
+          <span style="font-size:14px;color:#C0826A">⟳</span>
+          <span style="font-size:12.5px;color:#6E6456;font-weight:600">반복</span>
+          <span style="flex:1"></span>
+          <span style="font-size:12px;color:{{ newRepeatValColor }};font-weight:600">{{ newRepeatRowVal }}</span>
+          <span style="font-size:11px;color:#B6AC99">{{ newRepeatCaret }}</span>
+        </div>
+        <sc-if value="{{ newRepeatPanel }}" hint-placeholder-val="">
+          <div style="display:flex;gap:5px;flex-wrap:wrap;padding:0 2px 9px"><sc-for list="{{ newRepeatOpts }}" as="o" hint-placeholder-count="5"><span onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</span></sc-for></div>
+        </sc-if>
+        <!-- 접힌 담당 행 -->
+        <div onClick="{{ toggleOwnerRow }}" style="display:flex;align-items:center;gap:9px;padding:9px 2px;border-top:1px solid #EBE4D6;cursor:pointer">
+          <span style="font-size:13px">👤</span>
+          <span style="font-size:12.5px;color:#6E6456;font-weight:600">담당</span>
+          <span style="flex:1"></span>
+          <span style="font-size:12px;color:#5C5346;font-weight:600">{{ newOwnerRowVal }}</span>
+          <span style="font-size:11px;color:#B6AC99">{{ newOwnerCaret }}</span>
+        </div>
+        <sc-if value="{{ newOwnerPanel }}" hint-placeholder-val="">
+          <div style="display:flex;gap:5px;padding:0 2px 4px"><sc-for list="{{ newOwnerOpts }}" as="o" hint-placeholder-count="3"><span onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</span></sc-for></div>
+        </sc-if>
+      </div>
+      </sc-if>
+
+      <!-- list panel -->
+      <sc-if value="{{ newListPanel }}" hint-placeholder-val="">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;padding:6px 18px 2px"><sc-for list="{{ newListOpts }}" as="o" hint-placeholder-count="6"><span onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</span></sc-for></div>
+      </sc-if>
+
+      <!-- hint -->
+      <div style="padding:4px 14px 2px;font-size:11px;color:#B6AC99">"엔터"를 눌러 할일 생성</div>
+
+      </div>
+      <!-- footer -->
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px 10px;border-top:1px solid #EBE4D6">
+        <span onClick="{{ toggleListPanel }}" style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5C5346;cursor:pointer;padding:4px 7px;border-radius:7px" style-hover="background:#F3EEE2"><span style="font-size:12px">📥</span>{{ newListName }} <span style="font-size:9px;color:#B6AC99">▾</span></span>
+        <span style="flex:1"></span>
+        <button onClick="{{ closeNew }}" style="height:30px;padding:0 12px;background:#FBF9F4;color:#8A8070;border:1px solid #E0D8C8;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">취소</button>
+        <button onClick="{{ submitNew }}" style="height:30px;padding:0 16px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 1px 3px rgba(183,73,44,.3)">확인</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ DELEGATE MODAL ============ -->
+  <sc-if value="{{ delegateOpen }}" hint-placeholder-val="">
+  <div onClick="{{ closeDelegate }}" style="position:fixed;inset:0;background:rgba(43,38,32,.32);display:flex;align-items:flex-start;justify-content:center;padding-top:9vh;z-index:70;backdrop-filter:blur(2px)">
+    <div onClick="{{ stop }}" style="width:520px;max-width:92vw;background:#F7F3EB;border:1px solid #E0D8C8;border-radius:16px;box-shadow:0 24px 60px rgba(43,38,32,.28);animation:hModal .22s ease;padding:20px">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:5px">
+        <span style="font-size:15px;font-weight:700">⚡ 에이전트에 위임</span>
+      </div>
+      <div style="font-size:11.5px;color:#A0967f;margin-bottom:14px">자연어로 지시하면 런이 생성되고 실시간으로 실행됩니다.</div>
+      <div style="font-size:11px;font-weight:700;color:#9A9080;margin-bottom:6px">담당 에이전트</div>
+      <div style="display:flex;gap:7px;margin-bottom:13px"><sc-for list="{{ delegateAgentOpts }}" as="o" hint-placeholder-count="3"><span onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.emoji }} {{ o.label }}</span></sc-for></div>
+      <textarea value="{{ delegateText }}" onInput="{{ onDelegateText }}" placeholder="예: UniPort 개발 백로그를 우선순위별로 정리하고 이번 주 할 일로 분배해줘" style="width:100%;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:10px;font-size:13px;padding:11px;resize:none;height:90px;line-height:1.5;color:#2B2620;margin-bottom:13px"></textarea>
+      <div style="display:flex;align-items:center;gap:9px">
+        <span style="font-size:11px;color:#8A8070">결과는 캘린더·태스크에 자동 공유됩니다</span>
+        <span style="flex:1"></span>
+        <button onClick="{{ closeDelegate }}" style="height:34px;padding:0 14px;background:transparent;color:#8A8070;border:1px solid #E0D8C8;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer">취소</button>
+        <button onClick="{{ submitDelegate }}" style="height:34px;padding:0 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer">위임하고 실행</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ RUN REPORT MODAL ============ -->
+  <sc-if value="{{ runOpen }}" hint-placeholder-val="">
+  <div onClick="{{ closeRun }}" style="position:fixed;inset:0;background:rgba(43,38,32,.32);display:flex;align-items:flex-start;justify-content:center;padding-top:7vh;z-index:70;backdrop-filter:blur(2px)">
+    <div onClick="{{ stop }}" style="width:560px;max-width:92vw;max-height:84vh;overflow-y:auto;background:#F7F3EB;border:1px solid #E0D8C8;border-radius:16px;box-shadow:0 24px 60px rgba(43,38,32,.28);animation:hModal .22s ease">
+      <div style="padding:18px 20px;border-bottom:1px solid #EBE4D6;display:flex;align-items:center;gap:10px">
+        <span style="{{ runHeadStatusStyle }}">{{ runHeadStatus }}</span>
+        <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ runHeadTitle }}</div><div style="font-size:11px;color:#A0967f">{{ runHeadAgent }}</div></div>
+        <span onClick="{{ closeRun }}" style="color:#B6AC99;font-size:17px;cursor:pointer">✕</span>
+      </div>
+      <div style="padding:18px 20px">
+        <div style="height:6px;background:#EDE6D7;border-radius:4px;overflow:hidden;margin-bottom:18px"><div style="height:100%;background:linear-gradient(90deg,#E8916F,var(--accent));width:{{ runHeadPct }}%;transition:width .4s"></div></div>
+        <div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:#AEA391;text-transform:uppercase;margin-bottom:12px">실행 타임라인</div>
+        <div style="display:flex;flex-direction:column">
+          <sc-for list="{{ runSteps }}" as="s" hint-placeholder-count="4">
+            <div style="display:flex;gap:11px">
+              <div style="display:flex;flex-direction:column;align-items:center"><span style="{{ s.dotStyle }}"></span><span style="{{ s.lineStyle }}"></span></div>
+              <div style="padding-bottom:14px;flex:1">
+                <div style="font-size:12.5px;font-weight:600;color:#2B2620">{{ s.title }}</div>
+                <div style="font-size:11px;color:#8A8070;margin-top:2px">{{ s.detail }}</div>
+              </div>
+              <span style="font-size:10px;color:#B6AC99;flex-shrink:0">{{ s.time }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <sc-if value="{{ runHasArtifact }}" hint-placeholder-val="">
+          <div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:#AEA391;text-transform:uppercase;margin:6px 0 10px">산출물</div>
+          <div onClick="{{ openRunArtifact }}" style="display:flex;align-items:center;gap:11px;background:#FBF9F4;border:1px solid var(--accent-line);border-radius:11px;padding:12px 14px;cursor:pointer" style-hover="border-color:var(--accent)">
+            <span style="font-size:18px">📄</span>
+            <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;color:#2B2620">{{ runArtifactTitle }}</div><div style="font-size:10.5px;color:#A0967f">위키 문서 · 클릭해서 열기</div></div>
+            <span style="font-size:11px;color:var(--accent-dark);font-weight:700">열기 →</span>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ PLAN DRAFT MODAL ============ -->
+  <sc-if value="{{ planOpen }}" hint-placeholder-val="">
+  <div onClick="{{ cancelPlan }}" style="position:fixed;inset:0;background:rgba(43,38,32,.34);display:flex;align-items:flex-start;justify-content:center;padding-top:7vh;z-index:75;backdrop-filter:blur(2px)">
+    <div onClick="{{ stop }}" style="width:540px;max-width:92vw;max-height:84vh;overflow-y:auto;background:#F7F3EB;border:1px solid #E0D8C8;border-radius:18px;box-shadow:0 24px 60px rgba(43,38,32,.28);animation:hModal .22s ease">
+      <div style="padding:18px 22px 14px;border-bottom:1px solid #EBE4D6">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">
+          <span style="font-size:15px;font-weight:800">📋 실행 계획 검토</span>
+          <span style="flex:1"></span>
+          <span style="font-size:11.5px;font-weight:600;color:var(--accent-dark);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:20px;padding:2px 10px">{{ planAgent }}</span>
+        </div>
+        <div style="font-size:13px;color:#3B362E;line-height:1.55;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:10px;padding:11px 13px">🎯 {{ planGoal }}</div>
+      </div>
+      <div style="padding:16px 22px">
+        <div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:#AEA391;text-transform:uppercase;margin-bottom:12px">제안된 단계</div>
+        <div style="display:flex;flex-direction:column">
+          <sc-for list="{{ planSteps }}" as="s" hint-placeholder-count="4">
+            <div style="display:flex;gap:12px;padding-bottom:13px">
+              <div style="width:24px;height:24px;flex-shrink:0;border-radius:50%;background:var(--accent-soft);border:1px solid var(--accent-line);color:var(--accent-dark);display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:800">{{ s.num }}</div>
+              <div style="flex:1;padding-top:1px">
+                <div style="font-size:13px;font-weight:600;color:#2B2620">{{ s.title }}</div>
+                <div style="font-size:11.5px;color:#8A8070;margin-top:2px">{{ s.detail }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;align-items:center;gap:9px;background:#F1ECE1;border:1px solid #E6DFD0;border-radius:10px;padding:11px 13px;margin-top:4px">
+          <span style="font-size:11px;font-weight:700;color:#9A9080">산출물</span>
+          <span style="font-size:12.5px;font-weight:600;color:#5C5346">{{ planArtifact }}</span>
+        </div>
+      </div>
+      <div style="padding:13px 22px;border-top:1px solid #EBE4D6;display:flex;align-items:center;gap:9px">
+        <span style="font-size:11px;color:#A0967f">승인하면 끝까지 자동 실행되고 위키에 문서가 생성됩니다</span>
+        <span style="flex:1"></span>
+        <button onClick="{{ cancelPlan }}" style="height:34px;padding:0 14px;background:#FBF9F4;color:#8A8070;border:1px solid #E0D8C8;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer">취소</button>
+        <button onClick="{{ approvePlan }}" style="height:34px;padding:0 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;box-shadow:0 1px 3px rgba(183,73,44,.3)">승인하고 실행</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ NEW AGENT MODAL ============ -->
+  <sc-if value="{{ newAgentOpen }}" hint-placeholder-val="">
+  <div onClick="{{ closeNewAgent }}" style="position:fixed;inset:0;background:rgba(43,38,32,.32);display:flex;align-items:flex-start;justify-content:center;padding-top:11vh;z-index:75;backdrop-filter:blur(2px)">
+    <div onClick="{{ stop }}" style="width:420px;max-width:92vw;background:#F7F3EB;border:1px solid #E0D8C8;border-radius:16px;box-shadow:0 24px 60px rgba(43,38,32,.28);animation:hModal .22s ease;padding:20px">
+      <div style="font-size:15px;font-weight:700;margin-bottom:14px">새 에이전트 만들기</div>
+      <div style="font-size:11px;font-weight:700;color:#9A9080;margin-bottom:7px">아이콘</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px"><sc-for list="{{ newAgentEmojiOpts }}" as="e" hint-placeholder-count="8"><div onClick="{{ e.onClick }}" style="{{ e.style }}">{{ e.emoji }}</div></sc-for></div>
+      <input value="{{ newAgentName }}" onInput="{{ onNewAgentName }}" placeholder="에이전트 이름 (예: 리서처)" style="width:100%;height:40px;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:9px;padding:0 12px;font-size:14px;font-weight:500;color:#2B2620;margin-bottom:10px"/>
+      <textarea value="{{ newAgentRole }}" onInput="{{ onNewAgentRole }}" placeholder="역할·담당 영역 (예: 시장 조사와 경쟁사 분석을 담당)" style="width:100%;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:9px;font-size:12.5px;line-height:1.5;padding:10px 12px;resize:none;height:64px;color:#2B2620;margin-bottom:16px"></textarea>
+      <div style="display:flex;align-items:center;gap:9px">
+        <span style="flex:1"></span>
+        <button onClick="{{ closeNewAgent }}" style="height:34px;padding:0 14px;background:#FBF9F4;color:#8A8070;border:1px solid #E0D8C8;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer">취소</button>
+        <button onClick="{{ createAgent }}" style="height:34px;padding:0 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer">만들기</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ SETTINGS MODAL ============ -->
+  <sc-if value="{{ settingsOpen }}" hint-placeholder-val="">
+  <div onClick="{{ closeSettings }}" style="position:fixed;inset:0;background:rgba(43,38,32,.32);display:flex;align-items:flex-start;justify-content:center;padding-top:8vh;z-index:80;backdrop-filter:blur(2px)">
+    <div onClick="{{ stop }}" style="width:540px;max-width:92vw;max-height:84vh;overflow-y:auto;background:#F7F3EB;border:1px solid #E0D8C8;border-radius:18px;box-shadow:0 24px 60px rgba(43,38,32,.28);animation:hModal .22s ease">
+      <div style="padding:18px 22px;border-bottom:1px solid #EBE4D6;display:flex;align-items:center;gap:10px">
+        <span style="font-size:16px;font-weight:800">설정</span>
+        <span style="flex:1"></span>
+        <span onClick="{{ closeSettings }}" style="color:#B6AC99;font-size:17px;cursor:pointer">✕</span>
+      </div>
+      <div style="padding:20px 22px">
+        <!-- 계정 -->
+        <div style="font-size:10.5px;font-weight:800;letter-spacing:.06em;color:#AEA391;text-transform:uppercase;margin-bottom:10px">계정</div>
+        <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:13px;padding:15px 17px;display:flex;align-items:center;gap:13px;margin-bottom:24px">
+          <div style="width:46px;height:46px;border-radius:50%;background:linear-gradient(150deg,var(--accent),var(--accent-dark));color:#fff;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800">윤</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14.5px;font-weight:700">{{ userName }}</div>
+            <div style="font-size:11.5px;color:#A0967f">{{ userEmail }}</div>
+          </div>
+          <sc-if value="{{ loggedIn }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ logout }}" style="height:32px;padding:0 14px;background:#FBF9F4;color:#C0533B;border:1px solid #E4CBC2;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">로그아웃</button>
+          </sc-if>
+          <sc-if value="{{ loggedOut }}" hint-placeholder-val="">
+            <button onClick="{{ login }}" style="height:32px;padding:0 16px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">로그인</button>
+          </sc-if>
+        </div>
+
+        <!-- 테마 -->
+        <div style="font-size:10.5px;font-weight:800;letter-spacing:.06em;color:#AEA391;text-transform:uppercase;margin-bottom:10px">테마 · 강조 색상</div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
+          <sc-for list="{{ themeOpts }}" as="t" hint-placeholder-count="5">
+            <div onClick="{{ t.onClick }}" style="{{ t.cardStyle }}">
+              <div style="{{ t.swatchStyle }}"><sc-if value="{{ t.active }}" hint-placeholder-val=""><span style="color:#fff;font-size:14px">✓</span></sc-if></div>
+              <div style="font-size:11px;font-weight:600;color:#5C5346;text-align:center">{{ t.name }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:11px;padding:12px 15px;margin-bottom:24px">
+          <span style="width:30px;height:30px;border-radius:8px;background:linear-gradient(150deg,var(--accent),var(--accent-dark));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:14px">H</span>
+          <div style="font-size:12px;color:var(--accent-dark);font-weight:600">선택한 색상이 버튼·강조·캘린더 전반에 즉시 적용됩니다</div>
+        </div>
+
+        <!-- 환경설정 -->
+        <div style="font-size:10.5px;font-weight:800;letter-spacing:.06em;color:#AEA391;text-transform:uppercase;margin-bottom:10px">환경설정</div>
+        <div style="background:#FBF9F4;border:1px solid #E6DFD0;border-radius:13px;overflow:hidden">
+          <sc-for list="{{ prefRows }}" as="p" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid #F2ECDE">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;color:#2B2620">{{ p.label }}</div>
+                <div style="font-size:11px;color:#A0967f;margin-top:1px">{{ p.desc }}</div>
+              </div>
+              <span onClick="{{ p.onToggle }}" style="{{ p.toggleStyle }}"><span style="{{ p.knobStyle }}"></span></span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid #EBE4D6;display:flex;align-items:center;gap:9px">
+        <span style="font-size:11px;color:#A0967f">Hermes Tasks · v0.9 · 로컬 저장</span>
+        <span style="flex:1"></span>
+        <button onClick="{{ closeSettings }}" style="height:34px;padding:0 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer">완료</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+  <!-- ============ LOGIN SCREEN ============ -->
+  <sc-if value="{{ loggedOut }}" hint-placeholder-val="">
+  <div style="position:fixed;inset:0;z-index:200;background:#EAE5DA;display:flex;align-items:center;justify-content:center;animation:hIn .25s ease">
+    <div style="display:flex;width:760px;max-width:94vw;height:480px;max-height:90vh;background:#FBF9F4;border:1px solid #E0D8C8;border-radius:20px;box-shadow:0 30px 70px rgba(43,38,32,.22);overflow:hidden">
+      <!-- left brand -->
+      <div style="width:300px;flex-shrink:0;background:linear-gradient(160deg,var(--accent),var(--accent-dark));padding:38px 32px;display:flex;flex-direction:column;color:#fff">
+        <div style="display:flex;align-items:center;gap:11px">
+          <div style="width:40px;height:40px;border-radius:11px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:21px">H</div>
+          <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em">Hermes Tasks</div>
+        </div>
+        <div style="margin-top:34px;font-size:23px;font-weight:800;line-height:1.4;letter-spacing:-0.02em">할 일·캘린더와<br>에이전트를<br>한 곳에서</div>
+        <div style="margin-top:14px;font-size:13px;line-height:1.7;color:rgba(255,255,255,.85)">작업을 위임하고, 일정을 공유하고,<br>위키에 지식을 쌓으세요.</div>
+        <span style="flex:1"></span>
+        <div style="font-size:11.5px;color:rgba(255,255,255,.7)">© 2026 Hermes OS</div>
+      </div>
+      <!-- right form -->
+      <div style="flex:1;min-width:0;padding:44px 46px;display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em;margin-bottom:5px">로그인</div>
+        <div style="font-size:12.5px;color:#A0967f;margin-bottom:26px">계정에 로그인하고 이어서 작업하세요</div>
+        <label style="font-size:11.5px;font-weight:700;color:#6E6456;margin-bottom:6px">이메일</label>
+        <input value="{{ loginEmail }}" onInput="{{ onLoginEmail }}" onKeyDown="{{ onLoginKey }}" placeholder="yunseo@hermes.os" style="height:42px;border:1px solid #E0D8C8;background:#fff;border-radius:10px;padding:0 13px;font-size:13.5px;color:#2B2620;margin-bottom:15px"/>
+        <label style="font-size:11.5px;font-weight:700;color:#6E6456;margin-bottom:6px">비밀번호</label>
+        <input value="{{ loginPw }}" onInput="{{ onLoginPw }}" onKeyDown="{{ onLoginKey }}" type="password" placeholder="••••••••" style="height:42px;border:1px solid #E0D8C8;background:#fff;border-radius:10px;padding:0 13px;font-size:13.5px;color:#2B2620;margin-bottom:10px"/>
+        <div style="display:flex;align-items:center;margin-bottom:20px">
+          <span style="font-size:11.5px;color:#8A8070">로그인 상태 유지</span>
+          <span style="flex:1"></span>
+          <span style="font-size:11.5px;color:var(--accent-dark);font-weight:600;cursor:pointer">비밀번호 찾기</span>
+        </div>
+        <button onClick="{{ submitLogin }}" style="height:44px;background:var(--accent);color:#fff;border:none;border-radius:11px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(183,73,44,.28);margin-bottom:14px">로그인</button>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="flex:1;height:1px;background:#EBE4D6"></span>
+          <span style="font-size:11px;color:#B6AC99">또는</span>
+          <span style="flex:1;height:1px;background:#EBE4D6"></span>
+        </div>
+        <div style="display:flex;gap:9px">
+          <button onClick="{{ socialLogin }}" style="flex:1;height:40px;background:#fff;color:#5C5346;border:1px solid #E0D8C8;border-radius:10px;font-size:12.5px;font-weight:600;cursor:pointer">Google</button>
+          <button onClick="{{ socialLogin }}" style="flex:1;height:40px;background:#fff;color:#5C5346;border:1px solid #E0D8C8;border-radius:10px;font-size:12.5px;font-weight:600;cursor:pointer">Apple</button>
+        </div>
+        <div style="margin-top:20px;font-size:12px;color:#A0967f;text-align:center">계정이 없으신가요? <span onClick="{{ socialLogin }}" style="color:var(--accent-dark);font-weight:700;cursor:pointer">회원가입</span></div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:&quot;100%&quot;}}">
+class Component extends DCLogic {
+  // ---------- seed data ----------
+  TODAY = '2026-06-29';
+
+  lists = [
+    { id:'inbox', icon:'📥', name:'기본함', folder:null },
+    { id:'me', icon:'🥺', name:'Me', folder:'me-f' },
+    { id:'univ', icon:'🏫', name:'대학교', folder:'study' },
+    { id:'invest', icon:'💵', name:'투자', folder:'study' },
+    { id:'crypto', icon:'📈', name:'crypto trading', folder:'side' },
+    { id:'uniport', icon:'🚀', name:'UniPort', folder:'biz' },
+    { id:'someday', icon:'⏳', name:'언젠가', folder:null },
+  ];
+  folders = [
+    { id:'study', icon:'🎓', name:'Study' },
+    { id:'side', icon:'🧗', name:'Side Projects' },
+    { id:'biz', icon:'👨‍💼', name:'비즈니스' },
+  ];
+  tags = [
+    { name:'업무', color:'var(--accent)' },
+    { name:'주식', color:'#7C5CBF' },
+    { name:'Blue', color:'#3B7DD8' },
+    { name:'Red', color:'#D8533B' },
+    { name:'인생', color:'#C99A3B' },
+  ];
+  agents = [
+    { id:'codex', name:'Codex', emoji:'⌨️', model:'맥북 · Codex', persona:'개발 작업 — 코드 생성, 리팩터링, 백로그 정리를 담당.' },
+    { id:'claude', name:'Claude', emoji:'📚', model:'맥미니 · Claude', persona:'리서치·문서 — 자료 정리, 위키 작성, 분석을 담당.' },
+    { id:'gpt', name:'GPT', emoji:'🎨', model:'웹 · GPT', persona:'마케팅·디자인 — 카피, 이미지 기획, 콘텐츠를 담당.' },
+  ];
+
+  seedEmails() {
+    const E = (from,addr,subject,preview,body,time,unread,starred) => ({ id:'m'+(this._e=(this._e||0)+1), from, addr, subject, preview, body, time, unread:!!unread, starred:!!starred, archived:false, taskAdded:false });
+    return [
+      E('박지훈 교수님','jhpark@hanyang.ac.kr','[계량경제학] 기말 프로젝트 제출 안내','이번 학기 기말 프로젝트는 7월 4일 자정까지 eCampus에 업로드…','안녕하세요, 수강생 여러분.\n\n기말 프로젝트는 7월 4일(토) 23:59까지 eCampus에 제출해 주세요. 주제는 자유이며, 실증 분석이 포함되어야 합니다. 데이터 출처와 코드(R 또는 Python)를 함께 첨부하세요.\n\n질문은 오피스아워(수 14:00~16:00)에 받겠습니다.\n\n감사합니다.','오전 9:12',true,false),
+      E('카카오벤처스 김민재','mjkim@kakaovc.com','[카카오벤처스] IR 미팅 일정 회신 부탁드립니다','보내주신 데크 잘 봤습니다. 다음 주 중 30분 미팅 가능하실까요?','윤서님, 안녕하세요. 카카오벤처스 김민재입니다.\n\n공유해주신 UniPort 데크 인상 깊게 봤습니다. 트랙션 수치와 리텐션 곡선을 좀 더 자세히 듣고 싶은데, 다음 주 화~목 중 30분 가능한 시간 알려주시면 캘린더 잡겠습니다.\n\n미팅 전에 최근 3개월 지표만 한 장으로 정리해주시면 좋겠습니다.\n\n감사합니다.','오전 8:40',true,true),
+      E('롯데리아 한양대점','store2287@lotteria.com','6월 4주차 근무표 확정 안내','윤서님 6월 4주차 근무는 화/목/토 오전으로 확정되었습니다…','안녕하세요. 6월 4주차 근무표 확정 안내드립니다.\n\n- 화요일 08:30~13:00\n- 목요일 08:30~13:00\n- 토요일 08:30~14:00\n\n변경 요청은 점장에게 직접 말씀해주세요.','어제',false,false),
+      E('UniPort 고객문의','help@uniport.app','[문의] 유니포인트 환급 관련 문의입니다','적립된 유니포인트를 현금으로 환급받을 수 있나요? 방법이 궁금합니다.','안녕하세요, UniPort 잘 쓰고 있습니다.\n\n적립된 유니포인트 12,400P를 현금으로 환급받고 싶은데 메뉴를 못 찾겠어요. 환급이 되긴 하는 건가요? 된다면 절차를 알려주세요.\n\n빠른 답변 부탁드립니다!','어제',true,false),
+      E('토스증권','no-reply@tossinvest.com','6월 거래내역 및 수수료 정산 안내','6월 한 달간 거래내역과 수수료가 정산되었습니다. 명세서를 확인하세요.','6월 거래 요약\n\n- 총 거래금액: 8,420,000원\n- 거래 수수료: 12,300원\n- 실현 손익: -184,000원\n\n자세한 내역은 앱에서 확인하실 수 있습니다.','6/27',false,false),
+      E('한양대학교 국제처','global@hanyang.ac.kr','[공지] 2026 하계 해외연수 프로그램 선발 결과','지원하신 해외연수 프로그램 선발 결과를 안내드립니다. 첨부파일 확인…','안녕하세요. 2026 하계 해외연수 프로그램 선발 결과를 안내드립니다.\n\n축하합니다. 1차 서류 합격하셨습니다. 2차 면접은 7월 1주차에 진행되며, 세부 일정은 추후 개별 안내됩니다. 합격자는 6월 30일까지 참가 확약서를 제출해야 합니다.','6/26',true,false),
+      E('GitHub','notifications@github.com','[hermes-os] CI 빌드 실패 (main 브랜치)','워크플로 "build" 가 실패했습니다. 커밋 a3f9c2 에서 테스트 2건 실패…','Run failed: build (#412)\n\nBranch: main\nCommit: a3f9c2 "refactor: agent runner queue"\n\n2 tests failed in runner.test.ts. View logs for details.','6/26',false,false),
+      E('디자인 외주 이수민','sumin.lee@gmail.com','카드뉴스 시안 2차 전달드립니다','피드백 반영해서 2차 시안 작업했습니다. 톤을 좀 더 친근하게 잡았어요.','윤서님 안녕하세요. 1차 피드백 반영해 2차 시안 보내드립니다.\n\n전반적으로 톤을 좀 더 친근하게 잡았고, 폰트 크기를 키웠습니다. 확인 후 수정사항 주시면 이번 주 내 마감하겠습니다. (첨부: cardnews_v2.fig)','6/25',false,true),
+    ];
+  }
+
+  seedTasks() {
+    // [title, date, time, listId, owner, pri(0-3), tags[], repeat, status, done]
+    const T = (title,date,time,list,owner,pri,tags,repeat,status,done) =>
+      ({ id:'t'+(this._n=(this._n||0)+1), title, date, time:time||null, list, owner:owner||'me', pri:pri||0, tags:tags||[], repeat:repeat||'none', status:status||'todo', done:!!done, notes:'' });
+    return [
+      // 오늘 (6/29)
+      T('롯데리아','2026-06-29','08:30','inbox','me',0,[],'daily','todo',false),
+      T('주간학습 보고서 제출','2026-06-29',null,'univ','me',2,['업무'],'weekly','todo',false),
+      T('팀원 일 지시','2026-06-29',null,'uniport','me',1,[],'none','todo',false),
+      T('세컨브레인 기획 개발','2026-06-29',null,'uniport','hybrid',2,[],'none','doing',false),
+      T('미용실','2026-06-29','14:30','me','me',0,[],'none','todo',false),
+      // 6/30
+      T('UniPort 개발 백로그 정리','2026-06-30',null,'uniport','agent',2,['업무'],'none','doing',false),
+      T('계량경제학 퀴즈','2026-06-30',null,'univ','me',1,[],'none','todo',false),
+      T('영어 소모임','2026-06-30','17:30','me','me',0,[],'weekly','todo',false),
+      T('LLM 위키 만들기','2026-06-30',null,'crypto','hybrid',1,[],'none','todo',false),
+      // 7/1
+      T('캐러셀 파이프라인 수정','2026-07-01',null,'uniport','agent',2,['업무'],'none','queued',false),
+      T('교육 에이전트 디스코드 봇 추가','2026-07-01',null,'uniport','agent',1,[],'none','queued',false),
+      // 7/2
+      T('마케팅 회의','2026-07-02','13:00','uniport','me',2,['업무'],'none','todo',false),
+      T('카드뉴스 파이프라인 설정','2026-07-02',null,'uniport','agent',1,[],'none','queued',false),
+      T('펀딩 알아보기','2026-07-02',null,'uniport','me',1,[],'none','todo',false),
+      // 7/3
+      T('피드백 회의','2026-07-03','15:00','uniport','me',1,[],'none','todo',false),
+      T('아빠 100만원 드리기','2026-07-03',null,'me','me',2,['인생'],'monthly','todo',false),
+      T('근무','2026-07-03','08:30',null,'me',0,[],'weekly','todo',false),
+      // 7/4
+      T('헉스필드 사용해서 광고제작','2026-07-04',null,'uniport','agent',1,[],'none','queued',false),
+      T('크롤링 스킬 제작','2026-07-04',null,'crypto','agent',2,[],'none','queued',false),
+      T('스마트스토어 출시','2026-07-04',null,'uniport','me',3,['업무'],'none','todo',false),
+      // 미래 일부
+      T('헤르메스 실전 응용','2026-07-05',null,'crypto','me',1,['주식'],'none','todo',false),
+      T('코덱스 프로덕트 디자인','2026-07-05',null,'uniport','me',2,[],'none','todo',false),
+      T('주간계획서 작성','2026-07-06',null,'me','me',1,[],'weekly','todo',false),
+      T('미시경제학 퀴즈','2026-07-06',null,'univ','me',1,[],'none','todo',false),
+      // 지난 (완료/지연) 6월 후반
+      T('웹사이트 수정','2026-06-25',null,'uniport','agent',1,[],'none','done',true),
+      T('나만의 etf 포트폴리오 분석엔진 개선','2026-06-24',null,'crypto','me',2,['주식'],'none','todo',false),
+      T('헤르메스 에이전트 설정','2026-06-24',null,'uniport','hybrid',2,[],'none','done',true),
+      T('이어폰 찾기','2026-06-22',null,'me','me',0,[],'none','done',true),
+      T('맥미니 중고 구매','2026-06-26','19:00','me','me',1,[],'none','todo',false),
+      T('reins enginering 공부','2026-06-23',null,'crypto','me',1,[],'none','todo',false),
+      T('클로드 환불 요청','2026-06-26',null,'me','me',0,[],'none','done',true),
+      T('사업자 등록증 신청','2026-06-27',null,'inbox','me',2,['업무'],'none','todo',false),
+      T('축제 전달용 파일 제작','2026-06-27',null,'uniport','agent',1,[],'none','done',true),
+      T('출시까지 해야할 기능 정리','2026-06-28',null,'uniport','me',2,[],'none','todo',false),
+      // 언젠가
+      T('투자성향테스트 모바일 환경 웹 만들기',null,null,'someday','me',1,[],'none','todo',false),
+      T('AI로 디자인 하는 방법 정리',null,null,'someday','me',0,[],'none','todo',false),
+      T('해외 연수 프로그램 신청',null,null,'someday','me',1,[],'none','todo',false),
+      // inbox 미지정
+      T('카드 재발급',null,null,'inbox','me',0,[],'none','todo',false),
+      T('예비군 공결 메일 보내기',null,null,'inbox','me',1,[],'none','todo',false),
+    ];
+  }
+
+  seedWiki() {
+    const W = (title,body,tag,date,kind) => ({ id:'w'+(this._w=(this._w||0)+1), title, body, tag, date, kind:kind||'doc' });
+    return [
+      W('UniPort 비즈니스 모델 정리','핵심: 대학생 대상 포인트 적립 → 증권사 제휴 쿠폰 교환. 차별점은 "쌓은 포인트를 실제 투자 시드로 전환". 수익은 제휴 수수료 + 프리미엄 구독.\n\n학습: 유저는 "현금화"보다 "투자 시작"을 더 매력적으로 느낌. 이 가설을 다음 인터뷰에서 검증.','업무','2026-06-27','doc'),
+      W('트레이딩 규칙 v2','1) 진입 근거를 한 문장으로 쓸 수 없으면 진입 금지. 2) 손절 라인 -3% 기계적 준수. 3) 하루 2회 이상 매매 금지. 4) 감정 매매 기록 남기기.\n\n지난 실패 복기에서 도출. 규칙 기반으로 전환 후 손실 변동성 감소.','주식','2026-06-26','doc'),
+      W('헤르메스 에이전트 운영 노트','맥북=Codex(개발), 맥미니=Claude(리서치/문서), 웹=GPT(마케팅). 위임 → 런 생성 → write-back → 검토 → 규칙 승격 루프. 검토 큐는 오늘 탭에서 처리.','업무','2026-06-24','doc'),
+      W('계량경제학 기말 준비','실증 분석 주제 자유. R/Python 코드 첨부. 7/4 자정 마감. 오피스아워 수 14-16시.','인생','2026-06-29','doc'),
+      W('일기 · 6월 28일','정신없는 한 주였다. UniPort 백로그를 에이전트에 넘기고 나니 머리가 좀 비었다. 다만 트레이딩에서 또 규칙을 어겼다. 내일은 계획부터 세우고 시작하자.','일기','2026-06-28','diary'),
+    ];
+  }
+
+  seedNotes() {
+    const N = (title,body,tag) => ({ id:'n'+(this._m=(this._m||0)+1), title, body, tag, updated:'2026-06-2'+(8-((this._m)%6)) });
+    return [
+      N('시대가 변하고 있는데, 이대로 내가 취업을 생각하는게 맞을까','요즘 계속 드는 생각. AI가 모든 걸 바꾸고 있는데 안정적인 취업을 목표로 두는 게 맞나. 차라리 지금 만들고 있는 걸 끝까지 밀어붙이는 게…','인생'),
+      N('지금 변해야한다','더 미루면 안 된다. 이번 달 안에 UniPort 출시 가능한 최소 기능을 확정하자.',''),
+      N('우울감에서 극복하기','루틴을 만들고, 작은 성취를 매일 기록하자. 운동 + 햇빛 + 사람.',''),
+      N('사업이라는게 뭔지를 이제 감이 좀 오는 거 같다','결국 유저의 진짜 문제를 찾고, 그걸 반복적으로 풀어주는 시스템을 만드는 일.','업무'),
+      N('올해목표','UniPort 출시 / 투자 엔진 v2 / 헤르메스 OS 프로토타입 / 학점 관리','인생'),
+      N('유니포인트를 주식 수수점 교환 쿠폰으로 바꿀 수 있게','리워드 → 증권사 제휴 쿠폰. BM 측면에서 차별화 포인트가 될 수 있음.','업무'),
+      N('VC 미팅','다음 주 미팅 준비. 트랙션 수치, 리텐션 곡선, 다음 분기 로드맵 정리 필요.','업무'),
+      N('컨셉 피봇','지금 기능이 너무 많다. 핵심 한 가지로 좁혀야.',''),
+      N('이번 트레이딩 실패 이유','진입 근거가 약했고, 손절 라인을 지키지 않음. 다음엔 규칙 기반으로.','주식'),
+      N('마케팅 피드백','카드뉴스 톤이 너무 딱딱함. 좀 더 친근하게.',''),
+    ];
+  }
+
+  state = {
+    nav: 'calendar',
+    calView: 'month',
+    calY: 2026, calM: 6, calDay: '2026-06-29',
+    tasks: this.seedTasks(),
+    notes: this.seedNotes(),
+    activeNote: null,
+    emails: this.seedEmails(),
+    activeMail: null,
+    wiki: this.seedWiki(),
+    activeWiki: null, wikiTab:'graph', wikiQ:'', wikiA:'', diaryText:'', wikiSearch:'', wikiReaderOpen:false, wikiLoading:false,
+    weeklyGoals:[
+      { id:'g1', text:'UniPort 출시 가능한 최소 기능 확정', done:false },
+      { id:'g2', text:'트레이딩 규칙 v2 일주일 준수', done:true },
+      { id:'g3', text:'계량경제학 기말 프로젝트 착수', done:false },
+    ],
+    goalInput:'', retro:'', diaryMood:'',
+    settingsOpen:false, theme:'terracotta', loggedIn:true,
+    loginEmail:'', loginPw:'',
+    prefs:{ notify:true, agentShare:true, weekStartMon:false },
+    placingId: null,
+    quickText: '',
+    query: '',
+    chatOpen: false,
+    chatInput: '',
+    chatMsgs: [
+      { role:'agent', text:'안녕하세요 윤서님. 오늘 처리할 작업을 위임하거나, 일정을 정리해드릴까요?' },
+    ],
+    detailId: null,
+    newOpen: false, newTitle:'', newDate:'', newTime:'', newList:'inbox', newOwner:'me',
+    newDesc:'', newRepeat:'none', newAllDay:false, newDatePanel:false, newListPanel:false, newPri:0,
+    pickerY:2026, pickerM:6,
+    newMode:'date', newEndDate:'', newEndTime:'', newSubPanel:null,
+    delegateOpen: false, delegateText:'', delegateAgent:'codex', delegateTaskId:null,
+    customAgents:[],
+    missionText:'', missionAgent:'codex',
+    planDraft:null,
+    newAgentOpen:false, newAgentName:'', newAgentEmoji:'🤖', newAgentRole:'',
+    runOpen:null,
+    runs: [],
+    showCompletedList: false,
+  };
+
+  THEMES = {
+    terracotta:{ name:'테라코타', vars:{'--accent':'#D7613D','--accent-dark':'#B8492C','--accent-soft':'#FAEDE6','--accent-softer':'#FBF3EC','--accent-line':'#E4C3B5'}, swatch:'#D7613D' },
+    ocean:{ name:'오션 블루', vars:{'--accent':'#2F6FB3','--accent-dark':'#245A92','--accent-soft':'#E8F0F8','--accent-softer':'#EEF4FA','--accent-line':'#BBD3EA'}, swatch:'#2F6FB3' },
+    forest:{ name:'포레스트', vars:{'--accent':'#3E8E5E','--accent-dark':'#2F6E48','--accent-soft':'#E6F1EA','--accent-softer':'#EEF5F0','--accent-line':'#BBD9C6'}, swatch:'#3E8E5E' },
+    plum:{ name:'플럼', vars:{'--accent':'#7C5CBF','--accent-dark':'#634A9C','--accent-soft':'#F0EBF8','--accent-softer':'#F4F0FA','--accent-line':'#D3C6E6'}, swatch:'#7C5CBF' },
+    sunset:{ name:'선셋 핑크', vars:{'--accent':'#C8517A','--accent-dark':'#A63E62','--accent-soft':'#FAE9F0','--accent-softer':'#FBF0F5','--accent-line':'#ECBBD0'}, swatch:'#C8517A' },
+  };
+  applyTheme(key){ const t=this.THEMES[key]||this.THEMES.terracotta; const root=document.documentElement; Object.entries(t.vars).forEach(([k,v])=>root.style.setProperty(k,v)); }
+  setTheme(key){ this.applyTheme(key); try{ localStorage.setItem('hermesTheme',key); }catch(e){} this.setState({theme:key}); }
+  componentDidMount(){ let saved='terracotta'; try{ saved=localStorage.getItem('hermesTheme')||'terracotta'; }catch(e){} if(this.THEMES[saved]){ this.applyTheme(saved); if(saved!==this.state.theme) this.setState({theme:saved}); } }
+  componentWillUnmount(){ if(this._iv) clearInterval(this._iv); }
+
+  // ---------- date helpers ----------
+  parseISO(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
+  iso(dt){ const y=dt.getFullYear(),m=String(dt.getMonth()+1).padStart(2,'0'),d=String(dt.getDate()).padStart(2,'0'); return `${y}-${m}-${d}`; }
+  addDays(s,n){ const dt=this.parseISO(s); dt.setDate(dt.getDate()+n); return this.iso(dt); }
+  weekdayKo(s){ return ['일','월','화','수','목','금','토'][this.parseISO(s).getDay()]; }
+  nextDate(s,repeat){ if(repeat==='daily')return this.addDays(s,1); if(repeat==='weekly')return this.addDays(s,7); if(repeat==='weekday'){ let n=this.addDays(s,1); let g=this.parseISO(n).getDay(); while(g===0||g===6){ n=this.addDays(n,1); g=this.parseISO(n).getDay(); } return n; } if(repeat==='monthly'){ const dt=this.parseISO(s); dt.setMonth(dt.getMonth()+1); return this.iso(dt); } return s; }
+  repeatKo(r){ return {daily:'매일',weekly:'매주',weekday:'평일',monthly:'매월'}[r]||''; }
+  fmtTime(t){ if(!t) return ''; let [h,m]=t.split(':').map(Number); const ap=h<12?'오전':'오후'; let hh=h%12; if(hh===0)hh=12; return `${ap} ${hh}:${String(m).padStart(2,'0')}`; }
+  fmtDateLabel(s){ if(!s) return ''; if(s===this.TODAY) return '오늘'; if(s===this.addDays(this.TODAY,1)) return '내일'; if(s===this.addDays(this.TODAY,-1)) return '어제'; const dt=this.parseISO(s); return `${dt.getMonth()+1}/${dt.getDate()} (${this.weekdayKo(s)})`; }
+
+  listById(id){ return this.lists.find(l=>l.id===id); }
+  tagColor(name){ const t=this.tags.find(x=>x.name===name); return t?t.color:'#A89E8E'; }
+
+  ownerInfo(o){
+    if(o==='agent') return { bg:'#E3EFE4', bd:'#C2DAC6', fg:'#3E7A52', label:'에이전트' };
+    if(o==='hybrid') return { bg:'#ECE6F4', bd:'#D5C9E6', fg:'#6B5A8A', label:'공동' };
+    return { bg:'#E7ECF4', bd:'#C9D2E2', fg:'#4A5A78', label:'나' };
+  }
+  priColor(p){ return ['#C7BCA6','#3B7DD8','#E0913B','#D8533B'][p]||'#C7BCA6'; }
+
+  // ---------- navigation ----------
+  go(nav){ this.setState({ nav, query: nav==='search'?this.state.query:'' }); }
+  setCalView(v){ this.setState({ calView:v }); }
+  calToday(){ this.setState({ calY:2026, calM:6, calDay:this.TODAY }); }
+  calStep(dir){
+    const s=this.state;
+    if(s.calView==='month'){ let m=s.calM+dir, y=s.calY; if(m<1){m=12;y--} if(m>12){m=1;y++} this.setState({calM:m,calY:y}); }
+    else if(s.calView==='week'){ this.setState({calDay:this.addDays(s.calDay,7*dir)}); }
+    else { this.setState({calDay:this.addDays(s.calDay,dir)}); }
+  }
+
+  // ---------- task ops ----------
+  toggle(id){ this.setState(s=>{
+    const t=s.tasks.find(x=>x.id===id);
+    let tasks=s.tasks.map(x=>x.id===id?{...x,done:!x.done,status:!x.done?'done':'todo'}:x);
+    // 반복 작업 완료 시 다음 발생 자동 생성
+    if(t && !t.done && t.repeat && t.repeat!=='none' && t.date){
+      const next=this.nextDate(t.date,t.repeat);
+      if(!(t.repeatUntil && next>t.repeatUntil)){
+        tasks=[{ ...t, id:'t'+Date.now(), date:next, done:false, status: t.owner==='agent'?'queued':'todo' }, ...tasks];
+      }
+    }
+    return { tasks };
+  }); }
+  patch(id,patch){ this.setState(s=>({ tasks:s.tasks.map(t=>t.id===id?{...t,...patch}:t) })); }
+  remove(id){ this.setState(s=>({ tasks:s.tasks.filter(t=>t.id!==id), detailId:null })); }
+
+  // ---------- quick add NL parse ----------
+  parseQuick(text){
+    let title=text, date=null, time=null, list=null, tags=[], pri=0, repeat='none', owner='me';
+    const wdMap={'월':1,'화':2,'수':3,'목':4,'금':5,'토':6,'일':0};
+    // tags
+    title=title.replace(/#(\S+)/g,(m,w)=>{tags.push(w);return '';});
+    // list *name
+    title=title.replace(/[*~](\S+)/g,(m,w)=>{const l=this.lists.find(x=>x.name.replace(/\s/g,'').toLowerCase().includes(w.toLowerCase()));if(l)list=l.id;return '';});
+    // agent
+    if(/@(hermes|agent|codex|에이전트)/i.test(title)){ owner='agent'; title=title.replace(/@\S+/g,''); }
+    // priority
+    if(/!높음|!high|p1/i.test(title)){pri=3;} else if(/!중간|!med|p2/i.test(title)){pri=2;} else if(/!낮음|!low|p3/i.test(title)){pri=1;}
+    title=title.replace(/!(높음|중간|낮음|high|med|low)|p[123]/gi,'');
+    // repeat
+    if(/평일/.test(title)){repeat='weekday';} else if(/매일|daily/i.test(title)){repeat='daily';} else if(/매주|weekly/i.test(title)){repeat='weekly';} else if(/매월|매달|monthly/i.test(title)){repeat='monthly';} else if(/매년|yearly/i.test(title)){repeat='monthly';}
+    title=title.replace(/평일|매일|매주|매월|매달|매년|daily|weekly|monthly|yearly/gi,'');
+    // date relative
+    if(/오늘/.test(title)){date=this.TODAY;title=title.replace(/오늘/,'');}
+    else if(/내일/.test(title)){date=this.addDays(this.TODAY,1);title=title.replace(/내일/,'');}
+    else if(/모레/.test(title)){date=this.addDays(this.TODAY,2);title=title.replace(/모레/,'');}
+    else if(/다음주|담주/.test(title)){date=this.addDays(this.TODAY,7);title=title.replace(/다음주|담주/,'');}
+    else { const wd=title.match(/(월|화|수|목|금|토|일)요일/); if(wd){ const target=wdMap[wd[1]]; const cur=this.parseISO(this.TODAY).getDay(); let diff=(target-cur+7)%7; if(diff===0)diff=7; date=this.addDays(this.TODAY,diff); title=title.replace(/(월|화|수|목|금|토|일)요일/,''); } }
+    // explicit date M/D or YYYY-MM-DD
+    let md=title.match(/(\d{4})-(\d{1,2})-(\d{1,2})/); if(md){ date=`${md[1]}-${String(+md[2]).padStart(2,'0')}-${String(+md[3]).padStart(2,'0')}`; title=title.replace(md[0],''); }
+    else { md=title.match(/(\d{1,2})\/(\d{1,2})/); if(md){ date=`2026-${String(+md[1]).padStart(2,'0')}-${String(+md[2]).padStart(2,'0')}`; title=title.replace(md[0],''); } }
+    // time
+    let tm=title.match(/(오전|오후)\s*(\d{1,2})\s*시\s*(\d{1,2})?\s*분?/);
+    if(tm){ let h=+tm[2]; if(tm[1]==='오후'&&h<12)h+=12; if(tm[1]==='오전'&&h===12)h=0; const mn=tm[3]?+tm[3]:0; time=`${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`; title=title.replace(tm[0],''); }
+    else { tm=title.match(/(\d{1,2}):(\d{2})/); if(tm){ time=`${String(+tm[1]).padStart(2,'0')}:${tm[2]}`; title=title.replace(tm[0],''); }
+      else { tm=title.match(/(\d{1,2})시/); if(tm){ time=`${String(+tm[1]).padStart(2,'0')}:00`; title=title.replace(tm[0],''); } } }
+    title=title.replace(/\s+/g,' ').trim();
+    return { title, date, time, list, tags, pri, repeat, owner };
+  }
+
+  submitQuick(){
+    const txt=this.state.quickText.trim(); if(!txt) return;
+    const p=this.parseQuick(txt);
+    let list=p.list;
+    const nav=this.state.nav;
+    if(!list){ if(nav.startsWith('list:'))list=nav.slice(5); else if(nav==='inbox'||nav==='today'||nav==='next7')list='inbox'; else list='inbox'; }
+    let date=p.date;
+    if(!date){ if(nav==='today')date=this.TODAY; else if(nav==='next7')date=this.TODAY; }
+    const task={ id:'t'+Date.now(), title:p.title||txt, date, time:p.time, list, owner:p.owner, pri:p.pri, tags:p.tags, repeat:p.repeat, status: p.owner==='agent'?'queued':'todo', done:false, notes:'' };
+    this.setState(s=>({ tasks:[task,...s.tasks], quickText:'' }));
+    if(p.owner==='agent') this.startRun(task.id, '에이전트가 자동 처리: '+task.title, 'codex');
+  }
+
+  submitNewTask(){
+    const s=this.state; const title=s.newTitle.trim();
+    if(!title){ this.setState({newOpen:false,newDatePanel:false,newListPanel:false}); return; }
+    const task={ id:'t'+Date.now(), title, date:s.newDate||null, time:(s.newAllDay?null:s.newTime)||null, endTime:(s.newMode==='duration'&&!s.newAllDay)?(s.newEndTime||null):null, list:s.newList, owner:s.newOwner, pri:s.newPri||0, tags:[], repeat:s.newRepeat||'none', status:s.newOwner==='agent'?'queued':'todo', done:false, notes:s.newDesc||'' };
+    this.setState(st=>({ tasks:[task,...st.tasks], newOpen:false, newDatePanel:false, newListPanel:false, newDesc:'', newRepeat:'none', newAllDay:false, newPri:0, newMode:'date', newEndDate:'', newEndTime:'' }));
+    if(s.newOwner==='agent') this.startRun(task.id,'에이전트 처리: '+title,'codex');
+  }
+
+  applyRepeatTemplate(label){
+    const map={'매일 루틴':'매일 ','매주 회의':'매주 ','매월 정산':'매월 ','평일 근무':'근무 평일 '};
+    this.setState({ quickText:(map[label]||'')+'' });
+  }
+
+  // ---------- agents & planning ----------
+  allAgents(){ return [...this.agents, ...(this.state.customAgents||[])]; }
+  agentById(id){ return this.allAgents().find(a=>a.id===id) || this.agents[0]; }
+
+  // heuristic planner — produces step plan + expected artifact from a goal
+  buildPlan(goal, agentId){
+    const g=goal.toLowerCase();
+    let kind='general';
+    if(/리서치|조사|찾아|검색|경쟁사|시장|분석/.test(g)) kind='research';
+    else if(/코드|개발|구현|버그|리팩터|백로그|배포|api/.test(g)) kind='dev';
+    else if(/정리|문서|위키|요약|작성|노트/.test(g)) kind='doc';
+    else if(/마케팅|카피|광고|콘텐츠|카드뉴스|이미지|디자인/.test(g)) kind='marketing';
+    const title=goal.length>40?goal.slice(0,40)+'…':goal;
+    const plans={
+      research:{ artifact:{type:'wiki',title:title+' — 리서치 정리'}, steps:[
+        {title:'범위 정의',detail:'리서치 질문과 비교 기준을 구체화'},
+        {title:'자료 수집',detail:'관련 출처·경쟁사·시장 데이터를 위키에서 탐색'},
+        {title:'비교·분석',detail:'기준별로 정리하고 인사이트 도출'},
+        {title:'위키 문서화',detail:'요약과 출처를 위키 문서로 정리'},
+      ]},
+      dev:{ artifact:{type:'wiki',title:title+' — 개발 노트'}, steps:[
+        {title:'요구사항 분해',detail:'목표를 구현 단위로 분해'},
+        {title:'설계',detail:'접근 방식과 영향 범위 결정'},
+        {title:'구현',detail:'코드 작성 및 적용'},
+        {title:'검증',detail:'테스트로 결과 확인'},
+        {title:'위키 문서화',detail:'변경 내용과 의사결정을 기록'},
+      ]},
+      doc:{ artifact:{type:'wiki',title:title}, steps:[
+        {title:'소스 수집',detail:'관련 노트·작업·위키를 모음'},
+        {title:'구조 잡기',detail:'개요와 섹션 구성'},
+        {title:'작성',detail:'초안 작성 및 다듬기'},
+        {title:'위키 저장',detail:'문서를 위키에 발행'},
+      ]},
+      marketing:{ artifact:{type:'wiki',title:title+' — 콘텐츠 기획'}, steps:[
+        {title:'타깃·톤 정의',detail:'대상 독자와 메시지 톤 설정'},
+        {title:'카피 초안',detail:'핵심 카피와 후킹 작성'},
+        {title:'에셋 기획',detail:'이미지·레이아웃 방향 제안'},
+        {title:'위키 문서화',detail:'기획안을 위키에 정리'},
+      ]},
+      general:{ artifact:{type:'wiki',title:title+' — 결과 정리'}, steps:[
+        {title:'목표 해석',detail:'요청을 구체적 단계로 변환'},
+        {title:'컨텍스트 수집',detail:'위키·작업에서 관련 정보 로드'},
+        {title:'실행',detail:'작업을 수행하고 결과 생성'},
+        {title:'위키 문서화',detail:'결과를 위키 문서로 저장'},
+      ]},
+    };
+    const p=plans[kind];
+    return { goal, agentId, kind, title, steps:p.steps, artifact:p.artifact };
+  }
+
+  startPlan(goal, agentId, taskId){
+    const g=(goal||'').trim(); if(!g) return;
+    const draft=this.buildPlan(g, agentId||'codex');
+    draft.taskId=taskId||null;
+    this.setState({ planDraft:draft, delegateOpen:false, missionText:'' });
+  }
+
+  approvePlan(){
+    const d=this.state.planDraft; if(!d) return;
+    const id='r'+Date.now();
+    const agent=this.agentById(d.agentId);
+    let taskId=d.taskId;
+    if(!taskId){ const task={ id:'t'+Date.now(), title:d.goal, date:this.TODAY, time:null, list:'uniport', owner:'agent', pri:1, tags:[], repeat:'none', status:'doing', done:false, notes:'' }; taskId=task.id; this.setState(st=>({tasks:[task,...st.tasks]})); }
+    else { this.patch(taskId,{owner:'agent',status:'doing'}); }
+    const run={ id, taskId, title:d.goal, agent:agent.name, agentId:d.agentId, pct:5, status:'running', step:'실행 시작…', plannedSteps:d.steps, artifactPlan:d.artifact, artifacts:[], steps:[{title:'계획 승인됨',detail:d.steps.length+'단계 실행을 시작합니다',time:'방금'}] };
+    this.setState(st=>({ runs:[run,...st.runs], planDraft:null, nav:'agents', runOpen:id }));
+    this.runSteps(id);
+  }
+
+  runSteps(id){
+    let i=0;
+    const iv=setInterval(()=>{
+      const run=this.state.runs.find(r=>r.id===id); if(!run){ clearInterval(iv); return; }
+      const steps=run.plannedSteps||[]; const n=steps.length;
+      if(i>=n){
+        clearInterval(iv);
+        // produce artifact: wiki doc
+        const ap=run.artifactPlan;
+        const body=this.synthArtifactBody(run);
+        const wikiId='w'+Date.now();
+        const wdoc={ id:wikiId, title:ap.title, body, tag:'에이전트', date:this.TODAY, kind:'doc' };
+        this.setState(st=>({
+          wiki:[wdoc, ...st.wiki],
+          runs:st.runs.map(r=>r.id===id?{...r, pct:100, status:'done', step:'완료 · 위키에 문서 생성', artifacts:[{type:'wiki',title:ap.title,wikiId}], steps:[...r.steps, {title:'산출물 생성',detail:'「'+ap.title+'」 위키 문서를 발행했습니다',time:(n+1)+'s'}]}:r),
+        }));
+        if(run.taskId) this.patch(run.taskId,{status:'review'});
+        return;
+      }
+      const st=steps[i]; const pct=Math.round(((i+1)/(n+1))*100);
+      this.setState(state=>({ runs:state.runs.map(r=>r.id===id?{...r, pct, step:st.title+' 중…', steps:[...r.steps, {...st, time:(i+1)+'s'}]}:r) }));
+      i++;
+    }, 1500);
+    this._iv=iv;
+  }
+
+  synthArtifactBody(run){
+    const steps=(run.plannedSteps||[]).map((s,i)=>`${i+1}. ${s.title} — ${s.detail}`).join('\n');
+    return `🤖 ${run.agent}가 자동 생성한 문서입니다.\n\n[목표]\n${run.title}\n\n[실행 단계]\n${steps}\n\n[결과 요약]\n에이전트가 위 단계를 수행하여 결과를 정리했습니다. 세부 내용은 검토 후 보완하세요.`;
+  }
+
+  createAgent(){
+    const s=this.state; const name=(s.newAgentName||'').trim(); if(!name) return;
+    const id='ag'+Date.now();
+    const agent={ id, name, emoji:s.newAgentEmoji||'🤖', model:'커스텀 · '+name, persona:(s.newAgentRole||'사용자 정의 에이전트') };
+    this.setState(st=>({ customAgents:[...st.customAgents, agent], newAgentOpen:false, newAgentName:'', newAgentRole:'', newAgentEmoji:'🤖' }));
+  }
+
+  // ---------- runs (agent realtime) ----------
+  startRun(taskId, title, agentId){
+    const id='r'+Date.now();
+    const steps=[
+      { title:'명령 수신', detail:'자연어 지시를 파싱하고 작업으로 변환', time:'방금' },
+    ];
+    const run={ id, taskId, title, agent:this.agentById(agentId).name, pct:8, status:'running', step:'컨텍스트 로딩 중…', steps };
+    this.setState(s=>({ runs:[run,...s.runs] }));
+    this.patch(taskId,{ status:'doing', owner:'agent' });
+    const plan=[
+      [22,'관련 위키·문서 검색 중…',{title:'컨텍스트 수집',detail:'LLM-Wiki와 최근 작업에서 관련 정보 로드'}],
+      [48,'실행 계획 수립…',{title:'계획 수립',detail:'세부 단계로 분해하고 우선순위 지정'}],
+      [72,'작업 실행 중…',{title:'실행',detail:'코드/문서 생성 및 적용'}],
+      [92,'결과 검증 중…',{title:'검증',detail:'성공 기준 대비 결과 확인'}],
+      [100,'완료 · 검토 대기',{title:'완료',detail:'결과를 캘린더·위키에 write-back'}],
+    ];
+    let i=0;
+    const iv=setInterval(()=>{
+      this.setState(s=>{
+        const runs=s.runs.map(r=>{
+          if(r.id!==id) return r;
+          if(i>=plan.length){ return r; }
+          const [pct,step,st]=plan[i];
+          return { ...r, pct, step, status: pct>=100?'done':'running', steps:[...r.steps, {...st, time: i+1+'s'}] };
+        });
+        return { runs };
+      });
+      if(i>=plan.length){ clearInterval(iv); this.patch(taskId,{ status:'review' }); return; }
+      i++;
+    }, 1400);
+    this._iv=iv;
+  }
+
+  // ---------- chat ----------
+  sendChat(){
+    const txt=this.state.chatInput.trim(); if(!txt) return;
+    const userMsg={ role:'me', text:txt };
+    const p=this.parseQuick(txt);
+    const task={ id:'t'+Date.now(), title:p.title||txt, date:p.date||this.TODAY, time:p.time, list:p.list||'uniport', owner:'agent', pri:p.pri, tags:p.tags, repeat:p.repeat, status:'queued', done:false, notes:'' };
+    const runId='r'+Date.now();
+    const agentMsg={ role:'agent', text:'위임 접수했습니다. 런을 생성하고 실행을 시작합니다.', runRef:runId };
+    this.setState(s=>({ chatMsgs:[...s.chatMsgs, userMsg, agentMsg], chatInput:'', tasks:[task,...s.tasks] }));
+    this.startRunWithId(runId, task.id, task.title, 'codex');
+  }
+  startRunWithId(id, taskId, title, agentId){
+    const run={ id, taskId, title, agent:this.agentById(agentId).name, pct:8, status:'running', step:'컨텍스트 로딩 중…', steps:[{title:'명령 수신',detail:'채팅 지시를 작업으로 변환',time:'방금'}] };
+    this.setState(s=>({ runs:[run,...s.runs] }));
+    this.patch(taskId,{ status:'doing', owner:'agent' });
+    const plan=[[22,'위키 검색 중…',{title:'컨텍스트 수집',detail:'관련 정보 로드'}],[48,'계획 수립…',{title:'계획 수립',detail:'단계 분해'}],[72,'실행 중…',{title:'실행',detail:'결과 생성'}],[100,'완료 · 검토 대기',{title:'완료',detail:'캘린더에 공유'}]];
+    let i=0;
+    const iv=setInterval(()=>{
+      this.setState(s=>({ runs:s.runs.map(r=>{ if(r.id!==id||i>=plan.length)return r; const[pct,step,st]=plan[i]; return {...r,pct,step,status:pct>=100?'done':'running',steps:[...r.steps,{...st,time:(i+1)+'s'}]}; }) }));
+      if(i>=plan.length){ clearInterval(iv); this.patch(taskId,{status:'review'}); return; } i++;
+    },1400);
+    this._iv=iv;
+  }
+
+  // ---------- notes ----------
+  openNote(id){ this.setState({ activeNote:id }); }
+  openWikiDoc(id){ this.setState({ activeWiki:id, wikiReaderOpen:true }); }
+  async askWiki(){
+    const s=this.state; const q=s.wikiQ.trim(); if(!q||s.wikiLoading) return;
+    const ql=q.toLowerCase();
+    const score=(w)=>{ let n=0; ql.split(/\s+/).forEach(t=>{ if(t.length>1&&(w.title+w.body).toLowerCase().includes(t))n++; }); if((w.title+w.body).toLowerCase().includes(ql))n+=3; return n; };
+    const ranked=s.wiki.map(w=>({w,n:score(w)})).sort((a,b)=>b.n-a.n);
+    const hits=(ranked.filter(x=>x.n>0).slice(0,3).map(x=>x.w));
+    const ctxDocs=(hits.length?hits:s.wiki.slice(0,4));
+    this.setState({wikiLoading:true, wikiA:''});
+    const fallback=()=>{ let a; if(hits.length){ const lead=hits[0].body.split('\n').filter(Boolean).slice(0,2).join(' '); a=`위키 ${hits.length}개 문서를 종합한 답변입니다.\n\n${lead}\n\n📎 출처: ${hits.map(h=>h.title).join(', ')}`; } else { a=`아직 관련 위키가 없습니다. "${q}"에 대해 일기나 문서로 메모를 남기면 다음 질문부터 답변에 활용됩니다.`; } this.setState({wikiLoading:false, wikiA:a}); };
+    try {
+      if(window.claude && window.claude.complete){
+        const context=ctxDocs.map(w=>`# ${w.title} (${w.date}${w.tag?' · '+w.tag:''})\n${w.body}`).join('\n\n---\n\n');
+        const prompt=`당신은 사용자의 개인 위키(LLM-Wiki)를 기반으로 답하는 비서 Hermes입니다. 아래 위키 문서만 근거로, 한국어로 간결하게(3~5문장) 답하세요. 근거가 부족하면 솔직히 말하고 무엇을 더 기록하면 좋을지 제안하세요. 마지막 줄에 "📎 출처: 문서제목" 형식으로 사용한 문서를 표기하세요.\n\n[위키 문서]\n${context}\n\n[질문]\n${q}`;
+        const text=await window.claude.complete({ messages:[{role:'user',content:prompt}] });
+        if(text && text.trim()){ this.setState({wikiLoading:false, wikiA:text.trim()}); return; }
+      }
+      fallback();
+    } catch(e){ fallback(); }
+  }
+  openMail(id){ this.setState(s=>({ activeMail:id, emails:s.emails.map(e=>e.id===id?{...e,unread:false}:e) })); }
+  patchMail(id,patch){ this.setState(s=>({ emails:s.emails.map(e=>e.id===id?{...e,...patch}:e) })); }
+  newNote(){ const id='n'+Date.now(); this.setState(s=>({ notes:[{id,title:'',body:'',tag:'',updated:this.TODAY},...s.notes], activeNote:id })); }
+  patchNote(id,patch){ this.setState(s=>({ notes:s.notes.map(n=>n.id===id?{...n,...patch,updated:this.TODAY}:n) })); }
+
+  // ---------- builders for render ----------
+  visibleTasks(){ return this.state.tasks; }
+  filterForNav(){
+    const nav=this.state.nav; const all=this.state.tasks;
+    if(nav==='today') return all.filter(t=>t.date===this.TODAY);
+    if(nav==='next7'){ const end=this.addDays(this.TODAY,7); return all.filter(t=>t.date&&t.date>=this.TODAY&&t.date<=end); }
+    if(nav==='inbox') return all.filter(t=>t.list==='inbox');
+    if(nav==='someday') return all.filter(t=>t.list==='someday');
+    if(nav.startsWith('list:')) return all.filter(t=>t.list===nav.slice(5));
+    if(nav.startsWith('tag:')) return all.filter(t=>t.tags.includes(nav.slice(4)));
+    return all;
+  }
+
+  renderVals(){
+    const s=this.state;
+    const acc='var(--accent)';
+    const navIs=(v)=>s.nav===v;
+
+    // ---- sidebar ----
+    const countFor=(pred)=>s.tasks.filter(t=>!t.done&&pred(t)).length;
+    const itemStyle=(active,indent)=>`display:flex;align-items:center;justify-content:space-between;gap:6px;padding:7px 10px 7px ${indent?28:11}px;margin:1px 0;border-radius:8px;cursor:pointer;color:${active?'var(--accent-dark)':'#5C5346'};background:${active?'var(--accent-soft)':'transparent'};font-weight:${active?'600':'500'}`;
+    const iconStyle='font-size:13.5px;width:18px;text-align:center;flex-shrink:0';
+    const badge=(n,active)=>n>0?{ badge:String(n), badgeStyle:`font-size:10.5px;font-weight:600;color:${active?'var(--accent-dark)':'#A89E8E'};background:${active?'#F4DDD2':'#EDE7D9'};border-radius:20px;padding:0 7px` }:{ badge:'', badgeStyle:'' };
+    const navItem=(id,navVal,icon,label,n,indent)=>{ const active=navIs(navVal); return { onClick:()=>this.go(navVal), style:itemStyle(active,indent), iconStyle, icon, label, ...badge(n||0,active) }; };
+
+    const smart=[
+      navItem('cal','calendar','🗓️','캘린더',0,false),
+      navItem('today','today','☀️','오늘',countFor(t=>t.date===this.TODAY),false),
+      navItem('n7','next7','📆','다음 7일',countFor(t=>t.date&&t.date>=this.TODAY&&t.date<=this.addDays(this.TODAY,7)),false),
+      navItem('inbox','inbox','📥','기본함',countFor(t=>t.list==='inbox'),false),
+      navItem('mail','mail','✉️','메일함',(s.emails||[]).filter(e=>e.unread&&!e.archived).length,false),
+      navItem('kanban','kanban','▦','칸반 보드',0,false),
+    ];
+    // lists w/ folders
+    const listItems=[];
+    // standalone non-folder lists except inbox (which is in smart)
+    this.folders.forEach(f=>{
+      listItems.push({ onClick:()=>{}, style:`display:flex;align-items:center;gap:7px;padding:8px 10px 3px;margin-top:4px;color:#8A8070;font-weight:700;font-size:11px`, iconStyle:'font-size:12px;width:16px;text-align:center', icon:f.icon, label:f.name, badge:'', badgeStyle:'' });
+      this.lists.filter(l=>l.folder===f.id).forEach(l=>{
+        listItems.push(navItem(l.id,'list:'+l.id,l.icon,l.name,countFor(t=>t.list===l.id),true));
+      });
+    });
+    // me + someday + notes standalone
+    listItems.push(navItem('me','list:me','🥺','Me',countFor(t=>t.list==='me'),false));
+    listItems.push(navItem('notes','notes','📝','생각노트',0,false));
+    listItems.push(navItem('someday','someday','⏳','언젠가',countFor(t=>t.list==='someday'),false));
+
+    const tagItems=this.tags.map(tg=>({ onClick:()=>this.go('tag:'+tg.name), style:itemStyle(navIs('tag:'+tg.name),false), iconStyle:`width:18px;text-align:center;flex-shrink:0`, icon:'🏷', label:tg.name, badge:'', badgeStyle:`width:9px;height:9px;border-radius:50%;background:${tg.color}` }));
+
+    const agentItems=[ navItem('agents','agents','🤖','에이전트',s.runs.filter(r=>r.status==='running').length,false) ];
+    const recordItems=[ navItem('review','review','📊','주간 회고',0,false), navItem('wiki','wiki','📚','위키',0,false), navItem('diary','diary','📔','일기',0,false) ];
+
+    const navGroups=[
+      { title:'', items:smart },
+      { title:'리스트', items:listItems },
+      { title:'태그', items:tagItems },
+      { title:'회고 & 기록', items:recordItems },
+      { title:'HERMES', items:agentItems },
+    ];
+
+    // ---- screen title ----
+    const titleMap={ calendar:'캘린더', today:'오늘', next7:'다음 7일', inbox:'기본함', someday:'언젠가', notes:'생각노트', kanban:'칸반 보드', agents:'에이전트', search:'검색', mail:'메일함', plan:'오늘 계획', review:'주간 회고', wiki:'위키', diary:'일기' };
+    let screenTitle=titleMap[s.nav]||'';
+    let screenSub='';
+    if(s.nav.startsWith('list:')){ const l=this.listById(s.nav.slice(5)); screenTitle=l?l.name:''; }
+    if(s.nav.startsWith('tag:')){ screenTitle='#'+s.nav.slice(4); }
+    const subMap={ today:'2026년 6월 29일 (월)', next7:'이번 주 + 다음 주', inbox:'분류되지 않은 작업', calendar:'나 · 에이전트 공유 일정', agents:'작업 위임 · 실시간 실행', mail:'메일 → 작업·위임으로 연결', plan:'아침 5분 정리 · 2026년 6월 29일 (월)', review:'이번 주 목표 · KPI · 회고', wiki:'LLM-Wiki · 그래프 · 질문', diary:'매일 쓰고 위키에 쌓기' };
+    screenSub=subMap[s.nav]||'';
+
+    // ---- view flags ----
+    const isCalendar=navIs('calendar'), isTaskList=['next7','inbox','someday'].includes(s.nav)||s.nav.startsWith('list:')||s.nav.startsWith('tag:');
+    const isKanban=navIs('kanban'), isNotes=navIs('notes'), isSearch=navIs('search'), isAgents=navIs('agents'), isMail=navIs('mail'), isPlan=navIs('today'), isReview=navIs('review'), isWiki=navIs('wiki'), isDiary=navIs('diary');
+
+    const out={ navGroups, screenTitle, screenSub, query:s.query,
+      isCalendar, isTaskList, isKanban, isNotes, isSearch, isAgents, isMail, isPlan, isReview, isWiki, isDiary,
+      focusSearch:()=>this.setState({nav:'search'}),
+      onSearchInput:(e)=>{ const v=e.target.value; this.setState({ query:v, nav:v?'search':(s.nav==='search'?'calendar':s.nav) }); },
+      openNew:()=>this.setState({ newOpen:true, newTitle:'', newDate:s.nav==='today'?this.TODAY:'', newTime:'', newList:'inbox', newOwner:'me' }),
+      toggleChat:()=>this.setState({ chatOpen:!s.chatOpen }),
+      chatToggleStyle:`width:31px;height:31px;border-radius:8px;border:1px solid ${s.chatOpen?'var(--accent)':'#E0D8C8'};background:${s.chatOpen?'var(--accent-soft)':'#FBF9F4'};color:${s.chatOpen?'var(--accent-dark)':'#7A7062'};font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center`,
+      chatOpen:s.chatOpen,
+      stop:(e)=>{ e.stopPropagation && e.stopPropagation(); },
+      userName:'Yunseo', userStatus:s.loggedIn?'owner':'로그아웃됨', userEmail:s.loggedIn?'yunseo@hermes.os':'로그인이 필요합니다',
+      settingsOpen:s.settingsOpen, loggedIn:s.loggedIn, loggedOut:!s.loggedIn,
+      loginEmail:s.loginEmail, loginPw:s.loginPw,
+      onLoginEmail:(e)=>this.setState({loginEmail:e.target.value}),
+      onLoginPw:(e)=>this.setState({loginPw:e.target.value}),
+      onLoginKey:(e)=>{ if(e.key==='Enter'){ e.preventDefault(); this.setState({loggedIn:true,settingsOpen:false}); } },
+      submitLogin:()=>this.setState({loggedIn:true,settingsOpen:false}),
+      socialLogin:()=>this.setState({loggedIn:true,settingsOpen:false}),
+      openSettings:()=>this.setState({settingsOpen:true}),
+      closeSettings:()=>this.setState({settingsOpen:false}),
+      login:()=>this.setState({loggedIn:true}),
+      logout:()=>this.setState({loggedIn:false}),
+      themeOpts:Object.entries(this.THEMES).map(([k,t])=>({ name:t.name, active:s.theme===k, onClick:()=>this.setTheme(k),
+        cardStyle:`display:flex;flex-direction:column;align-items:center;gap:7px;padding:11px 6px;border-radius:11px;cursor:pointer;border:1.5px solid ${s.theme===k?t.swatch:'#E6DFD0'};background:${s.theme===k?'#FBF9F4':'#FBF9F4'}`,
+        swatchStyle:`width:34px;height:34px;border-radius:50%;background:${t.swatch};display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.12)` })),
+      prefRows:[
+        {key:'notify',label:'리마인더 알림',desc:'정각 일정·마감 작업 알림'},
+        {key:'agentShare',label:'에이전트와 캘린더 공유',desc:'위임 작업을 캘린더에 자동 표시'},
+        {key:'weekStartMon',label:'주 시작을 월요일로',desc:'캘린더 주간 뷰 기준 요일'},
+      ].map(p=>{ const on=s.prefs[p.key]; return { label:p.label, desc:p.desc, onToggle:()=>this.setState(st=>({prefs:{...st.prefs,[p.key]:!st.prefs[p.key]}})),
+        toggleStyle:`width:40px;height:23px;border-radius:20px;background:${on?'var(--accent)':'#D8D0C0'};cursor:pointer;display:flex;align-items:center;padding:2px;flex-shrink:0`,
+        knobStyle:`width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transform:translateX(${on?'17px':'0'});transition:transform .15s` }; }),
+    };
+
+    // ---- CALENDAR ----
+    if(isCalendar){
+      out.calViewTabs=[['month','월'],['week','주'],['day','일']].map(([v,l])=>({ label:l, onClick:()=>this.setCalView(v), style:`padding:5px 12px;border-radius:6px;font-size:11.5px;font-weight:600;cursor:pointer;color:${s.calView===v?'#2B2620':'#9A9080'};background:${s.calView===v?'#FBF9F4':'transparent'};box-shadow:${s.calView===v?'0 1px 2px rgba(0,0,0,.05)':'none'}` }));
+      out.calToday=()=>this.calToday(); out.calPrev=()=>this.calStep(-1); out.calNext=()=>this.calStep(1);
+      out.isMonth=s.calView==='month'; out.isWeek=s.calView==='week'; out.isDay=s.calView==='day';
+      const eventsOn=(date)=>s.tasks.filter(t=>t.date===date).sort((a,b)=>(a.time||'99').localeCompare(b.time||'99'));
+      const pill=(t)=>{ const o=this.ownerInfo(t.owner); const label=(t.time?this.fmtTime(t.time).replace('오전','').replace('오후','')+' ':'')+t.title; return { label:(t.repeat!=='none'?'⟳ ':'')+label, pillStyle:`font-size:10.5px;line-height:1.4;padding:2px 6px;border-radius:5px;background:${o.bg};border:1px solid ${o.bd};color:${o.fg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;font-weight:${t.done?'400':'500'};text-decoration:${t.done?'line-through':'none'};opacity:${t.done?'.6':'1'}`, onClick:(e)=>{ e.stopPropagation(); this.setState({detailId:t.id}); } }; };
+
+      if(out.isMonth){
+        out.calLabel=`${s.calY}년 ${s.calM}월`;
+        out.weekdays=['일','월','화','수','목','금','토'].map((w,i)=>({ label:w, style:`text-align:center;padding:8px 0;font-size:11px;font-weight:600;color:${i===0?'#C0826A':i===6?'#8AA0C0':'#9A9080'};border-right:${i<6?'1px solid #EBE4D6':'none'}` }));
+        const first=new Date(s.calY,s.calM-1,1); const startDow=first.getDay();
+        const gridStart=new Date(s.calY,s.calM-1,1-startDow);
+        const weeks=[]; let cur=new Date(gridStart);
+        const last=new Date(s.calY,s.calM,0).getDate();
+        const weekCount=Math.ceil((startDow+last)/7);
+        for(let w=0;w<weekCount;w++){ const row=[]; for(let d=0;d<7;d++){ const iso=this.iso(cur); const inMonth=cur.getMonth()===s.calM-1; const isToday=iso===this.TODAY; const dow=cur.getDay(); const evs=eventsOn(iso); const shown=evs.slice(0,2); const more=evs.length-shown.length;
+          row.push({ date:String(cur.getDate()), cellStyle:`border-right:${d<6?'1px solid #EBE4D6':'none'};border-bottom:1px solid #EBE4D6;padding:5px 6px;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;cursor:pointer;background:${isToday?'var(--accent-softer)':inMonth?'transparent':'#F4EFE6'}`,
+            dateStyle:`font-size:11.5px;font-weight:${isToday?'800':'600'};color:${isToday?'#fff':inMonth?(dow===0?'#C0826A':dow===6?'#8AA0C0':'#3B362E'):'#C4BAA6'};${isToday?'background:var(--accent);border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;':''}cursor:pointer`,
+            onOpenDay:(e)=>{ e.stopPropagation(); this.setState({calView:'day',calDay:iso}); },
+            onAdd:()=>this.setState({ newOpen:true, newTitle:'', newDate:iso, newTime:'', newList:'inbox', newOwner:'me' }),
+            hasMore:more>0, more:String(more), events:shown.map(pill) });
+          cur.setDate(cur.getDate()+1); }
+          weeks.push(row); }
+        out.calWeeks=weeks; out.weekCount=weekCount;
+      } else if(out.isWeek){
+        const anchor=this.parseISO(s.calDay); const wkStart=new Date(anchor); wkStart.setDate(anchor.getDate()-anchor.getDay());
+        out.calLabel=`${wkStart.getMonth()+1}월 ${wkStart.getDate()}일 주`;
+        const cols=[]; let cur=new Date(wkStart);
+        for(let d=0;d<7;d++){ const iso=this.iso(cur); const isToday=iso===this.TODAY; const dow=cur.getDay(); const evs=eventsOn(iso);
+          cols.push({ wd:['일','월','화','수','목','금','토'][dow], num:String(cur.getDate()),
+            colStyle:`background:${isToday?'var(--accent-softer)':'#FBF9F4'};border:1px solid #EBE4D6;border-radius:11px;display:flex;flex-direction:column;min-height:0;overflow:hidden`,
+            headStyle:`padding:9px;display:flex;flex-direction:column;align-items:center;gap:2px;border-bottom:1px solid #EBE4D6;cursor:pointer`,
+            numStyle:`font-size:15px;font-weight:800;color:${isToday?'var(--accent)':dow===0?'#C0826A':dow===6?'#8AA0C0':'#2B2620'}`,
+            onOpenDay:()=>this.setState({calView:'day',calDay:iso}),
+            onAdd:()=>this.setState({ newOpen:true, newTitle:'', newDate:iso, newTime:'', newList:'inbox', newOwner:'me' }),
+            events:evs.map(t=>{ const o=this.ownerInfo(t.owner); return { time:this.fmtTime(t.time), label:t.title, cardStyle:`background:${o.bg};border:1px solid ${o.bd};color:${o.fg};border-radius:7px;padding:5px 7px;cursor:pointer`, onClick:(e)=>{e.stopPropagation();this.setState({detailId:t.id});} }; }) });
+          cur.setDate(cur.getDate()+1); }
+        out.weekCols=cols;
+      } else {
+        out.calLabel=`${this.parseISO(s.calDay).getMonth()+1}월 ${this.parseISO(s.calDay).getDate()}일`;
+        const evs=eventsOn(s.calDay); const timed=evs.filter(t=>t.time); const allday=evs.filter(t=>!t.time);
+        const hours=[]; for(let h=7;h<=22;h++){ const hl=`${h<12?'오전':'오후'} ${((h%12)||12)}시`; const hev=timed.filter(t=>+t.time.split(':')[0]===h);
+          const hh=String(h).padStart(2,'0')+':00';
+          hours.push({ label:hl,
+            rowStyle:`display:grid;grid-template-columns:58px 1fr;border-bottom:1px solid #F2ECDE;min-height:44px;transition:background .12s;cursor:${s.placingId?'pointer':'default'};background:${s.placingId?'#FCF7F0':'transparent'}`,
+            onSlot:()=>{ if(s.placingId){ this.patch(s.placingId,{date:s.calDay,time:hh}); this.setState({placingId:null}); } else { this.setState({ newOpen:true, newTitle:'', newDate:s.calDay, newTime:hh, newList:'inbox', newOwner:'me' }); } },
+            events:hev.map(t=>{ const o=this.ownerInfo(t.owner); return { time:this.fmtTime(t.time)+(t.endTime?' – '+this.fmtTime(t.endTime):''), label:t.title, cardStyle:`background:${o.bg};border:1px solid ${o.bd};color:${o.fg};border-radius:7px;padding:4px 9px;font-size:11.5px;cursor:pointer`, onClick:(e)=>{e.stopPropagation();this.setState({detailId:t.id});} }; }) }); }
+        out.dayHours=hours;
+        out.dayTitle=`${this.parseISO(s.calDay).getMonth()+1}월 ${this.parseISO(s.calDay).getDate()}일 (${this.weekdayKo(s.calDay)})`;
+        out.dayEmpty=evs.length===0;
+        out.placing=!!s.placingId; out.placingTitle=(s.tasks.find(x=>x.id===s.placingId)||{}).title||''; out.cancelPlacing=()=>this.setState({placingId:null});
+        out.dayAllDay=allday.map(t=>{ const o=this.ownerInfo(t.owner); return { onOpen:()=>this.setState({detailId:t.id}), onPlace:(e)=>{e.stopPropagation();this.setState({placingId:t.id});}, placing:s.placingId===t.id, onToggle:(e)=>{e.stopPropagation();this.toggle(t.id);}, check:t.done?'✓':'', checkStyle:`width:17px;height:17px;border-radius:5px;border:1.5px solid ${t.done?'#3E9B72':'#C9BEA9'};background:${t.done?'#3E9B72':'transparent'};color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0`, titleStyle:`flex:1;font-size:12.5px;color:${t.done?'#A89E8E':'#2B2620'};text-decoration:${t.done?'line-through':'none'}`, title:t.title, owner:o.label, ownerStyle:`font-size:10px;font-weight:600;color:${o.fg};background:${o.bg};border:1px solid ${o.bd};border-radius:20px;padding:1px 7px;white-space:nowrap;flex-shrink:0` }; });
+      }
+    }
+
+    // ---- TASK LIST ----
+    if(isTaskList){
+      const rowsAll=this.filterForNav();
+      const active=rowsAll.filter(t=>!t.done);
+      const done=rowsAll.filter(t=>t.done);
+      const taskRow=(t)=>{ const o=this.ownerInfo(t.owner); const l=this.listById(t.list)||{icon:'',name:''};
+        return { onOpen:()=>this.setState({detailId:t.id}),
+          rowStyle:`display:flex;align-items:flex-start;gap:11px;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:11px;padding:11px 13px;cursor:pointer`,
+          onToggle:(e)=>{e.stopPropagation();this.toggle(t.id);},
+          check:t.done?'✓':'', checkStyle:`width:18px;height:18px;border-radius:6px;border:1.5px solid ${t.done?'#3E9B72':t.pri===3?'#D8533B':'#C9BEA9'};background:${t.done?'#3E9B72':'transparent'};color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-top:1px`,
+          titleStyle:`font-size:13px;font-weight:500;color:${t.done?'#A89E8E':'#2B2620'};text-decoration:${t.done?'line-through':'none'}`, title:t.title,
+          repeatIcon:t.repeat!=='none',
+          dateLabel:this.fmtDateLabel(t.date)+(t.time?' '+this.fmtTime(t.time):''),
+          dateStyle:`font-size:11px;font-weight:600;color:${t.date===this.TODAY?'var(--accent-dark)':(t.date&&t.date<this.TODAY?'#C0533B':'#8A8070')}`,
+          listLabel:l.icon+' '+l.name, listStyle:`font-size:10.5px;color:#9A9080;background:#EFE8DA;border-radius:5px;padding:1px 7px;white-space:nowrap;flex-shrink:0`,
+          tags:t.tags.map(tn=>({ label:tn, style:`font-size:10px;font-weight:600;color:${this.tagColor(tn)};background:${this.tagColor(tn)}1A;border-radius:5px;padding:1px 6px;white-space:nowrap` })),
+          ownerBadge:t.owner!=='me'?o.label:'', ownerStyle:`font-size:10px;font-weight:600;color:${o.fg};background:${o.bg};border:1px solid ${o.bd};border-radius:20px;padding:1px 7px;white-space:nowrap;flex-shrink:0`,
+          priFlag:t.pri>=2, priColor:this.priColor(t.pri) }; };
+      out.taskRows=active.map(taskRow);
+      out.taskListEmpty=active.length===0;
+      out.quickText=s.quickText;
+      out.onQuickInput=(e)=>this.setState({quickText:e.target.value});
+      out.onQuickKey=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); this.submitQuick(); } };
+      out.submitQuick=()=>this.submitQuick();
+      const prev=s.quickText.trim()?this.parseQuick(s.quickText):null;
+      out.hasQuickPreview=!!(prev && (prev.date||prev.time||prev.tags.length||prev.pri||prev.repeat!=='none'||prev.owner!=='me'||prev.list));
+      out.noQuickPreview=!out.hasQuickPreview;
+      const chips=[];
+      if(prev){ const chip=(l,c)=>({label:l,style:`font-size:11px;font-weight:600;color:${c};background:${c}18;border:1px solid ${c}40;border-radius:7px;padding:3px 9px`});
+        if(prev.date)chips.push(chip('📅 '+this.fmtDateLabel(prev.date),'var(--accent)'));
+        if(prev.time)chips.push(chip('🕑 '+this.fmtTime(prev.time),'var(--accent)'));
+        if(prev.repeat!=='none')chips.push(chip('⟳ '+this.repeatKo(prev.repeat),'#3E9B72'));
+        if(prev.pri)chips.push(chip('⚑ '+['','낮음','중간','높음'][prev.pri],this.priColor(prev.pri)));
+        prev.tags.forEach(tn=>chips.push(chip('#'+tn,this.tagColor(tn))));
+        if(prev.list)chips.push(chip((this.listById(prev.list)||{}).name||'','#8A8070'));
+        if(prev.owner==='agent')chips.push(chip('🤖 에이전트 위임','#3E7A52'));
+      }
+      out.quickChips=chips;
+      out.showRepeatChips=!out.hasQuickPreview;
+      out.repeatTemplates=['매일 루틴','매주 회의','매월 정산','평일 근무'].map(l=>({label:l,onClick:()=>this.applyRepeatTemplate(l)}));
+      out.hasCompleted=done.length>0;
+      out.completedCount=String(done.length);
+      out.completedCaret=s.showCompletedList?'▾':'▸';
+      out.toggleCompleted=()=>this.setState({showCompletedList:!s.showCompletedList});
+      out.showCompletedList=s.showCompletedList;
+      out.completedRows=done.map(taskRow);
+    }
+
+    // ---- KANBAN ----
+    if(isKanban){
+      const cols=[ ['todo','기본','#C7BCA6'], ['doing','진행 중','#3B7DD8'], ['review','검토','#E0913B'], ['done','완료','#3E9B72'] ];
+      out.kanbanCols=cols.map(([st,label,color])=>{ const cards=s.tasks.filter(t=> st==='done'?t.done : (t.status===st && !t.done) ); return { label, dotStyle:`width:9px;height:9px;border-radius:50%;background:${color}`, count:String(cards.length), cards:cards.map(t=>{ const o=this.ownerInfo(t.owner); const l=this.listById(t.list)||{icon:'',name:''}; return { onOpen:()=>this.setState({detailId:t.id}), title:t.title, listLabel:l.icon+' '+l.name, listStyle:`font-size:10px;color:#9A9080;background:#EFE8DA;border-radius:5px;padding:1px 6px;white-space:nowrap`, dateLabel:this.fmtDateLabel(t.date), ownerBadge:t.owner!=='me'?o.label:'', ownerStyle:`font-size:9.5px;font-weight:600;color:${o.fg};background:${o.bg};border:1px solid ${o.bd};border-radius:20px;padding:1px 6px;white-space:nowrap;flex-shrink:0` }; }) }; });
+    }
+
+    // ---- NOTES ----
+    if(isNotes){
+      let active=s.activeNote || (s.notes[0]&&s.notes[0].id);
+      out.notesCount=String(s.notes.length);
+      out.noteList=s.notes.map(n=>({ onOpen:()=>this.openNote(n.id), title:n.title||'제목 없음', preview:n.body.slice(0,40)||'내용 없음', style:`padding:9px 11px;border-radius:9px;cursor:pointer;margin-bottom:2px;background:${active===n.id?'#F1ECE1':'transparent'}` }));
+      const an=s.notes.find(n=>n.id===active);
+      out.hasActiveNote=!!an; out.noActiveNote=!an;
+      if(an){ out.activeNoteTitle=an.title; out.activeNoteBody=an.body; out.activeNoteMeta=`📝 생각노트 · ${an.updated} 수정`+(an.tag?` · #${an.tag}`:''); out.onNoteTitle=(e)=>this.patchNote(an.id,{title:e.target.value}); out.onNoteBody=(e)=>this.patchNote(an.id,{body:e.target.value}); }
+      out.newNote=()=>this.newNote();
+    }
+
+    // ---- MAIL ----
+    if(isMail){
+      const visible=(s.emails||[]).filter(e=>!e.archived);
+      const active=s.activeMail;
+      out.mailUnread=String(visible.filter(e=>e.unread).length);
+      out.mailList=visible.map(e=>({ onOpen:()=>this.openMail(e.id),
+        style:`display:flex;gap:11px;padding:11px 14px;border-radius:10px;cursor:pointer;margin-bottom:2px;background:${active===e.id?'#F1ECE1':'transparent'};border-left:3px solid ${e.unread?'var(--accent)':'transparent'}`,
+        dotStyle:`width:8px;height:8px;border-radius:50%;background:${e.unread?'var(--accent)':'transparent'};flex-shrink:0;margin-top:5px`,
+        avatar:e.from.slice(0,1), avatarStyle:`width:34px;height:34px;border-radius:50%;background:#E4D9C6;color:#6E6456;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0`,
+        from:e.from, fromStyle:`font-size:12.5px;font-weight:${e.unread?'700':'600'};color:#2B2620;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`,
+        time:e.time, subject:e.subject, subjectStyle:`font-size:12px;font-weight:${e.unread?'600':'500'};color:${e.unread?'#2B2620':'#5C5346'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis`,
+        preview:e.preview, star:e.starred?'★':'', starColor:e.starred?'#E0913B':'#CFC4B0' }));
+      const am=s.emails.find(e=>e.id===active && !e.archived);
+      out.hasActiveMail=!!am; out.noActiveMail=!am;
+      if(am){
+        out.amSubject=am.subject; out.amFrom=am.from; out.amAddr=am.addr; out.amTime=am.time; out.amBody=am.body;
+        out.amAvatar=am.from.slice(0,1);
+        out.amStar=am.starred?'★':'☆'; out.amStarStyle=`font-size:18px;color:${am.starred?'#E0913B':'#CFC4B0'};cursor:pointer`;
+        out.amToggleStar=()=>this.patchMail(am.id,{starred:!am.starred});
+        out.amTaskAdded=am.taskAdded; out.amTaskAddedNo=!am.taskAdded;
+        out.mailAddTask=()=>{ const task={ id:'t'+Date.now(), title:am.subject.replace(/^\[.*?\]\s*/,''), date:null, time:null, list:'inbox', owner:'me', pri:0, tags:[], repeat:'none', status:'todo', done:false, notes:'메일: '+am.from+' · '+am.addr }; this.setState(st=>({ tasks:[task,...st.tasks], emails:st.emails.map(e=>e.id===am.id?{...e,taskAdded:true}:e) })); };
+        out.mailDelegate=()=>this.setState({ delegateOpen:true, delegateTaskId:null, delegateAgent:'claude', delegateText:'다음 메일을 처리해줘 — '+am.from+': '+am.subject+'\n\n'+am.body.slice(0,200) });
+        out.mailReply=()=>this.setState({ delegateOpen:true, delegateTaskId:null, delegateAgent:'gpt', delegateText:'아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n보낸사람: '+am.from+'\n제목: '+am.subject+'\n내용: '+am.body.slice(0,240) });
+        out.mailArchive=()=>this.setState(st=>({ emails:st.emails.map(e=>e.id===am.id?{...e,archived:true}:e), activeMail:null }));
+      }
+    }
+
+    // ---- PLAN (오늘 계획) ----
+    if(isPlan){
+      const daysBetween=(a,b)=>Math.round((this.parseISO(b)-this.parseISO(a))/86400000);
+      const overdue=s.tasks.filter(t=>t.date && t.date<this.TODAY && !t.done).sort((a,b)=>a.date.localeCompare(b.date));
+      const todayT=s.tasks.filter(t=>t.date===this.TODAY && !t.done);
+      const review=s.tasks.filter(t=>t.status==='review' && !t.done);
+      const unscheduled=s.tasks.filter(t=>!t.date && t.list==='inbox' && !t.done).slice(0,4);
+      const chk=(t)=>({ onToggle:(e)=>{e.stopPropagation();this.toggle(t.id);}, check:t.done?'✓':'', checkStyle:`width:18px;height:18px;border-radius:6px;border:1.5px solid ${t.pri===3?'#D8533B':'#C9BEA9'};background:transparent;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0` });
+      const lc=(t)=>{ const l=this.listById(t.list)||{icon:'',name:''}; return l.icon+' '+l.name; };
+      out.planGreeting='좋은 아침이에요, 윤서님 ☀️';
+      out.quickText=s.quickText;
+      out.onQuickInput=(e)=>this.setState({quickText:e.target.value});
+      out.onQuickKey=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); this.submitQuick(); } };
+      out.submitQuick=()=>this.submitQuick();
+      out.planStats=[
+        { label:'지연', value:String(overdue.length), color:overdue.length?'#C0533B':'#3E9B72', onClick:()=>{} },
+        { label:'오늘 할 일', value:String(todayT.length), color:'#2B2620', onClick:()=>{} },
+        { label:'검토 대기', value:String(review.length), color:review.length?'#9A7322':'#3E9B72', onClick:()=>{} },
+      ];
+      out.planOverdue=overdue.map(t=>({ ...chk(t), title:t.title, titleStyle:`font-size:13px;font-weight:500;color:#2B2620`, listLabel:lc(t), late:daysBetween(t.date,this.TODAY)+'일 지남', onToday:(e)=>{e.stopPropagation();this.patch(t.id,{date:this.TODAY});}, onTomorrow:(e)=>{e.stopPropagation();this.patch(t.id,{date:this.addDays(this.TODAY,1)});} }));
+      out.planOverdueEmpty=overdue.length===0;
+      out.planToday=todayT.map(t=>({ ...chk(t), title:t.title, titleStyle:`font-size:13px;font-weight:500;color:#2B2620`, listLabel:lc(t), timeLabel:t.time?this.fmtTime(t.time):'', onOpen:()=>this.setState({detailId:t.id}) }));
+      out.planTodayEmpty=todayT.length===0;
+      out.planReview=review.map(t=>({ title:t.title, agent:(this.ownerInfo(t.owner).label), onApprove:()=>this.setState(st=>({tasks:st.tasks.map(x=>x.id===t.id?{...x,done:true,status:'done'}:x)})), onOpen:()=>this.setState({detailId:t.id}) }));
+      out.planReviewEmpty=review.length===0;
+      out.planSuggest=unscheduled.map(t=>({ title:t.title, listLabel:lc(t), onPlan:()=>this.patch(t.id,{date:this.TODAY}) }));
+      out.planHasSuggest=unscheduled.length>0;
+    }
+
+    // ---- WEEKLY REVIEW ----
+    if(isReview){
+      const dow=this.parseISO(this.TODAY).getDay();
+      const wStart=this.addDays(this.TODAY,-dow), wEnd=this.addDays(this.TODAY,6-dow);
+      const inWeek=(d)=>d&&d>=wStart&&d<=wEnd;
+      const created=s.tasks.filter(t=>inWeek(t.date));
+      const done=created.filter(t=>t.done);
+      const overdue=s.tasks.filter(t=>t.date&&t.date<this.TODAY&&!t.done);
+      const delegated=created.filter(t=>t.owner==='agent');
+      const rate=created.length?Math.round(done.length/created.length*100):0;
+      out.reviewRange=`${this.parseISO(wStart).getMonth()+1}/${this.parseISO(wStart).getDate()} – ${this.parseISO(wEnd).getMonth()+1}/${this.parseISO(wEnd).getDate()}`;
+      out.reviewKpis=[
+        {label:'완료율',value:rate+'%',sub:`${done.length}/${created.length}건`,color:rate>=60?'#3E9B72':rate>=30?'#E0913B':'#C0533B'},
+        {label:'완료',value:String(done.length),sub:'이번 주',color:'#2B2620'},
+        {label:'지연',value:String(overdue.length),sub:'미완료 과거',color:overdue.length?'#C0533B':'#3E9B72'},
+        {label:'에이전트 위임',value:String(delegated.length),sub:'이번 주',color:'#3E7A52'},
+      ];
+      out.reviewGoals=s.weeklyGoals.map(g=>({ text:g.text, done:g.done, onToggle:()=>this.setState(st=>({weeklyGoals:st.weeklyGoals.map(x=>x.id===g.id?{...x,done:!x.done}:x)})), checkStyle:`width:18px;height:18px;border-radius:6px;border:1.5px solid ${g.done?'#3E9B72':'#C9BEA9'};background:${g.done?'#3E9B72':'transparent'};color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0`, check:g.done?'✓':'', titleStyle:`flex:1;font-size:13px;color:${g.done?'#A89E8E':'#2B2620'};text-decoration:${g.done?'line-through':'none'}` }));
+      out.goalInput=s.goalInput;
+      out.onGoalInput=(e)=>this.setState({goalInput:e.target.value});
+      out.addGoal=()=>{ const t=s.goalInput.trim(); if(!t)return; this.setState(st=>({weeklyGoals:[...st.weeklyGoals,{id:'g'+Date.now(),text:t,done:false}],goalInput:''})); };
+      out.onGoalKey=(e)=>{ if(e.key==='Enter'){e.preventDefault();out.addGoal();} };
+      const goalsDone=s.weeklyGoals.filter(g=>g.done).length;
+      out.retro=s.retro;
+      out.hasRetro=!!s.retro; out.noRetro=!s.retro;
+      out.genRetro=()=>{
+        const topDone=done.slice(0,3).map(t=>t.title).join(', ')||'없음';
+        const topOver=overdue.slice(0,3).map(t=>t.title).join(', ')||'없음';
+        const txt=`📅 ${out.reviewRange} 주간 회고\n\n`+
+          `· 이번 주 완료율은 ${rate}% (${done.length}/${created.length}건)였습니다.\n`+
+          `· 목표 달성: ${goalsDone}/${s.weeklyGoals.length}개.\n`+
+          `· 잘한 일: ${topDone}.\n`+
+          `· 지연된 일(${overdue.length}건): ${topOver}. 다음 주 우선 처리 필요.\n`+
+          `· 에이전트에 ${delegated.length}건 위임해 시간을 확보했습니다.\n\n`+
+          `💡 다음 주 제안: 지연 항목을 월요일 오전에 타임블록으로 배치하고, 미달성 목표 ${s.weeklyGoals.length-goalsDone}개를 이번 주 핵심으로 좁히세요.`;
+        this.setState({retro:txt});
+      };
+      out.saveRetroToWiki=()=>{ if(!s.retro)return; const w={id:'w'+Date.now(),title:`주간 회고 · ${out.reviewRange}`,body:s.retro,tag:'회고',date:this.TODAY,kind:'doc'}; this.setState(st=>({wiki:[w,...st.wiki]})); };
+    }
+
+    // ---- WIKI (Obsidian-style: ask bar + graph + tree + search) ----
+    if(isWiki){
+      out.wikiSearch=s.wikiSearch; out.onWikiSearch=(e)=>this.setState({wikiSearch:e.target.value});
+      const sq=s.wikiSearch.trim().toLowerCase();
+      const match=(w)=>!sq||(w.title+w.body+(w.tag||'')).toLowerCase().includes(sq);
+      const active=s.activeWiki||(s.wiki[0]&&s.wiki[0].id);
+      const tagColor={'업무':'var(--accent)','주식':'#7C5CBF','인생':'#C99A3B','회고':'#3E9B72','일기':'#3B7DD8','기타':'#9A9080'};
+      out.wikiDocCount=String(s.wiki.length);
+      const allTags=[...new Set(s.wiki.map(w=>w.tag||'기타'))];
+      out.wikiTagCount=String(allTags.length);
+      out.wikiLegend=allTags.slice(0,5).map(tg=>({tag:tg,color:tagColor[tg]||'#9A9080'}));
+      // ---- graph layout (tag hubs) ----
+      { const W=720,H=440,cx=W/2,cy=H/2; const tags=[...new Set(s.wiki.map(w=>w.tag||'기타'))];
+        const nodes=[], edges=[];
+        nodes.push({id:'__c',x:cx,y:cy,r:13,lblY:cy+27,label:'위키',fill:'#5C5346',stroke:'#fff',text:'#5C5346',fontW:800,op:1,onClick:()=>{}});
+        tags.forEach((tg,ti)=>{ const ang=(ti/tags.length)*Math.PI*2 - Math.PI/2; const tx=cx+Math.cos(ang)*128, ty=cy+Math.sin(ang)*112; const col=tagColor[tg]||'#9A9080';
+          const tOp=sq?0.25:1;
+          edges.push({x1:cx,y1:cy,x2:tx,y2:ty,op:tOp*0.55});
+          nodes.push({id:'tag'+ti,x:tx,y:ty,r:9,lblY:ty-14,label:tg,fill:col,stroke:'#fff',text:col,fontW:700,op:tOp,onClick:()=>this.setState({wikiSearch:tg})});
+          const docs=s.wiki.filter(w=>(w.tag||'기타')===tg);
+          docs.forEach((w,di)=>{ const spread=(docs.length-1)/2; const da=ang+((di-spread)*0.5); const r2=205; const dx=cx+Math.cos(da)*r2, dy=cy+Math.sin(da)*r2; const on=match(w);
+            edges.push({x1:tx,y1:ty,x2:dx,y2:dy,op:on?0.5:0.08});
+            nodes.push({id:w.id,x:dx,y:dy,r:active===w.id?9:6.5,lblY:dy+(dy>cy?19:-12),label:w.title.length>11?w.title.slice(0,11)+'…':w.title,fill:active===w.id?col:'#FBF9F4',stroke:col,text:on?'#3B362E':'#C8BFAD',fontW:active===w.id?700:500,op:on?1:0.3,onClick:()=>this.openWikiDoc(w.id)}); });
+        });
+        out.graphW=W; out.graphH=H; out.graphNodes=nodes; out.graphEdges=edges;
+      }
+      // ---- tree (folders by tag) ----
+      const tags2=[...new Set(s.wiki.map(w=>w.tag||'기타'))];
+      out.wikiTree=tags2.map(tg=>({ tag:tg, color:tagColor[tg]||'#9A9080',
+        dotStyle:`width:8px;height:8px;border-radius:2px;background:${tagColor[tg]||'#9A9080'};flex-shrink:0`,
+        count:String(s.wiki.filter(w=>(w.tag||'기타')===tg).length),
+        docs:s.wiki.filter(w=>(w.tag||'기타')===tg).map(w=>({ icon:w.kind==='diary'?'📔':'📄', title:w.title, onOpen:()=>this.openWikiDoc(w.id),
+          style:`display:flex;align-items:center;gap:7px;padding:6px 8px 6px 22px;border-radius:7px;cursor:pointer;opacity:${match(w)?1:0.35};background:${active===w.id?'#F1ECE1':'transparent'}` })) }));
+      // ---- reader ----
+      out.wikiReaderOpen=s.wikiReaderOpen;
+      const aw=s.wiki.find(w=>w.id===active);
+      out.hasWikiDoc=!!aw;
+      if(aw){ out.awTitle=aw.title; out.awBody=aw.body; out.awMeta=(aw.kind==='diary'?'📔 일기':'📄 문서')+' · '+aw.date+(aw.tag?' · #'+aw.tag:''); }
+      out.closeWikiReader=()=>this.setState({wikiReaderOpen:false});
+      // ---- ask (AI on wiki) ----
+      out.wikiQ=s.wikiQ; out.wikiA=s.wikiA; out.hasWikiA=!!s.wikiA||s.wikiLoading; out.wikiLoading=s.wikiLoading; out.wikiAReady=!s.wikiLoading&&!!s.wikiA;
+      out.onWikiQ=(e)=>this.setState({wikiQ:e.target.value});
+      out.onWikiQKey=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); this.askWiki(); } };
+      out.clearWikiA=()=>this.setState({wikiA:'',wikiLoading:false});
+      out.askWiki=()=>this.askWiki();
+      out.wikiSuggest=['UniPort BM 요약','트레이딩 규칙은?','이번 주에 뭘 배웠지?'].map(q=>({label:q,onClick:()=>this.setState({wikiQ:q})}));
+    }
+
+    // ---- DIARY ----
+    if(isDiary){
+      out.diaryText=s.diaryText;
+      out.onDiary=(e)=>this.setState({diaryText:e.target.value});
+      out.diaryToday=`${this.parseISO(this.TODAY).getFullYear()}년 ${this.parseISO(this.TODAY).getMonth()+1}월 ${this.parseISO(this.TODAY).getDate()}일 (${this.weekdayKo(this.TODAY)})`;
+      const dlist=s.wiki.filter(w=>w.kind==='diary').sort((a,b)=>b.date.localeCompare(a.date));
+      // streak
+      let streak=0; let cur=this.TODAY; const dset=new Set(dlist.map(d=>d.date));
+      while(dset.has(cur)){ streak++; cur=this.addDays(cur,-1); }
+      const thisMonth=dlist.filter(d=>d.date.slice(0,7)===this.TODAY.slice(0,7)).length;
+      out.diaryStats=[
+        {icon:'🔥',label:'연속 작성',value:streak+'일'},
+        {icon:'📔',label:'이번 달',value:thisMonth+'편'},
+        {icon:'📚',label:'전체',value:dlist.length+'편'},
+      ];
+      out.diaryMoods=['😊','😌','😐','😔','😤','🤔'].map(m=>({ emoji:m, active:s.diaryMood===m, onClick:()=>this.setState({diaryMood:s.diaryMood===m?'':m}), style:`width:38px;height:38px;display:flex;align-items:center;justify-content:center;font-size:19px;border-radius:10px;cursor:pointer;border:1.5px solid ${s.diaryMood===m?'var(--accent)':'#E6DFD0'};background:${s.diaryMood===m?'var(--accent-soft)':'#FBF9F4'}` }));
+      out.diaryPrompts=['오늘 가장 기억에 남는 일은?','무엇을 배웠나?','내일은 무엇을 다르게?','감사한 것 3가지'].map(p=>({ label:p, onClick:()=>this.setState({diaryText:(s.diaryText?s.diaryText+'\n\n':'')+'· '+p+'\n'}) }));
+      out.saveDiary=()=>{ const t=s.diaryText.trim(); if(!t)return; const title='일기 · '+`${this.parseISO(this.TODAY).getMonth()+1}월 ${this.parseISO(this.TODAY).getDate()}일`; const w={id:'w'+Date.now(),title,body:(s.diaryMood?s.diaryMood+' ':'')+t,tag:'일기',date:this.TODAY,kind:'diary'}; this.setState(st=>({wiki:[w,...st.wiki],diaryText:'',diaryMood:''})); };
+      const moodColors={'😊':'#3E9B72','😌':'#3B7DD8','😐':'#9A9080','😔':'#7C5CBF','😤':'#D8533B','🤔':'#C99A3B'};
+      out.diaryList=dlist.map(w=>{ const m=(w.body.match(/^([\u{1F600}-\u{1F64F}])/u)||[])[1]; const dt=this.parseISO(w.date); return { onOpen:()=>this.openWikiDoc(w.id), mood:m||'📔', accent:moodColors[m]||'#C9BEA9', day:String(dt.getDate()), month:(dt.getMonth()+1)+'월', wd:this.weekdayKo(w.date), preview:w.body.replace(/^[\u{1F600}-\u{1F64F}]\s*/u,'').slice(0,70) }; });
+      out.diaryEmpty=dlist.length===0;
+    }
+
+    // ---- SEARCH ----
+    if(isSearch){
+      const q=s.query.trim().toLowerCase();
+      const groups=[]; let total=0;
+      if(q){
+        const tk=s.tasks.filter(t=>t.title.toLowerCase().includes(q)||t.tags.some(x=>x.toLowerCase().includes(q)));
+        const nt=s.notes.filter(n=>n.title.toLowerCase().includes(q)||n.body.toLowerCase().includes(q));
+        const ev=s.tasks.filter(t=>t.date&&t.title.toLowerCase().includes(q));
+        total=tk.length+nt.length;
+        if(tk.length)groups.push({ title:'작업', count:tk.length, rows:tk.map(t=>{ const l=this.listById(t.list)||{name:''}; return { onOpen:()=>this.setState({detailId:t.id}), icon:t.done?'✓':'○', title:t.title, meta:(t.date?this.fmtDateLabel(t.date)+' · ':'')+l.name }; }) });
+        if(nt.length)groups.push({ title:'노트', count:nt.length, rows:nt.map(n=>({ onOpen:()=>this.setState({nav:'notes',activeNote:n.id,query:''}), icon:'📝', title:n.title||'제목 없음', meta:n.updated })) });
+      }
+      out.searchGroups=groups; out.searchTotal=String(total); out.searchEmpty=q&&total===0;
+    }
+
+    // ---- AGENTS DASHBOARD ----
+    if(isAgents){
+      out.missionText=s.missionText;
+      out.onMissionText=(e)=>this.setState({missionText:e.target.value});
+      out.onMissionKey=(e)=>{ if((e.key==='Enter')&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); this.startPlan(s.missionText, s.missionAgent, null); } };
+      out.startMission=()=>this.startPlan(s.missionText, s.missionAgent, null);
+      out.missionAgentOpts=this.allAgents().map(a=>({ emoji:a.emoji, label:a.name, active:s.missionAgent===a.id, onClick:()=>this.setState({missionAgent:a.id}), style:`display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:6px 11px;border-radius:9px;cursor:pointer;border:1px solid ${s.missionAgent===a.id?'var(--accent)':'#E0D8C8'};background:${s.missionAgent===a.id?'var(--accent-soft)':'#FBF9F4'};color:${s.missionAgent===a.id?'var(--accent-dark)':'#6E6456'}` }));
+      out.missionExamples=['UniPort 경쟁사 3곳 리서치해서 위키에 정리','이번 주 트레이딩 회고 문서 작성','캐러셀 파이프라인 버그 정리 노트'].map(l=>({label:l,onClick:()=>this.setState({missionText:l})}));
+      // roster
+      out.agentCards=this.allAgents().map(a=>{ const active=s.runs.filter(r=>r.status==='running'&&r.agent===a.name).length; const done=s.runs.filter(r=>r.status==='done'&&r.agent===a.name).length; return { emoji:a.emoji, name:a.name, model:a.model, persona:a.persona, avatarStyle:`width:36px;height:36px;border-radius:10px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-size:18px`, status:active>0?'실행 중':'대기', statusStyle:`font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;color:${active>0?'#3E9B72':'#A89E8E'};background:${active>0?'#E3EFE4':'#EFE8DA'}`, active:String(active), done:String(done), onDelegate:()=>this.setState({missionAgent:a.id}) }; });
+      out.openNewAgent=()=>this.setState({newAgentOpen:true,newAgentName:'',newAgentRole:'',newAgentEmoji:'🤖'});
+      // runs
+      const runStatusStyle=(st)=>`font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:20px;${st==='done'?'color:#3E9B72;background:#E3EFE4':st==='running'?'color:var(--accent-dark);background:var(--accent-soft)':'color:#9A7322;background:#F2E8CD'}`;
+      const runStatusLabel=(st)=>st==='done'?'완료':st==='running'?'실행 중':'대기';
+      out.runRows=s.runs.map(r=>({ onOpen:()=>this.setState({runOpen:r.id}), statusStyle:runStatusStyle(r.status), statusLabel:runStatusLabel(r.status), title:r.title, agent:r.agent, pct:String(r.pct), step:r.step, hasArtifact:(r.artifacts&&r.artifacts.length>0), artifactLabel:(r.artifacts&&r.artifacts[0])?('📄 '+r.artifacts[0].title):'', onOpenArtifact:(r.artifacts&&r.artifacts[0])?((e)=>{e.stopPropagation();this.setState({nav:'wiki',activeWiki:r.artifacts[0].wikiId,wikiReaderOpen:true});}):()=>{} }));
+      out.noRuns=s.runs.length===0;
+    }
+
+    // ---- PLAN DRAFT MODAL ----
+    out.planOpen=!!s.planDraft;
+    if(s.planDraft){ const d=s.planDraft; const agent=this.agentById(d.agentId);
+      out.planAgent=agent.emoji+' '+agent.name; out.planGoal=d.goal;
+      out.planSteps=d.steps.map((st,i)=>({ num:String(i+1), title:st.title, detail:st.detail }));
+      out.planArtifact='📄 '+d.artifact.title;
+      out.approvePlan=()=>this.approvePlan();
+      out.cancelPlan=()=>this.setState({planDraft:null});
+    }
+
+    // ---- NEW AGENT MODAL ----
+    out.newAgentOpen=s.newAgentOpen; out.newAgentName=s.newAgentName; out.newAgentRole=s.newAgentRole;
+    out.onNewAgentName=(e)=>this.setState({newAgentName:e.target.value});
+    out.onNewAgentRole=(e)=>this.setState({newAgentRole:e.target.value});
+    out.newAgentEmojiOpts=['🤖','⌨️','📚','🎨','📊','🔬','✍️','🧭'].map(em=>({ emoji:em, active:s.newAgentEmoji===em, onClick:()=>this.setState({newAgentEmoji:em}), style:`width:38px;height:38px;display:flex;align-items:center;justify-content:center;font-size:19px;border-radius:10px;cursor:pointer;border:1.5px solid ${s.newAgentEmoji===em?'var(--accent)':'#E6DFD0'};background:${s.newAgentEmoji===em?'var(--accent-soft)':'#FBF9F4'}` }));
+    out.closeNewAgent=()=>this.setState({newAgentOpen:false});
+    out.createAgent=()=>this.createAgent();
+
+    // ---- CHAT ----
+    if(s.chatOpen){
+      out.chatMsgs=s.chatMsgs.map(m=>{ const isMe=m.role==='me'; const run=m.runRef?s.runs.find(r=>r.id===m.runRef):null;
+        return { wrapStyle:`display:flex;flex-direction:column;align-items:${isMe?'flex-end':'flex-start'}`, bubbleStyle:`max-width:85%;font-size:12.5px;line-height:1.5;padding:9px 12px;border-radius:12px;${isMe?'background:var(--accent);color:#fff;border-bottom-right-radius:4px':'background:#FBF9F4;border:1px solid #E6DFD0;color:#3B362E;border-bottom-left-radius:4px'}`, text:m.text,
+          run: run?{ statusStyle:`font-size:9px;font-weight:700;padding:1px 7px;border-radius:20px;color:var(--accent-dark);background:var(--accent-soft)`, statusLabel:run.status==='done'?'완료':'실행 중', title:run.title, pct:String(run.pct), step:run.step }:null,
+          onOpenRun: run?()=>this.setState({runOpen:run.id}):()=>{} }; });
+      out.chatInput=s.chatInput; out.onChatInput=(e)=>this.setState({chatInput:e.target.value}); out.onChatKey=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); this.sendChat(); } }; out.sendChat=()=>this.sendChat();
+      out.chatChips=['오늘 할 일 정리해줘','UniPort 백로그 분배','이번 주 회의 잡아줘'].map(l=>({label:l,onClick:()=>this.setState({chatInput:l})}));
+    }
+
+    // ---- DETAIL MODAL ----
+    out.detailOpen=!!s.detailId;
+    if(s.detailId){ const t=s.tasks.find(x=>x.id===s.detailId);
+      if(t){ out.detailTitle=t.title; out.detailDate=t.date||''; out.detailTime=t.time||''; out.detailNotes=t.notes||'';
+        out.detailCheck=t.done?'✓':''; out.detailCheckStyle=`width:22px;height:22px;border-radius:7px;border:1.5px solid ${t.done?'#3E9B72':'#C9BEA9'};background:${t.done?'#3E9B72':'transparent'};color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-top:2px`;
+        out.detailToggle=()=>this.toggle(t.id);
+        out.onDetailTitle=(e)=>this.patch(t.id,{title:e.target.value});
+        out.onDetailDate=(e)=>this.patch(t.id,{date:e.target.value||null});
+        out.onDetailTime=(e)=>this.patch(t.id,{time:e.target.value||null});
+        out.onDetailNotes=(e)=>this.patch(t.id,{notes:e.target.value});
+        const optStyle=(active)=>`font-size:11px;font-weight:600;padding:4px 10px;border-radius:7px;cursor:pointer;border:1px solid ${active?'var(--accent)':'#E0D8C8'};background:${active?'var(--accent-soft)':'#FBF9F4'};color:${active?'var(--accent-dark)':'#6E6456'}`;
+        out.detailListOpts=this.lists.map(l=>({ label:l.name, onClick:()=>this.patch(t.id,{list:l.id}), style:optStyle(t.list===l.id) }));
+        out.detailPriOpts=[[0,'없음'],[1,'낮음'],[2,'중간'],[3,'높음']].map(([v,l])=>({ label:l, onClick:()=>this.patch(t.id,{pri:v}), style:optStyle(t.pri===v) }));
+        out.detailRepeatOpts=[['none','안 함'],['daily','매일'],['weekday','평일'],['weekly','매주'],['monthly','매월']].map(([v,l])=>({ label:l, onClick:()=>this.patch(t.id,{repeat:v}), style:optStyle(t.repeat===v) }));
+        out.detailHasRepeat=t.repeat&&t.repeat!=='none';
+        out.detailRepeatUntil=t.repeatUntil||'';
+        out.onDetailRepeatUntil=(e)=>this.patch(t.id,{repeatUntil:e.target.value||null});
+        out.detailOwnerOpts=[['me','나'],['agent','에이전트'],['hybrid','공동']].map(([v,l])=>({ label:l, onClick:()=>this.patch(t.id,{owner:v}), style:optStyle(t.owner===v) }));
+        out.closeDetail=()=>this.setState({detailId:null});
+        out.deleteTask=()=>this.remove(t.id);
+        out.openDelegateFromDetail=()=>this.startPlan(t.title, 'codex', t.id);
+      }
+    }
+
+    // ---- NEW MODAL (TickTick-style popover) ----
+    out.newOpen=s.newOpen; out.newTitle=s.newTitle; out.newDate=s.newDate; out.newTime=s.newTime; out.newDesc=s.newDesc;
+    out.onNewTitle=(e)=>this.setState({newTitle:e.target.value}); out.onNewDate=(e)=>this.setState({newDate:e.target.value,newDatePanel:true}); out.onNewTime=(e)=>this.setState({newTime:e.target.value,newAllDay:false});
+    out.onNewDesc=(e)=>this.setState({newDesc:e.target.value});
+    out.onNewKey=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); this.submitNewTask(); } };
+    out.toggleDatePanel=()=>{ const open=!s.newDatePanel; let py=s.pickerY,pm=s.pickerM; if(open){ const dt=this.parseISO(s.newDate||this.TODAY); py=dt.getFullYear(); pm=dt.getMonth()+1; } this.setState({newDatePanel:open,newListPanel:false,pickerY:py,pickerM:pm}); };
+    out.toggleListPanel=()=>this.setState({newListPanel:!s.newListPanel,newDatePanel:false});
+    out.newDatePanel=s.newDatePanel; out.newListPanel=s.newListPanel;
+    out.isDateMode=s.newMode!=='duration'; out.isDurationMode=s.newMode==='duration';
+    { const segA=`flex:1;text-align:center;padding:6px;border-radius:6px;font-size:12px;font-weight:600;background:#FBF9F4;color:#2B2620;box-shadow:0 1px 2px rgba(0,0,0,.05);cursor:pointer`;
+      const segI=`flex:1;text-align:center;padding:6px;border-radius:6px;font-size:12px;font-weight:500;color:#A0967f;cursor:pointer`;
+      out.segDateStyle=out.isDateMode?segA:segI; out.segDurStyle=out.isDurationMode?segA:segI; }
+    out.setDateMode=()=>this.setState({newMode:'date'});
+    out.setDurationMode=()=>{ const start=s.newDate||this.TODAY; const st=s.newTime||'18:00'; const [h,m]=st.split(':').map(Number); const eh=(h+1)%24; this.setState({newMode:'duration',newDate:start,newTime:st,newEndDate:s.newEndDate||start,newEndTime:s.newEndTime||(String(eh).padStart(2,'0')+':'+String(m).padStart(2,'0'))}); };
+    out.newEndDate=s.newEndDate; out.newEndTime=s.newEndTime;
+    out.onNewEndDate=(e)=>this.setState({newEndDate:e.target.value});
+    out.onNewEndTime=(e)=>this.setState({newEndTime:e.target.value});
+    // accordion sub-rows: 시간 / 반복 / 담당 (one open at a time)
+    out.newTimePanel=s.newSubPanel==='time'; out.newRepeatPanel=s.newSubPanel==='repeat'; out.newOwnerPanel=s.newSubPanel==='owner';
+    out.toggleTimeRow=()=>this.setState({newSubPanel:s.newSubPanel==='time'?null:'time'});
+    out.toggleRepeatRow=()=>this.setState({newSubPanel:s.newSubPanel==='repeat'?null:'repeat'});
+    out.toggleOwnerRow=()=>this.setState({newSubPanel:s.newSubPanel==='owner'?null:'owner'});
+    out.hasTime=!!s.newTime&&!s.newAllDay;
+    out.newTimeRowVal=s.newAllDay?'종일':(s.newTime?this.fmtTime(s.newTime):'없음');
+    out.newTimeValColor=(s.newAllDay||s.newTime)?'var(--accent-dark)':'#B6AC99';
+    out.newTimeCaret=s.newSubPanel==='time'?'▾':'›';
+    out.newRepeatRowVal=this.repeatKo(s.newRepeat)||'안 함';
+    out.newRepeatValColor=(s.newRepeat&&s.newRepeat!=='none')?'var(--accent-dark)':'#9A9080';
+    out.newRepeatCaret=s.newSubPanel==='repeat'?'▾':'›';
+    out.newOwnerRowVal={me:'나',agent:'에이전트',hybrid:'공동'}[s.newOwner]||'나';
+    out.newOwnerCaret=s.newSubPanel==='owner'?'▾':'›';
+    out.clearTime=()=>this.setState({newTime:''});
+    { const slots=[]; for(let h=6;h<=23;h++){ for(let m of [0,30]){ const v=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'); slots.push({ v, label:this.fmtTime(v), active:s.newTime===v, onClick:()=>this.setState({newTime:v,newSubPanel:null,newAllDay:false}) }); } }
+      out.timeSlots=slots.map(sl=>({ label:sl.label, onClick:sl.onClick, style:`padding:6px 4px;text-align:center;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${sl.active?'var(--accent)':'#E6DFD0'};background:${sl.active?'var(--accent-soft)':'#FBF9F4'};color:${sl.active?'var(--accent-dark)':'#5C5346'}` })); }
+
+    // ---- calendar picker ----
+    out.pickerLabel=`${s.pickerY}년 ${s.pickerM}월`;
+    out.pickerWeekdays=['일','월','화','수','목','금','토'].map((w,i)=>({ label:w, style:`text-align:center;padding:4px 0;font-size:10.5px;font-weight:600;color:${i===0?'#C0826A':i===6?'#8AA0C0':'#A8A091'}` }));
+    out.pickerPrev=()=>{ let m=s.pickerM-1,y=s.pickerY; if(m<1){m=12;y--} this.setState({pickerM:m,pickerY:y}); };
+    out.pickerNext=()=>{ let m=s.pickerM+1,y=s.pickerY; if(m>12){m=1;y++} this.setState({pickerM:m,pickerY:y}); };
+    out.pickerToday=()=>{ const dt=this.parseISO(this.TODAY); this.setState({pickerY:dt.getFullYear(),pickerM:dt.getMonth()+1,newDate:this.TODAY}); };
+    out.pickerQuick=[
+      {label:'오늘',d:0},{label:'내일',d:1},{label:'다음 주',d:7},{label:'주말',weekend:true}
+    ].map(q=>({ label:q.label, style:`flex:1;text-align:center;padding:5px 0;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:7px;font-size:11px;font-weight:600;color:#6E6456;cursor:pointer`, onClick:()=>{ let iso; if(q.weekend){ const cur=this.parseISO(this.TODAY).getDay(); let diff=(6-cur+7)%7; if(diff===0)diff=7; iso=this.addDays(this.TODAY,diff); } else { iso=this.addDays(this.TODAY,q.d); } const dt=this.parseISO(iso); this.setState({newDate:iso,pickerY:dt.getFullYear(),pickerM:dt.getMonth()+1}); } }));
+    { const first=new Date(s.pickerY,s.pickerM-1,1); const startDow=first.getDay(); const gridStart=new Date(s.pickerY,s.pickerM-1,1-startDow); const weeks=[]; let cur=new Date(gridStart);
+      for(let w=0;w<6;w++){ const row=[]; for(let d=0;d<7;d++){ const iso=this.iso(cur); const inM=cur.getMonth()===s.pickerM-1; const isToday=iso===this.TODAY; const sel=iso===s.newDate; const dow=cur.getDay();
+        row.push({ day:String(cur.getDate()), onClick:()=>this.setState({newDate:iso}),
+          style:`display:flex;align-items:center;justify-content:center;aspect-ratio:1;margin:0;font-size:11px;font-weight:${sel?'700':'500'};border-radius:50%;cursor:pointer;color:${sel?'#fff':!inM?'#C8BFAD':isToday?'var(--accent-dark)':dow===0?'#C0826A':dow===6?'#8AA0C0':'#2B2620'};background:${sel?'var(--accent)':isToday?'var(--accent-softer)':'transparent'}` });
+        cur.setDate(cur.getDate()+1); } weeks.push(row); }
+      out.pickerWeeks=weeks; }
+    out.toggleAllDay=()=>this.setState({newAllDay:!s.newAllDay, newTime:!s.newAllDay?'':s.newTime});
+
+    // date chip label
+    let ndl='날짜 추가', ndRed=false;
+    if(s.newDate){ const dt=this.parseISO(s.newDate); ndl=`${dt.getMonth()+1}월 ${dt.getDate()}일`+(s.newTime?' '+this.fmtTime(s.newTime):''); ndRed=true; if(s.newDate<this.TODAY)ndl+=' 지남'; }
+    out.newDateLabel=ndl;
+    out.newDateChipStyle=`display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:700;cursor:pointer;color:${ndRed?'#C0533B':'#9A9080'}`;
+    const newOpt=(active)=>`font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:7px;cursor:pointer;border:1px solid ${active?'var(--accent)':'#E0D8C8'};background:${active?'var(--accent-soft)':'#FBF9F4'};color:${active?'var(--accent-dark)':'#6E6456'}`;
+    out.newAllDayToggle=`width:38px;height:22px;border-radius:20px;background:${s.newAllDay?'var(--accent)':'#D8D0C0'};cursor:pointer;display:flex;align-items:center;padding:2px;transition:background .15s;justify-self:start`;
+    out.newAllDayKnob=`width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transform:translateX(${s.newAllDay?'16px':'0'});transition:transform .15s`;
+    out.newRepeatOpts=[['none','안 함'],['daily','매일'],['weekday','평일'],['weekly','매주'],['monthly','매월']].map(([v,l])=>({ label:l, onClick:()=>this.setState({newRepeat:v}), style:newOpt(s.newRepeat===v) }));
+    out.newListOpts=this.lists.map(l=>({ label:l.icon+' '+l.name, onClick:()=>this.setState({newList:l.id,newListPanel:false}), style:newOpt(s.newList===l.id) }));
+    out.newOwnerOpts=[['me','나'],['agent','에이전트'],['hybrid','공동']].map(([v,l])=>({ label:l, onClick:()=>this.setState({newOwner:v}), style:newOpt(s.newOwner===v) }));
+    out.newListName=(this.listById(s.newList)||{name:'기본함'}).name;
+    out.closeNew=()=>this.setState({newOpen:false,newDatePanel:false,newListPanel:false,newDesc:'',newRepeat:'none',newAllDay:false,newPri:0,newMode:'date'});
+    out.submitNew=()=>this.submitNewTask();
+
+    // ---- DELEGATE MODAL ----
+    out.delegateOpen=s.delegateOpen; out.delegateText=s.delegateText;
+    out.onDelegateText=(e)=>this.setState({delegateText:e.target.value});
+    out.delegateAgentOpts=this.allAgents().map(a=>({ emoji:a.emoji, label:a.name, onClick:()=>this.setState({delegateAgent:a.id}), style:`font-size:12px;font-weight:600;padding:6px 12px;border-radius:9px;cursor:pointer;border:1px solid ${s.delegateAgent===a.id?'var(--accent)':'#E0D8C8'};background:${s.delegateAgent===a.id?'var(--accent-soft)':'#FBF9F4'};color:${s.delegateAgent===a.id?'var(--accent-dark)':'#6E6456'}` }));
+    out.closeDelegate=()=>this.setState({delegateOpen:false});
+    out.submitDelegate=()=>{ const txt=s.delegateText.trim(); if(!txt){ this.setState({delegateOpen:false}); return; } this.startPlan(txt, s.delegateAgent, s.delegateTaskId); };
+
+    // ---- RUN MODAL ----
+    out.runOpen=!!s.runOpen;
+    if(s.runOpen){ const r=s.runs.find(x=>x.id===s.runOpen);
+      if(r){ out.runHeadTitle=r.title; out.runHeadAgent=r.agent; out.runHeadPct=String(r.pct); out.runHeadStatus=r.status==='done'?'완료':'실행 중'; out.runHeadStatusStyle=`font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;${r.status==='done'?'color:#3E9B72;background:#E3EFE4':'color:var(--accent-dark);background:var(--accent-soft)'}`;
+        out.runSteps=r.steps.map((st,i)=>({ title:st.title, detail:st.detail, time:st.time, dotStyle:`width:11px;height:11px;border-radius:50%;background:${i===r.steps.length-1&&r.status!=='done'?'var(--accent)':'#3E9B72'};flex-shrink:0;margin-top:3px`, lineStyle:`width:2px;flex:1;background:#E6DFD0;${i===r.steps.length-1?'opacity:0':''}` }));
+        out.closeRun=()=>this.setState({runOpen:null});
+        const art=(r.artifacts&&r.artifacts[0]);
+        out.runHasArtifact=!!art;
+        out.runArtifactTitle=art?art.title:'';
+        out.openRunArtifact=art?()=>this.setState({nav:'wiki',activeWiki:art.wikiId,wikiReaderOpen:true,runOpen:null}):()=>{};
+      }
+    }
+
+    return out;
+  }
+}
+</script>
+</body>
+</html>

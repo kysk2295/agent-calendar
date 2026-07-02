@@ -1,0 +1,56 @@
+{
+  "initialMetrics": {
+    "title": "Hermes Tasks",
+    "sidebar": {
+      "width": 248,
+      "height": 796,
+      "x": 0,
+      "y": 0
+    },
+    "topbar": {
+      "width": 1072,
+      "height": 52,
+      "x": 248,
+      "y": 0
+    },
+    "chat": null,
+    "bodyBg": "rgb(234, 229, 218)",
+    "rootFont": "Pretendard, \"Pretendard Variable\", -apple-system, system-ui, sans-serif",
+    "accent": "#D7613D",
+    "navLabels": [
+      "🗓️캘린더",
+      "☀️오늘3",
+      "📆다음 7일11",
+      "📥기본함",
+      "✉️메일함8",
+      "▦칸반 보드",
+      "📦TickTick Import246",
+      "＋태그 만들기",
+      "📊주간 회고",
+      "📚위키",
+      "📔일기",
+      "🤖에이전트120"
+    ]
+  },
+  "wikiMetrics": {
+    "graphNodes": 0,
+    "graphEdges": 356,
+    "hasReader": false,
+    "graphPanel": true,
+    "graphBg": "rgb(40, 39, 37)"
+  },
+  "modalMetrics": {
+    "hasPopover": true,
+    "popover": {
+      "width": 288,
+      "height": 163,
+      "x": 516,
+      "y": 64
+    }
+  },
+  "referenceMetrics": {
+    "bodyText": "H Hermes Tasks 할 일 · 캘린더 · 에이전트 ⌕ 검색 ⌘K 🗓️ 캘린더 ☀️ 오늘 5 📆 다음 7일 24 📥 기본함 4 ✉️ 메일함 4 ▦ 칸반 보드 리스트 🎓 Study 🏫 대학교 3 💵 투자 🧗 Side Projects 📈 crypto trading 5 👨‍💼 비즈니스 🚀 UniPort 13 🥺 Me 5 📝 생각노트 ⏳ 언젠가 3 태그 🏷 업무 🏷 주식 🏷 Blue 🏷 Red 🏷 인생 회고 & 기록 📊 주간 회고 📚 위키 📔 일기 HERMES 🤖 에이전트 윤 Yunseo owner ⚙ 캘린더 나 · 에이전트 공유 일정 ⌕ + 새 작업 ◧ 2026년 6월 나 에이전트 공동 월주일 오늘 ‹ › 일 월 화 수 목 금 토 31 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 이어폰 찾기 23 reins enginering 공부 24 나만의 etf 포트폴리오 분석엔진 개선 헤르메스 에",
+    "bodyBg": "rgb(234, 229, 218)",
+    "rootFont": "Pretendard, \"Pretendard Variable\", -apple-system, system-ui, sans-serif"
+  }
+}
