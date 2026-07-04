@@ -1,6 +1,7 @@
 export type ApiEnvelope = Record<string, unknown>;
 
 let apiBaseUrl = '';
+const API_TIMEOUT_MS = 6500;
 
 export function setApiBaseUrl(baseUrl: string) {
   apiBaseUrl = String(baseUrl || '').replace(/\/+$/g, '');
@@ -11,15 +12,25 @@ function url(path: string) {
 }
 
 async function hermesJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url(path), {
-    headers: {
-      'content-type': 'application/json',
-      ...(init?.headers || {}),
-    },
-    ...init,
-  });
-  if (!response.ok) throw new Error(`Hermes API ${response.status} ${path}`);
-  return response.json() as Promise<T>;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(url(path), {
+      headers: {
+        'content-type': 'application/json',
+        ...(init?.headers || {}),
+      },
+      ...init,
+      signal: init?.signal || controller.signal,
+    });
+    if (!response.ok) throw new Error(`Agents Calendar API ${response.status} ${path}`);
+    return response.json() as Promise<T>;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw new Error(`Agents Calendar API timeout ${path}`);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function jsonPost(path: string, body: Record<string, unknown> = {}) {
@@ -55,6 +66,7 @@ export const hermesApi = {
     return hermesJson<ApiEnvelope>(`/api/wiki${params.toString() ? `?${params}` : ''}`);
   },
   askWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/ask', body),
+  searchWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/search', body),
   getAgents: () => hermesJson<ApiEnvelope>('/api/agents'),
   createAgent: (body: Record<string, unknown>) => jsonPost('/api/agents', body),
   getChannels: () => hermesJson<ApiEnvelope>('/api/channels/status'),

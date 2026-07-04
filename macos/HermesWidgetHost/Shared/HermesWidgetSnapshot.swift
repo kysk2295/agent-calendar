@@ -90,7 +90,7 @@ enum HermesWidgetOwner: String, Codable, Hashable {
 }
 
 enum HermesWidgetStore {
-    static let appGroupID = "group.com.hermes.tasks"
+    static let appGroupID = "group.com.agents.calendar"
     static let snapshotKey = "HermesWidgetSnapshot.v1"
     static let snapshotFileName = "HermesWidgetSnapshot.json"
     static let actionsFileName = "HermesWidgetActions.json"
@@ -210,14 +210,14 @@ extension HermesWidgetSnapshot {
         tasks: [
             HermesWidgetTask(id: "idea", title: "창업 아이디어 정리", date: "2026-07-01", time: nil, owner: .hybrid, list: "UniPort", status: "Planned", done: false, durationMinutes: nil, source: "task"),
             HermesWidgetTask(id: "meeting", title: "마케팅 회의", date: "2026-07-01", time: "13:00", owner: .me, list: "UniPort", status: "Planned", done: false, durationMinutes: 30, source: "task"),
-            HermesWidgetTask(id: "research", title: "경쟁사 리서치", date: "2026-07-01", time: nil, owner: .agent, list: "Hermes", status: "Running", done: false, durationMinutes: nil, source: "task"),
+            HermesWidgetTask(id: "research", title: "경쟁사 리서치", date: "2026-07-01", time: nil, owner: .agent, list: "Agents Calendar", status: "Running", done: false, durationMinutes: nil, source: "task"),
             HermesWidgetTask(id: "adsp", title: "ADsP 접수", date: "2026-07-01", time: nil, owner: .me, list: "Me", status: "Done", done: true, durationMinutes: nil, source: "task"),
             HermesWidgetTask(id: "mate-2", title: "MATE", date: "2026-07-02", time: nil, owner: .me, list: "Me", status: "Planned", done: false, durationMinutes: nil, source: "task"),
             HermesWidgetTask(id: "mate-3", title: "MATE", date: "2026-07-03", time: nil, owner: .me, list: "Me", status: "Planned", done: false, durationMinutes: nil, source: "task"),
-            HermesWidgetTask(id: "independ-3", title: "Independ", date: "2026-07-03", time: nil, owner: .agent, list: "Hermes", status: "Running", done: false, durationMinutes: nil, source: "task"),
+            HermesWidgetTask(id: "independ-3", title: "Independ", date: "2026-07-03", time: nil, owner: .agent, list: "Agents Calendar", status: "Running", done: false, durationMinutes: nil, source: "task"),
             HermesWidgetTask(id: "weekend-4", title: "주말", date: "2026-07-04", time: nil, owner: .weekend, list: "Weekend", status: "Planned", done: false, durationMinutes: nil, source: "task"),
             HermesWidgetTask(id: "mate-4", title: "MATE", date: "2026-07-04", time: nil, owner: .me, list: "Me", status: "Planned", done: false, durationMinutes: nil, source: "task"),
-            HermesWidgetTask(id: "independ-4", title: "Independ", date: "2026-07-04", time: nil, owner: .agent, list: "Hermes", status: "Running", done: false, durationMinutes: nil, source: "task"),
+            HermesWidgetTask(id: "independ-4", title: "Independ", date: "2026-07-04", time: nil, owner: .agent, list: "Agents Calendar", status: "Running", done: false, durationMinutes: nil, source: "task"),
             HermesWidgetTask(id: "mate-5", title: "MATE", date: "2026-07-05", time: nil, owner: .me, list: "Me", status: "Planned", done: false, durationMinutes: nil, source: "task"),
             HermesWidgetTask(id: "adsp-6", title: "adsp 접수", date: "2026-07-06", time: nil, owner: .me, list: "Me", status: "Planned", done: false, durationMinutes: nil, source: "task"),
             HermesWidgetTask(id: "phone-6", title: "알뜰폰 요금", date: "2026-07-06", time: nil, owner: .hybrid, list: "Me", status: "Planned", done: false, durationMinutes: nil, source: "task"),

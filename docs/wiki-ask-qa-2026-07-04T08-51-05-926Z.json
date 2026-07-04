@@ -1,0 +1,184 @@
+{
+  "summary": {
+    "ok": true,
+    "endpoint": "http://127.0.0.1:51506/api/wiki/ask",
+    "total": 3,
+    "pass": 3,
+    "fail": 0,
+    "warning": 0,
+    "avgElapsedMs": 55937,
+    "p95ElapsedMs": 67393,
+    "minAnswerLength": 215,
+    "maxAnswerLength": 333,
+    "truncationSuspects": 0,
+    "gatewayFallbackFailures": 0,
+    "elapsedMs": 167813
+  },
+  "results": [
+    {
+      "index": 1,
+      "topic": "uniport",
+      "question": "UniPort에서 지금 제일 중요한 병목은?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 43473,
+      "answerLength": 215,
+      "answer": "UniPort에서 지금 가장 중요한 병목은 그룹 모의투자 UX의 재미·커뮤니티·경쟁감이다. [2] App Store 출시는 이미 끝났고 Play Store 심사 대기 중이지만, 출시 직후 실사용자 피드백에서 이 부분이 가장 먼저 개선이 필요하다고 나왔다. 종원·희경이 2일간 실제 사용 피드백을 수집 중이며, 수요일 15시 회의에서 기획 수정과 즉시 개발 반영 여부를 결정하기로 했다.",
+      "answerPreview": "UniPort에서 지금 가장 중요한 병목은 그룹 모의투자 UX의 재미·커뮤니티·경쟁감이다. [2] App Store 출시는 이미 끝났고 Play Store 심사 대기 중이지만, 출시 직후 실사용자 피드백에서 이 부분이 가장 먼저 개선이 필요하다고 나왔다. 종원·희경이 2일간 실제 사용 피드백을 수집 중이며, 수요일 15시 회의에서 기획 수정과 즉시 개발 반영 여부를 결정하기로 했다.",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 4.181206731793003
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "출시 상태 / 직후 운영 (2026-05-31)",
+          "score": 4.178830809091943
+        },
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 4.124200009242817
+        },
+        {
+          "path": "2_wiki/UniPort-마케팅.md",
+          "title": "UniPort 마케팅",
+          "heading": "출시 직후 마케팅 실행 계획 (2026-05-31)",
+          "score": 3.9065984688311994
+        },
+        {
+          "path": "2_wiki/_maps/projects.md",
+          "title": "Projects Map",
+          "heading": "UniPort subpages",
+          "score": 3.9065984688311994
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 2,
+      "topic": "uniport",
+      "question": "UniPort 로드맵에서 당장 실행해야 할 3가지는 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 67393,
+      "answerLength": 333,
+      "answer": "UniPort 로드맵에서 당장 실행해야 할 세 가지는 Play Store 심사 통과 즉시 이메일 홍보와 Meta 광고 소재 제작, 국내/해외 타겟 메시지 테스트를 시작하는 것, 종원·희경 실사용 피드백을 수집하고 수요일 15시 피드백/기획 수정 회의를 진행하는 것, 그룹 모의투자 재미 요소를 재설계하면서 초보자 보상 곡선을 조정하고 피드백 리포트에 초보자 설명을 보강하는 일이다. [3][5][2] 이 활동들은 6~7월 온보딩 완료 단계와 UI/UX 고도화 트랙을 전진시키는 데 직접 연결된다. [4] 전체적으로 이번 주 목표를 결과 중심으로 밀어붙이는 운영 원칙에 따라 진행해야 한다. [1]",
+      "answerPreview": "UniPort 로드맵에서 당장 실행해야 할 세 가지는 Play Store 심사 통과 즉시 이메일 홍보와 Meta 광고 소재 제작, 국내/해외 타겟 메시지 테스트를 시작하는 것, 종원·희경 실사용 피드백을 수집하고 수요일 15시 피드백/기획 수정 회의를 진행하는 것, 그룹 모의투자 재미 요소를 재설계하면서 초보자 보상 곡선을 조정하고 피드백 리포트에 초보자 설명을 보강하는 일이다. [3][5][2] 이 활동들은 6~7월 온보딩 완료 단계와 UI/UX 고도화 트랙을",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-로드맵.md",
+          "title": "UniPort 로드맵",
+          "heading": "UniPort 로드맵 · 우선순위",
+          "score": 7.284170815260606
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "UX/기획",
+          "score": 5.749212583996243
+        },
+        {
+          "path": "2_wiki/UniPort-로드맵.md",
+          "title": "UniPort 로드맵",
+          "heading": "출시 상태",
+          "score": 5.732260631028585
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "로드맵 (협약 '26.06~'27.01)",
+          "score": 5.396746714525689
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "마케팅",
+          "score": 5.347202398495697
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 3,
+      "topic": "uniport",
+      "question": "UniPort 시스템 구조를 비개발자에게 설명해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 56946,
+      "answerLength": 303,
+      "answer": "UniPort 시스템은 팀이 텔레그램과 디스코드로 소통하면서 작업을 안전하게 관리하는 구조예요. 오너는 텔레그램으로 1:1 대화하고, 디스코드 웹훅으로 개발 내역을 자동 공유하며 @pm 봇을 통해 팀을 호출할 수 있게 설계됐어요. [1]\n\n모든 작업이 끝나면 반드시 위키에 기록하고, 배포나 발송 같은 중요한 일은 오너 승인을 거쳐야만 진행돼요. 자격증명 같은 민감한 정보는 외부에 노출되지 않게 철저히 보호합니다. [2]\n\n교육 콘텐츠 업데이트는 cards.json 파일을 통해 앱과 프리뷰가 일치하도록 관리되는 부분이 별도로 붙어 있어요.",
+      "answerPreview": "UniPort 시스템은 팀이 텔레그램과 디스코드로 소통하면서 작업을 안전하게 관리하는 구조예요. 오너는 텔레그램으로 1:1 대화하고, 디스코드 웹훅으로 개발 내역을 자동 공유하며 @pm 봇을 통해 팀을 호출할 수 있게 설계됐어요. [1]\n\n모든 작업이 끝나면 반드시 위키에 기록하고, 배포나 발송 같은 중요한 일은 오너 승인을 거쳐야만 진행돼요. 자격증명 같은 민감한 정보는 외부에 노출되지 않게 철저히 보호합니다. [2]\n\n교육 콘텐츠 업데이트는 cards.jso",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "채널",
+          "score": 6.700071810653134
+        },
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "원칙",
+          "score": 6.489933427349123
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "UniPort 교육 렌더 구조 — 앱이 쓰는 파일 + 프리뷰 미러링",
+          "score": 5.018873509210268
+        },
+        {
+          "path": "2_wiki/UniPort-교육콘텐츠.md",
+          "title": "UniPort 교육콘텐츠",
+          "heading": "텍스트/구조 반영",
+          "score": 4.917400362280478
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "재생성 (그 day만 / 전체)",
+          "score": 4.721437629799644
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    }
+  ]
+}

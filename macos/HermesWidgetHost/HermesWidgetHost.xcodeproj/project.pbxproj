@@ -10,9 +10,11 @@
 		A00000000000000000000101 /* HermesWidgetHostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000201 /* HermesWidgetHostApp.swift */; };
 		A00000000000000000000102 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000202 /* ContentView.swift */; };
 		A00000000000000000000103 /* HermesWidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000203 /* HermesWidgetSnapshot.swift */; };
-		A00000000000000000000104 /* HermesWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000204 /* HermesWidgets.swift */; };
-		A00000000000000000000105 /* HermesWidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000203 /* HermesWidgetSnapshot.swift */; };
-		A00000000000000000000106 /* HermesWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A00000000000000000000212 /* HermesWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+			A00000000000000000000104 /* HermesWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000204 /* HermesWidgets.swift */; };
+			A00000000000000000000105 /* HermesWidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000203 /* HermesWidgetSnapshot.swift */; };
+			A00000000000000000000106 /* HermesWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A00000000000000000000212 /* HermesWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+			A00000000000000000000107 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000209 /* Assets.xcassets */; };
+			A00000000000000000000108 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000209 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,9 +48,10 @@
 		A00000000000000000000204 /* HermesWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesWidgets.swift; sourceTree = "<group>"; };
 		A00000000000000000000205 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A00000000000000000000206 /* HermesWidgetHost.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HermesWidgetHost.entitlements; sourceTree = "<group>"; };
-		A00000000000000000000207 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A00000000000000000000208 /* HermesWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HermesWidgets.entitlements; sourceTree = "<group>"; };
-		A00000000000000000000211 /* Hermes Widgets.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Hermes Widgets.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+			A00000000000000000000207 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+			A00000000000000000000208 /* HermesWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HermesWidgets.entitlements; sourceTree = "<group>"; };
+			A00000000000000000000209 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+			A00000000000000000000211 /* Agents Calendar Widgets.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Agents Calendar Widgets.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000212 /* HermesWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = HermesWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -84,9 +87,10 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000201 /* HermesWidgetHostApp.swift */,
-				A00000000000000000000202 /* ContentView.swift */,
-				A00000000000000000000205 /* Info.plist */,
-				A00000000000000000000206 /* HermesWidgetHost.entitlements */,
+					A00000000000000000000202 /* ContentView.swift */,
+					A00000000000000000000209 /* Assets.xcassets */,
+					A00000000000000000000205 /* Info.plist */,
+					A00000000000000000000206 /* HermesWidgetHost.entitlements */,
 			);
 			path = HermesWidgetHost;
 			sourceTree = "<group>";
@@ -112,7 +116,7 @@
 		A00000000000000000000705 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000211 /* Hermes Widgets.app */,
+				A00000000000000000000211 /* Agents Calendar Widgets.app */,
 				A00000000000000000000212 /* HermesWidgets.appex */,
 			);
 			name = Products;
@@ -137,7 +141,7 @@
 			);
 			name = HermesWidgetHost;
 			productName = HermesWidgetHost;
-			productReference = A00000000000000000000211 /* Hermes Widgets.app */;
+			productReference = A00000000000000000000211 /* Agents Calendar Widgets.app */;
 			productType = "com.apple.product-type.application";
 		};
 		A00000000000000000000302 /* HermesWidgets */ = {
@@ -196,17 +200,19 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A00000000000000000000902 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
+			A00000000000000000000902 /* Resources */ = {
+				isa = PBXResourcesBuildPhase;
+				buildActionMask = 2147483647;
+				files = (
+					A00000000000000000000107 /* Assets.xcassets in Resources */,
+				);
+				runOnlyForDeploymentPostprocessing = 0;
 		};
 		A00000000000000000000904 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00000000000000000000108 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -346,7 +352,7 @@
 		A00000000000000000001011 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = HermesWidgetHost/HermesWidgetHost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -358,8 +364,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.hermes.tasks.widgets.host;
-				PRODUCT_NAME = "Hermes Widgets";
+				PRODUCT_BUNDLE_IDENTIFIER = com.agents.calendar.widgets.host;
+				PRODUCT_NAME = "Agents Calendar Widgets";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
 			name = Debug;
@@ -367,7 +373,7 @@
 		A00000000000000000001012 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = HermesWidgetHost/HermesWidgetHost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -379,8 +385,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.hermes.tasks.widgets.host;
-				PRODUCT_NAME = "Hermes Widgets";
+				PRODUCT_BUNDLE_IDENTIFIER = com.agents.calendar.widgets.host;
+				PRODUCT_NAME = "Agents Calendar Widgets";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
 			name = Release;
@@ -398,7 +404,7 @@
 					"@executable_path/../../../../Frameworks",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.hermes.tasks.widgets.host.HermesWidgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agents.calendar.widgets.host.HermesWidgets;
 				PRODUCT_NAME = HermesWidgets;
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -419,7 +425,7 @@
 					"@executable_path/../../../../Frameworks",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.hermes.tasks.widgets.host.HermesWidgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agents.calendar.widgets.host.HermesWidgets;
 				PRODUCT_NAME = HermesWidgets;
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;

@@ -94,7 +94,9 @@ test('calendar CRUD persists duration, all-day, and recurrence through Railway e
   assert.match(appSource, /function TaskDetailModal\(/);
   assert.match(appSource, /const patchEnd = \(patch: Item\)/);
   assert.match(appSource, /patchEnd\(\{\s*allDay:/);
-  assert.match(appSource, /patchEnd\(\{\s*endDate:/);
+  assert.match(appSource, /const \[durationDraft, setDurationDraft\]/);
+  assert.match(appSource, /const commitDurationDraft =/);
+  assert.match(appSource, /endDate: next\.endDate/);
 });
 
 test('task surfaces exclude calendar-only event records', () => {
@@ -160,7 +162,14 @@ test('task completion waits for backend mutation and hydrate instead of local co
   assert.doesNotMatch(appSource, /completingTaskIds/);
   assert.doesNotMatch(appSource, /setTimeout\(\(\) => patchTask\(task,\s*\{\s*status:\s*'Done'/);
   assert.doesNotMatch(appSource, /data-completing/);
-  assert.match(appSource, /patchTask\(task,\s*\{\s*status:\s*done \? 'Done' : 'Planned',\s*done\s*\}\)/);
+  assert.match(appSource, /patchTask\(task,\s*\{\s*status:\s*done \? 'Done' : 'Planned',\s*done\s*\}/);
+});
+
+test('calendar detail checkbox completes calendar event records through calendar API', () => {
+  assert.match(appSource, /const toggleDetailCompletion = \(\) => \{/);
+  assert.match(appSource, /patchCalendarEvent\(selectedTask,\s*\{\s*status:\s*done \? 'Done' : 'Planned',\s*done\s*\}\)/);
+  assert.match(appSource, /<button className="detail-check" data-done=\{isDone\(selectedTask\)\} onClick=\{toggleDetailCompletion\}/);
+  assert.doesNotMatch(appSource, /\{!isEvent && <button className="detail-check"/);
 });
 
 test('gmail mail connection is wired to Railway mail endpoints', () => {
@@ -210,11 +219,18 @@ test('widgets screen implements the handoff widget plan with live app data', () 
 });
 
 test('delegate modal uses backend agents only and does not invent fallback agents', () => {
-  assert.match(appSource, /const visibleAgents = agents\.slice\(0,\s*4\)/);
+  assert.match(appSource, /const visibleAgents = agents\.filter\(isAgentSelectable\)\.slice\(0,\s*4\)/);
   assert.doesNotMatch(appSource, /agents\.length \? agents\.slice\(0,\s*4\) : \[/);
   assert.doesNotMatch(appSource, /id:\s*'researcher'/);
   assert.doesNotMatch(appSource, /name:\s*'리서처'/);
   assert.doesNotMatch(appSource, /name:\s*'플래너'/);
+});
+
+test('agent cards use Hermes dashboard profile readiness instead of idle fallback labels', () => {
+  assert.match(appSource, /profileReadiness:\s*obj\(dashboard,\s*'profileReadiness'\)/);
+  assert.match(appSource, /mergeAgentsWithProfileReadiness\(state\.agents,\s*state\.profileReadiness\)/);
+  assert.match(appSource, /function agentStatusLabel\(/);
+  assert.doesNotMatch(appSource, /statusLabel = \(agent: Item\).*'대기'/);
 });
 
 test('agent mission launch does not create a client-side plan draft', () => {
@@ -239,7 +255,8 @@ test('agent run approval is persisted through Railway run action API', () => {
   assert.match(appSource, /async function approveRun\(/);
   assert.match(appSource, /hermesApi\.approveRun\(id\)/);
   assert.match(appSource, /status\)\)\s*&&\s*!\/approved\|승인/i);
-  assert.doesNotMatch(appSource, /approvedRunIds/);
+  assert.match(appSource, /approvedRunIdsRef/);
+  assert.match(appSource, /\/404\/\.test\(message\)/);
   assert.doesNotMatch(appSource, /setApprovedRunIds/);
   assert.doesNotMatch(appSource, /Record<string,\s*true>/);
 });

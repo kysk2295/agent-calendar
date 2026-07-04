@@ -1,0 +1,573 @@
+{
+  "summary": {
+    "ok": false,
+    "endpoint": "http://127.0.0.1:51862/api/wiki/ask",
+    "total": 10,
+    "pass": 9,
+    "fail": 1,
+    "warning": 1,
+    "avgElapsedMs": 68790,
+    "p95ElapsedMs": 90882,
+    "minAnswerLength": 91,
+    "maxAnswerLength": 409,
+    "truncationSuspects": 1,
+    "gatewayFallbackFailures": 1,
+    "elapsedMs": 687898
+  },
+  "results": [
+    {
+      "index": 1,
+      "topic": "uniport",
+      "question": "UniPort에서 지금 제일 중요한 병목은?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 59383,
+      "answerLength": 323,
+      "answer": "UniPort에서 지금 제일 중요한 병목은 출시 직후 그룹모의투자 UX의 재미·커뮤니티·경쟁감 부족이다. [2]에서 명시적으로 “출시 직후 최우선 병목”으로 지목하고 있으며, 종원·희경이 2일간 실사용 피드백을 수집해 수요일 15:00 회의에서 기획 수정과 즉시 개발 반영 여부를 결정하기로 되어 있다. Play Store 심사 대기 중인 상황에서 App Store 출시는 이미 완료됐지만, 이 UX 문제가 사용자 유지와 입소문에 직접 영향을 미칠 가능성이 커 보인다. 다른 백로그나 마케팅 계획 문서에는 구체적인 병목 분석이 드러나지 않아 [2]가 현재 가장 직접적인 근거다.",
+      "answerPreview": "UniPort에서 지금 제일 중요한 병목은 출시 직후 그룹모의투자 UX의 재미·커뮤니티·경쟁감 부족이다. [2]에서 명시적으로 “출시 직후 최우선 병목”으로 지목하고 있으며, 종원·희경이 2일간 실사용 피드백을 수집해 수요일 15:00 회의에서 기획 수정과 즉시 개발 반영 여부를 결정하기로 되어 있다. Play Store 심사 대기 중인 상황에서 App Store 출시는 이미 완료됐지만, 이 UX 문제가 사용자 유지와 입소문에 직접 영향을 미칠 가능성이 커 보인",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 4.181206731793003
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "출시 상태 / 직후 운영 (2026-05-31)",
+          "score": 4.178830809091943
+        },
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 4.124200009242817
+        },
+        {
+          "path": "2_wiki/UniPort-마케팅.md",
+          "title": "UniPort 마케팅",
+          "heading": "출시 직후 마케팅 실행 계획 (2026-05-31)",
+          "score": 3.9065984688311994
+        },
+        {
+          "path": "2_wiki/_maps/projects.md",
+          "title": "Projects Map",
+          "heading": "UniPort subpages",
+          "score": 3.9065984688311994
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 2,
+      "topic": "uniport",
+      "question": "UniPort 로드맵에서 당장 실행해야 할 3가지는 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 90882,
+      "answerLength": 91,
+      "answer": "Hermes가 시간 내 자연어 답변을 생성하지 못했어요. 검색 근거는 확보됐지만, 답변 생성은 실패했습니다: railway relay bridge timed out",
+      "answerPreview": "Hermes가 시간 내 자연어 답변을 생성하지 못했어요. 검색 근거는 확보됐지만, 답변 생성은 실패했습니다: railway relay bridge timed out",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-로드맵.md",
+          "title": "UniPort 로드맵",
+          "heading": "UniPort 로드맵 · 우선순위",
+          "score": 7.284170815260606
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "UX/기획",
+          "score": 5.749212583996243
+        },
+        {
+          "path": "2_wiki/UniPort-로드맵.md",
+          "title": "UniPort 로드맵",
+          "heading": "출시 상태",
+          "score": 5.732260631028585
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "로드맵 (협약 '26.06~'27.01)",
+          "score": 5.396746714525689
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "마케팅",
+          "score": 5.347202398495697
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator"
+      },
+      "gatewayFallback": true,
+      "pass": false,
+      "failures": [
+        "gatewayFallback=true",
+        "suspected truncation"
+      ],
+      "warnings": [
+        "unexpected engine source=missing"
+      ]
+    },
+    {
+      "index": 3,
+      "topic": "uniport",
+      "question": "UniPort 시스템 구조를 비개발자에게 설명해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 71825,
+      "answerLength": 209,
+      "answer": "UniPort는 팀이 서로 소통하고 작업을 안전하게 관리하는 구조로 되어 있어요. 오너는 텔레그램으로 1:1 소통하고, 팀은 디스코드 @pm 봇을 통해 호출하며, 개발 내역은 자동으로 디스코드에 공유됩니다 [1]. 모든 작업 후에는 위키에 기록하고, 배포나 발송 같은 중요한 일은 오너 승인을 받아야 하며, 자격증명 같은 민감한 정보는 외부에 노출되지 않게 보호돼요 [2].",
+      "answerPreview": "UniPort는 팀이 서로 소통하고 작업을 안전하게 관리하는 구조로 되어 있어요. 오너는 텔레그램으로 1:1 소통하고, 팀은 디스코드 @pm 봇을 통해 호출하며, 개발 내역은 자동으로 디스코드에 공유됩니다 [1]. 모든 작업 후에는 위키에 기록하고, 배포나 발송 같은 중요한 일은 오너 승인을 받아야 하며, 자격증명 같은 민감한 정보는 외부에 노출되지 않게 보호돼요 [2].",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "채널",
+          "score": 6.700071810653134
+        },
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "원칙",
+          "score": 6.489933427349123
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "UniPort 교육 렌더 구조 — 앱이 쓰는 파일 + 프리뷰 미러링",
+          "score": 5.018873509210268
+        },
+        {
+          "path": "2_wiki/UniPort-교육콘텐츠.md",
+          "title": "UniPort 교육콘텐츠",
+          "heading": "텍스트/구조 반영",
+          "score": 4.917400362280478
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "재생성 (그 day만 / 전체)",
+          "score": 4.721437629799644
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 4,
+      "topic": "uniport",
+      "question": "UniPort 팀 협업 구조의 리스크는 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 62520,
+      "answerLength": 236,
+      "answer": "UniPort 팀 협업 구조의 리스크는 위키 근거가 부족하다. [3]에서 대표가 기획·개발 총괄을 맡고 AI·투자 담당과 풀스택 개발자, 마케팅 노트 담당으로 역할이 나뉘어 있지만, 이 구조가 협업 과정에서 어떤 위험을 초래하는지는 전혀 언급되지 않는다. [1]과 [2]의 팀 백로그 문서도 완료 상태만 기록되어 있을 뿐, 협업 리스크나 병목에 대한 분석은 없다. 교육 콘텐츠 관련 문서 [4][5]는 팀 구조와 무관하다.",
+      "answerPreview": "UniPort 팀 협업 구조의 리스크는 위키 근거가 부족하다. [3]에서 대표가 기획·개발 총괄을 맡고 AI·투자 담당과 풀스택 개발자, 마케팅 노트 담당으로 역할이 나뉘어 있지만, 이 구조가 협업 과정에서 어떤 위험을 초래하는지는 전혀 언급되지 않는다. [1]과 [2]의 팀 백로그 문서도 완료 상태만 기록되어 있을 뿐, 협업 리스크나 병목에 대한 분석은 없다. 교육 콘텐츠 관련 문서 [4][5]는 팀 구조와 무관하다.",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 6.771094117237921
+        },
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 6.626268931421874
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "팀",
+          "score": 5.127255424450459
+        },
+        {
+          "path": "2_wiki/UniPort-교육콘텐츠.md",
+          "title": "UniPort 교육콘텐츠",
+          "heading": "데이터 구조 (중요)",
+          "score": 5.07197436223358
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "UniPort 교육 렌더 구조 — 앱이 쓰는 파일 + 프리뷰 미러링",
+          "score": 5.018873509210268
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 5,
+      "topic": "uniport",
+      "question": "UniPort 교육 렌더 구조에서 앱과 프리뷰는 어떻게 연결돼?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 55705,
+      "answerLength": 388,
+      "answer": "UniPort 교육 렌더 구조에서 앱과 프리뷰는 Roborazzi 스크린샷 테스트를 통해 같은 파이프라인으로 연결된다. 앱이 EducationCardDTO.toDomain → toVisual로 cards.json을 렌더링하는 로직을 Roborazzi가 JVM에서 그대로 실행해 실제 앱 화면과 동일한 PNG를 만들고, 그 결과물이 edu-show 프리뷰의 정본이 된다. [5] 특정 Day나 전체를 재생성할 때는 ./gradlew :androidApp:testDebugUnitTest --tests \"*EducationCardScreenshotTest\" 명령으로 androidApp/build/app-previews/*.png를 <교육폴더>/previews/app/에 복사해 미러링한다. [1]",
+      "answerPreview": "UniPort 교육 렌더 구조에서 앱과 프리뷰는 Roborazzi 스크린샷 테스트를 통해 같은 파이프라인으로 연결된다. 앱이 EducationCardDTO.toDomain → toVisual로 cards.json을 렌더링하는 로직을 Roborazzi가 JVM에서 그대로 실행해 실제 앱 화면과 동일한 PNG를 만들고, 그 결과물이 edu-show 프리뷰의 정본이 된다. [5] 특정 Day나 전체를 재생성할 때는 ./gradlew :androidApp:testDeb",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "재생성 (그 day만 / 전체)",
+          "score": 12.888617818366287
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "UniPort 교육 렌더 구조 — 앱이 쓰는 파일 + 프리뷰 미러링",
+          "score": 11.294479524739511
+        },
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "경로 A — 교육 콘텐츠 (확정·작동) → 상세: [[UniPort-교육콘텐츠]]",
+          "score": 5.908657929484855
+        },
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "상태",
+          "score": 5.730479421123578
+        },
+        {
+          "path": "2_wiki/UniPort-교육콘텐츠.md",
+          "title": "UniPort 교육콘텐츠",
+          "heading": "② 프리뷰 — edu-show (정본 = 실제 앱 화면)",
+          "score": 5.525377925573413
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 6,
+      "topic": "uniport",
+      "question": "UniPort Discord Bot 명령 포맷의 핵심을 정리해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 51139,
+      "answerLength": 273,
+      "answer": "UniPort Discord Bot 명령 포맷의 핵심은 @pm 멘션 뒤에 자연스러운 한국어로 요청하는 방식이다. [1]에서 개발·디자인·마케팅 태스크 조회, 가장 급한 일, 이번 주 목표 확인 같은 태스크 질의가 예시로 나오고, [2]에서는 문맥을 보고 첫 문단 삭제, 문구 교체, 다음·이전 카드 보기, 이미지 변경 같은 편집 명령도 허용된다. Discord는 팀 공용 PM 코파일럿 채널로 자연어 기반 할 일 공유와 현황 질의가 가능하지만 실행성 명령은 오너 승인을 거치도록 설계됐다.",
+      "answerPreview": "UniPort Discord Bot 명령 포맷의 핵심은 @pm 멘션 뒤에 자연스러운 한국어로 요청하는 방식이다. [1]에서 개발·디자인·마케팅 태스크 조회, 가장 급한 일, 이번 주 목표 확인 같은 태스크 질의가 예시로 나오고, [2]에서는 문맥을 보고 첫 문단 삭제, 문구 교체, 다음·이전 카드 보기, 이미지 변경 같은 편집 명령도 허용된다. Discord는 팀 공용 PM 코파일럿 채널로 자연어 기반 할 일 공유와 현황 질의가 가능하지만 실행성 명령은 오너 승",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "3.1 태스크 조회",
+          "score": 15.807236224842267
+        },
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "문맥 기반 허용 명령",
+          "score": 15.807236224842267
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "7.4 Discord 연동 설계 및 웹훅 테스트",
+          "score": 6.544866519590737
+        },
+        {
+          "path": "2_wiki/_maps/projects.md",
+          "title": "Projects Map",
+          "heading": "UniPort subpages",
+          "score": 5.416553641858698
+        },
+        {
+          "path": "2_wiki/index.md",
+          "title": "LLM Wiki 목차",
+          "heading": "7. UniPort cluster",
+          "score": 5.346264911848214
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 7,
+      "topic": "uniport",
+      "question": "UniPort 사용자 확보에서 가장 먼저 검증할 가설은 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 88317,
+      "answerLength": 323,
+      "answer": "UniPort 사용자 확보에서 가장 먼저 검증할 가설은 광고 메시지 가설이다. [3]과 [5]에서 나온 “혼자 공부 말고, 친구들이랑 경쟁하면서 배우는 첫 투자”나 “퀴즈부터 모의투자까지, 하루 10분 첫 투자 루틴” 같은 메시지가 실제로 타깃의 클릭과 관심을 끌 수 있는지가 출발점이기 때문이다. [1]에서 명확히 PMF 검증 전 단계라 대규모 지출 대신 가설 검증 루프를 목표로 삼고 있으므로, 메시지 테스트가 첫 사용자 유입을 결정짓는 가장 저비용·고학습 실험이다. 메시지가 통하면 그 다음에 [4]의 게임화 목업이나 [2]의 5단계 UX 흐름을 순차적으로 검증하면 된다.",
+      "answerPreview": "UniPort 사용자 확보에서 가장 먼저 검증할 가설은 광고 메시지 가설이다. [3]과 [5]에서 나온 “혼자 공부 말고, 친구들이랑 경쟁하면서 배우는 첫 투자”나 “퀴즈부터 모의투자까지, 하루 10분 첫 투자 루틴” 같은 메시지가 실제로 타깃의 클릭과 관심을 끌 수 있는지가 출발점이기 때문이다. [1]에서 명확히 PMF 검증 전 단계라 대규모 지출 대신 가설 검증 루프를 목표로 삼고 있으므로, 메시지 테스트가 첫 사용자 유입을 결정짓는 가장 저비용·고학습 실험",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "3_output/uniport-marketing-plan-2026-05-30.md",
+          "title": "UniPort 마케팅 플랜 (초안)",
+          "heading": "UniPort 마케팅 플랜 (초안 v1)",
+          "score": 5.277435948501591
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "유저 관점 가설 (검증 대상)",
+          "score": 5.067680134208482
+        },
+        {
+          "path": "2_wiki/UniPort-마케팅.md",
+          "title": "UniPort 마케팅",
+          "heading": "광고 메시지 가설",
+          "score": 4.848218429107513
+        },
+        {
+          "path": "2_wiki/투자 게임화.md",
+          "title": "투자 게임화",
+          "heading": "UniPort 적용 가설",
+          "score": 4.711688664777068
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "6.3 광고 메시지 가설 정리",
+          "score": 4.694065366673982
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 8,
+      "topic": "uniport",
+      "question": "UniPort 백로그를 보면 PM 관점에서 막힌 부분은 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 67873,
+      "answerLength": 241,
+      "answer": "UniPort 팀 백로그에서 PM 관점의 blocked 태스크는 SOURCES에 구체적인 목록이나 현재 상태가 드러나지 않습니다. [3]에서 역할별 태스크 풀(개발·디자인·마케팅 등)과 blocked 상태를 정의한 구조는 확인되지만, 실제로 어떤 태스크가 blocked인지, 왜 막혔는지에 대한 내용은 전혀 포함되어 있지 않습니다. [1]과 [2] 역시 백로그 파일 경로만 있고 실질적인 태스크 데이터가 없어 위키 근거 부족입니다.",
+      "answerPreview": "UniPort 팀 백로그에서 PM 관점의 blocked 태스크는 SOURCES에 구체적인 목록이나 현재 상태가 드러나지 않습니다. [3]에서 역할별 태스크 풀(개발·디자인·마케팅 등)과 blocked 상태를 정의한 구조는 확인되지만, 실제로 어떤 태스크가 blocked인지, 왜 막혔는지에 대한 내용은 전혀 포함되어 있지 않습니다. [1]과 [2] 역시 백로그 파일 경로만 있고 실질적인 태스크 데이터가 없어 위키 근거 부족입니다.",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 6.997836526758947
+        },
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 6.845322910135738
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "7.3 역할별 태스크 풀/팀 백로그 설계",
+          "score": 5.9186558475224995
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "유저 관점 가설 (검증 대상)",
+          "score": 5.330916127713229
+        },
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "3.1 태스크 조회",
+          "score": 5.2393955315323595
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 9,
+      "topic": "uniport",
+      "question": "UniPort의 핵심 차별 루프를 설명해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 60350,
+      "answerLength": 218,
+      "answer": "UniPort의 핵심 차별 루프는 **진단 결과(내 프로필·전략)**가 또래 비교 욕구를 자극해 공유를 유발하고, 그 공유가 친구들을 그룹 모의투자 토너먼트로 끌어들이는 구조야. 친구를 초대해야 토너먼트가 재미있어지기 때문에 바이럴이 자연스럽게 발생하고, 이 과정에서 제품 자체가 마케팅을 만든다. 마케팅비보다 제품 내 공유 훅이 더 강력하게 설계된 점이 UniPort의 차별점이다 [2].",
+      "answerPreview": "UniPort의 핵심 차별 루프는 **진단 결과(내 프로필·전략)**가 또래 비교 욕구를 자극해 공유를 유발하고, 그 공유가 친구들을 그룹 모의투자 토너먼트로 끌어들이는 구조야. 친구를 초대해야 토너먼트가 재미있어지기 때문에 바이럴이 자연스럽게 발생하고, 이 과정에서 제품 자체가 마케팅을 만든다. 마케팅비보다 제품 내 공유 훅이 더 강력하게 설계된 점이 UniPort의 차별점이다 [2].",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-마케팅.md",
+          "title": "UniPort 마케팅",
+          "heading": "핵심 지표",
+          "score": 5.328752690615163
+        },
+        {
+          "path": "3_output/uniport-marketing-plan-2026-05-30.md",
+          "title": "UniPort 마케팅 플랜 (초안)",
+          "heading": "4. 그로스 루프 (제품이 마케팅을 만든다)",
+          "score": 5.054260672235984
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "핵심 지표 (사업계획 기준 — 검증된 목표)",
+          "score": 4.861576008485795
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "실사용 피드백 루프",
+          "score": 4.830384432811487
+        },
+        {
+          "path": "2_wiki/UniPort-에이전트.md",
+          "title": "UniPort 에이전트 (코파일럿 헌장)",
+          "heading": "핵심 사용 방식",
+          "score": 4.793109934734536
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 10,
+      "topic": "uniport",
+      "question": "UniPort에서 내가 직접 책임져야 하는 부분은 어디까지로 보여?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 79902,
+      "answerLength": 409,
+      "answer": "UniPort에서 너가 직접 책임져야 할 부분은 UX 디자인 시스템과 온보딩 전체 플로우 정의, 에이전트 빌드 전 의존성 설정, 마케팅 파이프라인 레포 관리까지로 보인다. [1][2]에서 로고·슬로건·디자인 시스템·온보딩 스플래시부터 홈·종목·채팅·마이페이지까지 Figma를 직접 확인하고 있고, [4]에서는 Hermes Notion 연결과 Figma 직접 읽기 수단 같은 기술 의존성을 빌드 전 체크 항목으로 두고 있으며, [5]에서는 marketing pipeline repo를 로컬 클론·pull해서 Git 이력까지 점검하는 역할이 드러난다. Discord PM 봇 명령 규격 문서 [3]도 네가 관리하는 형태로 나와 있지만, 위키상으로는 팀 내 R&R 분담이 명확히 적혀 있지 않아 더 구체적인 책임 경계는 확인되지 않는다.",
+      "answerPreview": "UniPort에서 너가 직접 책임져야 할 부분은 UX 디자인 시스템과 온보딩 전체 플로우 정의, 에이전트 빌드 전 의존성 설정, 마케팅 파이프라인 레포 관리까지로 보인다. [1][2]에서 로고·슬로건·디자인 시스템·온보딩 스플래시부터 홈·종목·채팅·마이페이지까지 Figma를 직접 확인하고 있고, [4]에서는 Hermes Notion 연결과 Figma 직접 읽기 수단 같은 기술 의존성을 빌드 전 체크 항목으로 두고 있으며, [5]에서는 marketing pipel",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "브랜드 (Figma 직접 확인)",
+          "score": 4.989885702818614
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "온보딩 진입 플로우 (Figma \"디자인(최종)\" 직접 확인, 2026-05-30)",
+          "score": 4.689945994583197
+        },
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "8. 팀원에게 알려줄 짧은 사용법",
+          "score": 4.687384977344996
+        },
+        {
+          "path": "2_wiki/UniPort-에이전트.md",
+          "title": "UniPort 에이전트 (코파일럿 헌장)",
+          "heading": "의존성 (빌드 전 확인)",
+          "score": 4.277877867349936
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "6.4 마케팅 파이프라인 점검",
+          "score": 4.27218328848093
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    }
+  ]
+}

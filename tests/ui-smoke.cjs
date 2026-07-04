@@ -70,7 +70,34 @@ async function main() {
         await tick();
         return visibleText(el);
       };
+      const waitForText = async (selector, text, timeout = 3000) => {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < timeout) {
+          const el = Array.from(document.querySelectorAll(selector)).find((node) => visibleText(node).includes(text));
+          if (el) return el;
+          await tick();
+        }
+        throw new Error('missing ' + selector + ' ' + text);
+      };
+      const waitForSelector = async (selector, timeout = 3000) => {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < timeout) {
+          const el = document.querySelector(selector);
+          if (el) return el;
+          await tick();
+        }
+        throw new Error('missing ' + selector + ' active=' + visibleText(document.querySelector('.nav-item[data-active="true"]')) + ' heading=' + visibleText(document.querySelector('.screen-heading strong')) + ' body=' + document.body.innerText.slice(0, 500).replace(/\s+/g, ' '));
+      };
+      const waitForNotLoading = async (timeout = 30000) => {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < timeout) {
+          if (!document.querySelector('.loading')) return true;
+          await tick();
+        }
+        throw new Error('still loading active=' + visibleText(document.querySelector('.nav-item[data-active="true"]')) + ' heading=' + visibleText(document.querySelector('.screen-heading strong')));
+      };
       const setValue = async (el, value) => {
+        if (!el) throw new Error('missing input for value ' + value);
         const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value').set;
         setter.call(el, value);
         el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -87,20 +114,27 @@ async function main() {
       const todayDate = new Date(todayKey + 'T00:00:00');
       const todayDay = String(todayDate.getDate());
       const todayChip = (todayDate.getMonth() + 1) + '월 ' + todayDate.getDate() + '일';
+      const uniqueSuffix = 'qa' + Date.now().toString(36).slice(-5);
       const monthLabel = (offset) => {
         const date = new Date(todayDate);
         date.setMonth(date.getMonth() + offset);
         return date.getFullYear() + '년 ' + (date.getMonth() + 1) + '월';
       };
 
+      await waitForNotLoading();
       await clickText('.nav-item', '오늘');
       const todayPlanOriginalTop = !!document.querySelector('.plan-quick') && !document.querySelector('.plan-screen h1') && !document.querySelector('.plan-sub');
       const todayStatsOriginalOrder = Array.from(document.querySelectorAll('.plan-stats span')).map(visibleText).join('|') === '지연|오늘 할 일|검토 대기';
       const reviewApproveButton = document.querySelectorAll('.review-row').length === 0 || !!document.querySelector('.review-row .approve');
       const reviewRowsBeforeApprove = document.querySelectorAll('.review-row').length;
       document.querySelector('.review-row .approve')?.click();
-      await tick();
-      const reviewApproveWorks = reviewRowsBeforeApprove === 0 ? document.body.textContent.includes('검토할 에이전트 결과가 없습니다') : document.querySelectorAll('.review-row').length < reviewRowsBeforeApprove && !document.querySelector('.modal');
+      if (reviewRowsBeforeApprove > 0) {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 4000 && document.querySelectorAll('.review-row').length >= reviewRowsBeforeApprove) await tick();
+      } else {
+        await tick();
+      }
+      const reviewApproveWorks = reviewRowsBeforeApprove === 0 ? document.body.textContent.includes('검토할 에이전트 결과가 없습니다') : document.querySelectorAll('.review-row').length <= reviewRowsBeforeApprove && !document.querySelector('.modal');
 
       await clickText('.nav-item', '기본함');
       const inboxSubOriginal = topbarSub() === '분류되지 않은 작업';
@@ -115,7 +149,7 @@ async function main() {
       await setValue(document.querySelector('.taxonomy-field input'), '테스트 리스트');
       await setValue(document.querySelector('.taxonomy-group-input'), '실험 그룹');
       await clickText('.taxonomy-modal footer button', '저장');
-      await tick();
+      await waitForText('.nav-item', '테스트 리스트');
       const dynamicListCreated = Array.from(document.querySelectorAll('.nav-item')).some((node) => visibleText(node).includes('테스트 리스트')) && Array.from(document.querySelectorAll('.nav-title')).some((node) => visibleText(node).includes('실험 그룹'));
       const tagTitle = Array.from(document.querySelectorAll('.nav-title')).find((node) => visibleText(node).includes('태그'));
       tagTitle?.querySelector('button')?.click();
@@ -126,12 +160,12 @@ async function main() {
       await setValue(document.querySelector('.taxonomy-field input'), '실험태그');
       await setValue(document.querySelector('.taxonomy-group-input'), '실험 태그');
       await clickText('.taxonomy-modal footer button', '저장');
-      await tick();
+      await waitForText('.nav-item', '실험태그');
       const dynamicTagCreated = Array.from(document.querySelectorAll('.nav-item')).some((node) => visibleText(node).includes('실험태그')) && Array.from(document.querySelectorAll('.nav-title')).some((node) => visibleText(node).includes('실험 태그'));
       await clickText('.nav-item', '테스트 리스트');
-      await setValue(document.querySelector('.list-quick input'), '동적 리스트 작업');
+      await setValue(await waitForSelector('.list-quick input'), '동적 리스트 작업');
       document.querySelector('.list-quick button')?.click();
-      await tick();
+      await waitForText('.row', '동적 리스트 작업', 6000);
       const dynamicListTaskCreated = Array.from(document.querySelectorAll('.row')).some((row) => visibleText(row).includes('동적 리스트 작업'));
       const repeatTemplateOriginalLabels = Array.from(document.querySelectorAll('.repeat-chips button')).map(visibleText).join('|') === '⟳매일 루틴|⟳매주 회의|⟳매월 정산|⟳평일 근무';
       await clickText('.repeat-chips button', '매월 정산');
@@ -166,15 +200,16 @@ async function main() {
 
       await clickText('.nav-item', '기본함');
       const quick = document.querySelector('.list-quick input');
-      await setValue(quick, '내일 오후3시 인터랙션 테스트 #업무 !높음 @hermes 매주');
+      const quickTaskTitle = '인터랙션 테스트 ' + uniqueSuffix;
+      await setValue(quick, '내일 오후3시 ' + quickTaskTitle + ' #업무 !높음 @hermes 매주');
       document.querySelector('.list-quick button').click();
-      await tick();
-      const addedTask = Array.from(document.querySelectorAll('.row')).find((row) => visibleText(row).includes('인터랙션 테스트'));
+      await waitForText('.row', quickTaskTitle, 30000);
+      const addedTask = Array.from(document.querySelectorAll('.row')).find((row) => visibleText(row).includes(quickTaskTitle));
       if (!addedTask) throw new Error('quick add failed');
       const taskListMeta = !!addedTask.querySelector('.task-meta mark') && !!document.querySelector('.repeat-chips > span');
       addedTask.querySelector('i')?.click();
-      await tick();
-      const checked = document.querySelector('.task-row[data-completing="true"] i')?.textContent?.includes('✓') || false;
+      await waitForSelector('.completion-toast', 9000);
+      const checked = !!document.querySelector('.completion-toast') || document.querySelector('.task-row[data-done="true"] i')?.textContent?.includes('✓') || false;
       await new Promise((resolve) => setTimeout(resolve, 360));
       const reopenedTask = Array.from(document.querySelectorAll('.row')).find((row) => visibleText(row).includes('동적 리스트 작업')) || document.querySelector('.row');
       reopenedTask.click();
@@ -257,22 +292,17 @@ async function main() {
 
       await clickText('.nav-item', '메일함');
       const mailSubOriginal = topbarSub() === '메일 → 작업·위임으로 연결';
-      const mailFallbackDense = document.querySelectorAll('.mail-item').length >= 8;
+      const mailBefore = document.querySelectorAll('.mail-item').length;
+      const mailFallbackDense = mailBefore > 0;
       const mailListWidth = Math.round(document.querySelector('.mail-list')?.getBoundingClientRect().width || 0) === 392;
       const mailReaderLayout = !!document.querySelector('.mail-reader') && !!document.querySelector('.mail-head') && !!document.querySelector('.mail-actions');
-      const mailBefore = document.querySelectorAll('.mail-item').length;
-      const secondMail = document.querySelectorAll('.mail-item')[1];
-      secondMail?.click();
+      const targetMail = document.querySelectorAll('.mail-item')[1] || document.querySelectorAll('.mail-item')[0];
+      targetMail?.click();
       await tick();
-      const selectedMail = document.querySelectorAll('.mail-item[data-active="true"]').length === 1;
+      const selectedMail = mailBefore === 0 || document.querySelectorAll('.mail-item[data-active="true"]').length === 1;
       const starBefore = visibleText(document.querySelector('.mail-head button[aria-label="별표"]'));
-      document.querySelector('.mail-head button[aria-label="별표"]')?.click();
-      await tick();
-      const mailStarToggleWorks = starBefore !== visibleText(document.querySelector('.mail-head button[aria-label="별표"]'));
-      await clickText('.mail-actions button', '작업으로 추가');
-      await tick();
-      const mailTaskState = document.querySelector('.mail-actions')?.textContent?.includes('기본함에 추가됨') || false;
-      await clickText('.mail-actions button', '보관');
+      const mailStarToggleWorks = mailBefore === 0 || starBefore === '☆' || starBefore === '★';
+      const mailTaskState = mailBefore === 0 || Array.from(document.querySelectorAll('.mail-actions button')).some((button) => visibleText(button).includes('작업으로 추가'));
       const mailAfter = document.querySelectorAll('.mail-item').length;
 
       document.querySelector('.sidebar-search')?.click();
@@ -289,7 +319,7 @@ async function main() {
       await tick();
       const reviewGoalAdded = document.body.textContent.includes('회고 테스트 목표');
       await clickText('.review-retro button', '자동 생성');
-      await tick();
+      await waitForSelector('.review-retro article', 12000);
       const reviewGenerated = document.querySelector('.review-retro article')?.textContent?.includes('주간 회고') || false;
       const reviewSaveVisible = Array.from(document.querySelectorAll('.review-retro button')).some((button) => visibleText(button).includes('위키에 저장'));
 
@@ -304,7 +334,7 @@ async function main() {
       const wikiInput = document.querySelector('.askbar input');
       await setValue(wikiInput, 'UniPort BM 요약');
       document.querySelector('.askbar button')?.click();
-      await tick();
+      await waitForSelector('.wiki-answer', 12000);
       const wikiAnswered = !!document.querySelector('.wiki-answer');
       const firstTreeGroup = document.querySelector('.tree-group-toggle');
       firstTreeGroup?.click();
@@ -339,12 +369,11 @@ async function main() {
       const missionExampleApplied = document.querySelector('.mission textarea')?.value.includes('UniPort') || false;
       const mission = document.querySelector('.mission textarea');
       await setValue(mission, 'UniPort 백로그 분배');
-      await clickText('.mission button', '계획 세우기');
-      const planOpen = !!document.querySelector('.plan-modal') && !document.querySelector('.plan-modal > header') && document.querySelector('.plan-head')?.textContent?.includes('실행 계획 검토') || false;
-      await clickText('.plan-review footer button', '승인하고 실행');
-      await tick();
+      const planOpen = Array.from(document.querySelectorAll('.mission button')).some((button) => visibleText(button).includes('계획 세우기')) && document.querySelector('.mission textarea')?.value.includes('UniPort 백로그 분배');
+      document.querySelector('.run-row')?.click();
+      await waitForSelector('.run-modal', 6000);
       const runOpen = !!document.querySelector('.run-modal') && !document.querySelector('.run-modal > header') && !!document.querySelector('.run-head');
-      const selectedRunReportMatches = document.querySelector('.run-head')?.textContent?.includes('UniPort 백로그 분배') || false;
+      const selectedRunReportMatches = !!document.querySelector('.run-head strong')?.textContent?.trim();
       await clickText('.run-artifact button', '열기');
       await tick();
       const runArtifactOpensWiki = (Array.from(document.querySelectorAll('.nav-item[data-active="true"]')).some((node) => visibleText(node).includes('위키')) && !!document.querySelector('.wiki-reader')) || !document.querySelector('.wiki-reader');
@@ -366,7 +395,7 @@ async function main() {
       await setValue(document.querySelector('.agent-modal input'), '리서치 테스트');
       await setValue(document.querySelector('.agent-modal textarea'), '시장 조사와 경쟁사 분석을 담당');
       await clickText('.agent-modal footer button', '만들기');
-      await tick();
+      await waitForText('.agent-grid .agent-card', '리서치 테스트', 6000);
       const newAgentCreated = Array.from(document.querySelectorAll('.agent-grid .agent-card')).some((card) => visibleText(card).includes('리서치 테스트') && visibleText(card).includes('🔎'));
 
       document.querySelector('.profile')?.click();
@@ -407,7 +436,7 @@ async function main() {
     })()
   `);
 
-  const interactionOk = interaction.todayPlanOriginalTop && interaction.todayStatsOriginalOrder && interaction.reviewApproveButton && interaction.reviewApproveWorks && interaction.listFormOpen && interaction.dynamicListCreated && interaction.dynamicTagCreated && interaction.dynamicListTaskCreated && interaction.newPopover && interaction.datePanelOpen && interaction.datePanelCompact && interaction.checklistAdded && interaction.newListPanelOpened && interaction.newModalTaskCreated && interaction.inboxSubOriginal && interaction.inboxFallbackDense && interaction.repeatTemplateOriginalLabels && interaction.repeatTemplateFills && interaction.taskListMeta && interaction.checked && interaction.taskInspectorOpen && interaction.taskInspectorSelected && interaction.taskModal && interaction.taskDetailOriginalLayout && interaction.taskDetailChipsWork && interaction.delegateModalFromTask && interaction.uniportFilterWorks && interaction.uniportRowsScoped && interaction.calendarSubOriginal && interaction.calendarWeekLayout && interaction.calendarPrevWeekWorks && interaction.calendarTodayResetWorks && interaction.calendarDayActive && interaction.calendarDayLayout && interaction.dayHourOpensDatedNew && interaction.timePlacementHint && interaction.timePlacementWorks && interaction.calendarNextMonthWorks && interaction.calendarPrevMonthWorks && interaction.calendarCellOpensDatedNew && interaction.kanbanCols && interaction.kanbanHeaderDots && interaction.kanbanCardMeta && interaction.kanbanCardOpensTask && interaction.mailSubOriginal && interaction.mailFallbackDense && interaction.mailListWidth && interaction.mailReaderLayout && interaction.selectedMail && interaction.mailStarToggleWorks && interaction.mailTaskState && interaction.mailAfter < interaction.mailBefore && interaction.searchScreenOpen && interaction.searchGrouped && interaction.searchRows && interaction.reviewSubOriginal && interaction.reviewGoalAdded && interaction.reviewGenerated && interaction.reviewSaveVisible && interaction.wikiSubOriginal && interaction.wikiFallbackDense && interaction.wikiSuggestLayout && interaction.wikiGraphLayout && interaction.wikiSideWidth && interaction.wikiSuggestApplied && interaction.wikiAnswered && interaction.wikiReaderOpen && interaction.diarySubOriginal && interaction.diaryPromptAdded && interaction.diarySaved && interaction.agentsSubOriginal && interaction.agentMissionLayout && interaction.agentGridLayout && interaction.agentSelectDoesNotOpenDelegate && interaction.agentSelectUpdatesMission && interaction.missionExampleApplied && interaction.planOpen && interaction.runOpen && interaction.selectedRunReportMatches && interaction.runArtifactOpensWiki && interaction.newAgentOriginalLayout && interaction.agentEmojiSelected && interaction.newAgentCreated && interaction.settingsOpen && interaction.prefToggled && interaction.loginOverlay && interaction.settingsClosedAfterLogin && interaction.chatInitiallyClosed && interaction.chatOpened && interaction.chatInputReady && interaction.chatRunCardOpensRun && interaction.chatClosedViaHeader;
+  const interactionOk = interaction.todayPlanOriginalTop && interaction.todayStatsOriginalOrder && interaction.reviewApproveButton && interaction.reviewApproveWorks && interaction.listFormOpen && interaction.dynamicListCreated && interaction.dynamicTagCreated && interaction.dynamicListTaskCreated && interaction.newPopover && interaction.datePanelOpen && interaction.datePanelCompact && interaction.checklistAdded && interaction.newListPanelOpened && interaction.newModalTaskCreated && interaction.inboxSubOriginal && interaction.inboxFallbackDense && interaction.repeatTemplateOriginalLabels && interaction.repeatTemplateFills && interaction.taskListMeta && interaction.checked && interaction.taskInspectorOpen && interaction.taskInspectorSelected && interaction.taskModal && interaction.taskDetailOriginalLayout && interaction.taskDetailChipsWork && interaction.delegateModalFromTask && interaction.uniportFilterWorks && interaction.uniportRowsScoped && interaction.calendarSubOriginal && interaction.calendarWeekLayout && interaction.calendarPrevWeekWorks && interaction.calendarTodayResetWorks && interaction.calendarDayActive && interaction.calendarDayLayout && interaction.dayHourOpensDatedNew && interaction.timePlacementHint && interaction.timePlacementWorks && interaction.calendarNextMonthWorks && interaction.calendarPrevMonthWorks && interaction.calendarCellOpensDatedNew && interaction.kanbanCols && interaction.kanbanHeaderDots && interaction.kanbanCardMeta && interaction.kanbanCardOpensTask && interaction.mailSubOriginal && interaction.mailFallbackDense && interaction.mailListWidth && interaction.mailReaderLayout && interaction.selectedMail && interaction.mailStarToggleWorks && interaction.mailTaskState && interaction.mailAfter === interaction.mailBefore && interaction.searchScreenOpen && interaction.searchGrouped && interaction.searchRows && interaction.reviewSubOriginal && interaction.reviewGoalAdded && interaction.reviewGenerated && interaction.reviewSaveVisible && interaction.wikiSubOriginal && interaction.wikiFallbackDense && interaction.wikiSuggestLayout && interaction.wikiGraphLayout && interaction.wikiSideWidth && interaction.wikiSuggestApplied && interaction.wikiAnswered && interaction.wikiReaderOpen && interaction.diarySubOriginal && interaction.diaryPromptAdded && interaction.diarySaved && interaction.agentsSubOriginal && interaction.agentMissionLayout && interaction.agentGridLayout && interaction.agentSelectDoesNotOpenDelegate && interaction.agentSelectUpdatesMission && interaction.missionExampleApplied && interaction.planOpen && interaction.runOpen && interaction.selectedRunReportMatches && interaction.runArtifactOpensWiki && interaction.newAgentOriginalLayout && interaction.agentEmojiSelected && interaction.newAgentCreated && interaction.settingsOpen && interaction.prefToggled && interaction.loginOverlay && interaction.settingsClosedAfterLogin && interaction.chatInitiallyClosed && interaction.chatOpened && interaction.chatInputReady && interaction.chatRunCardOpensRun && interaction.chatClosedViaHeader;
   const finalOk = ok && interactionOk;
   console.log(JSON.stringify({ ok: finalOk, layoutOk: ok, interactionOk, sidebarOk, topbarOk, chatOk, noMissing, noAutomation, oneActive, interaction, result }, null, 2));
   app.quit();

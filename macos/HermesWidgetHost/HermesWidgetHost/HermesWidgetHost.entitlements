@@ -6,7 +6,7 @@
 	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.hermes.tasks</string>
+		<string>group.com.agents.calendar</string>
 	</array>
 </dict>
 </plist>

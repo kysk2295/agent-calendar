@@ -35,7 +35,7 @@
     <div style="padding:16px 16px 12px;display:flex;align-items:center;gap:10px">
       <div style="width:30px;height:30px;border-radius:8px;background:linear-gradient(150deg,var(--accent),var(--accent-dark));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px;box-shadow:0 2px 6px rgba(183,73,44,.28)">H</div>
       <div style="line-height:1.15">
-        <div style="font-size:14px;font-weight:700;color:#2B2620">Hermes Tasks</div>
+        <div style="font-size:14px;font-weight:700;color:#2B2620">Agent Calendar</div>
         <div style="font-size:10px;color:#A0967f;font-weight:500">할 일 · 캘린더 · 에이전트</div>
       </div>
     </div>
@@ -88,7 +88,7 @@
         <input value="{{ query }}" onInput="{{ onSearchInput }}" placeholder="작업 · 노트 · 일정 검색" style="flex:1;border:none;background:transparent;font-size:12px;color:#2B2620"/>
       </div>
       <button onClick="{{ openNew }}" style="height:31px;padding:0 13px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(183,73,44,.3)"><span style="font-size:15px;font-weight:400">+</span> 새 작업</button>
-      <button onClick="{{ toggleChat }}" style="{{ chatToggleStyle }}" title="Hermes 콘솔">◧</button>
+      <button onClick="{{ toggleChat }}" style="{{ chatToggleStyle }}" title="Agent Calendar 콘솔">◧</button>
     </header>
 
     <div style="flex:1;overflow-y:auto;min-height:0">
@@ -789,7 +789,7 @@
   <aside style="width:340px;flex-shrink:0;border-left:1px solid #E0D8C8;background:#F7F3EB;display:flex;flex-direction:column;height:100%;animation:hIn .2s ease">
     <div style="padding:13px 16px;border-bottom:1px solid #EBE4D6;display:flex;align-items:center;gap:9px">
       <div style="width:24px;height:24px;border-radius:7px;background:linear-gradient(150deg,var(--accent),var(--accent-dark));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:12px">H</div>
-      <span style="font-size:13px;font-weight:700">Hermes 콘솔</span>
+      <span style="font-size:13px;font-weight:700">Agent Calendar 콘솔</span>
       <span style="flex:1"></span>
       <span onClick="{{ toggleChat }}" style="color:#B6AC99;font-size:16px;cursor:pointer">✕</span>
     </div>
@@ -812,7 +812,7 @@
         <sc-for list="{{ chatChips }}" as="c" hint-placeholder-count="3"><span onClick="{{ c.onClick }}" style="font-size:10.5px;font-weight:600;color:#6E6456;background:#FBF9F4;border:1px solid #E6DFD0;border-radius:20px;padding:4px 9px;cursor:pointer" style-hover="border-color:var(--accent)">{{ c.label }}</span></sc-for>
       </div>
       <div style="display:flex;gap:7px;align-items:flex-end">
-        <textarea value="{{ chatInput }}" onInput="{{ onChatInput }}" onKeyDown="{{ onChatKey }}" placeholder="Hermes에게 작업을 위임…" style="flex:1;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:9px;font-size:12.5px;padding:9px 11px;resize:none;height:38px;line-height:1.4;color:#2B2620"></textarea>
+        <textarea value="{{ chatInput }}" onInput="{{ onChatInput }}" onKeyDown="{{ onChatKey }}" placeholder="Agent Calendar에게 작업을 위임…" style="flex:1;border:1px solid #E0D8C8;background:#FBF9F4;border-radius:9px;font-size:12.5px;padding:9px 11px;resize:none;height:38px;line-height:1.4;color:#2B2620"></textarea>
         <button onClick="{{ sendChat }}" style="width:38px;height:38px;flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:15px;cursor:pointer">↑</button>
       </div>
     </div>
@@ -1169,7 +1169,7 @@
         </div>
       </div>
       <div style="padding:14px 22px;border-top:1px solid #EBE4D6;display:flex;align-items:center;gap:9px">
-        <span style="font-size:11px;color:#A0967f">Hermes Tasks · v0.9 · 로컬 저장</span>
+        <span style="font-size:11px;color:#A0967f">Agent Calendar · v0.9 · 로컬 저장</span>
         <span style="flex:1"></span>
         <button onClick="{{ closeSettings }}" style="height:34px;padding:0 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer">완료</button>
       </div>
@@ -1184,12 +1184,12 @@
       <div style="width:300px;flex-shrink:0;background:linear-gradient(160deg,var(--accent),var(--accent-dark));padding:38px 32px;display:flex;flex-direction:column;color:#fff">
         <div style="display:flex;align-items:center;gap:11px">
           <div style="width:40px;height:40px;border-radius:11px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:21px">H</div>
-          <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em">Hermes Tasks</div>
+          <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em">Agent Calendar</div>
         </div>
         <div style="margin-top:34px;font-size:23px;font-weight:800;line-height:1.4;letter-spacing:-0.02em">할 일·캘린더와<br>에이전트를<br>한 곳에서</div>
         <div style="margin-top:14px;font-size:13px;line-height:1.7;color:rgba(255,255,255,.85)">작업을 위임하고, 일정을 공유하고,<br>위키에 지식을 쌓으세요.</div>
         <span style="flex:1"></span>
-        <div style="font-size:11.5px;color:rgba(255,255,255,.7)">© 2026 Hermes OS</div>
+        <div style="font-size:11.5px;color:rgba(255,255,255,.7)">© 2026 Agent Calendar</div>
       </div>
       <!-- right form -->
       <div style="flex:1;min-width:0;padding:44px 46px;display:flex;flex-direction:column;justify-content:center">

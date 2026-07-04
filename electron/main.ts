@@ -7,12 +7,17 @@ import { createApiProxyServer } from './proxy.js';
 import { publicSettings, readSettings, saveSettings } from './settings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WIDGET_APP_GROUP_ID = 'group.com.hermes.tasks';
+const WIDGET_APP_GROUP_ID = 'group.com.agents.calendar';
 const WIDGET_SNAPSHOT_FILE = 'HermesWidgetSnapshot.json';
 const WIDGET_ACTIONS_FILE = 'HermesWidgetActions.json';
 let mainWindow: BrowserWindow | null = null;
 let proxyBaseUrl = '';
 let widgetActionPoller: NodeJS.Timeout | null = null;
+
+function appIconPath() {
+  if (process.env.VITE_DEV_SERVER_URL) return path.join(process.cwd(), 'public', 'agent-calendar-logo.png');
+  return path.join(__dirname, '..', 'dist', 'agent-calendar-logo.png');
+}
 
 async function startProxy() {
   const server = createApiProxyServer({ getSettings: readSettings });
@@ -20,7 +25,7 @@ async function startProxy() {
     server.listen(0, '127.0.0.1', resolve);
   });
   const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Failed to start Hermes API proxy');
+  if (!address || typeof address === 'string') throw new Error('Failed to start Agent Calendar API proxy');
   proxyBaseUrl = `http://127.0.0.1:${address.port}`;
 }
 
@@ -30,7 +35,8 @@ function createWindow() {
     height: 824,
     minWidth: 980,
     minHeight: 700,
-    title: 'Hermes Tasks',
+    title: 'Agent Calendar',
+    icon: appIconPath(),
     backgroundColor: '#EAE5DA',
     trafficLightPosition: { x: 14, y: 14 },
     webPreferences: {
@@ -88,7 +94,7 @@ ipcMain.handle('settings:save', (_event, settings: unknown) => {
 ipcMain.handle('proxy:get-base-url', () => proxyBaseUrl);
 ipcMain.handle('widget:snapshot-save', async (_event, snapshot: unknown) => {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
-    throw new Error('Invalid Hermes widget snapshot');
+    throw new Error('Invalid Agent Calendar widget snapshot');
   }
   const groupDir = widgetGroupDir();
   await mkdir(groupDir, { recursive: true });
@@ -113,6 +119,7 @@ ipcMain.handle('widget:actions-clear', async (_event, ids: unknown) => {
 
 app.whenReady().then(async () => {
   await startProxy();
+  if (process.platform === 'darwin') app.dock?.setIcon(appIconPath());
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

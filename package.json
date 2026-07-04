@@ -1,9 +1,9 @@
 {
-  "name": "hermes-tasks-desktop",
+  "name": "agents-calendar-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Hermes Tasks macOS desktop app backed by the Hermes OS Railway gateway.",
-  "author": "Hermes",
+  "description": "Agent Calendar macOS desktop app backed by the Agent Calendar Railway gateway.",
+  "author": "Agent Calendar",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -37,8 +37,8 @@
     "wait-on": "^8.0.1"
   },
   "build": {
-    "appId": "com.hermes.tasks",
-    "productName": "Hermes Tasks",
+    "appId": "com.agents.calendar",
+    "productName": "Agent Calendar",
     "asar": true,
     "files": [
       "dist/**",
@@ -47,6 +47,7 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "icon": "public/agent-calendar-logo.icns",
       "target": [
         {
           "target": "dmg",

@@ -16,7 +16,7 @@ struct ContentView: View {
                         .background(LinearGradient(colors: [Color(hex: "#D7613D"), Color(hex: "#B8492C")], startPoint: .topLeading, endPoint: .bottomTrailing))
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Hermes 위젯")
+                        Text("Agents Calendar 위젯")
                             .font(.system(size: 19, weight: .bold))
                         Text("macOS 데스크톱 위젯 · 알림 센터")
                             .font(.system(size: 12, weight: .semibold))

@@ -45,8 +45,26 @@ async function main() {
       await route.fulfill({ json: { ok: true, wikiIndex: wiki, notes: wiki.notes, graph: wiki.graph, selectedNote: wiki.notes[0] } });
       return;
     }
-    if (method === 'POST' && path === '/api/wiki/ask') {
-      await route.fulfill({ json: { ok: true, answer: `위키 답변: ${body.question}`, sources: [{ path: '2_wiki/uniport.md', title: 'UniPort 전략' }] } });
+    if (method === 'POST' && path === '/api/wiki/search') {
+      await route.fulfill({ json: {
+        ok: true,
+        query: body.question,
+        results: [{ path: '2_wiki/uniport.md', title: 'UniPort 전략', heading: '개요', snippet: 'UniPort는 대학생 프로젝트를 운영하는 지식입니다.' }],
+      } });
+      return;
+    }
+    if (method === 'POST' && path === '/api/chat/stream') {
+      await route.fulfill({
+        contentType: 'text/event-stream; charset=utf-8',
+        body: [
+          'event: delta',
+          `data: {"text":"기록을 보면 UniPort 전략은?는 UniPort 전략 문서와 연결됩니다."}`,
+          '',
+          'event: done',
+          `data: {"text":"기록을 보면 UniPort 전략은?는 UniPort 전략 문서와 연결됩니다.","source":"railway-relay","gatewayFallback":false,"run":{"model":"wiki-curator"}}`,
+          '',
+        ].join('\n'),
+      });
       return;
     }
     await route.fulfill({ json: { ok: true, data: {} } });
@@ -67,12 +85,19 @@ async function main() {
   await page.getByRole('button', { name: '질문' }).click();
   await page.waitForSelector('.wiki-answer');
   const answer = await page.locator('.wiki-answer').textContent();
-  assert.match(answer || '', /위키 답변: UniPort 전략은\?/);
+  assert.match(answer || '', /기록을 보면 UniPort 전략은\?/);
   assert.match(answer || '', /UniPort 전략/);
-  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/wiki/ask'), true);
+  assert.match(answer || '', /wiki-curator/);
+  const searchCall = calls.find((call) => call.method === 'POST' && call.path === '/api/wiki/search');
+  const streamCall = calls.find((call) => call.method === 'POST' && call.path === '/api/chat/stream');
+  assert.equal(Boolean(searchCall), true);
+  assert.equal(Boolean(streamCall), true);
+  assert.equal(searchCall.body.includeJournal, false);
+  assert.equal(searchCall.body.includeRaw, false);
+  assert.equal(streamCall.body.agent, 'wiki-curator');
 
   await browser.close();
-  console.log(JSON.stringify({ ok: true, before, afterZoom, wikiAsk: calls.find((call) => call.path === '/api/wiki/ask')?.body }, null, 2));
+  console.log(JSON.stringify({ ok: true, before, afterZoom, wikiSearch: searchCall?.body, wikiStream: streamCall?.body }, null, 2));
 }
 
 main().catch((error) => {

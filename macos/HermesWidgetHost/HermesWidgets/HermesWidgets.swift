@@ -24,7 +24,7 @@ struct HermesTimelineProvider: TimelineProvider {
 }
 
 struct ToggleHermesTaskIntent: AppIntent {
-    static let title: LocalizedStringResource = "Hermes task toggle"
+    static let title: LocalizedStringResource = "Agents Calendar task toggle"
 
     @Parameter(title: "Task ID")
     var taskID: String
@@ -46,7 +46,7 @@ struct ToggleHermesTaskIntent: AppIntent {
 }
 
 struct OpenHermesDateIntent: AppIntent {
-    static let title: LocalizedStringResource = "Hermes date open"
+    static let title: LocalizedStringResource = "Agents Calendar date open"
 
     @Parameter(title: "Date")
     var date: String
@@ -66,7 +66,7 @@ struct OpenHermesDateIntent: AppIntent {
 }
 
 struct OpenHermesScreenIntent: AppIntent {
-    static let title: LocalizedStringResource = "Hermes screen open"
+    static let title: LocalizedStringResource = "Agents Calendar screen open"
 
     @Parameter(title: "Screen")
     var screen: String
@@ -86,7 +86,7 @@ struct OpenHermesScreenIntent: AppIntent {
 }
 
 struct OpenHermesTaskIntent: AppIntent {
-    static let title: LocalizedStringResource = "Hermes task open"
+    static let title: LocalizedStringResource = "Agents Calendar task open"
 
     @Parameter(title: "Task ID")
     var taskID: String
@@ -106,7 +106,7 @@ struct OpenHermesTaskIntent: AppIntent {
 }
 
 struct OpenHermesRunIntent: AppIntent {
-    static let title: LocalizedStringResource = "Hermes run open"
+    static let title: LocalizedStringResource = "Agents Calendar run open"
 
     @Parameter(title: "Run ID")
     var runID: String
@@ -142,7 +142,7 @@ struct HermesMonthCalendarWidget: Widget {
         StaticConfiguration(kind: kind, provider: HermesTimelineProvider()) { entry in
             MonthCalendarWidgetView(snapshot: entry.snapshot)
         }
-        .configurationDisplayName("Hermes 월 캘린더")
+        .configurationDisplayName("Agents Calendar 월 캘린더")
         .description("한 달 일정과 담당자를 Large 위젯으로 확인합니다.")
         .supportedFamilies([.systemLarge])
         .contentMarginsDisabled()
@@ -156,7 +156,7 @@ struct HermesTodayWidget: Widget {
         StaticConfiguration(kind: kind, provider: HermesTimelineProvider()) { entry in
             TodayWidgetView(snapshot: entry.snapshot)
         }
-        .configurationDisplayName("Hermes 오늘")
+        .configurationDisplayName("Agents Calendar 오늘")
         .description("오늘 작업 4개와 남은 개수를 Medium 위젯으로 봅니다.")
         .supportedFamilies([.systemMedium])
         .contentMarginsDisabled()
@@ -170,7 +170,7 @@ struct HermesNextEventWidget: Widget {
         StaticConfiguration(kind: kind, provider: HermesTimelineProvider()) { entry in
             NextEventWidgetView(snapshot: entry.snapshot)
         }
-        .configurationDisplayName("Hermes 다음 일정")
+        .configurationDisplayName("Agents Calendar 다음 일정")
         .description("가장 가까운 시간 지정 일정을 Small 위젯으로 봅니다.")
         .supportedFamilies([.systemSmall])
         .contentMarginsDisabled()
@@ -184,7 +184,7 @@ struct HermesAgentStatusWidget: Widget {
         StaticConfiguration(kind: kind, provider: HermesTimelineProvider()) { entry in
             AgentStatusWidgetView(snapshot: entry.snapshot)
         }
-        .configurationDisplayName("Hermes 에이전트 상태")
+        .configurationDisplayName("Agents Calendar 에이전트 상태")
         .description("실행 중 에이전트와 검토 대기를 Small 위젯으로 봅니다.")
         .supportedFamilies([.systemSmall])
         .contentMarginsDisabled()
@@ -199,16 +199,15 @@ struct MonthCalendarWidgetView: View {
             VStack(spacing: 0) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("\(month)월")
-                        .font(.system(size: 22, weight: .black))
+                        .font(.system(size: 23, weight: .black))
                         .foregroundStyle(Color(hex: "#D7613D"))
                     Text("\(year)")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(Color(hex: "#A0967F"))
                     Spacer()
-                    HermesMark(size: 22, radius: 7, fontSize: 11)
                 }
-                .padding(.horizontal, 3)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 2)
+                .padding(.bottom, 6)
 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 1), count: 7), spacing: 0) {
                     ForEach(["일", "월", "화", "수", "목", "금", "토"], id: \.self) { weekday in
@@ -259,13 +258,13 @@ struct MonthCalendarWidgetView: View {
                             }
                             Spacer(minLength: 0)
                         }
-                        .frame(height: 44, alignment: .topLeading)
+                        .frame(height: 46, alignment: .topLeading)
                         .opacity(cell.inMonth ? 1 : 0.58)
                     }
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 16)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 10)
         }
     }
 
@@ -333,7 +332,7 @@ struct TodayWidgetView: View {
                         .background(Color(hex: "#D7613D").opacity(0.12))
                         .clipShape(Capsule())
                 }
-                .padding(.bottom, 10)
+                .padding(.bottom, 8)
 
                 VStack(spacing: 2) {
                     ForEach(snapshot.todayTasks.prefix(4)) { task in
@@ -374,7 +373,7 @@ struct TodayWidgetView: View {
                                     .clipShape(Capsule())
                             }
                         }
-                        .frame(height: 27)
+                        .frame(height: 28)
                     }
                     if snapshot.todayTasks.isEmpty {
                         Text("오늘 작업 없음")
@@ -384,8 +383,8 @@ struct TodayWidgetView: View {
                     }
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
         }
     }
 
@@ -408,12 +407,15 @@ struct NextEventWidgetView: View {
     var body: some View {
         HermesGlassCard(cornerRadius: 22) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("다음 일정")
-                    .font(.system(size: 10.5, weight: .bold))
-                    .tracking(0.3)
-                    .textCase(.uppercase)
-                    .foregroundStyle(Color(hex: "#C0826A"))
-                    .padding(.bottom, 2)
+                HStack(spacing: 6) {
+                    Text("다음 일정")
+                        .font(.system(size: 10.5, weight: .bold))
+                        .tracking(0.3)
+                        .textCase(.uppercase)
+                        .foregroundStyle(Color(hex: "#C0826A"))
+                    Spacer(minLength: 0)
+                }
+                .padding(.bottom, 4)
                 if let event = snapshot.nextEvent {
                     Button(intent: OpenHermesTaskIntent(taskID: event.id)) {
                         Text(event.title)
@@ -449,8 +451,8 @@ struct NextEventWidgetView: View {
                         .lineLimit(1)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 15)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
         }
     }
 
@@ -467,13 +469,16 @@ struct AgentStatusWidgetView: View {
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             ContainerRelativeShape()
-                .fill(Color.rgba(43,38,32,0.72))
-                .overlay(ContainerRelativeShape().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
-                .shadow(color: Color.black.opacity(0.28), radius: 22, x: 0, y: 14)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.rgba(47,42,35,0.94), Color.rgba(28,25,22,0.94)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 6) {
-                    HermesMark(size: 19, radius: 6, fontSize: 10)
                     Text("에이전트")
                         .font(.system(size: 11, weight: .bold))
                     Spacer()
@@ -505,8 +510,8 @@ struct AgentStatusWidgetView: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 15)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
 
             if snapshot.reviewPending > 0 {
                 Text("\(snapshot.reviewPending) 검토")
@@ -516,13 +521,17 @@ struct AgentStatusWidgetView: View {
                     .padding(.vertical, 2)
                     .background(Color(hex: "#F0D38A"))
                     .clipShape(Capsule())
-                    .padding(10)
+                    .padding(8)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
         .containerBackground(for: .widget) {
-            Color.clear
+            LinearGradient(
+                colors: [Color.rgba(47,42,35,0.94), Color.rgba(28,25,22,0.94)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
     }
 
@@ -543,15 +552,23 @@ struct HermesGlassCard<Content: View>: View {
     var body: some View {
         ZStack {
             ContainerRelativeShape()
-                .fill(Color.rgba(251,249,244,0.82))
-                .overlay(ContainerRelativeShape().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
-                .shadow(color: Color.black.opacity(0.22), radius: 24, x: 0, y: 14)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.rgba(255,252,244,0.96), Color.rgba(239,232,213,0.92)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
         .containerBackground(for: .widget) {
-            Color.clear
+            LinearGradient(
+                colors: [Color.rgba(255,252,244,0.96), Color.rgba(239,232,213,0.92)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
     }
 }
@@ -562,21 +579,6 @@ struct HermesMountainBackground: View {
             LinearGradient(colors: [Color(hex: "#8FB4D6"), Color(hex: "#A9C3D9"), Color(hex: "#C6C9CE"), Color(hex: "#9AA7AE"), Color(hex: "#6E7E86")], startPoint: .topLeading, endPoint: .bottomTrailing)
             Color.clear
         }
-    }
-}
-
-struct HermesMark: View {
-    var size: CGFloat
-    var radius: CGFloat
-    var fontSize: CGFloat
-
-    var body: some View {
-        Text("H")
-            .font(.system(size: fontSize, weight: .black))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(LinearGradient(colors: [Color(hex: "#D7613D"), Color(hex: "#B8492C")], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
 

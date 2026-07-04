@@ -1,0 +1,623 @@
+{
+  "summary": {
+    "ok": false,
+    "endpoint": "http://127.0.0.1:62742/api/wiki/ask",
+    "total": 10,
+    "pass": 1,
+    "fail": 9,
+    "warning": 9,
+    "avgElapsedMs": 87686,
+    "p95ElapsedMs": 90824,
+    "minAnswerLength": 79,
+    "maxAnswerLength": 347,
+    "truncationSuspects": 9,
+    "gatewayFallbackFailures": 9,
+    "elapsedMs": 876859
+  },
+  "results": [
+    {
+      "index": 1,
+      "topic": "uniport",
+      "question": "UniPort에서 지금 제일 중요한 병목은?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 62098,
+      "answerLength": 347,
+      "answer": "UniPort에서 지금 제일 중요한 병목은 그룹모의투자 UX의 재미·커뮤니티·경쟁감이다. [2]\n\nApp Store 출시는 완료됐고 Play Store는 아직 심사 대기 중이라, 출시 직후 사용자 유입과 유지에 이 UX가 핵심 변수로 꼽혔다. 종원·희경이 2일간 실사용 피드백을 모으고 수요일 15:00 회의에서 기획 수정과 즉시 개발 반영 여부를 결정하기로 했다. \n\n나머지 소스들은 팀 백로그나 마케팅 계획, Agent OS 병목을 다루고 있지만 UniPort의 현재 최우선 이슈로는 [2]의 내용이 가장 직접적이다. \n\n위키에 더 구체적인 피드백 결과나 회의 결정 사항이 아직 없어서 이 부분이 병목으로 남아 있다.",
+      "answerPreview": "UniPort에서 지금 제일 중요한 병목은 그룹모의투자 UX의 재미·커뮤니티·경쟁감이다. [2]\n\nApp Store 출시는 완료됐고 Play Store는 아직 심사 대기 중이라, 출시 직후 사용자 유입과 유지에 이 UX가 핵심 변수로 꼽혔다. 종원·희경이 2일간 실사용 피드백을 모으고 수요일 15:00 회의에서 기획 수정과 즉시 개발 반영 여부를 결정하기로 했다. \n\n나머지 소스들은 팀 백로그나 마케팅 계획, Agent OS 병목을 다루고 있지만 UniPort의",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 1.6812067317930022
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "출시 상태 / 직후 운영 (2026-05-31)",
+          "score": 1.6788308090919433
+        },
+        {
+          "path": "2_wiki/Agent OS.md",
+          "title": "Agent OS",
+          "heading": "현재 병목",
+          "score": 1.668250238658061
+        },
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 1.624200009242817
+        },
+        {
+          "path": "5_conversation/handovers/current-state.md",
+          "title": "Current State Handover",
+          "heading": "현재 구조 판단",
+          "score": 1.452725060986114
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 2,
+      "topic": "uniport",
+      "question": "UniPort 로드맵에서 당장 실행해야 할 3가지는 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 90750,
+      "answerLength": 79,
+      "answer": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "answerPreview": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-로드맵.md",
+          "title": "UniPort 로드맵",
+          "heading": "UniPort 로드맵 · 우선순위",
+          "score": 4.784170815260606
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "UX/기획",
+          "score": 3.2492125839962434
+        },
+        {
+          "path": "2_wiki/UniPort-로드맵.md",
+          "title": "UniPort 로드맵",
+          "heading": "출시 상태",
+          "score": 3.232260631028585
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "로드맵 (협약 '26.06~'27.01)",
+          "score": 2.896746714525689
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "마케팅",
+          "score": 2.847202398495697
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator"
+      },
+      "gatewayFallback": true,
+      "pass": false,
+      "failures": [
+        "gatewayFallback=true",
+        "short answer=79",
+        "fallback/error answer text",
+        "suspected truncation"
+      ],
+      "warnings": [
+        "unexpected engine source=missing"
+      ]
+    },
+    {
+      "index": 3,
+      "topic": "uniport",
+      "question": "UniPort 시스템 구조를 비개발자에게 설명해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 88743,
+      "answerLength": 79,
+      "answer": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "answerPreview": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "채널",
+          "score": 4.200071810653134
+        },
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "원칙",
+          "score": 3.989933427349123
+        },
+        {
+          "path": "2_wiki/Hermes OS 디자인 시스템.md",
+          "title": "Hermes OS 디자인 시스템",
+          "heading": "화면 구조",
+          "score": 2.936747294896702
+        },
+        {
+          "path": "2_wiki/Hermes OS 디자인 시스템.md",
+          "title": "Hermes OS 디자인 시스템",
+          "heading": "관련 결정",
+          "score": 2.845312034183272
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "UniPort 교육 렌더 구조 — 앱이 쓰는 파일 + 프리뷰 미러링",
+          "score": 2.5188735092102683
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator"
+      },
+      "gatewayFallback": true,
+      "pass": false,
+      "failures": [
+        "gatewayFallback=true",
+        "short answer=79",
+        "fallback/error answer text",
+        "suspected truncation"
+      ],
+      "warnings": [
+        "unexpected engine source=missing"
+      ]
+    },
+    {
+      "index": 4,
+      "topic": "uniport",
+      "question": "UniPort 팀 협업 구조의 리스크는 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 90718,
+      "answerLength": 79,
+      "answer": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "answerPreview": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 4.271094117237921
+        },
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 4.126268931421874
+        },
+        {
+          "path": "2_wiki/팀협업-아키텍처.md",
+          "title": "팀 AI 협업 아키텍처",
+          "heading": "아직 안 된 것 (이 구조 완성하려면)",
+          "score": 4.076145436318044
+        },
+        {
+          "path": "2_wiki/팀협업-아키텍처.md",
+          "title": "팀 AI 협업 아키텍처",
+          "heading": "문제",
+          "score": 3.462562904237735
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "팀",
+          "score": 2.6272554244504587
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator"
+      },
+      "gatewayFallback": true,
+      "pass": false,
+      "failures": [
+        "gatewayFallback=true",
+        "short answer=79",
+        "fallback/error answer text",
+        "suspected truncation"
+      ],
+      "warnings": [
+        "unexpected engine source=missing"
+      ]
+    },
+    {
+      "index": 5,
+      "topic": "uniport",
+      "question": "UniPort 교육 렌더 구조에서 앱과 프리뷰는 어떻게 연결돼?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 90715,
+      "answerLength": 79,
+      "answer": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "answerPreview": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "재생성 (그 day만 / 전체)",
+          "score": 10.388617818366287
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "UniPort 교육 렌더 구조 — 앱이 쓰는 파일 + 프리뷰 미러링",
+          "score": 8.794479524739511
+        },
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "경로 A — 교육 콘텐츠 (확정·작동) → 상세: [[UniPort-교육콘텐츠]]",
+          "score": 3.4086579294848547
+        },
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "상태",
+          "score": 3.230479421123577
+        },
+        {
+          "path": "2_wiki/UniPort-교육콘텐츠.md",
+          "title": "UniPort 교육콘텐츠",
+          "heading": "② 프리뷰 — edu-show (정본 = 실제 앱 화면)",
+          "score": 3.0253779255734132
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator"
+      },
+      "gatewayFallback": true,
+      "pass": false,
+      "failures": [
+        "gatewayFallback=true",
+        "short answer=79",
+        "fallback/error answer text",
+        "suspected truncation"
+      ],
+      "warnings": [
+        "unexpected engine source=missing"
+      ]
+    },
+    {
+      "index": 6,
+      "topic": "uniport",
+      "question": "UniPort Discord Bot 명령 포맷의 핵심을 정리해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 90824,
+      "answerLength": 79,
+      "answer": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "answerPreview": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "3.1 태스크 조회",
+          "score": 8.307236224842267
+        },
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "문맥 기반 허용 명령",
+          "score": 8.307236224842267
+        },
+        {
+          "path": "2_wiki/_maps/projects.md",
+          "title": "Projects Map",
+          "heading": "UniPort subpages",
+          "score": 2.916553641858698
+        },
+        {
+          "path": "2_wiki/index.md",
+          "title": "LLM Wiki 목차",
+          "heading": "7. UniPort cluster",
+          "score": 2.846264911848214
+        },
+        {
+          "path": "2_wiki/UniPort-마케팅.md",
+          "title": "UniPort 마케팅",
+          "heading": "핵심 지표",
+          "score": 2.8287526906151625
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator"
+      },
+      "gatewayFallback": true,
+      "pass": false,
+      "failures": [
+        "gatewayFallback=true",
+        "short answer=79",
+        "fallback/error answer text",
+        "suspected truncation"
+      ],
+      "warnings": [
+        "unexpected engine source=missing"
+      ]
+    },
+    {
+      "index": 7,
+      "topic": "uniport",
+      "question": "UniPort 사용자 확보에서 가장 먼저 검증할 가설은 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 90775,
+      "answerLength": 79,
+      "answer": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "answerPreview": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "3_output/uniport-marketing-plan-2026-05-30.md",
+          "title": "UniPort 마케팅 플랜 (초안)",
+          "heading": "UniPort 마케팅 플랜 (초안 v1)",
+          "score": 2.7774359485015907
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "유저 관점 가설 (검증 대상)",
+          "score": 2.5676801342084814
+        },
+        {
+          "path": "2_wiki/대화형 일기 세컨브레인.md",
+          "title": "대화형 일기 세컨브레인",
+          "heading": "2. AI는 저장만 하지 않고 먼저 대화한다",
+          "score": 2.380195791428999
+        },
+        {
+          "path": "2_wiki/UniPort-마케팅.md",
+          "title": "UniPort 마케팅",
+          "heading": "광고 메시지 가설",
+          "score": 2.3482184291075137
+        },
+        {
+          "path": "2_wiki/투자 게임화.md",
+          "title": "투자 게임화",
+          "heading": "UniPort 적용 가설",
+          "score": 2.2116886647770673
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator"
+      },
+      "gatewayFallback": true,
+      "pass": false,
+      "failures": [
+        "gatewayFallback=true",
+        "short answer=79",
+        "fallback/error answer text",
+        "suspected truncation"
+      ],
+      "warnings": [
+        "unexpected engine source=missing"
+      ]
+    },
+    {
+      "index": 8,
+      "topic": "uniport",
+      "question": "UniPort 백로그를 보면 PM 관점에서 막힌 부분은 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 90779,
+      "answerLength": 79,
+      "answer": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "answerPreview": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 4.497836526758947
+        },
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 4.345322910135738
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "7.3 역할별 태스크 풀/팀 백로그 설계",
+          "score": 3.4186558475224995
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "유저 관점 가설 (검증 대상)",
+          "score": 2.8309161277132286
+        },
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "3.1 태스크 조회",
+          "score": 2.7393955315323595
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator"
+      },
+      "gatewayFallback": true,
+      "pass": false,
+      "failures": [
+        "gatewayFallback=true",
+        "short answer=79",
+        "fallback/error answer text",
+        "suspected truncation"
+      ],
+      "warnings": [
+        "unexpected engine source=missing"
+      ]
+    },
+    {
+      "index": 9,
+      "topic": "uniport",
+      "question": "UniPort의 핵심 차별 루프를 설명해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 90704,
+      "answerLength": 79,
+      "answer": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "answerPreview": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/논문 실험 연구.md",
+          "title": "논문 실험 연구",
+          "heading": "다음 루프 질문:",
+          "score": 2.996951023148115
+        },
+        {
+          "path": "2_wiki/UniPort-마케팅.md",
+          "title": "UniPort 마케팅",
+          "heading": "핵심 지표",
+          "score": 2.8287526906151625
+        },
+        {
+          "path": "2_wiki/Agent OS.md",
+          "title": "Agent OS",
+          "heading": "핵심 루프",
+          "score": 2.638786882290897
+        },
+        {
+          "path": "2_wiki/AI 에이전트 루프.md",
+          "title": "AI 에이전트 루프",
+          "heading": "핵심 요약",
+          "score": 2.61416170451677
+        },
+        {
+          "path": "3_output/uniport-marketing-plan-2026-05-30.md",
+          "title": "UniPort 마케팅 플랜 (초안)",
+          "heading": "4. 그로스 루프 (제품이 마케팅을 만든다)",
+          "score": 2.5542606722359844
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator"
+      },
+      "gatewayFallback": true,
+      "pass": false,
+      "failures": [
+        "gatewayFallback=true",
+        "short answer=79",
+        "fallback/error answer text",
+        "suspected truncation"
+      ],
+      "warnings": [
+        "unexpected engine source=missing"
+      ]
+    },
+    {
+      "index": 10,
+      "topic": "uniport",
+      "question": "UniPort에서 내가 직접 책임져야 하는 부분은 어디까지로 보여?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 90750,
+      "answerLength": 79,
+      "answer": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "answerPreview": "검색 결과 기반 임시 답변입니다. Railway Hermes 답변 생성에 실패했습니다: railway relay bridge timed out",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/대화형 일기 세컨브레인.md",
+          "title": "대화형 일기 세컨브레인",
+          "heading": "현재 중요한 질문",
+          "score": 3.5662394134072777
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "브랜드 (Figma 직접 확인)",
+          "score": 2.489885702818614
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "온보딩 진입 플로우 (Figma \"디자인(최종)\" 직접 확인, 2026-05-30)",
+          "score": 2.189945994583197
+        },
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "8. 팀원에게 알려줄 짧은 사용법",
+          "score": 2.187384977344996
+        },
+        {
+          "path": "2_wiki/UniPort-에이전트.md",
+          "title": "UniPort 에이전트 (코파일럿 헌장)",
+          "heading": "의존성 (빌드 전 확인)",
+          "score": 1.777877867349936
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator"
+      },
+      "gatewayFallback": true,
+      "pass": false,
+      "failures": [
+        "gatewayFallback=true",
+        "short answer=79",
+        "fallback/error answer text",
+        "suspected truncation"
+      ],
+      "warnings": [
+        "unexpected engine source=missing"
+      ]
+    }
+  ]
+}

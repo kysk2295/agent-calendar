@@ -171,9 +171,12 @@ async function main() {
   assert.equal(createEvent.body.endTime, '11:30');
   assert.equal(createEvent.body.recurrence, 'weekly');
   assert.equal(patchCalls.length > 0, true);
+  assert.equal(lastPatch.date, '2026-06-30');
+  assert.equal(lastPatch.startDate, '2026-06-30');
+  assert.equal(lastPatch.time, '12:00');
   assert.equal(lastPatch.endDate, '2026-06-30');
   assert.equal(lastPatch.endTime, '13:00');
-  assert.match(String(lastPatch.notes || ''), /\[Hermes Calendar\]/);
+  assert.match(String(lastPatch.notes || ''), /\[Agent Calendar\]/);
   assert.equal(Boolean(deleteCall), true);
   assert.deepEqual(calendarTaskCalls, []);
 

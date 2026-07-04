@@ -21,8 +21,11 @@ test('native macOS WidgetKit project exists with four Hermes widgets', () => {
 
 test('native widget views mirror the Hermes handoff visual system', () => {
   const widgetSource = source('macos/HermesWidgetHost/HermesWidgets/HermesWidgets.swift');
+  const projectSource = source('macos/HermesWidgetHost/HermesWidgetHost.xcodeproj/project.pbxproj');
   assert.match(widgetSource, /#D7613D/);
-  assert.match(widgetSource, /rgba\(251,249,244,0\.82\)/);
+  assert.doesNotMatch(widgetSource, /Image\("AgentCalendarLogo"\)/);
+  assert.match(projectSource, /Assets\.xcassets in Resources/);
+  assert.doesNotMatch(widgetSource, /Text\("H"\)/);
   assert.match(widgetSource, /HermesMountainBackground/);
   assert.match(widgetSource, /MonthCalendarWidgetView/);
   assert.match(widgetSource, /TodayWidgetView/);
@@ -121,7 +124,7 @@ test('electron app writes native widget snapshots into the shared app group cont
   assert.match(appSource, /window\.hermesDesktop\?\.saveWidgetSnapshot/);
   assert.match(mainSource, /widget:snapshot-save/);
   assert.match(mainSource, /preload\.cjs/);
-  assert.match(mainSource, /group\.com\.hermes\.tasks/);
+  assert.match(mainSource, /group\.com\.agents\.calendar/);
   assert.match(mainSource, /HermesWidgetSnapshot\.json/);
   assert.match(mainSource, /changed:\s*previous !== body/);
   assert.doesNotMatch(mainSource, /open.*Hermes Widgets\.app|refreshNativeWidgets|execFile/);

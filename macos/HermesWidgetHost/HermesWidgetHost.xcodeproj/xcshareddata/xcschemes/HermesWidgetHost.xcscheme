@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A00000000000000000000301"
-               BuildableName = "Hermes Widgets.app"
+               BuildableName = "Agents Calendar Widgets.app"
                BlueprintName = "HermesWidgetHost"
                ReferencedContainer = "container:HermesWidgetHost.xcodeproj">
             </BuildableReference>
@@ -38,7 +38,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A00000000000000000000301"
-            BuildableName = "Hermes Widgets.app"
+            BuildableName = "Agents Calendar Widgets.app"
             BlueprintName = "HermesWidgetHost"
             ReferencedContainer = "container:HermesWidgetHost.xcodeproj">
          </BuildableReference>
@@ -55,7 +55,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A00000000000000000000301"
-            BuildableName = "Hermes Widgets.app"
+            BuildableName = "Agents Calendar Widgets.app"
             BlueprintName = "HermesWidgetHost"
             ReferencedContainer = "container:HermesWidgetHost.xcodeproj">
          </BuildableReference>

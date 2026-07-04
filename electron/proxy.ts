@@ -1,6 +1,7 @@
 import http, { type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { pipeline } from 'node:stream/promises';
 import { URL } from 'node:url';
+import { handleLocalWikiRoute, isLocalWikiRoute } from './localWikiAsk.js';
 
 export type ProxySettings = {
   apiBaseUrl: string;
@@ -72,6 +73,16 @@ export async function handleProxyRequest(
     return;
   }
 
+  if (process.env.WIKI_ASK_LOCAL === '1' && isLocalWikiRoute(req.method, req.url)) {
+    const settings = options.getSettings();
+    await handleLocalWikiRoute(req, res, {
+      fetchImpl: options.fetchImpl,
+      railwayBaseUrl: settings.apiBaseUrl,
+      railwayApiToken: settings.apiToken,
+    });
+    return;
+  }
+
   const settings = options.getSettings();
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries(req.headers)) {
@@ -107,7 +118,7 @@ export async function handleProxyRequest(
     res.writeHead(502, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({
       ok: false,
-      error: error instanceof Error ? error.message : 'Hermes Railway proxy failed',
+      error: error instanceof Error ? error.message : 'Agent Calendar Railway proxy failed',
     }));
   }
 }

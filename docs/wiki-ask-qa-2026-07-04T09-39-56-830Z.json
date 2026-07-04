@@ -1,0 +1,1123 @@
+{
+  "summary": {
+    "ok": false,
+    "endpoint": "http://127.0.0.1:58992/api/wiki/ask",
+    "total": 20,
+    "pass": 19,
+    "fail": 1,
+    "warning": 1,
+    "avgElapsedMs": 54956,
+    "p95ElapsedMs": 75594,
+    "minAnswerLength": 59,
+    "maxAnswerLength": 423,
+    "truncationSuspects": 0,
+    "gatewayFallbackFailures": 0,
+    "elapsedMs": 1099129
+  },
+  "results": [
+    {
+      "index": 1,
+      "topic": "uniport",
+      "question": "UniPort에서 지금 제일 중요한 병목은?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 42888,
+      "answerLength": 206,
+      "answer": "UniPort에서 지금 제일 중요한 병목은 그룹모의투자 UX의 재미·커뮤니티·경쟁감이다. [2]에 따르면 출시 직후 최우선으로 이 부분을 개선해야 하며, 종원·희경이 2일간 실사용 피드백을 수집해 수요일 15시 회의에서 기획 수정과 즉시 개발 반영 여부를 결정하기로 했다. 다른 소스들은 팀 백로그나 마케팅 계획을 다루고 있지만 현재 병목에 대한 구체적인 언급은 없다.",
+      "answerPreview": "UniPort에서 지금 제일 중요한 병목은 그룹모의투자 UX의 재미·커뮤니티·경쟁감이다. [2]에 따르면 출시 직후 최우선으로 이 부분을 개선해야 하며, 종원·희경이 2일간 실사용 피드백을 수집해 수요일 15시 회의에서 기획 수정과 즉시 개발 반영 여부를 결정하기로 했다. 다른 소스들은 팀 백로그나 마케팅 계획을 다루고 있지만 현재 병목에 대한 구체적인 언급은 없다.",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 4.181206731793003
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "출시 상태 / 직후 운영 (2026-05-31)",
+          "score": 4.178830809091943
+        },
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 4.124200009242817
+        },
+        {
+          "path": "2_wiki/UniPort-마케팅.md",
+          "title": "UniPort 마케팅",
+          "heading": "출시 직후 마케팅 실행 계획 (2026-05-31)",
+          "score": 3.9065984688311994
+        },
+        {
+          "path": "2_wiki/_maps/projects.md",
+          "title": "Projects Map",
+          "heading": "UniPort subpages",
+          "score": 3.9065984688311994
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 2,
+      "topic": "uniport",
+      "question": "UniPort 로드맵에서 당장 실행해야 할 3가지는 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 66810,
+      "answerLength": 330,
+      "answer": "UniPort 로드맵 현재 단계는 온보딩 완료와 UI/UX 고도화이므로 당장 실행할 3가지는 Play Store 심사 통과 즉시 마케팅을 실행하는 것, 종원·희경 실사용 피드백을 수집하고 수요일 15시 피드백·기획 수정 회의를 진행하는 것, 그룹 모의투자 재미 요소 재설계와 초보자 보상 곡선 조정을 병행하는 것이다. [2][3][5] 이는 [1]의 \"이번 주 목표 먼저\" 우선순위 원칙에 따라 온보딩 경험을 빠르게 개선하고 사용자 확보 단계로 전환하기 위한 작업이다. [4] 마케팅 파이프라인 복구와 광고 소재 제작까지 함께 하면 Play Store 승인 후 즉시 실행력이 붙는다. [5]",
+      "answerPreview": "UniPort 로드맵 현재 단계는 온보딩 완료와 UI/UX 고도화이므로 당장 실행할 3가지는 Play Store 심사 통과 즉시 마케팅을 실행하는 것, 종원·희경 실사용 피드백을 수집하고 수요일 15시 피드백·기획 수정 회의를 진행하는 것, 그룹 모의투자 재미 요소 재설계와 초보자 보상 곡선 조정을 병행하는 것이다. [2][3][5] 이는 [1]의 \"이번 주 목표 먼저\" 우선순위 원칙에 따라 온보딩 경험을 빠르게 개선하고 사용자 확보 단계로 전환하기 위한 작업이",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-로드맵.md",
+          "title": "UniPort 로드맵",
+          "heading": "UniPort 로드맵 · 우선순위",
+          "score": 7.284170815260606
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "UX/기획",
+          "score": 5.749212583996243
+        },
+        {
+          "path": "2_wiki/UniPort-로드맵.md",
+          "title": "UniPort 로드맵",
+          "heading": "출시 상태",
+          "score": 5.732260631028585
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "로드맵 (협약 '26.06~'27.01)",
+          "score": 5.396746714525689
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "마케팅",
+          "score": 5.347202398495697
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 3,
+      "topic": "uniport",
+      "question": "UniPort 시스템 구조를 비개발자에게 설명해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 50854,
+      "answerLength": 231,
+      "answer": "UniPort 시스템은 오너와 팀이 텔레그램·디스코드로 소통하면서 작업을 관리하는 구조예요. 오너는 텔레그램으로 1:1 대화하고, 팀은 디스코드 봇(@pm)으로 호출하며 개발 내역은 자동으로 공유돼요. [1] 모든 작업은 위키에 기록되고 배포나 발송 같은 중요한 일은 오너 승인을 받아야 하며, 민감한 정보는 노출되지 않아요. [2] 교육 콘텐츠는 파일로 관리돼 앱과 미리보기가 일치하게 업데이트돼요. [3][4]",
+      "answerPreview": "UniPort 시스템은 오너와 팀이 텔레그램·디스코드로 소통하면서 작업을 관리하는 구조예요. 오너는 텔레그램으로 1:1 대화하고, 팀은 디스코드 봇(@pm)으로 호출하며 개발 내역은 자동으로 공유돼요. [1] 모든 작업은 위키에 기록되고 배포나 발송 같은 중요한 일은 오너 승인을 받아야 하며, 민감한 정보는 노출되지 않아요. [2] 교육 콘텐츠는 파일로 관리돼 앱과 미리보기가 일치하게 업데이트돼요. [3][4]",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "채널",
+          "score": 6.700071810653134
+        },
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "원칙",
+          "score": 6.489933427349123
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "UniPort 교육 렌더 구조 — 앱이 쓰는 파일 + 프리뷰 미러링",
+          "score": 5.018873509210268
+        },
+        {
+          "path": "2_wiki/UniPort-교육콘텐츠.md",
+          "title": "UniPort 교육콘텐츠",
+          "heading": "텍스트/구조 반영",
+          "score": 4.917400362280478
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "재생성 (그 day만 / 전체)",
+          "score": 4.721437629799644
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 4,
+      "topic": "uniport",
+      "question": "UniPort 팀 협업 구조의 리스크는 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 70857,
+      "answerLength": 254,
+      "answer": "UniPort 팀 협업 구조의 리스크는 위키에 구체적으로 기록된 내용이 없어서 정확히 파악하기 어려워. [3] UniPort - 팀 문서에서 대표가 기획·개발을 총괄하고 AI·투자, 풀스택, 마케팅 인력이 역할 분담돼 있다는 점은 확인되지만, 리더 집중, 소규모 팀 한계, 또는 협업 프로세스 관련 위험 요소는 전혀 언급되지 않았어. UniPort-팀백로그.md도 완료된 백로그 제목만 있고 리스크 분석 부분이 드러나지 않아 위키 근거 부족이라고 판단돼.",
+      "answerPreview": "UniPort 팀 협업 구조의 리스크는 위키에 구체적으로 기록된 내용이 없어서 정확히 파악하기 어려워. [3] UniPort - 팀 문서에서 대표가 기획·개발을 총괄하고 AI·투자, 풀스택, 마케팅 인력이 역할 분담돼 있다는 점은 확인되지만, 리더 집중, 소규모 팀 한계, 또는 협업 프로세스 관련 위험 요소는 전혀 언급되지 않았어. UniPort-팀백로그.md도 완료된 백로그 제목만 있고 리스크 분석 부분이 드러나지 않아 위키 근거 부족이라고 판단돼.",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 6.771094117237921
+        },
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 6.626268931421874
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "팀",
+          "score": 5.127255424450459
+        },
+        {
+          "path": "2_wiki/UniPort-교육콘텐츠.md",
+          "title": "UniPort 교육콘텐츠",
+          "heading": "데이터 구조 (중요)",
+          "score": 5.07197436223358
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "UniPort 교육 렌더 구조 — 앱이 쓰는 파일 + 프리뷰 미러링",
+          "score": 5.018873509210268
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 5,
+      "topic": "uniport",
+      "question": "UniPort 교육 렌더 구조에서 앱과 프리뷰는 어떻게 연결돼?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 68856,
+      "answerLength": 292,
+      "answer": "앱과 프리뷰는 모노레포의 Roborazzi 스크린샷 테스트(EducationCardScreenshotTest)를 통해 직접 연결된다. 이 테스트는 cards.json을 앱과 동일한 파이프라인(EducationCardDTO.toDomain → toVisual)으로 처리해 실제 앱 화면과 똑같은 PNG를 생성하고, 그 결과를 <교육폴더>/previews/app/에 복사한다. edu-show 명령으로 이 PNG를 불러와 “실제 앱이 그린 화면”을 프리뷰로 제공하며, 앱 코드는 건드리지 않고 미러링만 한다. [1][2][5]",
+      "answerPreview": "앱과 프리뷰는 모노레포의 Roborazzi 스크린샷 테스트(EducationCardScreenshotTest)를 통해 직접 연결된다. 이 테스트는 cards.json을 앱과 동일한 파이프라인(EducationCardDTO.toDomain → toVisual)으로 처리해 실제 앱 화면과 똑같은 PNG를 생성하고, 그 결과를 <교육폴더>/previews/app/에 복사한다. edu-show 명령으로 이 PNG를 불러와 “실제 앱이 그린 화면”을 프리뷰로 제공하며, ",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "재생성 (그 day만 / 전체)",
+          "score": 12.888617818366287
+        },
+        {
+          "path": "2_wiki/UniPort-교육렌더구조.md",
+          "title": "UniPort 교육 렌더 구조 (앱 ↔ 프리뷰)",
+          "heading": "UniPort 교육 렌더 구조 — 앱이 쓰는 파일 + 프리뷰 미러링",
+          "score": 11.294479524739511
+        },
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "경로 A — 교육 콘텐츠 (확정·작동) → 상세: [[UniPort-교육콘텐츠]]",
+          "score": 5.908657929484855
+        },
+        {
+          "path": "2_wiki/UniPort-시스템구조.md",
+          "title": "UniPort 시스템 구조",
+          "heading": "상태",
+          "score": 5.730479421123578
+        },
+        {
+          "path": "2_wiki/UniPort-교육콘텐츠.md",
+          "title": "UniPort 교육콘텐츠",
+          "heading": "② 프리뷰 — edu-show (정본 = 실제 앱 화면)",
+          "score": 5.525377925573413
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 6,
+      "topic": "uniport",
+      "question": "UniPort Discord Bot 명령 포맷의 핵심을 정리해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 46271,
+      "answerLength": 277,
+      "answer": "UniPort Discord Bot 명령 포맷의 핵심은 `@pm` 멘션 뒤에 자연어로 명령을 붙이는 방식이다. [1] 태스크 조회 명령으로는 `@pm 개발 태스크 보여줘`, `@pm 디자인 할 일 보여줘`, `@pm 지금 제일 급한 거 뭐야` 같은 형태가 예시로 제시되어 있다. [2] 문맥 기반 허용 명령으로는 `@pm 첫 문단 삭제해줘`, `@pm 다음 카드 보여줘`, `@pm 이미지 이걸로 바꿔줘` 등이 포함된다. 이 외의 상세 스펙이나 전체 명령어 목록은 현재 위키에서 확인되지 않는다.",
+      "answerPreview": "UniPort Discord Bot 명령 포맷의 핵심은 `@pm` 멘션 뒤에 자연어로 명령을 붙이는 방식이다. [1] 태스크 조회 명령으로는 `@pm 개발 태스크 보여줘`, `@pm 디자인 할 일 보여줘`, `@pm 지금 제일 급한 거 뭐야` 같은 형태가 예시로 제시되어 있다. [2] 문맥 기반 허용 명령으로는 `@pm 첫 문단 삭제해줘`, `@pm 다음 카드 보여줘`, `@pm 이미지 이걸로 바꿔줘` 등이 포함된다. 이 외의 상세 스펙이나 전체 명령어 목록은 ",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "3.1 태스크 조회",
+          "score": 15.807236224842267
+        },
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "문맥 기반 허용 명령",
+          "score": 15.807236224842267
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "7.4 Discord 연동 설계 및 웹훅 테스트",
+          "score": 6.544866519590737
+        },
+        {
+          "path": "2_wiki/_maps/projects.md",
+          "title": "Projects Map",
+          "heading": "UniPort subpages",
+          "score": 5.416553641858698
+        },
+        {
+          "path": "2_wiki/index.md",
+          "title": "LLM Wiki 목차",
+          "heading": "7. UniPort cluster",
+          "score": 5.346264911848214
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 7,
+      "topic": "uniport",
+      "question": "UniPort 사용자 확보에서 가장 먼저 검증할 가설은 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 59099,
+      "answerLength": 298,
+      "answer": "UniPort 사용자 확보 단계에서 가장 먼저 검증할 가설은 “혼자 공부 말고 친구들이랑 경쟁하면서 배우는 첫 투자”라는 메시지가 초보자들의 초기 관심과 앱 유입을 실제로 일으킬 수 있는지다. \n\n현재 PMF 검증 전 단계라 대규모 지출 대신 첫 사용자 확보와 학습 루프를 목표로 하므로, 이 메시지 후보를 소규모 광고 테스트로 바로 돌려 반응을 보는 게 우선이다. [1][3][5] \n\nUX 흐름이나 게임화 요소는 메시지가 통한 뒤에 확인할 후속 가설이고, 위키 근거상 사용자 확보의 출발점은 이 메시지 가설 검증에 집중되어 있다.",
+      "answerPreview": "UniPort 사용자 확보 단계에서 가장 먼저 검증할 가설은 “혼자 공부 말고 친구들이랑 경쟁하면서 배우는 첫 투자”라는 메시지가 초보자들의 초기 관심과 앱 유입을 실제로 일으킬 수 있는지다. \n\n현재 PMF 검증 전 단계라 대규모 지출 대신 첫 사용자 확보와 학습 루프를 목표로 하므로, 이 메시지 후보를 소규모 광고 테스트로 바로 돌려 반응을 보는 게 우선이다. [1][3][5] \n\nUX 흐름이나 게임화 요소는 메시지가 통한 뒤에 확인할 후속 가설이고, 위키 ",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "3_output/uniport-marketing-plan-2026-05-30.md",
+          "title": "UniPort 마케팅 플랜 (초안)",
+          "heading": "UniPort 마케팅 플랜 (초안 v1)",
+          "score": 5.277435948501591
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "유저 관점 가설 (검증 대상)",
+          "score": 5.067680134208482
+        },
+        {
+          "path": "2_wiki/UniPort-마케팅.md",
+          "title": "UniPort 마케팅",
+          "heading": "광고 메시지 가설",
+          "score": 4.848218429107513
+        },
+        {
+          "path": "2_wiki/투자 게임화.md",
+          "title": "투자 게임화",
+          "heading": "UniPort 적용 가설",
+          "score": 4.711688664777068
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "6.3 광고 메시지 가설 정리",
+          "score": 4.694065366673982
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 8,
+      "topic": "uniport",
+      "question": "UniPort 백로그를 보면 PM 관점에서 막힌 부분은 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 46314,
+      "answerLength": 232,
+      "answer": "UniPort 팀 백로그에서 PM 관점으로 명확히 드러난 막힌 부분은 위키 근거가 부족하다. [3]에서 역할별 태스크 풀 구조를 만들면서 blocked 상태를 정의했지만, 실제 어떤 태스크가 blocked인지 구체적인 항목이나 사례는 제공되지 않았다. [1]과 [2]는 백로그 자체를 가리키지만 내용이 없고, [4]의 UX 가설은 이탈 위험을 지적할 뿐 백로그 차원의 blocked task와 직접 연결되지 않는다.",
+      "answerPreview": "UniPort 팀 백로그에서 PM 관점으로 명확히 드러난 막힌 부분은 위키 근거가 부족하다. [3]에서 역할별 태스크 풀 구조를 만들면서 blocked 상태를 정의했지만, 실제 어떤 태스크가 blocked인지 구체적인 항목이나 사례는 제공되지 않았다. [1]과 [2]는 백로그 자체를 가리키지만 내용이 없고, [4]의 UX 가설은 이탈 위험을 지적할 뿐 백로그 차원의 blocked task와 직접 연결되지 않는다.",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 6.997836526758947
+        },
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 6.845322910135738
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "7.3 역할별 태스크 풀/팀 백로그 설계",
+          "score": 5.9186558475224995
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "유저 관점 가설 (검증 대상)",
+          "score": 5.330916127713229
+        },
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "3.1 태스크 조회",
+          "score": 5.2393955315323595
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 9,
+      "topic": "uniport",
+      "question": "UniPort의 핵심 차별 루프를 설명해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 51659,
+      "answerLength": 237,
+      "answer": "UniPort의 핵심 차별 루프는 진단 결과(프로필·전략)를 본 사용자가 또래 비교 욕구를 느껴 공유 버튼을 누르게 하고, 그 공유가 친구 유입으로 이어져 그룹 모의투자 토너먼트에 참여하게 만드는 구조다. 토너먼트는 혼자서는 재미가 없기 때문에 친구 초대가 필수 요소가 되고, 이 과정이 자연스럽게 바이럴로 확산된다 [2]. 이 루프는 마케팅 예산보다 제품 자체의 공유 훅이 더 강력하게 작동하도록 의도된 성장 메커니즘이다.",
+      "answerPreview": "UniPort의 핵심 차별 루프는 진단 결과(프로필·전략)를 본 사용자가 또래 비교 욕구를 느껴 공유 버튼을 누르게 하고, 그 공유가 친구 유입으로 이어져 그룹 모의투자 토너먼트에 참여하게 만드는 구조다. 토너먼트는 혼자서는 재미가 없기 때문에 친구 초대가 필수 요소가 되고, 이 과정이 자연스럽게 바이럴로 확산된다 [2]. 이 루프는 마케팅 예산보다 제품 자체의 공유 훅이 더 강력하게 작동하도록 의도된 성장 메커니즘이다.",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-마케팅.md",
+          "title": "UniPort 마케팅",
+          "heading": "핵심 지표",
+          "score": 5.328752690615163
+        },
+        {
+          "path": "3_output/uniport-marketing-plan-2026-05-30.md",
+          "title": "UniPort 마케팅 플랜 (초안)",
+          "heading": "4. 그로스 루프 (제품이 마케팅을 만든다)",
+          "score": 5.054260672235984
+        },
+        {
+          "path": "2_wiki/UniPort.md",
+          "title": "UniPort",
+          "heading": "핵심 지표 (사업계획 기준 — 검증된 목표)",
+          "score": 4.861576008485795
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "실사용 피드백 루프",
+          "score": 4.830384432811487
+        },
+        {
+          "path": "2_wiki/UniPort-에이전트.md",
+          "title": "UniPort 에이전트 (코파일럿 헌장)",
+          "heading": "핵심 사용 방식",
+          "score": 4.793109934734536
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 10,
+      "topic": "uniport",
+      "question": "UniPort에서 내가 직접 책임져야 하는 부분은 어디까지로 보여?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 75594,
+      "answerLength": 369,
+      "answer": "UniPort에서 네가 직접 책임져야 하는 부분은 Figma 기반의 UX·브랜드 설계와 온보딩·모의투자 전체 플로우 정의, 그리고 Discord PM 봇을 통한 콘텐츠·개발 태스크 운영까지로 보인다. [1]과 [2]에서 로고·슬로건·디자인 시스템부터 스플래시→진단→홈까지의 구체적인 섹션 구성까지 네가 직접 확인하고 정리한 흔적이 뚜렷하다. [3]의 봇 명령 규격(카드 조회·수정·개발 태스크 할당)도 네가 실제로 쓰는 도구로 보이며, [4]처럼 Notion·Figma 접근 같은 에이전트 의존성까지 네가 챙겨야 하는 영역이다. 마케팅 파이프라인 레포 점검[5]까지 포함하면, 제품 경험과 PM 운영 도구, 에이전트 인프라까지가 네 직접 책임 범위로 드러난다.",
+      "answerPreview": "UniPort에서 네가 직접 책임져야 하는 부분은 Figma 기반의 UX·브랜드 설계와 온보딩·모의투자 전체 플로우 정의, 그리고 Discord PM 봇을 통한 콘텐츠·개발 태스크 운영까지로 보인다. [1]과 [2]에서 로고·슬로건·디자인 시스템부터 스플래시→진단→홈까지의 구체적인 섹션 구성까지 네가 직접 확인하고 정리한 흔적이 뚜렷하다. [3]의 봇 명령 규격(카드 조회·수정·개발 태스크 할당)도 네가 실제로 쓰는 도구로 보이며, [4]처럼 Notion·Fig",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "브랜드 (Figma 직접 확인)",
+          "score": 4.989885702818614
+        },
+        {
+          "path": "2_wiki/UniPort-UX.md",
+          "title": "UniPort UX",
+          "heading": "온보딩 진입 플로우 (Figma \"디자인(최종)\" 직접 확인, 2026-05-30)",
+          "score": 4.689945994583197
+        },
+        {
+          "path": "2_wiki/UniPort-Discord-Bot-Command-Format.md",
+          "title": "UniPort Discord PM 봇 명령 포맷 규격",
+          "heading": "8. 팀원에게 알려줄 짧은 사용법",
+          "score": 4.687384977344996
+        },
+        {
+          "path": "2_wiki/UniPort-에이전트.md",
+          "title": "UniPort 에이전트 (코파일럿 헌장)",
+          "heading": "의존성 (빌드 전 확인)",
+          "score": 4.277877867349936
+        },
+        {
+          "path": "3_output/2026-06-01-uniport-weekly-report.md",
+          "title": "UniPort 주간 활동 보고서",
+          "heading": "6.4 마케팅 파이프라인 점검",
+          "score": 4.27218328848093
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 11,
+      "topic": "market",
+      "question": "Market Flow Sentinel의 리스크 관리 원칙을 요약해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 42232,
+      "answerLength": 266,
+      "answer": "Market Flow Sentinel의 리스크 관리 원칙에 대한 구체적인 내용은 제공된 SOURCES에서 확인되지 않습니다. [1]과 [2]는 Market Flow Sentinel.md 페이지와 raw snapshot을 가리키지만, 리스크 관련 원칙이나 세부 규칙은 전혀 포함되어 있지 않습니다. [5]의 Market Analyst Agent 임무에 '확률·리스크·반대 근거 분리'가 언급되긴 하나, 이는 Sentinel 자체의 리스크 관리 원칙이 아닙니다. 위키 근거 부족.",
+      "answerPreview": "Market Flow Sentinel의 리스크 관리 원칙에 대한 구체적인 내용은 제공된 SOURCES에서 확인되지 않습니다. [1]과 [2]는 Market Flow Sentinel.md 페이지와 raw snapshot을 가리키지만, 리스크 관련 원칙이나 세부 규칙은 전혀 포함되어 있지 않습니다. [5]의 Market Analyst Agent 임무에 '확률·리스크·반대 근거 분리'가 언급되긴 하나, 이는 Sentinel 자체의 리스크 관리 원칙이 아닙니다. 위키 ",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/Market Flow Sentinel.md",
+          "title": "Market Flow Sentinel",
+          "heading": "관련 토픽",
+          "score": 17.196901890822332
+        },
+        {
+          "path": "2_wiki/Market Flow Sentinel.md",
+          "title": "Market Flow Sentinel",
+          "heading": "출처",
+          "score": 15.080416908362444
+        },
+        {
+          "path": "7_automation/automation-registry.md",
+          "title": "Automation Registry",
+          "heading": "Market Flow Sentinel loop",
+          "score": 10.552585625456537
+        },
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "관련 토픽",
+          "score": 6.4999428300240485
+        },
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "핵심 임무",
+          "score": 5.566804520998215
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 12,
+      "topic": "market",
+      "question": "Market Flow Sentinel loop는 어떤 자동화야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 59703,
+      "answerLength": 376,
+      "answer": "Market Flow Sentinel loop는 매일 아침 시장 흐름을 자동으로 모니터링하고 브리핑을 생성하는 자동화 루프다. Automation Registry에 따르면 d6ec839afa03 잡이 평일 오전 8시에 Market Flow Sentinel morning brief를 실행하며, Market Analyst Agent가 시장·섹터·종목 이슈를 근거 중심으로 요약하고 확률·리스크·반대 근거를 분리하는 역할을 맡는다 [3][5]. 이 루프는 AI 투자 리서치와 jusig-code, Skill Promotion Loop와 연결되어 반복적인 분석 사이클을 유지한다 [1][4]. 최신 운영 상태는 2026-07-04 raw snapshot에 기록되어 있다 [2].",
+      "answerPreview": "Market Flow Sentinel loop는 매일 아침 시장 흐름을 자동으로 모니터링하고 브리핑을 생성하는 자동화 루프다. Automation Registry에 따르면 d6ec839afa03 잡이 평일 오전 8시에 Market Flow Sentinel morning brief를 실행하며, Market Analyst Agent가 시장·섹터·종목 이슈를 근거 중심으로 요약하고 확률·리스크·반대 근거를 분리하는 역할을 맡는다 [3][5]. 이 루프는 AI 투자 리",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/Market Flow Sentinel.md",
+          "title": "Market Flow Sentinel",
+          "heading": "관련 토픽",
+          "score": 17.196901890822332
+        },
+        {
+          "path": "2_wiki/Market Flow Sentinel.md",
+          "title": "Market Flow Sentinel",
+          "heading": "출처",
+          "score": 15.080416908362444
+        },
+        {
+          "path": "7_automation/automation-registry.md",
+          "title": "Automation Registry",
+          "heading": "Market Flow Sentinel loop",
+          "score": 13.945133526833448
+        },
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "관련 토픽",
+          "score": 6.4999428300240485
+        },
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "핵심 임무",
+          "score": 5.017824740677453
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 13,
+      "topic": "market",
+      "question": "Market Analyst Agent의 핵심 임무는 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 58963,
+      "answerLength": 259,
+      "answer": "Market Analyst Agent의 핵심 임무는 시장·섹터·종목 이슈를 근거 중심으로 요약하고, 확률·리스크·반대 근거를 명확히 분리하는 거야. [1] Market Flow Sentinel 산출물과 대화형 질문을 연결하되 자동매매나 즉흥 매수/매도 지시는 절대 하지 않으며, 중요한 분석은 위키나 agent-run으로 write-back할 수 있게 설계되어 있어. Profile은 stockagent로 @Yunseo_analysistbot에서 동작한다. [2]",
+      "answerPreview": "Market Analyst Agent의 핵심 임무는 시장·섹터·종목 이슈를 근거 중심으로 요약하고, 확률·리스크·반대 근거를 명확히 분리하는 거야. [1] Market Flow Sentinel 산출물과 대화형 질문을 연결하되 자동매매나 즉흥 매수/매도 지시는 절대 하지 않으며, 중요한 분석은 위키나 agent-run으로 write-back할 수 있게 설계되어 있어. Profile은 stockagent로 @Yunseo_analysistbot에서 동작한다. [2]",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "핵심 임무",
+          "score": 14.714197006260427
+        },
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "Hermes profile",
+          "score": 13.51938793439984
+        },
+        {
+          "path": "6_agents/profiles/wiki-curator.md",
+          "title": "Wiki Curator Agent",
+          "heading": "핵심 임무",
+          "score": 6.221296237025518
+        },
+        {
+          "path": "6_agents/profiles/business-consultant.md",
+          "title": "Business Consultant Agent",
+          "heading": "핵심 임무",
+          "score": 5.7871907986202125
+        },
+        {
+          "path": "2_wiki/Market Flow Sentinel.md",
+          "title": "Market Flow Sentinel",
+          "heading": "관련 토픽",
+          "score": 5.709944887747708
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 14,
+      "topic": "market",
+      "question": "Market Flow Sentinel에서 자동매매를 하지 않는 이유는 뭐야?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 62766,
+      "answerLength": 342,
+      "answer": "Market Flow Sentinel은 자동매매를 하지 않는데, 이는 Market Analyst Agent의 핵심 임무에 \"자동매매·즉흥 매수/매도 지시는 하지 않는다\"고 명시되어 있기 때문입니다 [5]. 이 에이전트는 시장 이슈를 근거 중심으로 요약하고 확률·리스크·반대 근거를 분리하는 분석 역할에 집중하며, Market Flow Sentinel 산출물을 대화형 질문과 연결하는 데 초점을 맞춥니다 [4][5]. morning brief 같은 정보 제공 루프(d6ec839afa03)로 운영되면서도 실행 단계는 배제한 구조로 설계된 셈입니다 [3]. 위키에 더 구체적인 '왜'에 대한 추가 설명은 부족합니다.",
+      "answerPreview": "Market Flow Sentinel은 자동매매를 하지 않는데, 이는 Market Analyst Agent의 핵심 임무에 \"자동매매·즉흥 매수/매도 지시는 하지 않는다\"고 명시되어 있기 때문입니다 [5]. 이 에이전트는 시장 이슈를 근거 중심으로 요약하고 확률·리스크·반대 근거를 분리하는 분석 역할에 집중하며, Market Flow Sentinel 산출물을 대화형 질문과 연결하는 데 초점을 맞춥니다 [4][5]. morning brief 같은 정보 제공 루프(d",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/Market Flow Sentinel.md",
+          "title": "Market Flow Sentinel",
+          "heading": "관련 토픽",
+          "score": 17.196901890822332
+        },
+        {
+          "path": "2_wiki/Market Flow Sentinel.md",
+          "title": "Market Flow Sentinel",
+          "heading": "출처",
+          "score": 15.080416908362444
+        },
+        {
+          "path": "7_automation/automation-registry.md",
+          "title": "Automation Registry",
+          "heading": "Market Flow Sentinel loop",
+          "score": 10.552585625456537
+        },
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "관련 토픽",
+          "score": 6.4999428300240485
+        },
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "핵심 임무",
+          "score": 6.460769188954338
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 15,
+      "topic": "market",
+      "question": "시장 데이터 수집 실패 시 어떤 정책을 따라야 해?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 42834,
+      "answerLength": 232,
+      "answer": "시장 데이터 수집 실패 시 따라야 할 구체적인 정책은 제공된 위키 소스에 명시되어 있지 않아 위키 근거 부족이다. Automation Registry에서는 각 자동화가 실패 정책을 가지는 것으로 정의되어 있지만 [1], 시장 데이터 수집과 관련된 실제 정책 내용은 포함되지 않았다. Market Flow Sentinel 관련 토픽이 언급되긴 하나 [3], 실패 시 어떤 동작을 취해야 하는지에 대한 근거는 부족하다.",
+      "answerPreview": "시장 데이터 수집 실패 시 따라야 할 구체적인 정책은 제공된 위키 소스에 명시되어 있지 않아 위키 근거 부족이다. Automation Registry에서는 각 자동화가 실패 정책을 가지는 것으로 정의되어 있지만 [1], 시장 데이터 수집과 관련된 실제 정책 내용은 포함되지 않았다. Market Flow Sentinel 관련 토픽이 언급되긴 하나 [3], 실패 시 어떤 동작을 취해야 하는지에 대한 근거는 부족하다.",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "7_automation/automation-registry.md",
+          "title": "Automation Registry",
+          "heading": "Automation Registry",
+          "score": 2.782216474313274
+        },
+        {
+          "path": "6_agents/profiles/wiki-curator.md",
+          "title": "Wiki Curator Agent",
+          "heading": "경제 / 투자 / 시장",
+          "score": 2.347550512194778
+        },
+        {
+          "path": "2_wiki/AI 데이터 분석.md",
+          "title": "AI 데이터 분석",
+          "heading": "관련 토픽",
+          "score": 2.1461489001094223
+        },
+        {
+          "path": "7_automation/native-telegram-agent-bots.md",
+          "title": "Native Telegram Agent Bots",
+          "heading": "현재 안전 정책",
+          "score": 2.1035306524165285
+        },
+        {
+          "path": "2_wiki/UniPort-팀백로그.md",
+          "title": "UniPort 팀 백로그",
+          "heading": "완료",
+          "score": 2.0300536254842734
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 16,
+      "topic": "market",
+      "question": "내 주식 관련 자동화에서 반복 실패를 줄이는 방법은?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 47997,
+      "answerLength": 295,
+      "answer": "주식 관련 자동화에서 반복 실패를 줄이려면 실패 패턴이 감지되면 즉시 rejected-patterns에 기록하고, 반복 실행되는 절차는 automation-registry에 등록해 관리하는 게 핵심이다. [3] 실행 전에 current-state와 skill-candidates를 확인하는 context routing rule을 따르면 불필요한 재시도를 줄일 수 있다. [3] Local Project Bridge와 주식의코드 토픽에서 구체적인 자동화 로직을 살펴보면 실패 원인을 더 정확히 파악할 수 있을 것이다. [1][2]",
+      "answerPreview": "주식 관련 자동화에서 반복 실패를 줄이려면 실패 패턴이 감지되면 즉시 rejected-patterns에 기록하고, 반복 실행되는 절차는 automation-registry에 등록해 관리하는 게 핵심이다. [3] 실행 전에 current-state와 skill-candidates를 확인하는 context routing rule을 따르면 불필요한 재시도를 줄일 수 있다. [3] Local Project Bridge와 주식의코드 토픽에서 구체적인 자동화 로직을 살펴보",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/Local Project Bridge.md",
+          "title": "Local Project Bridge",
+          "heading": "관련 토픽",
+          "score": 2.805790001859867
+        },
+        {
+          "path": "2_wiki/jusig-code.md",
+          "title": "주식의코드",
+          "heading": "관련 토픽",
+          "score": 2.805790001859867
+        },
+        {
+          "path": "6_agents/rules/context-routing.md",
+          "title": "Context Routing Rule",
+          "heading": "에이전트 실행 / 자동화 실행",
+          "score": 2.7976128143732106
+        },
+        {
+          "path": "2_wiki/ai-ad-hooking-workflow.md",
+          "title": "AI Ad Hooking Workflow",
+          "heading": "관련 토픽",
+          "score": 2.6618061126015755
+        },
+        {
+          "path": "2_wiki/chat-console-smoke.md",
+          "title": "chat-console-smoke",
+          "heading": "관련 토픽",
+          "score": 2.6618061126015755
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 17,
+      "topic": "market",
+      "question": "Market Flow Sentinel과 stockagent는 어떻게 역할이 달라?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 57336,
+      "answerLength": 289,
+      "answer": "Market Flow Sentinel은 시장 흐름을 지속 감시하며 아침 브리핑을 자동으로 생성하는 자동화 루프 역할을 한다. [3] Market Analyst Agent는 Ko Yunseo의 시장·종목·섹터 리서치를 지원하는 Hermes profile로, 자동매매나 무근거 추천 없이 흐름·리스크·근거·불확실성을 구분해 브리핑하는 분석 에이전트다. [5] stockagent라는 이름의 구체적 역할이나 Market Flow Sentinel과의 차이점은 제공된 SOURCES에 명시되어 있지 않아 위키 근거가 부족하다.",
+      "answerPreview": "Market Flow Sentinel은 시장 흐름을 지속 감시하며 아침 브리핑을 자동으로 생성하는 자동화 루프 역할을 한다. [3] Market Analyst Agent는 Ko Yunseo의 시장·종목·섹터 리서치를 지원하는 Hermes profile로, 자동매매나 무근거 추천 없이 흐름·리스크·근거·불확실성을 구분해 브리핑하는 분석 에이전트다. [5] stockagent라는 이름의 구체적 역할이나 Market Flow Sentinel과의 차이점은 제공된 SOU",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/Market Flow Sentinel.md",
+          "title": "Market Flow Sentinel",
+          "heading": "관련 토픽",
+          "score": 17.196901890822332
+        },
+        {
+          "path": "2_wiki/Market Flow Sentinel.md",
+          "title": "Market Flow Sentinel",
+          "heading": "출처",
+          "score": 15.080416908362444
+        },
+        {
+          "path": "7_automation/automation-registry.md",
+          "title": "Automation Registry",
+          "heading": "Market Flow Sentinel loop",
+          "score": 10.80227288005686
+        },
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "관련 토픽",
+          "score": 6.4999428300240485
+        },
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "역할",
+          "score": 6.256614689051968
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 18,
+      "topic": "market",
+      "question": "투자 판단에서 위키가 말하는 가장 조심해야 할 점은?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 61959,
+      "answerLength": 303,
+      "answer": "위키에서 투자 판단과 관련해 가장 조심해야 할 점은, 투자 게임화 같은 인터랙션이 실제 판단 학습으로 이어지는지 아니면 단순한 재미나 밈 소비로 끝나는지를 검증하지 않으면 초보자가 자신의 판단을 제대로 설명하거나 공유할 수 없는 상태에 빠질 수 있다는 것이다. [1]에서 명확히 지적하듯 재방문과 공유 욕구가 높아지더라도 그것이 투자 판단 이해도로 직결되는지는 별도로 확인해야 한다. 관련 토픽으로 UniPort와 AI 투자 리서치가 언급되지만, 구체적인 판단 기준이나 위험 신호에 대한 내용은 이 SOURCES 안에 충분히 드러나지 않는다.",
+      "answerPreview": "위키에서 투자 판단과 관련해 가장 조심해야 할 점은, 투자 게임화 같은 인터랙션이 실제 판단 학습으로 이어지는지 아니면 단순한 재미나 밈 소비로 끝나는지를 검증하지 않으면 초보자가 자신의 판단을 제대로 설명하거나 공유할 수 없는 상태에 빠질 수 있다는 것이다. [1]에서 명확히 지적하듯 재방문과 공유 욕구가 높아지더라도 그것이 투자 판단 이해도로 직결되는지는 별도로 확인해야 한다. 관련 토픽으로 UniPort와 AI 투자 리서치가 언급되지만, 구체적인 판단 기준",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/투자 게임화.md",
+          "title": "투자 게임화",
+          "heading": "검증해야 할 것",
+          "score": 3.4472861657816103
+        },
+        {
+          "path": "2_wiki/투자 게임화.md",
+          "title": "투자 게임화",
+          "heading": "관련 토픽",
+          "score": 2.8770084020398996
+        },
+        {
+          "path": "5_conversation/agent-runs/2026-06-28-chat-너가-뭘-할-수-있어.md",
+          "title": "chat 너가 뭘 할 수 있어",
+          "heading": "Goal",
+          "score": 2.839311503561925
+        },
+        {
+          "path": "5_conversation/agent-runs/2026-06-29-chat-너는-뭘-할-수-있어.md",
+          "title": "chat 너는 뭘 할 수 있어",
+          "heading": "Goal",
+          "score": 2.839311503561925
+        },
+        {
+          "path": "2_wiki/AI 투자 리서치.md",
+          "title": "AI 투자 리서치",
+          "heading": "관련 토픽",
+          "score": 2.3854893470665766
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": [
+        "top sources may be off-topic"
+      ]
+    },
+    {
+      "index": 19,
+      "topic": "market",
+      "question": "Market Flow Sentinel을 매일 실행한다면 체크리스트는 어떻게 돼?",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 65521,
+      "answerLength": 423,
+      "answer": "Market Flow Sentinel은 automation-registry에 등록된 morning brief cronjob(d6ec839afa03, 0 8 * * 1-6)으로 매일 아침 실행되는 구조라 daily checklist의 시작점은 이 job이 정상적으로 트리거되고 산출물이 wiki에 기록되는지 확인하는 것이다 [3]. Market Analyst Agent가 이 산출물을 받아 시장/섹터 이슈를 근거 중심으로 요약하고 리스크·반대 근거를 분리하는 역할을 하므로, 실행 후 해당 연결이 잘 되는지도 체크 포인트가 될 수 있다 [4][5]. 그러나 제공된 위키 소스([1][2])에는 Market Flow Sentinel.md의 운영 snapshot만 언급될 뿐 구체적인 daily checklist 단계나 항목은 드러나지 않아 위키 근거 부족하다.",
+      "answerPreview": "Market Flow Sentinel은 automation-registry에 등록된 morning brief cronjob(d6ec839afa03, 0 8 * * 1-6)으로 매일 아침 실행되는 구조라 daily checklist의 시작점은 이 job이 정상적으로 트리거되고 산출물이 wiki에 기록되는지 확인하는 것이다 [3]. Market Analyst Agent가 이 산출물을 받아 시장/섹터 이슈를 근거 중심으로 요약하고 리스크·반대 근거를 분리하는 역할을 ",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "2_wiki/Market Flow Sentinel.md",
+          "title": "Market Flow Sentinel",
+          "heading": "관련 토픽",
+          "score": 17.196901890822332
+        },
+        {
+          "path": "2_wiki/Market Flow Sentinel.md",
+          "title": "Market Flow Sentinel",
+          "heading": "출처",
+          "score": 15.080416908362444
+        },
+        {
+          "path": "7_automation/automation-registry.md",
+          "title": "Automation Registry",
+          "heading": "Market Flow Sentinel loop",
+          "score": 10.552585625456537
+        },
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "관련 토픽",
+          "score": 6.4999428300240485
+        },
+        {
+          "path": "6_agents/profiles/market-analyst.md",
+          "title": "Market Analyst Agent",
+          "heading": "핵심 임무",
+          "score": 5.017824740677453
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": true,
+      "failures": [],
+      "warnings": []
+    },
+    {
+      "index": 20,
+      "topic": "market",
+      "question": "리스크 관리 원칙을 한 문장으로 압축해줘",
+      "httpStatus": 200,
+      "ok": true,
+      "elapsedMs": 20612,
+      "answerLength": 59,
+      "answer": "위키 근거 부족. 제공된 SOURCES에는 리스크 관리 원칙과 관련된 어떤 내용도 포함되어 있지 않습니다.",
+      "answerPreview": "위키 근거 부족. 제공된 SOURCES에는 리스크 관리 원칙과 관련된 어떤 내용도 포함되어 있지 않습니다.",
+      "sourceCount": 8,
+      "topSources": [
+        {
+          "path": "5_conversation/agent-runs/2026-06-28-remote-ops-고유표식-realstream-ui-1782647910241-포함해서-한-문장으로-실제-런타임-응답인지-답해줘.md",
+          "title": "remote-ops 고유표식 REALSTREAM_UI_1782647910241 포함해서 한 문장으로 실제 런타임 응답인지 답해줘.",
+          "heading": "Resume",
+          "score": 5.342733548885482
+        },
+        {
+          "path": "5_conversation/agent-runs/2026-06-28-remote-ops-고유표식-realstream-api-1158-포함해서-한-문장으로-네가-실제-런타임-응답인지-답해줘.md",
+          "title": "remote-ops 고유표식 REALSTREAM_API_1158 포함해서 한 문장으로 네가 실제 런타임 응답인지 답해줘.",
+          "heading": "Resume",
+          "score": 5.283036328293299
+        },
+        {
+          "path": "5_conversation/agent-runs/2026-06-28-remote-ops-고유표식-realstream-ui-1782647910241-포함해서-한-문장으로-실제-런타임-응답인지-답해줘.md",
+          "title": "remote-ops 고유표식 REALSTREAM_UI_1782647910241 포함해서 한 문장으로 실제 런타임 응답인지 답해줘.",
+          "heading": "Mission",
+          "score": 5.283036328293299
+        },
+        {
+          "path": "5_conversation/agent-runs/2026-06-28-remote-ops-고유표식-realstream-api-1158-포함해서-한-문장으로-네가-실제-런타임-응답인지-답해줘.md",
+          "title": "remote-ops 고유표식 REALSTREAM_API_1158 포함해서 한 문장으로 네가 실제 런타임 응답인지 답해줘.",
+          "heading": "Mission",
+          "score": 5.225296492675765
+        },
+        {
+          "path": "2_wiki/대화형 일기 세컨브레인.md",
+          "title": "대화형 일기 세컨브레인",
+          "heading": "나",
+          "score": 3.298700037513416
+        }
+      ],
+      "engine": {
+        "provider": "railway-hermes",
+        "baseUrl": "https://hermes-os-production-e174.up.railway.app",
+        "model": "wiki-curator",
+        "agent": "wiki-curator",
+        "source": "railway-relay"
+      },
+      "gatewayFallback": false,
+      "pass": false,
+      "failures": [
+        "short answer=59"
+      ],
+      "warnings": []
+    }
+  ]
+}
