@@ -131,7 +131,7 @@ async function main() {
   await page.waitForSelector('.new-panel .date-time-menu');
   await page.locator('.new-panel .date-time-menu button', { hasText: '오전 1:00' }).waitFor();
   await page.locator('.new-panel .date-time-menu button', { hasText: '오전 9:30' }).click();
-  await page.locator('.new-panel .date-time-menu button[data-active="true"]', { hasText: '오전 9:30' }).waitFor();
+  await page.waitForFunction(() => !document.querySelector('.new-panel .date-time-menu'));
   await page.getByRole('button', { name: '지속 시간' }).click();
   await page.locator('.new-panel .duration-time-input').first().click();
   await page.waitForSelector('.new-panel .duration-time-menu');
@@ -141,6 +141,8 @@ async function main() {
   await page.locator('.new-panel .duration-time-input').nth(1).click();
   await page.waitForSelector('.new-panel .duration-time-menu');
   await page.locator('.new-panel .duration-time-menu button', { hasText: '오전 11:30' }).click();
+  await page.waitForFunction(() => !document.querySelector('.new-panel'));
+  await page.locator('.new-date-chip').click();
   await page.getByRole('button', { name: '반복' }).click();
   await page.getByRole('button', { name: '매주' }).click();
   await page.locator('.new-task-title-row input').press('Enter');

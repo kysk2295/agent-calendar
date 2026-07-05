@@ -10,7 +10,9 @@ type TaxonomyKind = 'list' | 'tag';
 type TaxonomyItem = { id: string; label: string; icon: string; group: string; kind: TaxonomyKind; recordId?: string; hidden?: boolean };
 type UiPreferences = { notify: boolean; agentShare: boolean; weekStartMon: boolean };
 type CompletionNotice = { task: Item; title: string } | null;
-type DesktopSettingsState = { apiBaseUrl: string; hasApiToken: boolean; theme: HermesDesktopSettings['theme']; uiPreferences: UiPreferences };
+type AuthProvider = HermesAuthProvider;
+type AuthProfileState = HermesAuthProfile;
+type DesktopSettingsState = { apiBaseUrl: string; hasApiToken: boolean; theme: HermesDesktopSettings['theme']; authProfile: AuthProfileState | null; uiPreferences: UiPreferences };
 type DesktopTheme = HermesDesktopSettings['theme'];
 type NewTaskControls = {
   date: string;
@@ -118,11 +120,10 @@ function ChatIcon({ className = 'chat-fab-icon' }: { className?: string }) {
   );
 }
 
-type SystemIconName = 'apple' | 'calendar' | 'check' | 'google' | 'key' | 'mail' | 'orbit';
+type SystemIconName = 'calendar' | 'check' | 'google' | 'key' | 'mail' | 'orbit';
 
 function SystemIcon({ name, className = 'system-icon' }: { name: SystemIconName; className?: string }) {
   const paths: Record<SystemIconName, JSX.Element> = {
-    apple: <><path d="M15.6 8.1c-.7.4-1.1 1.1-1.1 1.9 0 .9.5 1.7 1.3 2.1-.2.6-.5 1.2-.9 1.8-.6.9-1.2 1.8-2.1 1.8-.8 0-1.1-.5-2-.5s-1.2.5-2 .5c-.9 0-1.5-.8-2.1-1.7-.8-1.2-1.4-3.3-.6-4.7.4-.8 1.2-1.4 2.1-1.4.8 0 1.5.5 2 .5.4 0 1.3-.6 2.3-.5.4 0 1.8.1 3.1 1.2Z" /><path d="M12.5 5.2c.5-.6.8-1.4.7-2.2-.7.1-1.4.5-1.9 1-.4.5-.8 1.3-.7 2 .7.1 1.4-.3 1.9-.8Z" /></>,
     calendar: <><path d="M7.5 3.75v2.5M16.5 3.75v2.5M5.5 7.25h13" /><path d="M6.25 5.25h11.5c1.1 0 2 .9 2 2v10.5c0 1.1-.9 2-2 2H6.25c-1.1 0-2-.9-2-2V7.25c0-1.1.9-2 2-2Z" /><path d="M8 11.25h2.5M13.5 11.25H16M8 15h2.5" /></>,
     check: <path d="m6 12.4 3.3 3.35L18 7.25" />,
     google: <><path d="M19.2 12.2c0-.5 0-.9-.1-1.3H12v2.6h4.1c-.2.9-.7 1.7-1.5 2.2v1.8H17c1.4-1.3 2.2-3.1 2.2-5.3Z" /><path d="M12 19.5c2 0 3.7-.7 5-1.9l-2.4-1.8c-.7.4-1.5.7-2.6.7-1.9 0-3.5-1.3-4.1-3H5.4v1.9c1.2 2.4 3.7 4.1 6.6 4.1Z" /><path d="M7.9 13.4c-.2-.4-.2-.9-.2-1.4s.1-1 .2-1.4V8.7H5.4c-.5 1-.8 2.1-.8 3.3s.3 2.3.8 3.3l2.5-1.9Z" /><path d="M12 7.5c1.1 0 2 .4 2.8 1.1L17 6.4c-1.3-1.2-3-1.9-5-1.9-2.9 0-5.4 1.7-6.6 4.1l2.5 1.9c.6-1.7 2.2-3 4.1-3Z" /></>,
@@ -755,6 +756,7 @@ function desktopSettingsState(settings: HermesDesktopSettings): DesktopSettingsS
     apiBaseUrl: settings.apiBaseUrl,
     hasApiToken: settings.hasApiToken,
     theme: settings.theme,
+    authProfile: settings.authProfile || null,
     uiPreferences: settings.uiPreferences || DEFAULT_UI_PREFERENCES,
   };
 }
@@ -766,7 +768,7 @@ export function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [state, setState] = useState<AppState>(EMPTY_STATE);
-  const [settings, setSettings] = useState<DesktopSettingsState>({ apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app', hasApiToken: false, theme: 'default', uiPreferences: DEFAULT_UI_PREFERENCES });
+  const [settings, setSettings] = useState<DesktopSettingsState>({ apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app', hasApiToken: false, theme: 'default', authProfile: null, uiPreferences: DEFAULT_UI_PREFERENCES });
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(true);
   const hasHydratedRef = useRef(false);
@@ -787,6 +789,9 @@ export function App() {
   const [loggedIn, setLoggedIn] = useState(true);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPw, setLoginPw] = useState('');
+  const [loginStatus, setLoginStatus] = useState('');
+  const [authBusyProvider, setAuthBusyProvider] = useState<AuthProvider | null>(null);
+  const [passwordAuthBusy, setPasswordAuthBusy] = useState(false);
   const [prefs, setPrefs] = useState<UiPreferences>(DEFAULT_UI_PREFERENCES);
   const [quickText, setQuickText] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState('');
@@ -838,6 +843,10 @@ export function App() {
   const agents = useMemo(() => mergeAgentsWithProfileReadiness(state.agents, state.profileReadiness), [state.agents, state.profileReadiness]);
   const runs = state.runs;
   const selectedRun = runs.find((run, index) => itemId(run, `run-${index}`) === selectedRunId) || runs[0];
+  const accountName = settings.authProfile?.name || 'Yunseo';
+  const accountEmail = settings.authProfile?.email || 'yunseo@agent.calendar';
+  const accountInitial = (accountName || accountEmail || 'A').trim().slice(0, 1).toUpperCase();
+  const accountProviderLabel = settings.authProfile?.provider === 'google' ? 'Google 로그인' : settings.authProfile?.provider === 'password' ? '이메일 로그인' : 'Railway 연결';
   const taxonomy = useMemo(() => {
     const byId = new Map<string, TaxonomyItem>();
     const metadata = state.taxonomy.map(parseTaxonomyRecord).filter(Boolean) as TaxonomyItem[];
@@ -920,7 +929,11 @@ export function App() {
         }
         const desktopSettings = await window.hermesDesktop?.getSettings();
         const proxyBase = await window.hermesDesktop?.getProxyBaseUrl();
-        if (desktopSettings && !cancelled) setSettings(desktopSettingsState(desktopSettings));
+        if (desktopSettings && !cancelled) {
+          setSettings(desktopSettingsState(desktopSettings));
+          setLoggedIn(Boolean(desktopSettings.authProfile));
+          if (desktopSettings.authProfile?.email) setLoginEmail(desktopSettings.authProfile.email);
+        }
         setApiBaseUrl(proxyBase || desktopSettings?.apiBaseUrl || 'https://hermes-os-production-e174.up.railway.app');
         await hydrate();
       } catch (error) {
@@ -1014,6 +1027,69 @@ export function App() {
     } finally {
       if (blocking || !hasHydratedRef.current) setLoading(false);
     }
+  }
+
+  async function loginWithProvider(provider: AuthProvider) {
+    setLoginStatus('');
+    setAuthBusyProvider(provider);
+    try {
+      if (!window.hermesDesktop?.loginWithProvider) {
+        setLoggedIn(true);
+        setLoginPw('');
+        setModal(null);
+        return;
+      }
+      const next = await window.hermesDesktop.loginWithProvider(provider);
+      setSettings(desktopSettingsState(next));
+      setLoggedIn(Boolean(next.authProfile));
+      if (next.authProfile?.email) setLoginEmail(next.authProfile.email);
+      setLoginPw('');
+      setModal(null);
+    } catch (error) {
+      setLoginStatus(error instanceof Error ? error.message : '소셜 로그인을 완료하지 못했습니다.');
+    } finally {
+      setAuthBusyProvider(null);
+    }
+  }
+
+  async function authenticateWithPassword(mode: 'login' | 'signup') {
+    const email = loginEmail.trim();
+    const password = loginPw;
+    setLoginStatus('');
+    setPasswordAuthBusy(true);
+    try {
+      if (!window.hermesDesktop) {
+        setLoggedIn(true);
+        setLoginPw('');
+        setModal(null);
+        return;
+      }
+      if (!email || !password) throw new Error('이메일과 비밀번호를 입력하세요.');
+      const next = mode === 'signup'
+        ? await window.hermesDesktop.signUpWithPassword({ email, password })
+        : await window.hermesDesktop.loginWithPassword({ email, password });
+      setSettings(desktopSettingsState(next));
+      setLoggedIn(Boolean(next.authProfile));
+      if (next.authProfile?.email) setLoginEmail(next.authProfile.email);
+      setLoginPw('');
+      setModal(null);
+    } catch (error) {
+      setLoginStatus(error instanceof Error ? error.message : mode === 'signup' ? '회원가입에 실패했습니다.' : '로그인에 실패했습니다.');
+    } finally {
+      setPasswordAuthBusy(false);
+    }
+  }
+
+  async function logout() {
+    try {
+      const next = await window.hermesDesktop?.logoutAuth();
+      if (next) setSettings(desktopSettingsState(next));
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '로그아웃 상태 저장 실패');
+    }
+    setLoggedIn(false);
+    setLoginPw('');
+    setModal(null);
   }
 
   async function waitForCreatedTaskInBackend(expected: Item) {
@@ -2144,8 +2220,8 @@ export function App() {
           ))}
         </nav>
         <button className="profile" onClick={() => setModal('settings')}>
-          <span className="avatar">윤</span>
-          <span><strong>Yunseo</strong><small>{apiError ? 'Railway 확인 필요' : 'Railway 연결'}</small></span>
+          {settings.authProfile?.picture ? <img className="avatar" src={settings.authProfile.picture} alt="" /> : <span className="avatar">{accountInitial}</span>}
+          <span><strong>{accountName}</strong><small>{apiError ? 'Railway 확인 필요' : accountProviderLabel}</small></span>
           <span>⚙</span>
         </button>
       </aside>
@@ -2174,7 +2250,7 @@ export function App() {
             {screen === 'agents' && <AgentsScreen agents={agents} runs={runs} missionText={missionText} setMissionText={setMissionText} selectedAgentId={selectedAgentId} setSelectedAgentId={setSelectedAgentId} startPlan={() => startPlan(missionText)} openModal={setModal} openRun={openRun} />}
             {screen === 'widgets' && <WidgetsScreen tasks={tasks} events={events} runs={runs} />}
             {screen === 'settings' && <SettingsScreen settings={settings} setSettings={setSettings} refresh={hydrate} />}
-            {screen === 'login' && <LoginScreen />}
+            {screen === 'login' && <LoginScreen email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} authenticateWithPassword={authenticateWithPassword} />}
           </section>
         )}
       </main>
@@ -2185,8 +2261,8 @@ export function App() {
       {completionNotice && <CompletionToast title={completionNotice.title} undo={undoCompletion} close={() => setCompletionNotice(null)} />}
       {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} send={sendChat} runs={runs} setChip={setChatInput} close={() => setChatOpen(false)} openRun={openRun} />}
       {modal === 'taxonomy' && taxonomyForm && <TaxonomyModal form={taxonomyForm} name={taxonomyName} setName={setTaxonomyName} groupName={taxonomyGroupName} setGroupName={setTaxonomyGroupName} icon={taxonomyIcon} setIcon={setTaxonomyIcon} close={() => { setTaxonomyForm(null); setModal(null); }} submit={() => void createTaxonomy()} />}
-      <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
-      {!loggedIn && <LoginOverlay email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} submit={() => { setLoggedIn(true); setLoginPw(''); setModal(null); }} />}
+      <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
+      {!loggedIn && <LoginOverlay email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} authenticateWithPassword={authenticateWithPassword} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} />}
     </div>
   );
 }
@@ -3354,18 +3430,19 @@ function SettingsScreen({ settings, setSettings, refresh }: { settings: DesktopS
   return <div className="settings screen-in"><Panel title="Railway API"><label>API Base URL<input value={apiBaseUrl} onChange={(event) => setApiBaseUrlInput(event.target.value)} /></label><label>Bearer Token<input type="password" value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder={settings.hasApiToken ? '저장됨 · 새 값 입력 시 교체' : '선택 사항'} /></label><button onClick={() => void save()}>저장하고 재연결</button></Panel><Panel title="테마"><div className="theme-row">{(['default', 'warm', 'dark', 'sage', 'mono'] as DesktopTheme[]).map((item) => <button data-active={theme === item} key={item} onClick={() => setTheme(item)}>{item}</button>)}</div></Panel></div>;
 }
 
-function LoginScreen() {
-  const [email, setEmail] = useState('yunseo@agent.calendar');
-  const [password, setPassword] = useState('');
-  return <AgentCalendarLoginExperience mode="page" email={email} setEmail={setEmail} password={password} setPassword={setPassword} submit={() => setPassword('')} />;
+function LoginScreen({ email, setEmail, password, setPassword, loginWithProvider, authBusyProvider, passwordAuthBusy, loginStatus, authenticateWithPassword }: { email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; loginWithProvider: (provider: AuthProvider) => void; authBusyProvider: AuthProvider | null; passwordAuthBusy: boolean; loginStatus: string; authenticateWithPassword: (mode: 'login' | 'signup') => void }) {
+  return <AgentCalendarLoginExperience mode="page" email={email} setEmail={setEmail} password={password} setPassword={setPassword} authenticateWithPassword={authenticateWithPassword} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} />;
 }
 
-function LoginOverlay({ email, setEmail, password, setPassword, submit }: { email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; submit: () => void }) {
-  return <AgentCalendarLoginExperience mode="overlay" email={email} setEmail={setEmail} password={password} setPassword={setPassword} submit={submit} />;
+function LoginOverlay({ email, setEmail, password, setPassword, authenticateWithPassword, loginWithProvider, authBusyProvider, passwordAuthBusy, loginStatus }: { email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; authenticateWithPassword: (mode: 'login' | 'signup') => void; loginWithProvider: (provider: AuthProvider) => void; authBusyProvider: AuthProvider | null; passwordAuthBusy: boolean; loginStatus: string }) {
+  return <AgentCalendarLoginExperience mode="overlay" email={email} setEmail={setEmail} password={password} setPassword={setPassword} authenticateWithPassword={authenticateWithPassword} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} />;
 }
 
-function AgentCalendarLoginExperience({ mode, email, setEmail, password, setPassword, submit }: { mode: 'overlay' | 'page'; email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; submit: () => void }) {
+function AgentCalendarLoginExperience({ mode, email, setEmail, password, setPassword, authenticateWithPassword, loginWithProvider, authBusyProvider, passwordAuthBusy, loginStatus }: { mode: 'overlay' | 'page'; email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; authenticateWithPassword: (mode: 'login' | 'signup') => void; loginWithProvider: (provider: AuthProvider) => void; authBusyProvider: AuthProvider | null; passwordAuthBusy: boolean; loginStatus: string }) {
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [recoverySent, setRecoverySent] = useState(false);
+  const googleBusy = authBusyProvider === 'google';
+  const passwordLabel = authMode === 'signup' ? '계정 만들기' : '로그인';
   return <div className={mode === 'overlay' ? 'login-overlay' : 'login screen-in'}>
     <section className="login-card">
       <aside className="login-splash" aria-label="Agent Calendar splash">
@@ -3381,13 +3458,13 @@ function AgentCalendarLoginExperience({ mode, email, setEmail, password, setPass
         <p>할 일을 에이전트에게 넘기고, 진행과 결과를 같은 캘린더에서 받아보세요.</p>
       </aside>
 
-      <form className="login-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+      <form className="login-form" onSubmit={(event) => { event.preventDefault(); authenticateWithPassword(authMode); }}>
         <div className="login-form-brand">
           <LogoMark className="login-brand-mark" />
           <span><strong>Agent Calendar</strong><small>에이전트 캘린더</small></span>
         </div>
-        <h2>다시 만나서 반가워요</h2>
-        <p>계정으로 로그인하고 이어서 계획하세요</p>
+        <h2>{authMode === 'signup' ? '계정을 만들어 시작하세요' : '다시 만나서 반가워요'}</h2>
+        <p>{authMode === 'signup' ? '이메일과 비밀번호로 Agent Calendar 계정을 만드세요' : '계정으로 로그인하고 이어서 계획하세요'}</p>
 
         <label htmlFor="hermes-login-email">이메일</label>
         <div className="login-field">
@@ -3406,11 +3483,14 @@ function AgentCalendarLoginExperience({ mode, email, setEmail, password, setPass
           <button type="button" onClick={() => setRecoverySent(true)}>비밀번호를 잊으셨나요?</button>
         </div>
         {recoverySent && <div className="login-recovery">복구 링크 안내를 준비했습니다. 저장된 계정 메일을 확인하세요.</div>}
-        <button className="primary login-submit" type="submit"><SystemIcon name="check" />로그인</button>
+        {loginStatus && <div className="login-status" role="status">{loginStatus}</div>}
+        <button className="primary login-submit" type="submit" disabled={passwordAuthBusy}><SystemIcon name="check" />{passwordAuthBusy ? '처리 중' : passwordLabel}</button>
+        <button className="login-mode-toggle" type="button" onClick={() => setAuthMode(authMode === 'signup' ? 'login' : 'signup')}>
+          {authMode === 'signup' ? '이미 계정이 있나요? 로그인' : '계정이 없나요? 회원가입'}
+        </button>
         <div className="login-divider"><span />또는<span /></div>
         <div className="social-row">
-          <button type="button" onClick={submit}><SystemIcon name="apple" />Apple로 계속하기</button>
-          <button type="button" onClick={submit}><SystemIcon name="google" />Google로 계속하기</button>
+          <button type="button" onClick={() => loginWithProvider('google')} disabled={Boolean(authBusyProvider)}><SystemIcon name="google" />{googleBusy ? 'Google 로그인 중' : 'Google로 계속하기'}</button>
         </div>
       </form>
     </section>
@@ -3530,6 +3610,13 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
     if (dateMode === 'duration') commitDurationDraft();
     setDateOpen(false);
   };
+  const closeDetailFloaters = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return;
+    if (target.closest('.detail-date-popover, .detail-date-trigger, .detail-list-popover, .detail-list-pill, .detail-tool-popover, .detail-tool')) return;
+    setDateOpen(false);
+    setListOpen(false);
+    setToolPanel(null);
+  };
   const deleteSelected = async () => {
     setDeleteError('');
     setDeleting(true);
@@ -3542,7 +3629,12 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
   }, [endDate, endTime, startDate, startTime]);
 
   return <div className="modal-backdrop detail-backdrop" onMouseDown={close}>
-    <div className="detail-modal" onMouseDown={(event) => event.stopPropagation()}>
+    <div
+      className="detail-modal"
+      onMouseDown={(event) => event.stopPropagation()}
+      onMouseDownCapture={(event) => closeDetailFloaters(event.target)}
+      onFocusCapture={(event) => closeDetailFloaters(event.target)}
+    >
       <header className="detail-topline">
         <button className="detail-check" data-done={isDone(selectedTask)} onClick={toggleDetailCompletion} aria-label="완료 토글">{isDone(selectedTask) ? '✓' : ''}</button>
         <span className="detail-divider" />
@@ -3618,13 +3710,13 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
   </div>;
 }
 
-function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, newTask, createTask, lists, tags, agents, runs, selectedRun, selectedTask, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, delegateText, setDelegateText, delegateAgentId, setDelegateAgentId, startPlan, openRunArtifact, newAgentName, setNewAgentName, newAgentRole, setNewAgentRole, newAgentEmoji, setNewAgentEmoji, createAgent, settings, setSettings, refresh, setApiError, loggedIn, setLoggedIn, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { modal: ModalId; setModal: (modal: ModalId) => void; newTitle: string; setNewTitle: (value: string) => void; newDesc: string; setNewDesc: (value: string) => void; newTask: NewTaskControls; createTask: (extraNotes?: string) => Promise<void>; lists: TaxonomyItem[]; tags: TaxonomyItem[]; agents: Item[]; runs: Item[]; selectedRun?: Item; selectedTask?: Item; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; delegateText: string; setDelegateText: (value: string) => void; delegateAgentId: string; setDelegateAgentId: (value: string) => void; startPlan: () => void; openRunArtifact: (run?: Item) => void; newAgentName: string; setNewAgentName: (value: string) => void; newAgentRole: string; setNewAgentRole: (value: string) => void; newAgentEmoji: string; setNewAgentEmoji: (value: string) => void; createAgent: () => void; settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
+function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, newTask, createTask, lists, tags, agents, runs, selectedRun, selectedTask, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, delegateText, setDelegateText, delegateAgentId, setDelegateAgentId, startPlan, openRunArtifact, newAgentName, setNewAgentName, newAgentRole, setNewAgentRole, newAgentEmoji, setNewAgentEmoji, createAgent, settings, setSettings, refresh, setApiError, loggedIn, setLoggedIn, logout, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { modal: ModalId; setModal: (modal: ModalId) => void; newTitle: string; setNewTitle: (value: string) => void; newDesc: string; setNewDesc: (value: string) => void; newTask: NewTaskControls; createTask: (extraNotes?: string) => Promise<void>; lists: TaxonomyItem[]; tags: TaxonomyItem[]; agents: Item[]; runs: Item[]; selectedRun?: Item; selectedTask?: Item; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; delegateText: string; setDelegateText: (value: string) => void; delegateAgentId: string; setDelegateAgentId: (value: string) => void; startPlan: () => void; openRunArtifact: (run?: Item) => void; newAgentName: string; setNewAgentName: (value: string) => void; newAgentRole: string; setNewAgentRole: (value: string) => void; newAgentEmoji: string; setNewAgentEmoji: (value: string) => void; createAgent: () => void; settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
   if (!modal) return null;
   if (modal === 'new') {
     return <div className="modal-backdrop new-task-backdrop" onMouseDown={() => setModal(null)}><NewTaskModal title={newTitle} setTitle={setNewTitle} desc={newDesc} setDesc={setNewDesc} controls={newTask} lists={lists} close={() => setModal(null)} submit={createTask} /></div>;
   }
   if (modal === 'settings') {
-    return <SettingsOverlay settings={settings} setSettings={setSettings} refresh={refresh} setApiError={setApiError} close={() => setModal(null)} loggedIn={loggedIn} setLoggedIn={setLoggedIn} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />;
+    return <SettingsOverlay settings={settings} setSettings={setSettings} refresh={refresh} setApiError={setApiError} close={() => setModal(null)} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />;
   }
   if (modal === 'task' && selectedTask) {
     return <TaskDetailModal selectedTask={selectedTask} lists={lists} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} close={() => setModal(null)} delegate={() => { setDelegateText(itemTitle(selectedTask, '')); setModal('delegate'); }} />;
@@ -3683,6 +3775,7 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
   const [checkItems, setCheckItems] = useState<ChecklistDraftItem[]>([]);
   const [listQuery, setListQuery] = useState('');
   const [timeMenu, setTimeMenu] = useState<'date' | 'start' | 'end' | null>(null);
+  const [durationDateMenu, setDurationDateMenu] = useState<'start' | 'end' | null>(null);
   const checkRefs = useRef<Array<HTMLInputElement | null>>([]);
   const durationMenuRef = useRef<HTMLDivElement | null>(null);
   const pickerLabel = `${pickerMonth.getFullYear()}년 ${pickerMonth.getMonth() + 1}월`;
@@ -3756,7 +3849,64 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
     if (target === 'end') controls.setEndTime(value);
     else controls.setTime(value);
     controls.setAllDay(false);
-    setTimeMenu(target === 'date' ? 'date' : null);
+    setTimeMenu(null);
+    setDurationDateMenu(null);
+    if (target === 'date') controls.setSubPanel(null);
+    if (target === 'end') {
+      controls.setSubPanel(null);
+      controls.setDatePanel(false);
+    }
+  };
+  const openDurationDateMenu = (target: 'start' | 'end') => {
+    const value = target === 'start' ? controls.date : controls.endDate;
+    setTimeMenu(null);
+    setDurationDateMenu(target);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) setPickerMonth(new Date(`${value}T00:00:00`));
+  };
+  const pickDurationDate = (target: 'start' | 'end', value: string) => {
+    if (target === 'start') controls.setDate(value);
+    else controls.setEndDate(value);
+    setPickerMonth(new Date(`${value}T00:00:00`));
+    setDurationDateMenu(null);
+  };
+  const durationDatePicker = (target: 'start' | 'end', value: string) => (
+    <div className="duration-date-dialog">
+      <div className="picker-head"><strong>{pickerLabel}</strong><span /><button onClick={() => shiftMonth(-1)}>‹</button><button onClick={() => pickDurationDate(target, todayKey())}>오늘</button><button onClick={() => shiftMonth(1)}>›</button></div>
+      <div className="picker-weekdays">{['일', '월', '화', '수', '목', '금', '토'].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="picker-grid">{pickerCells.map((cell) => <button data-date={cell.iso} data-muted={!cell.inMonth} data-today={cell.today} data-active={cell.iso === value} key={cell.iso} onClick={() => pickDurationDate(target, cell.iso)}>{cell.day}</button>)}</div>
+    </div>
+  );
+  const durationDateField = (target: 'start' | 'end', value: string, setValue: (value: string) => void) => (
+    <div className="duration-date-field">
+      <input
+        value={value}
+        onChange={(event) => {
+          setValue(event.target.value);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(event.target.value)) setPickerMonth(new Date(`${event.target.value}T00:00:00`));
+        }}
+        onClick={() => openDurationDateMenu(target)}
+        onFocus={() => openDurationDateMenu(target)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') setDurationDateMenu(null);
+        }}
+        placeholder="YYYY-MM-DD"
+      />
+      {durationDateMenu === target && durationDatePicker(target, value)}
+    </div>
+  );
+  const closeDurationFloaters = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return;
+    if (target.closest('.duration-date-field, .duration-time-field, .duration-time-menu')) return;
+    setDurationDateMenu(null);
+    if (timeMenu === 'start' || timeMenu === 'end') setTimeMenu(null);
+  };
+  const closeNewTaskFloaters = (target: EventTarget | null) => {
+    closeDurationFloaters(target);
+    if (!(target instanceof HTMLElement)) return;
+    if (target.closest('.new-panel, .new-date-chip, .new-list-panel, .new-list-button')) return;
+    controls.setDatePanel(false);
+    controls.setListPanel(false);
+    controls.setSubPanel(null);
   };
   const timeMenuList = (target: 'date' | 'start' | 'end', value: string, className = '') => (
     <div className={`duration-time-menu ${className}`} ref={durationMenuRef}>
@@ -3771,8 +3921,8 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
       <input
         className="duration-time-input"
         value={value ? formatTime(value) : ''}
-        onClick={() => setTimeMenu(target)}
-        onFocus={() => setTimeMenu(target)}
+        onClick={() => { setTimeMenu(target); setDurationDateMenu(null); }}
+        onFocus={() => { setTimeMenu(target); setDurationDateMenu(null); }}
         onKeyDown={(event) => {
           if (event.key === 'Escape') setTimeMenu(null);
         }}
@@ -3793,7 +3943,12 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
     });
   }, [controls.endTime, controls.time, timeMenu]);
 
-  return <div className="new-task-popover" onMouseDown={(event) => event.stopPropagation()}>
+  return <div
+    className="new-task-popover"
+    onMouseDown={(event) => event.stopPropagation()}
+    onMouseDownCapture={(event) => closeNewTaskFloaters(event.target)}
+    onFocusCapture={(event) => closeNewTaskFloaters(event.target)}
+  >
     <div className="new-task-scroll">
       <div className="new-task-date-row">
         <button className="new-date-chip" data-has-date={!!controls.date} onClick={() => { controls.setDatePanel(!controls.datePanel); controls.setListPanel(false); }}>🗓 {dateChip}</button>
@@ -3836,15 +3991,15 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
           </div>
           <div className="picker-head"><strong>{pickerLabel}</strong><span /><button onClick={() => shiftMonth(-1)}>‹</button><button onClick={() => setQuickDate(todayKey())}>오늘</button><button onClick={() => shiftMonth(1)}>›</button></div>
           <div className="picker-weekdays">{['일', '월', '화', '수', '목', '금', '토'].map((day) => <span key={day}>{day}</span>)}</div>
-          <div className="picker-grid">{pickerCells.map((cell) => <button data-muted={!cell.inMonth} data-today={cell.today} data-active={cell.selected} key={cell.iso} onClick={() => setQuickDate(cell.iso)}>{cell.day}</button>)}</div>
+          <div className="picker-grid">{pickerCells.map((cell) => <button data-date={cell.iso} data-muted={!cell.inMonth} data-today={cell.today} data-active={cell.selected} key={cell.iso} onClick={() => setQuickDate(cell.iso)}>{cell.day}</button>)}</div>
           <NewAccordionRow label="시간" value={controls.allDay ? '종일' : controls.time ? formatTime(controls.time) : '없음'} panel="time" controls={controls} />
           {controls.subPanel === 'time' && <div className="sub-panel">
             <div className="all-day-row"><span>종일</span><button className="switch" data-active={controls.allDay} onClick={() => { controls.setAllDay(!controls.allDay); if (!controls.allDay) controls.setTime(''); }}><span /></button>{controls.time && <button onClick={() => controls.setTime('')}>지우기</button>}</div>
             {timeMenuList('date', controls.time, 'date-time-menu')}
           </div>}
         </> : <div className="duration-grid">
-          <span>시작</span><input value={controls.date} onChange={(event) => controls.setDate(event.target.value)} placeholder="YYYY-MM-DD" />{durationTimeField('start', controls.time, '시간')}
-          <span>끝</span><input value={controls.endDate} onChange={(event) => controls.setEndDate(event.target.value)} placeholder="YYYY-MM-DD" />{durationTimeField('end', controls.endTime, '시간')}
+          <span>시작</span>{durationDateField('start', controls.date, controls.setDate)}{durationTimeField('start', controls.time, '시간')}
+          <span>끝</span>{durationDateField('end', controls.endDate, controls.setEndDate)}{durationTimeField('end', controls.endTime, '시간')}
           <span>종일</span><button className="switch" data-active={controls.allDay} onClick={() => controls.setAllDay(!controls.allDay)}><span /></button>
         </div>}
         <NewAccordionRow label="반복" value={repeatLabel(controls.repeat)} panel="repeat" controls={controls} />
@@ -3881,7 +4036,7 @@ function NewAccordionRow({ label, value, panel, controls }: { label: string; val
   return <button className="new-accordion-row" onClick={() => controls.setSubPanel(active ? null : panel)}><b>{label}</b><em>{value}</em><i>{active ? '▾' : '›'}</i></button>;
 }
 
-function SettingsOverlay({ settings, setSettings, refresh, setApiError, close, loggedIn, setLoggedIn, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; close: () => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
+function SettingsOverlay({ settings, setSettings, refresh, setApiError, close, loggedIn, setLoggedIn, logout, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; close: () => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
   const themes: Array<[DesktopTheme, string, string]> = [
     ['default', 'Terracotta', '#D7613D'],
     ['warm', 'Warm', '#C95035'],
@@ -3916,11 +4071,14 @@ function SettingsOverlay({ settings, setSettings, refresh, setApiError, close, l
     setLoginPw('');
     close();
   };
+  const accountName = settings.authProfile?.name || 'Yunseo';
+  const accountEmail = settings.authProfile?.email || 'yunseo@agent.calendar';
+  const accountInitial = (accountName || accountEmail || 'A').trim().slice(0, 1).toUpperCase();
   return <div className="settings-backdrop" onMouseDown={close}><div className="settings-overlay" onMouseDown={(event) => event.stopPropagation()}>
     <header><h2>설정</h2><button onClick={close}>✕</button></header>
     <div className="settings-body">
       <div className="settings-label">계정</div>
-      <section className="account-box"><div className="avatar large">윤</div><div><strong>Yunseo</strong><span>{loggedIn ? 'yunseo@agent.calendar' : '로그인이 필요합니다'}</span></div>{loggedIn ? <button onClick={() => { setLoggedIn(false); close(); }}>로그아웃</button> : <button className="primary" onClick={submitLogin}>로그인</button>}</section>
+      <section className="account-box">{settings.authProfile?.picture ? <img className="avatar large" src={settings.authProfile.picture} alt="" /> : <div className="avatar large">{accountInitial}</div>}<div><strong>{accountName}</strong><span>{loggedIn ? accountEmail : '로그인이 필요합니다'}</span></div>{loggedIn ? <button onClick={() => void logout()}>로그아웃</button> : <button className="primary" onClick={submitLogin}>로그인</button>}</section>
       {!loggedIn && <section className="login-inline"><input value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submitLogin(); }} placeholder="yunseo@agent.calendar" /><input value={loginPw} onChange={(event) => setLoginPw(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submitLogin(); }} type="password" placeholder="••••••••" /><button className="primary" onClick={submitLogin}>로그인</button></section>}
       <div className="settings-label">테마 · 강조 색상</div>
       <section className="theme-grid">{themes.map(([key, label, color]) => <button data-active={settings.theme === key} key={key} onClick={() => void saveTheme(key)}><span style={{ background: color }}>{settings.theme === key ? '✓' : ''}</span><b>{label}</b></button>)}</section>

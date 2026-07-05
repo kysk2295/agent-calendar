@@ -46,7 +46,8 @@ async function main() {
   await page.waitForSelector('.login-recovery');
   const recoveryText = await page.locator('.login-recovery').textContent();
 
-  await page.getByRole('button', { name: /Apple로 계속하기/ }).click();
+  assert.equal(await page.getByRole('button', { name: /Apple로 계속하기/ }).count(), 0);
+  await page.getByRole('button', { name: /Google로 계속하기/ }).click();
   await page.waitForFunction(() => !document.querySelector('.login-overlay'));
   assert.match(recoveryText || '', /복구 링크/);
 

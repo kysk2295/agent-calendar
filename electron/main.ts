@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loginWithPassword, signUpWithPassword, startProviderLogin, type AuthProvider } from './auth.js';
 import { createApiProxyServer } from './proxy.js';
 import { publicSettings, readSettings, saveSettings } from './settings.js';
 
@@ -91,6 +92,22 @@ ipcMain.handle('settings:save', (_event, settings: unknown) => {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return publicSettings(readSettings());
   return publicSettings(saveSettings(settings));
 });
+ipcMain.handle('auth:provider-login', async (_event, provider: unknown) => {
+  if (provider !== 'google') throw new Error('지원하지 않는 로그인 제공자입니다.');
+  const profile = await startProviderLogin(provider as AuthProvider);
+  return publicSettings(saveSettings({ auth: profile }));
+});
+ipcMain.handle('auth:password-signup', async (_event, payload: unknown) => {
+  const body = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+  const profile = await signUpWithPassword(body.email, body.password);
+  return publicSettings(saveSettings({ auth: profile }));
+});
+ipcMain.handle('auth:password-login', async (_event, payload: unknown) => {
+  const body = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+  const profile = await loginWithPassword(body.email, body.password);
+  return publicSettings(saveSettings({ auth: profile }));
+});
+ipcMain.handle('auth:logout', () => publicSettings(saveSettings({ auth: null })));
 ipcMain.handle('proxy:get-base-url', () => proxyBaseUrl);
 ipcMain.handle('widget:snapshot-save', async (_event, snapshot: unknown) => {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {

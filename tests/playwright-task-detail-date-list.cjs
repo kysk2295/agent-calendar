@@ -116,6 +116,38 @@ async function main() {
   await page.locator('.detail-list-popover .new-list-row', { hasText: '고객사' }).click();
   await page.waitForFunction(() => !document.querySelector('.detail-list-popover'));
 
+  await page.locator('.detail-list-pill').click();
+  await page.waitForSelector('.detail-list-popover');
+  await page.locator('.detail-title-input').click();
+  await page.waitForFunction(() => !document.querySelector('.detail-list-popover'));
+
+  await page.locator('.detail-date-trigger').click();
+  await page.waitForSelector('.detail-date-popover');
+  const outsideDetailDatePoint = await page.evaluate(() => {
+    const modal = document.querySelector('.detail-modal')?.getBoundingClientRect();
+    const popover = document.querySelector('.detail-date-popover')?.getBoundingClientRect();
+    const notes = document.querySelector('.detail-notes-input')?.getBoundingClientRect();
+    if (!modal || !popover) return null;
+    const safeRows = Array.from({ length: 5 }, (_, row) => modal.top + 80 + row * Math.max(24, (modal.height - 160) / 4));
+    const safeCols = Array.from({ length: 5 }, (_, col) => modal.left + 32 + col * Math.max(24, (modal.width - 64) / 4));
+    const gridCandidates = safeRows.flatMap((y) => safeCols.map((x) => ({ x, y })));
+    const candidates = [
+      ...(notes ? [
+        { x: notes.left + notes.width / 2, y: notes.top + notes.height / 2 },
+        { x: notes.left + notes.width - 24, y: notes.top + notes.height - 18 },
+      ] : []),
+      { x: modal.left + modal.width / 2, y: modal.top + modal.height / 2 },
+      ...gridCandidates,
+    ];
+    return candidates.find((point) => (
+      point.x < popover.left || point.x > popover.right || point.y < popover.top || point.y > popover.bottom
+    )) || null;
+  });
+  assert.ok(outsideDetailDatePoint);
+  await page.mouse.click(outsideDetailDatePoint.x, outsideDetailDatePoint.y);
+  await page.waitForFunction(() => !document.querySelector('.detail-date-popover'));
+  await page.waitForSelector('.detail-modal');
+
   await page.locator('.detail-date-trigger').click();
   await page.locator('.detail-date-presets button[title="내일"]').click();
   await page.locator('.detail-date-presets button[title="다음 주"]').click();
