@@ -322,8 +322,95 @@ function openAiModel(env = process.env) {
   return text(env.OPENAI_CHAT_MODEL || env.HERMES_OPENAI_CHAT_MODEL || env.AGENT_CALENDAR_OPENAI_MODEL || 'gpt-4o-mini').trim() || 'gpt-4o-mini';
 }
 
+function localLlmModel(env = process.env) {
+  return text(
+    env.AGENT_CALENDAR_LOCAL_LLM_MODEL
+    || env.HERMES_LOCAL_LLM_MODEL
+    || env.LOCAL_LLM_MODEL
+    || env.OLLAMA_MODEL
+    || 'qwen2.5:7b'
+  ).trim() || 'qwen2.5:7b';
+}
+
 function openAiBaseUrl(env = process.env) {
   return text(env.OPENAI_BASE_URL || env.HERMES_OPENAI_BASE_URL || env.AGENT_CALENDAR_OPENAI_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/+$/g, '');
+}
+
+function openAiOAuthUrl(env = process.env) {
+  return text(
+    env.AGENT_CALENDAR_OPENAI_OAUTH_URL
+    || env.HERMES_OPENAI_OAUTH_URL
+    || env.OPENAI_OAUTH_URL
+    || env.RAILWAY_SERVICE_OPENAI_OAUTH_URL
+  ).trim().replace(/\/+$/g, '');
+}
+
+function openAiOAuthKey(env = process.env) {
+  return text(
+    env.AGENT_CALENDAR_OPENAI_OAUTH_PROXY_API_KEY
+    || env.HERMES_OPENAI_OAUTH_PROXY_API_KEY
+    || env.OPENAI_OAUTH_PROXY_API_KEY
+    || env.PROXY_API_KEY
+  ).trim();
+}
+
+function localLlmUrl(env = process.env) {
+  return text(
+    env.AGENT_CALENDAR_LOCAL_LLM_URL
+    || env.HERMES_LOCAL_LLM_URL
+    || env.LOCAL_LLM_URL
+    || env.OLLAMA_BASE_URL
+  ).trim().replace(/\/+$/g, '');
+}
+
+function localLlmKey(env = process.env) {
+  return text(
+    env.AGENT_CALENDAR_LOCAL_LLM_API_KEY
+    || env.HERMES_LOCAL_LLM_API_KEY
+    || env.LOCAL_LLM_API_KEY
+  ).trim();
+}
+
+function openAiCompatibleBaseUrl(value) {
+  const base = text(value).trim().replace(/\/+$/g, '');
+  if (!base) return '';
+  return /\/v1$/i.test(base) ? base : `${base}/v1`;
+}
+
+function scheduleLlmConfigs(env = process.env) {
+  const configs = [];
+  const oauthUrl = openAiOAuthUrl(env);
+  const oauthKey = openAiOAuthKey(env);
+  if (oauthUrl && oauthKey) {
+    configs.push({
+      provider: 'openai-oauth',
+      errorPrefix: 'openai_oauth_request_failed',
+      baseUrl: openAiCompatibleBaseUrl(oauthUrl),
+      apiKey: oauthKey,
+      model: openAiModel(env),
+    });
+  }
+  const localUrl = localLlmUrl(env);
+  if (localUrl) {
+    configs.push({
+      provider: 'local-llm',
+      errorPrefix: 'local_llm_request_failed',
+      baseUrl: openAiCompatibleBaseUrl(localUrl),
+      apiKey: localLlmKey(env),
+      model: localLlmModel(env),
+    });
+  }
+  const apiKey = openAiKey(env);
+  if (apiKey) {
+    configs.push({
+      provider: 'openai',
+      errorPrefix: 'openai_request_failed',
+      baseUrl: openAiBaseUrl(env),
+      apiKey,
+      model: openAiModel(env),
+    });
+  }
+  return configs;
 }
 
 function scheduleContextText({ question, computed, sources }) {
@@ -353,18 +440,17 @@ function scheduleContextText({ question, computed, sources }) {
   ].join('\n');
 }
 
-async function synthesizeScheduleAnswer({ question, computed, sources, env = process.env, fetchImpl = fetch } = {}) {
-  const apiKey = openAiKey(env);
-  if (!apiKey) return null;
-  const model = openAiModel(env);
-  const response = await fetchImpl(`${openAiBaseUrl(env)}/chat/completions`, {
+async function synthesizeScheduleAnswerWithConfig({ llm, question, computed, sources, fetchImpl = fetch } = {}) {
+  if (!llm) return null;
+  const headers = {
+    'content-type': 'application/json',
+  };
+  if (llm.apiKey) headers.authorization = `Bearer ${llm.apiKey}`;
+  const response = await fetchImpl(`${llm.baseUrl}/chat/completions`, {
     method: 'POST',
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      'content-type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
-      model,
+      model: llm.model,
       temperature: 0.2,
       messages: [
         {
@@ -385,11 +471,52 @@ async function synthesizeScheduleAnswer({ question, computed, sources, env = pro
   });
   if (!response.ok) {
     const body = typeof response.text === 'function' ? await response.text() : '';
-    throw new Error(`openai_request_failed:${response.status}:${body.slice(0, 160)}`);
+    const error = new Error(`${llm.errorPrefix}:${response.status}:${body.slice(0, 160)}`);
+    error.llm = llm;
+    throw error;
   }
   const payload = await response.json();
   const answer = text(payload?.choices?.[0]?.message?.content).trim();
-  return answer ? { answer, llm: { provider: 'openai', model, used: true } } : null;
+  return answer ? { answer, llm: { provider: llm.provider, model: llm.model, used: true } } : null;
+}
+
+async function synthesizeScheduleAnswer({ question, computed, sources, env = process.env, fetchImpl = fetch } = {}) {
+  const configs = scheduleLlmConfigs(env);
+  if (!configs.length) return null;
+  const attempts = [];
+  for (const llm of configs) {
+    try {
+      const synthesis = await synthesizeScheduleAnswerWithConfig({
+        llm,
+        question,
+        computed,
+        sources,
+        fetchImpl,
+      });
+      if (synthesis?.answer) {
+        return {
+          ...synthesis,
+          attempts: [
+            ...attempts,
+            { provider: llm.provider, model: llm.model, used: true },
+          ],
+        };
+      }
+      attempts.push({ provider: llm.provider, model: llm.model, used: false, error: 'empty_llm_answer' });
+    } catch (error) {
+      attempts.push({
+        provider: llm.provider,
+        model: llm.model,
+        used: false,
+        error: error.message || String(error),
+      });
+    }
+  }
+  const error = new Error(attempts.map((attempt) => attempt.error).filter(Boolean).join(' | ') || 'llm_unavailable');
+  const lastAttempt = attempts[attempts.length - 1];
+  error.llm = lastAttempt || configs[configs.length - 1];
+  error.attempts = attempts;
+  throw error;
 }
 
 function buildScheduleAssistantContext({ question, filters = {}, state = {} } = {}) {
@@ -414,6 +541,7 @@ function buildScheduleAssistantContext({ question, filters = {}, state = {} } = 
 
 async function buildScheduleAssistantAnswer({ question, filters = {}, state = {}, env = process.env, fetchImpl = fetch } = {}) {
   const result = buildScheduleAssistantContext({ question, filters, state });
+  const configuredLlms = scheduleLlmConfigs(env);
   try {
     const synthesis = await synthesizeScheduleAnswer({
       question: text(question).trim(),
@@ -427,17 +555,20 @@ async function buildScheduleAssistantAnswer({ question, filters = {}, state = {}
         ...result,
         answer: synthesis.answer,
         llm: synthesis.llm,
+        ...(synthesis.attempts ? { llmAttempts: synthesis.attempts } : {}),
       };
     }
   } catch (error) {
+    const llm = error.llm || configuredLlms[configuredLlms.length - 1] || { provider: 'openai', model: openAiModel(env) };
     return {
       ...result,
       llm: {
-        provider: 'openai',
-        model: openAiModel(env),
+        provider: llm.provider,
+        model: llm.model,
         used: false,
         error: error.message || String(error),
       },
+      ...(error.attempts ? { llmAttempts: error.attempts } : {}),
     };
   }
   return {

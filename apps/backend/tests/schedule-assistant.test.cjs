@@ -214,6 +214,241 @@ test('assistant ask uses OpenAI-compatible LLM when an API key is configured', a
   }
 });
 
+test('assistant ask uses Railway OpenAI OAuth proxy when configured', async () => {
+  const state = {
+    tasks: [
+      {
+        id: 'task-shift-a',
+        title: '카페 알바 오픈',
+        date: '2026-06-10',
+        time: '09:00',
+        endTime: '13:00',
+        status: 'Done',
+        done: true,
+        tags: ['알바'],
+        category: '근무',
+      },
+    ],
+    events: [
+      {
+        id: 'event-shift-b',
+        title: '카페 알바 마감',
+        date: '2026-06-20',
+        time: '18:00',
+        endTime: '22:30',
+        status: 'Done',
+        done: true,
+        tags: ['알바'],
+        calendar: '근무',
+      },
+    ],
+  };
+  const llmCalls = [];
+  const env = {
+    DATABASE_URL: '',
+    HERMES_RUNTIME_URL: '',
+    AGENT_CALENDAR_OPENAI_OAUTH_URL: 'https://openai-oauth.test',
+    AGENT_CALENDAR_OPENAI_OAUTH_PROXY_API_KEY: 'oauth-proxy-key',
+    AGENT_CALENDAR_OPENAI_MODEL: 'gpt-oauth-calendar',
+  };
+  const server = createRailwayGatewayServer({
+    env,
+    gatewayStore: createStore(state),
+    fetchImpl: async (url, init = {}) => {
+      llmCalls.push({ url: String(url), init });
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: 'OAuth 프록시 응답: 선택한 기간 알바는 총 8시간 30분입니다.',
+            },
+          },
+        ],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        question: '3달간 알바 총 몇 시간 했지?',
+        filters: { from: '2026-04-01', to: '2026-07-01' },
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(llmCalls.length, 1);
+    assert.equal(llmCalls[0].url, 'https://openai-oauth.test/v1/chat/completions');
+    assert.equal(llmCalls[0].init.headers.authorization, 'Bearer oauth-proxy-key');
+    const requestBody = JSON.parse(llmCalls[0].init.body);
+    assert.equal(requestBody.model, 'gpt-oauth-calendar');
+    assert.match(requestBody.messages[0].content, /아래 데이터만 근거/);
+    assert.match(requestBody.messages[1].content, /8\.5/);
+    assert.match(requestBody.messages[1].content, /카페 알바 오픈/);
+    assert.match(requestBody.messages[1].content, /카페 알바 마감/);
+    assert.equal(payload.answer, 'OAuth 프록시 응답: 선택한 기간 알바는 총 8시간 30분입니다.');
+    assert.deepEqual(payload.llm, { provider: 'openai-oauth', model: 'gpt-oauth-calendar', used: true });
+    assert.equal(payload.computed.workHours, 8.5);
+  } finally {
+    await close(server);
+  }
+});
+
+test('assistant ask falls back when Railway OpenAI OAuth proxy token is expired', async () => {
+  const state = {
+    tasks: [
+      {
+        id: 'task-shift-a',
+        title: '카페 알바 오픈',
+        date: '2026-06-10',
+        time: '09:00',
+        endTime: '13:00',
+        status: 'Done',
+        done: true,
+        tags: ['알바'],
+        category: '근무',
+      },
+    ],
+    events: [],
+  };
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      AGENT_CALENDAR_OPENAI_OAUTH_URL: 'https://openai-oauth.test',
+      AGENT_CALENDAR_OPENAI_OAUTH_PROXY_API_KEY: 'oauth-proxy-key',
+      AGENT_CALENDAR_OPENAI_MODEL: 'gpt-oauth-calendar',
+    },
+    gatewayStore: createStore(state),
+    fetchImpl: async () => new Response(JSON.stringify({
+      error: {
+        message: 'Provided authentication token is expired. Please try signing in again.',
+        type: 'upstream_error',
+      },
+    }), { status: 502, headers: { 'content-type': 'application/json' } }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        question: '3달간 알바 총 몇 시간 했지?',
+        filters: { from: '2026-04-01', to: '2026-07-01' },
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.match(payload.answer, /4시간/);
+    assert.equal(payload.llm.provider, 'openai-oauth');
+    assert.equal(payload.llm.used, false);
+    assert.match(payload.llm.error, /openai_oauth_request_failed:502/);
+    assert.match(payload.llm.error, /expired/);
+  } finally {
+    await close(server);
+  }
+});
+
+test('assistant ask falls back from Railway OpenAI OAuth proxy to local Qwen-compatible LLM', async () => {
+  const state = {
+    tasks: [
+      {
+        id: 'task-shift-a',
+        title: '카페 알바 오픈',
+        date: '2026-06-10',
+        time: '09:00',
+        endTime: '13:00',
+        status: 'Done',
+        done: true,
+        tags: ['알바'],
+        category: '근무',
+      },
+    ],
+    events: [
+      {
+        id: 'event-shift-b',
+        title: '카페 알바 마감',
+        date: '2026-06-20',
+        time: '18:00',
+        endTime: '22:30',
+        status: 'Done',
+        done: true,
+        tags: ['알바'],
+        calendar: '근무',
+      },
+    ],
+  };
+  const llmCalls = [];
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      AGENT_CALENDAR_OPENAI_OAUTH_URL: 'https://openai-oauth.test',
+      AGENT_CALENDAR_OPENAI_OAUTH_PROXY_API_KEY: 'oauth-proxy-key',
+      AGENT_CALENDAR_OPENAI_MODEL: 'gpt-oauth-calendar',
+      AGENT_CALENDAR_LOCAL_LLM_URL: 'http://127.0.0.1:11434',
+      AGENT_CALENDAR_LOCAL_LLM_MODEL: 'qwen2.5:7b',
+    },
+    gatewayStore: createStore(state),
+    fetchImpl: async (url, init = {}) => {
+      llmCalls.push({ url: String(url), init });
+      if (String(url).startsWith('https://openai-oauth.test')) {
+        return new Response(JSON.stringify({
+          error: {
+            message: 'Provided authentication token is expired. Please try signing in again.',
+            type: 'upstream_error',
+          },
+        }), { status: 502, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: '로컬 Qwen 응답: 선택한 기간 알바는 총 8시간 30분입니다.',
+            },
+          },
+        ],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        question: '3달간 알바 총 몇 시간 했지?',
+        filters: { from: '2026-04-01', to: '2026-07-01' },
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(llmCalls.length, 2);
+    assert.equal(llmCalls[0].url, 'https://openai-oauth.test/v1/chat/completions');
+    assert.equal(llmCalls[1].url, 'http://127.0.0.1:11434/v1/chat/completions');
+    const localRequestBody = JSON.parse(llmCalls[1].init.body);
+    assert.equal(localRequestBody.model, 'qwen2.5:7b');
+    assert.match(localRequestBody.messages[1].content, /8\.5/);
+    assert.equal(payload.answer, '로컬 Qwen 응답: 선택한 기간 알바는 총 8시간 30분입니다.');
+    assert.deepEqual(payload.llm, { provider: 'local-llm', model: 'qwen2.5:7b', used: true });
+    assert.equal(payload.llmAttempts.length, 2);
+    assert.equal(payload.llmAttempts[0].provider, 'openai-oauth');
+    assert.equal(payload.llmAttempts[0].used, false);
+    assert.equal(payload.llmAttempts[1].provider, 'local-llm');
+    assert.equal(payload.llmAttempts[1].used, true);
+  } finally {
+    await close(server);
+  }
+});
+
 test('assistant ask falls back to computed answer when LLM request fails', async () => {
   const state = {
     tasks: [
