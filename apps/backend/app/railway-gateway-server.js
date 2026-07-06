@@ -4760,7 +4760,7 @@ function fallbackEvents(res) {
   ]);
 }
 
-function fallbackScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore = null }) {
+async function fallbackScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch }) {
   const question = String(body.question || body.message || body.query || '').trim();
   if (!question) {
     sendJson(res, 400, {
@@ -4771,10 +4771,12 @@ function fallbackScheduleAssistantAsk({ res, body = {}, gatewayState, gatewaySto
     return null;
   }
   const state = gatewaySnapshot(gatewayState, gatewayStore);
-  const result = buildScheduleAssistantAnswer({
+  const result = await buildScheduleAssistantAnswer({
     question,
     filters: body.filters || {},
     state,
+    env,
+    fetchImpl,
   });
   sendJson(res, 200, {
     ...result,
@@ -4784,7 +4786,7 @@ function fallbackScheduleAssistantAsk({ res, body = {}, gatewayState, gatewaySto
   return result;
 }
 
-function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore = null }) {
+async function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch }) {
   const question = String(body.question || body.message || body.query || '').trim();
   if (!question) {
     sendSseStream(res, [
@@ -4794,10 +4796,12 @@ function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore
     return;
   }
   const state = gatewaySnapshot(gatewayState, gatewayStore);
-  const result = buildScheduleAssistantAnswer({
+  const result = await buildScheduleAssistantAnswer({
     question,
     filters: body.filters || {},
     state,
+    env,
+    fetchImpl,
   });
   const userMessage = {
     role: 'user',
@@ -5079,20 +5083,24 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
   }
   const requestBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? parseJsonBuffer(bodyBuffer) : {};
   if (method === 'POST' && pathSegments[0] === 'chat' && pathSegments[1] === 'stream' && isScheduleQuestion(requestBody.message || requestBody.question || requestBody.query)) {
-    streamScheduleAssistantAsk({
+    await streamScheduleAssistantAsk({
       res,
       body: requestBody,
       gatewayState,
       gatewayStore,
+      env,
+      fetchImpl,
     });
     return;
   }
   if (method === 'POST' && pathSegments[0] === 'assistant' && pathSegments[1] === 'ask') {
-    fallbackScheduleAssistantAsk({
+    await fallbackScheduleAssistantAsk({
       res,
       body: requestBody,
       gatewayState,
       gatewayStore,
+      env,
+      fetchImpl,
     });
     return;
   }

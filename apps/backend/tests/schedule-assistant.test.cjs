@@ -131,6 +131,140 @@ test('assistant ask rejects an empty question', async () => {
   }
 });
 
+test('assistant ask uses OpenAI-compatible LLM when an API key is configured', async () => {
+  const state = {
+    tasks: [
+      {
+        id: 'task-shift-a',
+        title: '카페 알바 오픈',
+        date: '2026-06-10',
+        time: '09:00',
+        endTime: '13:00',
+        status: 'Done',
+        done: true,
+        tags: ['알바'],
+        category: '근무',
+      },
+    ],
+    events: [
+      {
+        id: 'event-shift-b',
+        title: '카페 알바 마감',
+        date: '2026-06-20',
+        time: '18:00',
+        endTime: '22:30',
+        status: 'Done',
+        done: true,
+        tags: ['알바'],
+        calendar: '근무',
+      },
+    ],
+  };
+  const llmCalls = [];
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      OPENAI_API_KEY: 'test-openai-key',
+      OPENAI_CHAT_MODEL: 'gpt-test-calendar',
+    },
+    gatewayStore: createStore(state),
+    fetchImpl: async (url, init = {}) => {
+      llmCalls.push({ url: String(url), init });
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: 'LLM 응답: 선택한 기간 알바는 총 8시간 30분입니다.',
+            },
+          },
+        ],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        question: '3달간 알바 총 몇 시간 했지?',
+        filters: { from: '2026-04-01', to: '2026-07-01' },
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(llmCalls.length, 1);
+    assert.equal(llmCalls[0].url, 'https://api.openai.com/v1/chat/completions');
+    assert.equal(llmCalls[0].init.headers.authorization, 'Bearer test-openai-key');
+    const requestBody = JSON.parse(llmCalls[0].init.body);
+    assert.equal(requestBody.model, 'gpt-test-calendar');
+    assert.equal(requestBody.messages[0].role, 'system');
+    assert.match(requestBody.messages[0].content, /아래 데이터만 근거/);
+    assert.match(requestBody.messages[1].content, /8\.5/);
+    assert.match(requestBody.messages[1].content, /카페 알바 오픈/);
+    assert.match(requestBody.messages[1].content, /카페 알바 마감/);
+    assert.equal(payload.answer, 'LLM 응답: 선택한 기간 알바는 총 8시간 30분입니다.');
+    assert.deepEqual(payload.llm, { provider: 'openai', model: 'gpt-test-calendar', used: true });
+    assert.equal(payload.computed.workHours, 8.5);
+  } finally {
+    await close(server);
+  }
+});
+
+test('assistant ask falls back to computed answer when LLM request fails', async () => {
+  const state = {
+    tasks: [
+      {
+        id: 'task-shift-a',
+        title: '카페 알바 오픈',
+        date: '2026-06-10',
+        time: '09:00',
+        endTime: '13:00',
+        status: 'Done',
+        done: true,
+        tags: ['알바'],
+        category: '근무',
+      },
+    ],
+    events: [],
+  };
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      OPENAI_API_KEY: 'test-openai-key',
+      OPENAI_CHAT_MODEL: 'gpt-test-calendar',
+    },
+    gatewayStore: createStore(state),
+    fetchImpl: async () => new Response('provider down', { status: 503 }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        question: '3달간 알바 총 몇 시간 했지?',
+        filters: { from: '2026-04-01', to: '2026-07-01' },
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.match(payload.answer, /4시간/);
+    assert.equal(payload.computed.workHours, 4);
+    assert.equal(payload.llm.used, false);
+    assert.equal(payload.llm.provider, 'openai');
+    assert.match(payload.llm.error, /openai_request_failed:503/);
+  } finally {
+    await close(server);
+  }
+});
+
 test('chat stream routes schedule questions to schedule assistant instead of runtime runs', async () => {
   const state = {
     tasks: [

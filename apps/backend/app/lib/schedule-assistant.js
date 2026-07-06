@@ -314,7 +314,85 @@ function fallbackAnswer(question, computed, sources) {
   return `${computed.range.label}의 관련 기록은 ${computed.total}건이고, 그중 ${computed.done}건이 완료됐습니다. 질문과 가장 가까운 근거는 ${sources.slice(0, 3).map((source) => source.title).join(', ')}입니다.`;
 }
 
-function buildScheduleAssistantAnswer({ question, filters = {}, state = {} } = {}) {
+function openAiKey(env = process.env) {
+  return text(env.OPENAI_API_KEY || env.HERMES_OPENAI_API_KEY || env.AGENT_CALENDAR_OPENAI_API_KEY).trim();
+}
+
+function openAiModel(env = process.env) {
+  return text(env.OPENAI_CHAT_MODEL || env.HERMES_OPENAI_CHAT_MODEL || env.AGENT_CALENDAR_OPENAI_MODEL || 'gpt-4o-mini').trim() || 'gpt-4o-mini';
+}
+
+function openAiBaseUrl(env = process.env) {
+  return text(env.OPENAI_BASE_URL || env.HERMES_OPENAI_BASE_URL || env.AGENT_CALENDAR_OPENAI_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/+$/g, '');
+}
+
+function scheduleContextText({ question, computed, sources }) {
+  const sourceLines = sources.map((source, index) => [
+    `[${index + 1}] ${source.title}`,
+    `id: ${source.id}`,
+    `date: ${source.date || 'unknown'}`,
+    `time: ${source.time || ''}${source.endTime ? `-${source.endTime}` : ''}`,
+    `done: ${source.done ? 'true' : 'false'}`,
+    `list: ${source.list || ''}`,
+    `tags: ${(source.tags || []).join(', ')}`,
+  ].filter(Boolean).join('\n')).join('\n\n');
+  return [
+    `질문: ${question}`,
+    '',
+    '계산 요약:',
+    `기간: ${computed.range.label} (${computed.range.from || '처음'} ~ ${computed.range.to || '끝'})`,
+    `전체: ${computed.total}`,
+    `완료: ${computed.done}`,
+    `미완료: ${computed.undone}`,
+    `완료율: ${computed.completionRate}%`,
+    `근무/알바 건수: ${computed.workCount}`,
+    `근무/알바 시간: ${computed.workHours}`,
+    '',
+    '근거 목록:',
+    sourceLines || '관련 일정/작업 없음',
+  ].join('\n');
+}
+
+async function synthesizeScheduleAnswer({ question, computed, sources, env = process.env, fetchImpl = fetch } = {}) {
+  const apiKey = openAiKey(env);
+  if (!apiKey) return null;
+  const model = openAiModel(env);
+  const response = await fetchImpl(`${openAiBaseUrl(env)}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            '너는 사용자의 할 일·일정 데이터를 분석하는 비서다.',
+            '아래 데이터만 근거로 한국어 3~5문장으로 답하라.',
+            '숫자 질문은 제공된 계산값을 우선 사용하고 명확한 값으로 답하라.',
+            '데이터에 없는 것은 추측하지 말고, 무엇을 더 기록하면 되는지 알려줘라.',
+          ].join('\n'),
+        },
+        {
+          role: 'user',
+          content: scheduleContextText({ question, computed, sources }),
+        },
+      ],
+    }),
+  });
+  if (!response.ok) {
+    const body = typeof response.text === 'function' ? await response.text() : '';
+    throw new Error(`openai_request_failed:${response.status}:${body.slice(0, 160)}`);
+  }
+  const payload = await response.json();
+  const answer = text(payload?.choices?.[0]?.message?.content).trim();
+  return answer ? { answer, llm: { provider: 'openai', model, used: true } } : null;
+}
+
+function buildScheduleAssistantContext({ question, filters = {}, state = {} } = {}) {
   const q = text(question).trim();
   const range = questionRange(q, filters);
   const scopedItems = applyFilters(scheduleItemsFromState(state), filters, range);
@@ -330,6 +408,44 @@ function buildScheduleAssistantAnswer({ question, filters = {}, state = {} } = {
       strategy: 'backend-schedule-rag',
       candidateCount: scopedItems.length,
       sourceCount: sources.length,
+    },
+  };
+}
+
+async function buildScheduleAssistantAnswer({ question, filters = {}, state = {}, env = process.env, fetchImpl = fetch } = {}) {
+  const result = buildScheduleAssistantContext({ question, filters, state });
+  try {
+    const synthesis = await synthesizeScheduleAnswer({
+      question: text(question).trim(),
+      computed: result.computed,
+      sources: result.sources,
+      env,
+      fetchImpl,
+    });
+    if (synthesis?.answer) {
+      return {
+        ...result,
+        answer: synthesis.answer,
+        llm: synthesis.llm,
+      };
+    }
+  } catch (error) {
+    return {
+      ...result,
+      llm: {
+        provider: 'openai',
+        model: openAiModel(env),
+        used: false,
+        error: error.message || String(error),
+      },
+    };
+  }
+  return {
+    ...result,
+    llm: {
+      provider: 'none',
+      model: '',
+      used: false,
     },
   };
 }
