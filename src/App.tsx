@@ -2302,9 +2302,8 @@ export function App() {
         {loading ? <Loading /> : (
           <section className="content">
             {screen === 'calendar' && <CalendarScreen tasks={scheduledTaskItems} events={events} openNewTask={openNewTask} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} calView={calView} setCalView={setCalView} calDate={calDate} setCalDate={setCalDate} placingTaskId={placingTaskId} setPlacingTaskId={setPlacingTaskId} />}
-            {screen === 'today' && <TodayScreen tasks={tasks} runs={runs} approveRun={approveRun} quickText={quickText} setQuickText={setQuickText} submitQuick={() => submitQuick(todayKey())} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} openRun={openRun} />}
             {screen === 'tasks' && selectedTaxonomy && <TaxonomyManager item={selectedTaxonomy} edit={(item) => openTaxonomyForm(item.kind, item.group, item)} hide={(item) => void hideTaxonomy(item)} />}
-            {(screen === 'tasks' || screen === 'next7' || screen === 'someday') && <TaskListScreen tasks={filteredTasks} quickText={quickText} setQuickText={setQuickText} submitQuick={() => submitQuick(screen === 'next7' ? todayKey() : undefined)} applyRepeatTemplate={(label) => {
+            {(screen === 'today' || screen === 'tasks' || screen === 'next7' || screen === 'someday') && <TaskListScreen tasks={filteredTasks} quickText={quickText} setQuickText={setQuickText} submitQuick={() => submitQuick(screen === 'today' || screen === 'next7' ? todayKey() : undefined)} applyRepeatTemplate={(label) => {
               const templates: Record<string, string> = { '매일 루틴': '매일 ', '매주 회의': '매주 ', '매월 정산': '매월 ', '평일 근무': '근무 평일 ' };
               setQuickText(templates[label] || '');
             }} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} />}
@@ -2607,80 +2606,6 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
       </aside>
     </div>}
   </div>;
-}
-
-function TodayScreen({ tasks, runs, approveRun, quickText, setQuickText, submitQuick, openTask, toggleTask, patchTask, openRun }: { tasks: Item[]; runs: Item[]; approveRun: (run: Item) => void; quickText: string; setQuickText: (value: string) => void; submitQuick: () => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; patchTask: (task: Item, patch: Item) => void; openRun: (run?: Item) => void }) {
-  const today = todayKey();
-  const tomorrow = addDaysKey(today, 1);
-  const active = tasks.filter((task) => !isDone(task));
-  const todayTasks = active.filter((task) => text(task.date) === today).slice(0, 5);
-  const overdue = active.filter((task) => {
-    const date = text(task.date);
-    return date && date < today;
-  }).slice(0, 4);
-  const reviewRuns = runs.filter((run) => /done|완료|review|검토/i.test(text(run.status)) && !/approved|승인/i.test(text(run.status))).slice(0, 3);
-  const suggestions = active.filter((task) => !text(task.date)).slice(0, 3);
-  const stats = [
-    ['지연', overdue.length, overdue.length ? '#C0533B' : '#3E9B72'],
-    ['오늘 할 일', todayTasks.length, '#2B2620'],
-    ['검토 대기', reviewRuns.length, reviewRuns.length ? '#9A7322' : '#3E9B72'],
-  ];
-  return <div className="plan-screen screen-in">
-    <div className="quick-row plan-quick"><span>+</span><input value={quickText} onChange={(event) => setQuickText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submitQuick(); }} placeholder="오늘 할 일 추가  ·  예: 오후3시 롯데리아 #업무 !높음 @agent" /><button onClick={submitQuick}>추가</button></div>
-    <div className="plan-stats">{stats.map(([label, value, color]) => <div key={String(label)}><span>{label}</span><strong style={{ color: String(color) }}>{value}</strong></div>)}</div>
-
-    <section className="plan-section">
-      <h2>📅 오늘 할 일</h2>
-      <div className="plan-stack">
-        {todayTasks.map((task, index) => <PlanTaskRow key={itemId(task, `today-${index}`)} task={task} openTask={openTask} toggleTask={toggleTask} />)}
-        {!todayTasks.length && <div className="plan-empty">오늘 잡힌 작업이 없습니다</div>}
-      </div>
-    </section>
-
-    <section className="plan-section">
-      <h2 className="danger">⏰ 지연된 작업 <small>오늘로 당기거나 다시 잡으세요</small></h2>
-      <div className="plan-stack">
-        {overdue.map((task, index) => <div className="plan-row overdue" key={itemId(task, `overdue-${index}`)}>
-          <button className="check" onClick={() => toggleTask(task)}>{isDone(task) ? '✓' : ''}</button>
-          <span><b>{itemTitle(task, '작업')}</b><small>{formatDateChip(text(task.date))} · {text(task.category || task.project || task.source, '기본함')}</small></span>
-          <button className="mini primaryish" onClick={() => patchTask(task, { date: today })}>오늘로</button>
-          <button className="mini" onClick={() => patchTask(task, { date: tomorrow })}>내일로</button>
-        </div>)}
-        {!overdue.length && <div className="plan-empty success">✓ 지연된 작업 없음 - 깔끔하네요!</div>}
-      </div>
-    </section>
-
-    <section className="plan-section">
-      <h2 className="agent">🤖 에이전트가 끝냈어요 <small>검토하고 승인하세요</small></h2>
-      <div className="plan-stack">
-        {reviewRuns.map((run, index) => {
-          const runWithId: Item = { ...run, id: itemId(run, `run-${index}`) };
-          return <div className="plan-row review-row" role="button" tabIndex={0} key={itemId(runWithId, `run-${index}`)} onClick={() => openRun(runWithId)} onKeyDown={(event) => { if (event.key === 'Enter') openRun(runWithId); }}>
-            <i>✦</i><span><b>{itemTitle(runWithId, '에이전트 결과')}</b><small>{text(runWithId['agent'], 'default')} · 완료 · 검토 대기</small></span><button className="approve" onClick={(event) => { event.stopPropagation(); approveRun(runWithId); }}>승인</button>
-          </div>;
-        })}
-        {!reviewRuns.length && <div className="plan-empty">검토할 에이전트 결과가 없습니다</div>}
-      </div>
-    </section>
-
-    {!!suggestions.length && <section className="plan-section">
-      <h2>💡 기본함에서 오늘로?</h2>
-      <div className="plan-stack">
-        {suggestions.map((task, index) => <div className="plan-row suggest-row" key={itemId(task, `suggest-${index}`)}>
-          <span><b>{itemTitle(task, '작업')}</b></span><small>{text(task.category || task.project || task.source, '기본함')}</small><button className="mini" onClick={() => patchTask(task, { date: today })}>+ 오늘</button>
-        </div>)}
-      </div>
-    </section>}
-  </div>;
-}
-
-function PlanTaskRow({ task, openTask, toggleTask }: { task: Item; openTask: (task: Item) => void; toggleTask: (task: Item) => void }) {
-  return <button className="plan-row" onClick={() => openTask(task)}>
-    <i className="check" onClick={(event) => { event.stopPropagation(); toggleTask(task); }}>{isDone(task) ? '✓' : ''}</i>
-    <span><b>{itemTitle(task, '작업')}</b><small>{text(task.time) ? formatTime(text(task.time)) : text(task.category || task.project || task.source, '기본함')}</small></span>
-    {text(task.time) && <em>{formatTime(text(task.time))}</em>}
-    <small>{text(task.category || task.project || task.source, '기본함')}</small>
-  </button>;
 }
 
 function TaxonomyManager({ item, edit, hide }: { item: TaxonomyItem; edit: (item: TaxonomyItem) => void; hide: (item: TaxonomyItem) => void }) {

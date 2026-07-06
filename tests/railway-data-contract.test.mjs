@@ -107,6 +107,15 @@ test('task surfaces exclude calendar-only event records', () => {
   assert.match(appSource, /const scheduledTaskItems = filteredTasks\.filter/);
 });
 
+test('today tab uses the same task list design system as next 7 days', () => {
+  assert.doesNotMatch(appSource, /screen === 'today' && <TodayScreen/);
+  assert.match(appSource, /\(screen === 'today' \|\| screen === 'tasks' \|\| screen === 'next7' \|\| screen === 'someday'\) && <TaskListScreen/);
+  assert.doesNotMatch(appSource, /className="plan-screen screen-in"/);
+  assert.doesNotMatch(appSource, /className="quick-row plan-quick"/);
+  assert.doesNotMatch(styleSource, /^\.plan-screen\s*\{/m);
+  assert.doesNotMatch(styleSource, /^\.plan-stats\s*\{/m);
+});
+
 test('wiki graph is interactive and wiki ask uses Railway LLM endpoint', () => {
   assert.match(apiSource, /askWiki:/);
   assert.match(apiSource, /\/api\/wiki\/ask/);
