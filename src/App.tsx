@@ -139,6 +139,25 @@ function SystemIcon({ name, className = 'system-icon' }: { name: SystemIconName;
   return <svg className={className} viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
 }
 
+type DateEditorIconName = 'calendar' | 'sun' | 'sunrise' | 'calendarPlus' | 'moon' | 'clock' | 'alarm' | 'repeat' | 'chevronRight' | 'chevronLeft' | 'circle';
+
+function DateEditorIcon({ name, className = 'detail-date-icon' }: { name: DateEditorIconName; className?: string }) {
+  const paths: Record<DateEditorIconName, JSX.Element> = {
+    calendar: <><path d="M7 3.5v3M17 3.5v3" /><path d="M5.75 5.5h12.5c1.25 0 2.25 1 2.25 2.25v10.5c0 1.25-1 2.25-2.25 2.25H5.75c-1.25 0-2.25-1-2.25-2.25V7.75c0-1.25 1-2.25 2.25-2.25Z" /><path d="M3.75 9.25h16.5M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01" /></>,
+    sun: <><circle cx="12" cy="12" r="4.5" /><path d="M12 2.75v2.4M12 18.85v2.4M4.72 4.72l1.7 1.7M17.58 17.58l1.7 1.7M2.75 12h2.4M18.85 12h2.4M4.72 19.28l1.7-1.7M17.58 6.42l1.7-1.7" /></>,
+    sunrise: <><path d="M4 16.5h16M6.75 14a5.25 5.25 0 0 1 10.5 0" /><path d="M12 3.5v4M5.5 10.5l-1.75-1.75M18.5 10.5l1.75-1.75M8.6 7.6 7.25 6.25M15.4 7.6l1.35-1.35" /></>,
+    calendarPlus: <><path d="M7 3.5v3M17 3.5v3M5.75 5.5h12.5c1.25 0 2.25 1 2.25 2.25v10.5c0 1.25-1 2.25-2.25 2.25H5.75c-1.25 0-2.25-1-2.25-2.25V7.75c0-1.25 1-2.25 2.25-2.25ZM3.75 9.25h16.5" /><path d="M12 12.5v5M9.5 15h5" /></>,
+    moon: <path d="M19.25 15.2A7.6 7.6 0 0 1 8.8 4.75 7.8 7.8 0 1 0 19.25 15.2Z" />,
+    clock: <><circle cx="12" cy="12" r="8.75" /><path d="M12 7.5v5l3.25 1.85" /></>,
+    alarm: <><circle cx="12" cy="13" r="6.5" /><path d="M8 4.75 4.75 7.5M16 4.75l3.25 2.75M9.5 20l-1 1.5M14.5 20l1 1.5M12 9.5v4l2.4 1.4" /></>,
+    repeat: <><path d="M17.75 7.25H8.5a4.25 4.25 0 0 0-4.25 4.25v.5" /><path d="m15.25 4.75 2.5 2.5-2.5 2.5M6.25 16.75h9.25a4.25 4.25 0 0 0 4.25-4.25V12" /><path d="m8.75 19.25-2.5-2.5 2.5-2.5" /></>,
+    chevronRight: <path d="m9 5.5 6.5 6.5L9 18.5" />,
+    chevronLeft: <path d="m15 5.5-6.5 6.5L15 18.5" />,
+    circle: <circle cx="12" cy="12" r="3.4" />,
+  };
+  return <svg className={className} viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
+}
+
 const smartNavGroups: NavGroup[] = [
   { title: '', items: [
     { id: 'calendar', icon: '🗓️', label: '캘린더' },
@@ -3668,7 +3687,7 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
         <button className="detail-check" data-done={isDone(detailTask)} data-completing={completionPulse} onClick={() => void toggleDetailCompletion()} aria-label="완료 토글">{isDone(detailTask) ? '✓' : ''}</button>
         <span className="detail-divider" />
         <span className="detail-status" data-done={isDone(detailTask)}>{isDone(detailTask) ? '완료됨' : '진행 중'}</span>
-        <button className="detail-date-trigger" onClick={openDateEditor}><span>▦</span>{dateTitle}</button>
+        <button className="detail-date-trigger" onClick={openDateEditor}><DateEditorIcon name="calendar" />{dateTitle}</button>
         <button className="detail-flag" aria-label="우선순위" onClick={() => patchItem(detailTask, { priority: text(detailTask.priority) ? '' : 'P1' })}>⚐</button>
         <button className="detail-close" onClick={close}>✕</button>
       </header>
@@ -3710,29 +3729,29 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
           {!filteredLists.length && <div className="new-list-empty">일치하는 리스트 없음</div>}
         </div>
       </div>}
-      {dateOpen && <div className="detail-date-popover">
+      {dateOpen && <div className="detail-date-popover" data-mode={dateMode}>
         <div className="detail-date-segment"><button data-active={dateMode === 'date'} onClick={() => setDateMode('date')}>날짜</button><button data-active={dateMode === 'duration'} onClick={() => setDateMode('duration')}>지속 시간</button></div>
         {dateMode === 'date' ? <>
           <div className="detail-date-presets">
-            <button title="오늘" onClick={() => applyDatePreset('today')}>☼</button>
-            <button title="내일" onClick={() => applyDatePreset('tomorrow')}>⌂</button>
-            <button title="다음 주" onClick={() => applyDatePreset('nextWeek')}>▣<small>+7</small></button>
-            <button title="오늘 저녁" onClick={() => applyDatePreset('evening')}>☾</button>
+            <button title="오늘" onClick={() => applyDatePreset('today')}><DateEditorIcon name="sun" /></button>
+            <button title="내일" onClick={() => applyDatePreset('tomorrow')}><DateEditorIcon name="sunrise" /></button>
+            <button title="다음 주" onClick={() => applyDatePreset('nextWeek')}><DateEditorIcon name="calendarPlus" /></button>
+            <button title="오늘 저녁" onClick={() => applyDatePreset('evening')}><DateEditorIcon name="moon" /></button>
           </div>
-          <div className="detail-month-head"><strong>{pickerMonth.getFullYear()}년 {pickerMonth.getMonth() + 1}월</strong><span /><button onClick={() => shiftPickerMonth(-1)}>‹</button><button onClick={() => setPickerMonth(new Date(`${todayKey()}T00:00:00`))}>○</button><button onClick={() => shiftPickerMonth(1)}>›</button></div>
+          <div className="detail-month-head"><strong>{pickerMonth.getFullYear()}년 {pickerMonth.getMonth() + 1}월</strong><span /><button aria-label="이전 달" onClick={() => shiftPickerMonth(-1)}><DateEditorIcon name="chevronLeft" /></button><button aria-label="이번 달" onClick={() => setPickerMonth(new Date(`${todayKey()}T00:00:00`))}><DateEditorIcon name="circle" /></button><button aria-label="다음 달" onClick={() => shiftPickerMonth(1)}><DateEditorIcon name="chevronRight" /></button></div>
           <div className="detail-weekdays">{['일', '월', '화', '수', '목', '금', '토'].map((day) => <span key={day}>{day}</span>)}</div>
           <div className="detail-date-grid">{pickerCells.map((cell) => <button data-muted={!cell.inMonth} data-active={cell.selected} key={cell.iso} onClick={() => patchDate(cell.iso)}>{cell.day}</button>)}</div>
-          <button className="detail-date-row" onClick={() => setDateMode('duration')}><span>◷</span>{startTime ? formatTime(startTime) : '시간 추가'}<b>›</b></button>
-          <button className="detail-date-row" data-active={reminderOn} onClick={toggleReminder}><span>⏰</span>{reminderOn ? '정각 알림 켜짐' : '정각에'}<b>{reminderOn ? '✓' : '›'}</b></button>
-          <button className="detail-date-row" onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none' })}><span>↻</span>{repeatLabel(repeat)}<b>›</b></button>
+          <button className="detail-date-row" onClick={() => setDateMode('duration')}><DateEditorIcon name="clock" />{startTime ? formatTime(startTime) : '시간'}<DateEditorIcon name="chevronRight" className="detail-date-chevron" /></button>
+          <button className="detail-date-row" data-active={reminderOn} onClick={toggleReminder}><DateEditorIcon name="alarm" />{reminderOn ? '정각 알림 켜짐' : '정각에'}<b>{reminderOn ? '✓' : <DateEditorIcon name="chevronRight" className="detail-date-chevron" />}</b></button>
+          <button className="detail-date-row" onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none' })}><DateEditorIcon name="repeat" />{repeatLabel(repeat)}<DateEditorIcon name="chevronRight" className="detail-date-chevron" /></button>
         </> : <>
           <div className="duration-grid">
             <label>시작</label><input value={durationDraft.date} onChange={(event) => setDurationDraft((current) => ({ ...current, date: event.target.value }))} /><input value={durationDraft.time} onChange={(event) => setDurationDraft((current) => ({ ...current, time: event.target.value }))} placeholder="오후 5:00" />
             <label>끝</label><input value={durationDraft.endDate} onChange={(event) => setDurationDraft((current) => ({ ...current, endDate: event.target.value }))} /><input value={durationDraft.endTime} onChange={(event) => setDurationDraft((current) => ({ ...current, endTime: event.target.value }))} placeholder="오후 6:00" />
             <label>전체</label><button className="duration-toggle" data-active={allDay} onClick={() => patchEnd({ allDay: !allDay, time: allDay ? startTime : '' })}><span /></button>
           </div>
-          <button className="detail-date-row" data-active={reminderOn} onClick={toggleReminder}><span>⏰</span>{reminderOn ? '정각 알림 켜짐' : '정각에'}<b>{reminderOn ? '✓' : '›'}</b></button>
-          <button className="detail-date-row" onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none' })}><span>↻</span>{repeatLabel(repeat)}<b>›</b></button>
+          <button className="detail-date-row" data-active={reminderOn} onClick={toggleReminder}><DateEditorIcon name="alarm" />{reminderOn ? '정각 알림 켜짐' : '정각에'}<b>{reminderOn ? '✓' : <DateEditorIcon name="chevronRight" className="detail-date-chevron" />}</b></button>
+          <button className="detail-date-row" onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none' })}><DateEditorIcon name="repeat" />{repeatLabel(repeat)}<DateEditorIcon name="chevronRight" className="detail-date-chevron" /></button>
         </>}
         <footer><button onClick={clearDate}>삭제</button><button className="primary" onClick={confirmDateEditor}>확인</button></footer>
       </div>}

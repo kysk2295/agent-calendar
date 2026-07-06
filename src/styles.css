@@ -5293,7 +5293,7 @@ textarea { resize: vertical; min-height: 72px; }
 }
 .detail-modal {
   position: relative;
-  width: clamp(380px, 34vw, 588px);
+  width: clamp(560px, 42vw, 588px);
   min-height: 360px;
   height: min(430px, calc(100vh - 36px));
   max-width: calc(100vw - 248px);
@@ -5377,20 +5377,16 @@ textarea { resize: vertical; min-height: 72px; }
   gap: 8px;
   border: 0;
   background: transparent;
-  color: var(--accent-dark);
+  color: #4770F3;
   font-size: 13.5px;
   font-weight: 700;
   text-align: left;
 }
-.detail-date-trigger span {
-  width: 20px;
-  height: 20px;
-  display: grid;
-  place-items: center;
-  border: 2px solid currentColor;
-  border-radius: 4px;
-  font-size: 11px;
-  line-height: 1;
+.detail-date-trigger .detail-date-icon {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  color: #4770F3;
 }
 .detail-flag,
 .detail-close,
@@ -5563,62 +5559,85 @@ textarea { resize: vertical; min-height: 72px; }
 }
 .detail-date-popover {
   position: absolute;
-  left: 22px;
+  box-sizing: border-box;
+  --date-editor-accent: #4770F3;
+  --date-editor-soft: #EEF3FF;
+  left: 18px;
   top: 46px;
   z-index: 10;
-  width: clamp(304px, 48vw, 380px);
-  max-width: calc(100vw - 42px);
+  width: min(500px, calc(100vw - 42px));
   max-height: calc(100vh - 34px);
   overflow: auto;
-  padding: 12px 16px 14px;
+  padding: 24px 32px 22px;
   background: var(--input);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 18px 44px rgba(43,38,32,.18);
 }
+.detail-date-popover[data-mode="duration"] {
+  width: min(500px, calc(100vw - 42px));
+  padding: 20px 34px 22px;
+}
 .detail-date-segment {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0;
-  padding: 3px;
-  margin-bottom: 12px;
-  background: #EFEAE2;
+  padding: 4px;
+  margin-bottom: 28px;
+  background: #F0F0F0;
   border-radius: 8px;
 }
 .detail-date-segment button {
-  height: 30px;
+  height: 52px;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #77736D;
-  font-size: 12px;
-  font-weight: 800;
+  color: #777777;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 .detail-date-segment button[data-active="true"] {
   background: var(--input);
-  color: #24211D;
+  color: #1F1F1F;
   box-shadow: 0 1px 3px rgba(43,38,32,.08);
 }
 .quick-date-presets,
 .detail-date-presets {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 18px;
+  margin-bottom: 26px;
 }
 .quick-date-presets button,
 .detail-date-presets button {
-  height: 30px;
+  height: 50px;
+  display: grid;
+  place-items: center;
   border: 0;
   background: transparent;
-  color: #68645E;
-  font-size: 22px;
+  color: #707070;
 }
 .quick-date-presets button:hover,
 .detail-date-presets button:hover {
-  color: var(--accent-dark);
-  background: var(--accent-soft);
+  color: var(--date-editor-accent);
+  background: var(--date-editor-soft);
   border-radius: 7px;
+}
+.detail-date-icon {
+  width: 28px;
+  height: 28px;
+  display: block;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+.detail-date-presets .detail-date-icon {
+  width: 36px;
+  height: 36px;
+  stroke-width: 2;
 }
 .quick-date-presets small,
 .detail-date-presets small {
@@ -5629,21 +5648,30 @@ textarea { resize: vertical; min-height: 72px; }
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 22px;
 }
 .detail-month-head strong {
-  font-size: 13.5px;
+  color: #1F1F1F;
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 .detail-month-head span {
   flex: 1;
 }
 .detail-month-head button {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
   border: 0;
   background: transparent;
-  color: #A29E98;
-  font-size: 18px;
+  color: #9E9E9E;
+}
+.detail-month-head .detail-date-icon {
+  width: 22px;
+  height: 22px;
+  stroke-width: 2.4;
 }
 .detail-weekdays,
 .detail-date-grid {
@@ -5652,122 +5680,145 @@ textarea { resize: vertical; min-height: 72px; }
   text-align: center;
 }
 .detail-weekdays span {
-  color: #9D9993;
-  font-size: 12px;
-  font-weight: 800;
+  color: #9C9C9C;
+  font-size: 18px;
+  font-weight: 500;
 }
 .detail-date-grid {
-  row-gap: 4px;
-  margin-top: 8px;
-  margin-bottom: 12px;
+  row-gap: 10px;
+  margin-top: 22px;
+  margin-bottom: 26px;
 }
 .detail-date-grid button {
-  width: 25px;
-  height: 25px;
+  width: 50px;
+  height: 50px;
   justify-self: center;
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: #24211D;
-  font-size: 12px;
-  font-weight: 700;
+  color: #202124;
+  font-size: 23px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 .detail-date-grid button[data-muted="true"] {
-  color: #B9B5AE;
+  color: #A4A4A4;
 }
 .detail-date-grid button[data-active="true"] {
   color: #fff;
-  background: var(--accent);
+  background: var(--date-editor-accent);
 }
 .detail-date-row {
   width: 100%;
-  height: 36px;
+  height: 56px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 18px;
   border: 0;
   background: transparent;
-  color: var(--accent-dark);
-  font-size: 13px;
-  font-weight: 700;
+  color: #4F4F4F;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: 0;
   text-align: left;
 }
-.detail-date-row span {
-  width: 24px;
-  text-align: center;
-  font-size: 18px;
+.detail-date-row .detail-date-icon {
+  flex: 0 0 28px;
+  color: #7C7C7C;
 }
 .detail-date-row b {
   margin-left: auto;
-  color: #A8A39C;
+  display: flex;
+  align-items: center;
+  color: #A0A0A0;
   font-size: 20px;
 }
+.detail-date-chevron {
+  width: 24px;
+  height: 24px;
+  display: block;
+  margin-left: auto;
+  color: #A0A0A0;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
 .detail-date-row[data-active="true"] {
-  color: var(--accent-dark);
+  color: var(--date-editor-accent);
+}
+.detail-date-row[data-active="true"] .detail-date-icon {
+  color: var(--date-editor-accent);
 }
 .detail-date-popover .duration-grid {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 92px;
-  gap: 14px 10px;
+  grid-template-columns: 44px minmax(0, 1fr) 132px;
+  gap: 22px 18px;
   align-items: center;
-  margin-bottom: 18px;
+  margin-bottom: 28px;
 }
 .detail-date-popover .duration-grid label {
-  color: #5B5650;
-  font-size: 14px;
-  font-weight: 700;
+  color: #4F4F4F;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 .detail-date-popover .duration-grid input {
   min-width: 0;
-  height: 34px;
-  border: 1px solid var(--line);
+  height: 48px;
+  border: 1px solid #DADADA;
   border-radius: 6px;
   background: var(--input);
-  padding: 0 9px;
-  color: #24211D;
-  font-size: 14px;
+  padding: 0 12px;
+  color: #202124;
+  font-size: 23px;
+  font-weight: 500;
+  letter-spacing: 0;
   text-align: center;
 }
 .duration-toggle {
-  width: 42px;
-  height: 24px;
+  width: 56px;
+  height: 36px;
+  justify-self: end;
   border: 0;
   border-radius: 20px;
-  background: #DDDAD5;
-  padding: 2px;
+  background: #D7D7D7;
+  padding: 3px;
 }
 .duration-toggle span {
   display: block;
-  width: 20px;
-  height: 20px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   background: #fff;
 }
 .duration-toggle[data-active="true"] {
-  background: var(--accent);
+  background: var(--date-editor-accent);
 }
 .duration-toggle[data-active="true"] span {
-  margin-left: 18px;
+  margin-left: 20px;
 }
 .detail-date-popover footer {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 10px;
+  gap: 16px;
+  margin-top: 24px;
 }
 .detail-date-popover footer button {
-  height: 36px;
-  border: 1px solid #DDD8CF;
+  height: 56px;
+  border: 1px solid #DDDDDD;
   border-radius: 6px;
   background: #fff;
-  color: #24211D;
-  font-size: 14px;
-  font-weight: 800;
+  color: #1F1F1F;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 .detail-date-popover footer .primary {
   color: #fff;
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--date-editor-accent);
+  border-color: var(--date-editor-accent);
 }
 .delegate-modal {
   width: 520px;
