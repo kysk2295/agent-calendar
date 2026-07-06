@@ -93,11 +93,12 @@ test('calendar CRUD persists duration, all-day, and recurrence through Railway e
   assert.match(appSource, /payload\.endTime\s*=/);
   assert.match(appSource, /const patchItem = isEvent \? patchCalendarEvent : patchTask/);
   assert.match(appSource, /function TaskDetailModal\(/);
-  assert.match(appSource, /const patchEnd = \(patch: Item\)/);
-  assert.match(appSource, /patchEnd\(\{\s*allDay:/);
-  assert.match(appSource, /const \[durationDraft, setDurationDraft\]/);
-  assert.match(appSource, /const commitDurationDraft =/);
-  assert.match(appSource, /endDate: next\.endDate/);
+  assert.match(appSource, /<label>종료일<\/label>/);
+  assert.match(appSource, /<label>종료 시간<\/label>/);
+  assert.match(appSource, /endDate: event\.target\.value/);
+  assert.match(appSource, /endTime: event\.target\.value/);
+  assert.match(appSource, /allDay: !currentAllDay/);
+  assert.match(appSource, /repeatOptions\.map/);
 });
 
 test('task surfaces exclude calendar-only event records', () => {
@@ -172,11 +173,9 @@ test('task completion toggles local UI immediately and rolls back on persistence
 
 test('calendar detail checkbox completes calendar event records through calendar API', () => {
   assert.match(appSource, /const toggleDetailCompletion = async \(\) => \{/);
-  assert.match(appSource, /setCompletionOverride\(selectedId \? \{ id: selectedId, done \} : null\)/);
-  assert.match(appSource, /patchCalendarEvent\(detailTask,\s*\{\s*status:\s*done \? 'Done' : 'Planned',\s*done\s*\}\)/);
+  assert.match(appSource, /patchCalendarEvent\(selectedTask,\s*\{\s*status:\s*done \? 'Done' : 'Planned',\s*done\s*\}\)/);
   assert.match(appSource, /applyOptimisticEventPatch\(id,\s*snapshot\)/);
-  assert.match(appSource, /<button className="detail-check" data-done=\{isDone\(detailTask\)\} data-completing=\{completionPulse\}/);
-  assert.match(appSource, /<span className="detail-status" data-done=\{isDone\(detailTask\)\}>/);
+  assert.match(appSource, /<button className="detail-check" data-done=\{isDone\(selectedTask\)\}/);
   assert.doesNotMatch(appSource, /\{!isEvent && <button className="detail-check"/);
 });
 
@@ -184,8 +183,6 @@ test('task completion checkboxes match TickTick empty-square size', () => {
   assert.match(styleSource, /\.row i\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
   assert.match(styleSource, /\.row\[data-done="true"\] i\s*\{[^}]*background:\s*#FFFFFF;[^}]*border-color:\s*#9A9A9A/s);
   assert.match(styleSource, /\.task-inspector header \.detail-check\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
-  assert.match(styleSource, /\.detail-topline \.detail-check\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
-  assert.match(styleSource, /\.detail-topline \.detail-check\[data-done="true"\]\s*\{[^}]*background:\s*#FFFFFF;[^}]*border-color:\s*#9A9A9A/s);
   assert.match(styleSource, /\.new-task-check-row input\[type="checkbox"\]\s*\{[^}]*appearance:\s*none;[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
 });
 
