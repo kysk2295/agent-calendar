@@ -103,8 +103,7 @@ async function main() {
   await page.waitForFunction(() => document.querySelector('.detail-modal .detail-check')?.getAttribute('data-done') === 'true');
   await page.waitForSelector('.api-banner');
   await page.waitForFunction(() => (
-    document.querySelector('.detail-modal .detail-check')?.getAttribute('data-done') === 'false' &&
-    document.querySelector('.detail-modal .detail-status')?.textContent?.includes('진행 중')
+    document.querySelector('.detail-modal .detail-check')?.getAttribute('data-done') === 'false'
   ));
 
   assert.equal(calls.some((call) => call.method === 'PATCH' && call.path === '/api/calendar/events/event-detail-complete-fail' && call.body.status === 'Done'), true);

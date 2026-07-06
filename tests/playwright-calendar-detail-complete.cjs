@@ -108,8 +108,7 @@ async function main() {
   const animationName = await page.locator('.detail-modal .detail-check').evaluate((node) => getComputedStyle(node).animationName);
   assert.match(animationName, /detailCheckPop/);
   await page.waitForFunction(() => (
-    document.querySelector('.detail-modal .detail-check')?.getAttribute('data-done') === 'true' &&
-    document.querySelector('.detail-modal .detail-status')?.textContent?.includes('완료됨')
+    document.querySelector('.detail-modal .detail-check')?.getAttribute('data-done') === 'true'
   ), undefined, { timeout: 500 });
   const visualMs = Date.now() - visualStartedAt;
   await page.waitForTimeout(950);

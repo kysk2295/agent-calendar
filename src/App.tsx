@@ -3604,10 +3604,10 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
     return { iso, day: day.getDate(), inMonth: day.getMonth() === pickerMonth.getMonth(), selected: iso === startDate };
   });
   const dateTitle = (() => {
-    if (!startDate) return '날짜 없음';
+    if (!startDate) return '날짜';
     const date = new Date(`${startDate}T00:00:00`);
     const dayText = Number.isNaN(date.getTime()) ? startDate : `${date.getMonth() + 1}월 ${date.getDate()}일`;
-    const prefix = startDate === todayKey() ? '오늘, ' : '';
+    const prefix = startDate === todayKey() ? '오늘, ' : startDate === addDaysKey(todayKey(), 1) ? '내일, ' : '';
     const timeText = allDay ? '' : startTime ? `, ${formatTime(startTime)}${endTime ? ` - ${formatTime(endTime)}` : ''}` : '';
     return `${prefix}${dayText}${timeText}`;
   })();
@@ -3701,29 +3701,27 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
       <header className="detail-topline">
         <button className="detail-check" data-done={isDone(detailTask)} data-completing={completionPulse} onClick={() => void toggleDetailCompletion()} aria-label="완료 토글">{isDone(detailTask) ? '✓' : ''}</button>
         <span className="detail-divider" />
-        <span className="detail-status" data-done={isDone(detailTask)}>{isDone(detailTask) ? '완료됨' : '진행 중'}</span>
-        <button className="detail-date-trigger" onClick={openDateEditor}><span>▦</span>{dateTitle}</button>
+        <button className="detail-date-trigger" data-open={dateOpen} aria-expanded={dateOpen} onClick={openDateEditor}><SystemIcon name="calendar" className="detail-date-icon" />{dateTitle}</button>
         <button className="detail-flag" aria-label="우선순위" onClick={() => patchItem(detailTask, { priority: text(detailTask.priority) ? '' : 'P1' })}>⚐</button>
         <button className="detail-close" onClick={close}>✕</button>
       </header>
       <main className="detail-compose" data-done={isDone(detailTask)}>
-        <input className="detail-title-input" defaultValue={itemTitle(detailTask, '')} onBlur={(event) => patchItem(detailTask, { title: event.target.value })} placeholder="무엇을 하고 싶으신가요?" autoFocus />
+        <div className="detail-title-row">
+          <input className="detail-title-input" defaultValue={itemTitle(detailTask, '')} onBlur={(event) => patchItem(detailTask, { title: event.target.value })} placeholder="무엇을 하고 싶으신가요?" autoFocus />
+          <button className="detail-checklist-toggle" aria-label="상세 메뉴" title="상세 메뉴" onClick={() => setToolPanel(toolPanel === 'more' ? null : 'more')}>☰</button>
+        </div>
         <textarea className="detail-notes-input" defaultValue={notes} onBlur={(event) => patchItem(detailTask, { notes: event.target.value })} placeholder="설명 또는 메모 추가" />
       </main>
       <footer className="detail-bottomline">
         <button className="detail-list-pill" onClick={() => setListOpen((open) => !open)}><span>{activeList.icon || '▣'}</span>{activeList.label}<b>▾</b></button>
         <span />
-        <button className="detail-tool" data-active={toolPanel === 'format'} title="서식" onClick={() => setToolPanel(toolPanel === 'format' ? null : 'format')}>A</button>
-        <button className="detail-tool" data-active={toolPanel === 'comment'} title="댓글" onClick={() => setToolPanel(toolPanel === 'comment' ? null : 'comment')}>▣</button>
-        <button className="detail-tool" data-active={toolPanel === 'more'} title="더보기" onClick={() => setToolPanel(toolPanel === 'more' ? null : 'more')}>•••</button>
-        {!isEvent && <button className="detail-tool detail-agent" title="에이전트에 위임" onClick={delegate}>⚡</button>}
-        <button className="detail-delete" disabled={deleting} onClick={() => void deleteSelected()}>{deleting ? '삭제 중' : '삭제'}</button>
+        <button className="detail-submit" onClick={close} aria-label="닫기">↑</button>
       </footer>
       {deleteError && <div className="detail-error">{deleteError}</div>}
       {toolPanel && <div className="detail-tool-popover">
         {toolPanel === 'format' && <><strong>서식 추가</strong><div className="tool-chip-row"><button onClick={() => appendDetailNotes('## 소제목')}>제목</button><button onClick={() => appendDetailNotes('- 항목')}>목록</button><button onClick={() => appendDetailNotes('```\\n코드\\n```')}>코드</button></div></>}
         {toolPanel === 'comment' && <><strong>댓글</strong><div><input value={commentText} onChange={(event) => setCommentText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addDetailComment(); }} placeholder="댓글 입력" autoFocus /><button onClick={() => void addDetailComment()}>남기기</button></div></>}
-        {toolPanel === 'more' && <><strong>빠른 작업</strong><div className="tool-chip-row"><button onClick={() => patchDate(todayKey())}>오늘로</button><button onClick={() => patchDate(addDaysKey(todayKey(), 1))}>내일로</button><button onClick={() => patchEnd({ repeat: repeat === 'weekly' ? 'none' : 'weekly' })}>{repeat === 'weekly' ? '반복 해제' : '매주 반복'}</button></div></>}
+        {toolPanel === 'more' && <><strong>빠른 작업</strong><div className="tool-chip-row"><button onClick={() => patchDate(todayKey())}>오늘로</button><button onClick={() => patchDate(addDaysKey(todayKey(), 1))}>내일로</button><button onClick={() => patchEnd({ repeat: repeat === 'weekly' ? 'none' : 'weekly' })}>{repeat === 'weekly' ? '반복 해제' : '매주 반복'}</button>{!isEvent && <button onClick={delegate}>위임</button>}<button className="danger" disabled={deleting} onClick={() => void deleteSelected()}>{deleting ? '삭제 중' : '삭제'}</button></div></>}
       </div>}
       {listOpen && <div className="detail-list-popover">
         <label className="new-list-search"><span>⌕</span><input value={listQuery} onChange={(event) => setListQuery(event.target.value)} placeholder="검색" autoFocus /></label>

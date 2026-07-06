@@ -110,6 +110,11 @@ async function main() {
 
   await page.locator('.task-row', { hasText: '상세 모달 날짜 리스트 작업' }).dblclick();
   await page.waitForSelector('.detail-modal');
+  assert.equal(await page.locator('.detail-date-popover').count(), 0);
+  assert.equal(await page.locator('.detail-status').count(), 0);
+  assert.match(await page.locator('.detail-date-trigger').textContent(), /오늘, \d+월 \d+일, 오전 9:00/);
+  assert.equal(await page.locator('.detail-date-trigger').getAttribute('aria-expanded'), 'false');
+  assert.equal(await page.locator('.detail-date-trigger .detail-date-icon').count(), 1);
 
   await page.locator('.detail-list-pill').click();
   await page.locator('.detail-list-popover input').fill('고객');
@@ -123,6 +128,7 @@ async function main() {
 
   await page.locator('.detail-date-trigger').click();
   await page.waitForSelector('.detail-date-popover');
+  assert.equal(await page.locator('.detail-date-trigger').getAttribute('aria-expanded'), 'true');
   const outsideDetailDatePoint = await page.evaluate(() => {
     const modal = document.querySelector('.detail-modal')?.getBoundingClientRect();
     const popover = document.querySelector('.detail-date-popover')?.getBoundingClientRect();

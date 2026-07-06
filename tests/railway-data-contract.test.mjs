@@ -176,7 +176,8 @@ test('calendar detail checkbox completes calendar event records through calendar
   assert.match(appSource, /patchCalendarEvent\(detailTask,\s*\{\s*status:\s*done \? 'Done' : 'Planned',\s*done\s*\}\)/);
   assert.match(appSource, /applyOptimisticEventPatch\(id,\s*snapshot\)/);
   assert.match(appSource, /<button className="detail-check" data-done=\{isDone\(detailTask\)\} data-completing=\{completionPulse\}/);
-  assert.match(appSource, /<span className="detail-status" data-done=\{isDone\(detailTask\)\}>/);
+  assert.match(appSource, /aria-expanded=\{dateOpen\}/);
+  assert.match(appSource, /<SystemIcon name="calendar" className="detail-date-icon" \/>/);
   assert.doesNotMatch(appSource, /\{!isEvent && <button className="detail-check"/);
 });
 
