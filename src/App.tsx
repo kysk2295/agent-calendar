@@ -2738,7 +2738,7 @@ function TaskInspectorPane({ task, patchTask, toggleTask, openTask, close }: { t
   return <aside className="task-inspector">
     <header>
       <button className="detail-check" data-done={isDone(task)} onClick={() => toggleTask(task)}>{isDone(task) ? '✓' : ''}</button>
-      {text(task.date) ? <span className="inspector-date">📅 {formatDateChip(text(task.date))}</span> : <span className="inspector-date muted">날짜 없음</span>}
+      {text(task.date) ? <span className="inspector-date"><DateEditorIcon name="calendar" className="date-icon" />{formatDateChip(text(task.date))}</span> : <span className="inspector-date muted">날짜 없음</span>}
       <span />
       <button className="flag" data-active={!!text(task.priority)} onClick={() => patchTask(task, { priority: text(task.priority) ? '' : 'P1' })}>⚑</button>
       <button className="close" onClick={close}>×</button>
@@ -3959,7 +3959,7 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
   >
     <div className="new-task-scroll">
       <div className="new-task-date-row">
-        <button className="new-date-chip" data-has-date={!!controls.date} onClick={() => { controls.setDatePanel(!controls.datePanel); controls.setListPanel(false); }}>🗓 {dateChip}</button>
+        <button className="new-date-chip" data-has-date={!!controls.date} onClick={() => { controls.setDatePanel(!controls.datePanel); controls.setListPanel(false); }}><DateEditorIcon name="calendar" className="date-icon" />{dateChip}</button>
         <button className="new-close" aria-label="닫기" onClick={close}>✕</button>
       </div>
       <div className="new-task-title-row">
