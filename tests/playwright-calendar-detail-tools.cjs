@@ -15,14 +15,18 @@ const todayKey = () => {
 };
 
 const TODAY = todayKey();
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const TOMORROW = (() => {
+  const date = new Date(`${TODAY}T00:00:00`);
+  date.setDate(date.getDate() + 1);
+  return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+})();
 
 const state = {
   tasks: [],
   events: [
     {
-      id: 'event-detail-complete',
-      title: '캘린더 상세 완료 작업',
+      id: 'event-detail-tools',
+      title: '캘린더 상세 도구 일정',
       date: TODAY,
       startDate: TODAY,
       time: '09:00',
@@ -69,7 +73,6 @@ async function main() {
     const eventMatch = path.match(/^\/api\/calendar\/events\/([^/]+)$/);
     if (eventMatch && method === 'PATCH') {
       const id = decodeURIComponent(eventMatch[1]);
-      if (body.status === 'Done') await delay(900);
       state.events = state.events.map((event) => event.id === id ? { ...event, ...body } : event);
       const event = state.events.find((item) => item.id === id);
       await route.fulfill({ json: { ok: true, event, data: { event, events: state.events } } });
@@ -100,31 +103,54 @@ async function main() {
 
   await page.goto(target);
   await page.waitForSelector('.calendar');
-  await page.locator('.event-pill', { hasText: '캘린더 상세 완료 작업' }).first().click();
+  await page.locator('.event-pill', { hasText: '캘린더 상세 도구 일정' }).first().click();
   await page.waitForSelector('.detail-modal');
-  const visualStartedAt = Date.now();
-  await page.locator('.detail-modal .detail-check').click();
-  await page.waitForFunction(() => document.querySelector('.detail-modal .detail-check')?.getAttribute('data-completing') === 'true', undefined, { timeout: 500 });
-  const animationName = await page.locator('.detail-modal .detail-check').evaluate((node) => getComputedStyle(node).animationName);
-  assert.match(animationName, /detailCheckPop/);
-  await page.waitForFunction(() => (
-    document.querySelector('.detail-modal .detail-check')?.getAttribute('data-done') === 'true' &&
-    document.querySelector('.detail-modal .detail-status')?.textContent?.includes('완료됨')
-  ), undefined, { timeout: 500 });
-  const visualMs = Date.now() - visualStartedAt;
-  await page.waitForTimeout(950);
 
-  const eventPatch = calls.find((call) => call.method === 'PATCH' && call.path === '/api/calendar/events/event-detail-complete' && call.body.status === 'Done' && call.body.done === true);
+  const waitForEventPatch = async (action) => {
+    const responsePromise = page.waitForResponse((response) => (
+      response.url().includes('/api/calendar/events/event-detail-tools') &&
+      response.request().method() === 'PATCH'
+    ));
+    await action();
+    await responsePromise;
+  };
+
+  await waitForEventPatch(() => page.locator('.detail-flag').click());
+
+  await page.locator('.detail-tool[title="서식"]').click();
+  await waitForEventPatch(() => page.getByRole('button', { name: '제목' }).click());
+
+  await page.locator('.detail-tool[title="댓글"]').click();
+  await page.locator('.detail-tool-popover input').fill('캘린더 이벤트 댓글');
+  await waitForEventPatch(() => page.getByRole('button', { name: '남기기' }).click());
+
+  await page.locator('.detail-tool[title="더보기"]').click();
+  await waitForEventPatch(() => page.getByRole('button', { name: '내일로' }).click());
+
+  const repeatButton = page.getByRole('button', { name: /매주 반복|반복 해제/ });
+  if (!(await repeatButton.isVisible().catch(() => false))) {
+    await page.locator('.detail-tool[title="더보기"]').click();
+  }
+  await waitForEventPatch(() => repeatButton.click());
+
+  await page.locator('.detail-date-trigger').click();
+  await waitForEventPatch(() => page.locator('.detail-date-row', { hasText: '정각에' }).click());
+
+  const eventPatches = calls.filter((call) => call.method === 'PATCH' && call.path === '/api/calendar/events/event-detail-tools');
   const taskPatches = calls.filter((call) => call.method === 'PATCH' && call.path.startsWith('/api/tasks/'));
-  assert.equal(Boolean(eventPatch), true);
-  assert.equal(eventPatch.body.status, 'Done');
-  assert.equal(eventPatch.body.done, true);
-  assert.equal(visualMs < 650, true);
+
+  assert.equal(eventPatches.length >= 6, true);
   assert.equal(taskPatches.length, 0);
+  assert.equal(eventPatches.some((call) => call.body.priority === 'P1'), true);
+  assert.equal(eventPatches.some((call) => String(call.body.notes || '').includes('## 소제목')), true);
+  assert.equal(eventPatches.some((call) => String(call.body.notes || '').includes('캘린더 이벤트 댓글')), true);
+  assert.equal(eventPatches.some((call) => call.body.date === TOMORROW && call.body.startDate === TOMORROW), true);
+  assert.equal(eventPatches.some((call) => call.body.recurrence === 'weekly' && call.body.repeat === 'weekly'), true);
+  assert.equal(eventPatches.some((call) => call.body.reminder === 'at_time' && call.body.reminderAt === 'at_time'), true);
   assert.equal(await page.locator('.api-banner').count(), 0);
 
   await browser.close();
-  console.log(JSON.stringify({ ok: true, eventPatch: eventPatch.body }, null, 2));
+  console.log(JSON.stringify({ ok: true, eventPatches: eventPatches.map((call) => call.body) }, null, 2));
 }
 
 main().catch((error) => {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +12,7 @@ const WIDGET_APP_GROUP_ID = 'group.com.agents.calendar';
 const WIDGET_SNAPSHOT_FILE = 'HermesWidgetSnapshot.json';
 const WIDGET_ACTIONS_FILE = 'HermesWidgetActions.json';
 let mainWindow: BrowserWindow | null = null;
+let widgetOverlayWindow: BrowserWindow | null = null;
 let proxyBaseUrl = '';
 let widgetActionPoller: NodeJS.Timeout | null = null;
 
@@ -61,6 +62,70 @@ function createWindow() {
     void mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
   startWidgetActionBridge();
+  createWidgetOverlayWindow();
+}
+
+function overlayUrl(devServerUrl: string) {
+  const url = new URL(devServerUrl);
+  url.searchParams.set('overlay', 'widgets');
+  return url.toString();
+}
+
+function widgetOverlayBounds() {
+  const { workArea } = screen.getPrimaryDisplay();
+  const width = Math.min(760, Math.max(520, workArea.width - 48));
+  const height = Math.min(372, Math.max(300, workArea.height - 48));
+  return {
+    width,
+    height,
+    x: workArea.x + workArea.width - width - 24,
+    y: workArea.y + 24,
+  };
+}
+
+function createWidgetOverlayWindow() {
+  if (widgetOverlayWindow && !widgetOverlayWindow.isDestroyed()) return;
+  const bounds = widgetOverlayBounds();
+  widgetOverlayWindow = new BrowserWindow({
+    ...bounds,
+    title: 'Agent Calendar Widgets Overlay',
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    focusable: false,
+    skipTaskbar: true,
+    show: false,
+    backgroundColor: '#00000000',
+    trafficLightPosition: { x: 0, y: 0 },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  widgetOverlayWindow.setAlwaysOnTop(true, 'floating');
+  widgetOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  widgetOverlayWindow.setIgnoreMouseEvents(true, { forward: true });
+  widgetOverlayWindow.once('ready-to-show', () => {
+    widgetOverlayWindow?.showInactive();
+  });
+  widgetOverlayWindow.on('closed', () => {
+    widgetOverlayWindow = null;
+  });
+
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  if (devServerUrl) {
+    void widgetOverlayWindow.loadURL(overlayUrl(devServerUrl));
+  } else {
+    void widgetOverlayWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { overlay: 'widgets' } });
+  }
 }
 
 function widgetGroupDir() {

@@ -106,6 +106,11 @@ const TAXONOMY_SOURCE = 'hermes-desktop-taxonomy';
 const CALENDAR_META_MARKER = '[Agent Calendar]\n';
 const DEFAULT_UI_PREFERENCES: UiPreferences = { notify: true, agentShare: true, weekStartMon: true };
 const LOGO_SRC = '/agent-calendar-logo.png';
+const IS_WIDGET_OVERLAY = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('overlay') === 'widgets';
+
+if (IS_WIDGET_OVERLAY && typeof document !== 'undefined') {
+  document.documentElement.dataset.overlay = 'widgets';
+}
 
 function LogoMark({ className = 'brand-mark' }: { className?: string }) {
   return <img className={className} src={LOGO_SRC} alt="" draggable={false} />;
@@ -762,6 +767,7 @@ function desktopSettingsState(settings: HermesDesktopSettings): DesktopSettingsS
 }
 
 export function App() {
+  const isWidgetOverlay = IS_WIDGET_OVERLAY;
   const [screen, setScreen] = useState<ScreenId>('calendar');
   const [activeNavKey, setActiveNavKey] = useState('calendar');
   const [modal, setModal] = useState<ModalId>(null);
@@ -2171,6 +2177,7 @@ export function App() {
   }, [apiError, events, loading, runs, tasks]);
 
   useEffect(() => {
+    if (isWidgetOverlay) return;
     if (!window.hermesDesktop?.readWidgetActions) return;
     const timer = setInterval(() => {
       void drainWidgetActions();
@@ -2183,13 +2190,21 @@ export function App() {
       clearInterval(timer);
       dispose?.();
     };
-  }, [events, loading, runs, tasks]);
+  }, [events, isWidgetOverlay, loading, runs, tasks]);
 
   useEffect(() => {
     if (!completionNotice) return undefined;
     const timer = window.setTimeout(() => setCompletionNotice(null), 4600);
     return () => window.clearTimeout(timer);
   }, [completionNotice]);
+
+  if (isWidgetOverlay) {
+    return (
+      <div className="app-root widget-overlay-root" data-theme={settings.theme}>
+        {loading ? <Loading /> : <WidgetsScreen tasks={tasks} events={events} runs={runs} />}
+      </div>
+    );
+  }
 
   return (
     <div className="app-root" data-theme={settings.theme}>
@@ -3509,11 +3524,17 @@ function ChatDrawer({ messages, input, setInput, send, runs, setChip, close, ope
 
 function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, close, delegate }: { selectedTask: Item; lists: TaxonomyItem[]; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; close: () => void; delegate: () => void }) {
   const isEvent = isCalendarEventRecord(selectedTask);
+  const selectedId = itemId(selectedTask, '');
+  const [completionOverride, setCompletionOverride] = useState<{ id: string; done: boolean } | null>(null);
+  const [completionPulse, setCompletionPulse] = useState(false);
+  const detailTask = completionOverride?.id === selectedId
+    ? { ...selectedTask, status: completionOverride.done ? 'Done' : 'Planned', done: completionOverride.done }
+    : selectedTask;
   const patchItem = isEvent ? patchCalendarEvent : patchTask;
   const removeItem = isEvent ? removeCalendarEvent : removeTask;
-  const calendar = calendarMetadata(selectedTask);
-  const startDate = text(selectedTask.date || selectedTask.startDate || selectedTask.day, '');
-  const startTime = text(selectedTask.time || selectedTask.t);
+  const calendar = calendarMetadata(detailTask);
+  const startDate = text(detailTask.date || detailTask.startDate || detailTask.day, '');
+  const startTime = text(detailTask.time || detailTask.t);
   const endDate = calendar.endDate || startDate;
   const endTime = calendar.endTime;
   const hasDuration = Boolean(endTime || (calendar.endDate && calendar.endDate !== startDate));
@@ -3526,12 +3547,12 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
   const [commentText, setCommentText] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [deleting, setDeleting] = useState(false);
-  const repeat = calendar.repeat || text(selectedTask.repeat, 'none');
+  const repeat = calendar.repeat || text(detailTask.repeat, 'none');
   const allDay = calendar.allDay;
-  const reminder = text(selectedTask.reminder || selectedTask.reminderAt);
+  const reminder = text(detailTask.reminder || detailTask.reminderAt);
   const [reminderOn, setReminderOn] = useState(!!reminder);
   const listOptions = lists.length ? lists : [{ id: 'inbox', label: '기본함', icon: '📥', group: '리스트', kind: 'list' as TaxonomyKind }];
-  const currentList = slugify(taskListName(selectedTask) || '기본함');
+  const currentList = slugify(taskListName(detailTask) || '기본함');
   const activeList = listOptions.find((option) => currentList === slugify(option.label) || currentList === slugify(option.id)) || listOptions[0];
   const filteredLists = listOptions.filter((option) => {
     const query = listQuery.trim().toLowerCase();
@@ -3556,20 +3577,20 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
     const timeText = allDay ? '' : startTime ? `, ${formatTime(startTime)}${endTime ? ` - ${formatTime(endTime)}` : ''}` : '';
     return `${prefix}${dayText}${timeText}`;
   })();
-  const patchDate = (value: string) => patchItem(selectedTask, { date: value, startDate: value });
-  const patchTime = (value: string) => patchItem(selectedTask, { time: value });
-  const patchEnd = (patch: Item) => (isEvent ? patchCalendarEvent(selectedTask, patch) : patchTask(selectedTask, patch));
+  const patchDate = (value: string) => patchItem(detailTask, { date: value, startDate: value });
+  const patchTime = (value: string) => patchItem(detailTask, { time: value });
+  const patchEnd = (patch: Item) => (isEvent ? patchCalendarEvent(detailTask, patch) : patchTask(detailTask, patch));
   const clearDate = () => {
     setDurationDraft({ date: '', time: '', endDate: '', endTime: '' });
-    patchItem(selectedTask, { date: '', startDate: '', time: '', endDate: '', endTime: '', repeat: 'none', allDay: false });
+    patchItem(detailTask, { date: '', startDate: '', time: '', endDate: '', endTime: '', repeat: 'none', allDay: false });
   };
   const commitDurationDraft = (patch: Partial<typeof durationDraft> = {}) => {
     const next = { ...durationDraft, ...patch };
     setDurationDraft(next);
-    patchItem(selectedTask, { date: next.date, startDate: next.date, time: next.time, endDate: next.endDate, endTime: next.endTime });
+    patchItem(detailTask, { date: next.date, startDate: next.date, time: next.time, endDate: next.endDate, endTime: next.endTime });
   };
-  const notes = plainCalendarNotes(selectedTask);
-  const appendDetailNotes = (addition: string) => patchItem(selectedTask, { notes: [notes.trim(), addition.trim()].filter(Boolean).join('\n') });
+  const notes = plainCalendarNotes(detailTask);
+  const appendDetailNotes = (addition: string) => patchItem(detailTask, { notes: [notes.trim(), addition.trim()].filter(Boolean).join('\n') });
   const addDetailComment = async () => {
     const value = commentText.trim();
     if (!value) return;
@@ -3583,18 +3604,22 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
     const ok = await Promise.resolve(patchEnd({ reminder: next ? 'at_time' : '', reminderAt: next ? 'at_time' : '' }));
     if (ok) setReminderOn(next);
   };
-  const toggleDetailCompletion = () => {
-    const done = !isDone(selectedTask);
+  const toggleDetailCompletion = async () => {
+    const done = !isDone(detailTask);
     if (isEvent) {
-      patchCalendarEvent(selectedTask, { status: done ? 'Done' : 'Planned', done });
+      setCompletionOverride(selectedId ? { id: selectedId, done } : null);
+      setCompletionPulse(true);
+      const ok = await Promise.resolve(patchCalendarEvent(detailTask, { status: done ? 'Done' : 'Planned', done }));
+      setCompletionPulse(false);
+      if (!ok) setCompletionOverride(null);
       return;
     }
-    toggleTask(selectedTask);
+    toggleTask(detailTask);
   };
   const applyDatePreset = (kind: 'today' | 'tomorrow' | 'nextWeek' | 'evening') => {
     const preset = quickDatePreset(kind, startDate);
     setPickerMonth(new Date(`${preset.date}T00:00:00`));
-    patchItem(selectedTask, {
+    patchItem(detailTask, {
       date: preset.date,
       startDate: preset.date,
       time: preset.time || (kind === 'evening' ? '18:00' : ''),
@@ -3627,6 +3652,10 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
   useEffect(() => {
     setDurationDraft({ date: startDate, time: startTime, endDate, endTime });
   }, [endDate, endTime, startDate, startTime]);
+  useEffect(() => {
+    setCompletionOverride(null);
+    setCompletionPulse(false);
+  }, [selectedId]);
 
   return <div className="modal-backdrop detail-backdrop" onMouseDown={close}>
     <div
@@ -3636,15 +3665,16 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
       onFocusCapture={(event) => closeDetailFloaters(event.target)}
     >
       <header className="detail-topline">
-        <button className="detail-check" data-done={isDone(selectedTask)} onClick={toggleDetailCompletion} aria-label="완료 토글">{isDone(selectedTask) ? '✓' : ''}</button>
+        <button className="detail-check" data-done={isDone(detailTask)} data-completing={completionPulse} onClick={() => void toggleDetailCompletion()} aria-label="완료 토글">{isDone(detailTask) ? '✓' : ''}</button>
         <span className="detail-divider" />
+        <span className="detail-status" data-done={isDone(detailTask)}>{isDone(detailTask) ? '완료됨' : '진행 중'}</span>
         <button className="detail-date-trigger" onClick={openDateEditor}><span>▦</span>{dateTitle}</button>
-        <button className="detail-flag" aria-label="우선순위" onClick={() => patchItem(selectedTask, { priority: text(selectedTask.priority) ? '' : 'P1' })}>⚐</button>
+        <button className="detail-flag" aria-label="우선순위" onClick={() => patchItem(detailTask, { priority: text(detailTask.priority) ? '' : 'P1' })}>⚐</button>
         <button className="detail-close" onClick={close}>✕</button>
       </header>
-      <main className="detail-compose">
-        <input className="detail-title-input" defaultValue={itemTitle(selectedTask, '')} onBlur={(event) => patchItem(selectedTask, { title: event.target.value })} placeholder="무엇을 하고 싶으신가요?" autoFocus />
-        <textarea className="detail-notes-input" defaultValue={notes} onBlur={(event) => patchItem(selectedTask, { notes: event.target.value })} placeholder="설명 또는 메모 추가" />
+      <main className="detail-compose" data-done={isDone(detailTask)}>
+        <input className="detail-title-input" defaultValue={itemTitle(detailTask, '')} onBlur={(event) => patchItem(detailTask, { title: event.target.value })} placeholder="무엇을 하고 싶으신가요?" autoFocus />
+        <textarea className="detail-notes-input" defaultValue={notes} onBlur={(event) => patchItem(detailTask, { notes: event.target.value })} placeholder="설명 또는 메모 추가" />
       </main>
       <footer className="detail-bottomline">
         <button className="detail-list-pill" onClick={() => setListOpen((open) => !open)}><span>{activeList.icon || '▣'}</span>{activeList.label}<b>▾</b></button>
@@ -3667,7 +3697,7 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
           {filteredLists.map((option) => {
             const active = slugify(activeList.id) === slugify(option.id) || slugify(activeList.label) === slugify(option.label);
             return <button className="new-list-row" data-active={active} key={option.id} onClick={async () => {
-              const ok = await Promise.resolve(patchItem(selectedTask, { list: option.id, category: option.label, project: option.label }));
+              const ok = await Promise.resolve(patchItem(detailTask, { list: option.id, category: option.label, project: option.label }));
               if (!ok) return;
               setListOpen(false);
               setListQuery('');

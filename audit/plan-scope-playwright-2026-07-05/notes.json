@@ -1,0 +1,473 @@
+{
+  "target": "http://127.0.0.1:5174/",
+  "notes": [
+    {
+      "step": 1,
+      "name": "calendar-start",
+      "file": "/Users/koyunseo/Documents/agent calendar/audit/plan-scope-playwright-2026-07-05/01-calendar-start.png",
+      "note": "캘린더 월 화면: 기획 내 일정/작업 pill이 보이고 오늘 셀이 구분됨."
+    },
+    {
+      "step": 2,
+      "name": "calendar-day",
+      "file": "/Users/koyunseo/Documents/agent calendar/audit/plan-scope-playwright-2026-07-05/02-calendar-day.png",
+      "note": "일 보기: all-day 작업과 시간대 일정이 분리되어 보임."
+    },
+    {
+      "step": 3,
+      "name": "task-complete",
+      "file": "/Users/koyunseo/Documents/agent calendar/audit/plan-scope-playwright-2026-07-05/03-task-complete.png",
+      "note": "일 보기 all-day 작업 체크는 /api/tasks 완료 처리로 연결됨."
+    },
+    {
+      "step": 4,
+      "name": "event-detail-open",
+      "file": "/Users/koyunseo/Documents/agent calendar/audit/plan-scope-playwright-2026-07-05/04-event-detail-open.png",
+      "note": "일정 pill 탭 시 상세 모달 제목/날짜/상태 배지/도구가 표시됨."
+    },
+    {
+      "step": 5,
+      "name": "event-complete-immediate",
+      "file": "/Users/koyunseo/Documents/agent calendar/audit/plan-scope-playwright-2026-07-05/05-event-complete-immediate.png",
+      "note": "일정 완료 체크 후 198ms 안에 체크/완료됨 배지/취소선 피드백이 먼저 나타남."
+    },
+    {
+      "step": 6,
+      "name": "event-comment-tool",
+      "file": "/Users/koyunseo/Documents/agent calendar/audit/plan-scope-playwright-2026-07-05/06-event-comment-tool.png",
+      "note": "캘린더 이벤트에서도 댓글 도구가 calendar API patch로 작동함."
+    }
+  ],
+  "calls": [
+    {
+      "method": "GET",
+      "path": "/api/settings",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/scheduler/jobs",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/usage",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/tools",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/channels/status",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/messages",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/state",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/calendar/events",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/wiki",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/inbox/commands",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/scheduler/jobs",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/usage",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/tools",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/channels/status",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/messages",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/state",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/calendar/events",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/wiki",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/inbox/commands",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents",
+      "body": {}
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/tasks/task-audit-today",
+      "body": {
+        "title": "감사 범위 오늘 할 일",
+        "notes": "",
+        "date": "2026-07-05",
+        "owner": "Me",
+        "status": "Done",
+        "project": "기본함",
+        "category": "기본함",
+        "done": true,
+        "allDay": false,
+        "endDate": "",
+        "endTime": "",
+        "recurrence": "",
+        "repeatUntil": "",
+        "lane": "Done",
+        "due": "2026-07-05"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/scheduler/jobs",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/usage",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/tools",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/channels/status",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/messages",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/state",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/calendar/events",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/wiki",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/inbox/commands",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents",
+      "body": {}
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/calendar/events/event-audit-detail",
+      "body": {
+        "title": "감사 범위 일정",
+        "notes": "",
+        "date": "2026-07-05",
+        "time": "09:00",
+        "owner": "Me",
+        "status": "Planned",
+        "project": "기본함",
+        "category": "기본함",
+        "allDay": false,
+        "endDate": "",
+        "endTime": "",
+        "recurrence": "",
+        "repeatUntil": "",
+        "lane": "Planned",
+        "due": "2026-07-05 09:00",
+        "startDate": "2026-07-05",
+        "repeat": "none",
+        "kind": "calendar-event",
+        "type": "calendar-event",
+        "source": "desktop-calendar-event"
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/calendar/events/event-audit-detail",
+      "body": {
+        "title": "감사 범위 일정",
+        "notes": "",
+        "date": "2026-07-05",
+        "time": "09:00",
+        "owner": "Me",
+        "status": "Done",
+        "project": "기본함",
+        "category": "기본함",
+        "done": true,
+        "allDay": false,
+        "endDate": "",
+        "endTime": "",
+        "recurrence": "",
+        "repeatUntil": "",
+        "lane": "Done",
+        "due": "2026-07-05 09:00",
+        "startDate": "2026-07-05",
+        "repeat": "none",
+        "kind": "calendar-event",
+        "type": "calendar-event",
+        "source": "desktop-calendar-event"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/scheduler/jobs",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/usage",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/tools",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/channels/status",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/messages",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/state",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/calendar/events",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/wiki",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/inbox/commands",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/scheduler/jobs",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/usage",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/tools",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/channels/status",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/messages",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/state",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/calendar/events",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/wiki",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/inbox/commands",
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents",
+      "body": {}
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/calendar/events/event-audit-detail",
+      "body": {
+        "title": "감사 범위 일정",
+        "notes": "[댓글] 감사 댓글",
+        "date": "2026-07-05",
+        "time": "09:00",
+        "endDate": "",
+        "endTime": "",
+        "allDay": false,
+        "owner": "Me",
+        "status": "Done",
+        "lane": "Done",
+        "repeat": "none",
+        "repeatUntil": "",
+        "recurrence": "",
+        "project": "기본함",
+        "category": "기본함",
+        "done": true,
+        "due": "2026-07-05 09:00",
+        "startDate": "2026-07-05",
+        "kind": "calendar-event",
+        "type": "calendar-event",
+        "source": "desktop-calendar-event"
+      }
+    }
+  ],
+  "finding": {
+    "eventCompletionImmediate": true,
+    "visualMs": 198
+  }
+}

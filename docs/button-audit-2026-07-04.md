@@ -15,18 +15,15 @@
 | Day view | All-day task checkbox | Completes task through `/api/tasks/:id` | `tests/playwright-calendar-surface-buttons.cjs` | Verified |
 | Day view | `시간 잡기` then hour row | Moves task into selected hour through `/api/tasks/:id` | `tests/playwright-calendar-surface-buttons.cjs` | Verified |
 | New task popover | `닫기` | Closes popover without creating a task | `tests/playwright-calendar-surface-buttons.cjs` | Fixed: `src/App.tsx` |
-| Detail modal | Top-left checkbox for calendar event records | Completes event through `/api/calendar/events/:id`, not task API | `tests/playwright-calendar-detail-complete.cjs`, `tests/railway-data-contract.test.mjs` | Fixed: `src/App.tsx` |
+| Detail modal | Top-left checkbox for calendar event records | Completes event through `/api/calendar/events/:id`, not task API, with immediate detail UI feedback and failure rollback | `tests/playwright-calendar-detail-complete.cjs`, `tests/playwright-calendar-detail-complete-failure.cjs`, `tests/railway-data-contract.test.mjs` | Fixed: `src/App.tsx` |
 | Detail modal | Date/list/duration/delete flows | Patch/delete through correct task or calendar API | `tests/playwright-calendar-crud.cjs`, `tests/playwright-task-detail-date-list.cjs` | Verified |
+| Detail modal | Flag / format / comment / more / reminder controls for calendar event records | Patch event metadata through `/api/calendar/events/:id` and never task API | `tests/playwright-calendar-detail-tools.cjs` | Verified |
 
 ### Findings
 
 - Fixed missing new-task popover close button. The stylesheet already had `.new-close`, but the button was not rendered.
 - Fixed calendar detail checkbox completion for calendar-event records in the prior pass.
-
-### Remaining Calendar Follow-up
-
-- Detail modal format/comment/more controls are covered for task records, but still need explicit calendar-event coverage.
-- Failure rollback for calendar-event detail completion should get a dedicated UI test.
+- Added explicit calendar-event coverage for detail format/comment/more/reminder controls and completion failure rollback.
 
 ## Task List Screen
 

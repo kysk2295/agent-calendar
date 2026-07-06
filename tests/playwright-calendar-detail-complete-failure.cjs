@@ -21,8 +21,8 @@ const state = {
   tasks: [],
   events: [
     {
-      id: 'event-detail-complete',
-      title: '캘린더 상세 완료 작업',
+      id: 'event-detail-complete-fail',
+      title: '캘린더 상세 완료 실패 일정',
       date: TODAY,
       startDate: TODAY,
       time: '09:00',
@@ -68,11 +68,8 @@ async function main() {
     }
     const eventMatch = path.match(/^\/api\/calendar\/events\/([^/]+)$/);
     if (eventMatch && method === 'PATCH') {
-      const id = decodeURIComponent(eventMatch[1]);
-      if (body.status === 'Done') await delay(900);
-      state.events = state.events.map((event) => event.id === id ? { ...event, ...body } : event);
-      const event = state.events.find((item) => item.id === id);
-      await route.fulfill({ json: { ok: true, event, data: { event, events: state.events } } });
+      if (body.status === 'Done') await delay(400);
+      await route.fulfill({ status: 500, json: { ok: false, error: 'calendar complete failed' } });
       return;
     }
 
@@ -100,31 +97,22 @@ async function main() {
 
   await page.goto(target);
   await page.waitForSelector('.calendar');
-  await page.locator('.event-pill', { hasText: '캘린더 상세 완료 작업' }).first().click();
+  await page.locator('.event-pill', { hasText: '캘린더 상세 완료 실패 일정' }).first().click();
   await page.waitForSelector('.detail-modal');
-  const visualStartedAt = Date.now();
   await page.locator('.detail-modal .detail-check').click();
-  await page.waitForFunction(() => document.querySelector('.detail-modal .detail-check')?.getAttribute('data-completing') === 'true', undefined, { timeout: 500 });
-  const animationName = await page.locator('.detail-modal .detail-check').evaluate((node) => getComputedStyle(node).animationName);
-  assert.match(animationName, /detailCheckPop/);
+  await page.waitForFunction(() => document.querySelector('.detail-modal .detail-check')?.getAttribute('data-done') === 'true');
+  await page.waitForSelector('.api-banner');
   await page.waitForFunction(() => (
-    document.querySelector('.detail-modal .detail-check')?.getAttribute('data-done') === 'true' &&
-    document.querySelector('.detail-modal .detail-status')?.textContent?.includes('완료됨')
-  ), undefined, { timeout: 500 });
-  const visualMs = Date.now() - visualStartedAt;
-  await page.waitForTimeout(950);
+    document.querySelector('.detail-modal .detail-check')?.getAttribute('data-done') === 'false' &&
+    document.querySelector('.detail-modal .detail-status')?.textContent?.includes('진행 중')
+  ));
 
-  const eventPatch = calls.find((call) => call.method === 'PATCH' && call.path === '/api/calendar/events/event-detail-complete' && call.body.status === 'Done' && call.body.done === true);
-  const taskPatches = calls.filter((call) => call.method === 'PATCH' && call.path.startsWith('/api/tasks/'));
-  assert.equal(Boolean(eventPatch), true);
-  assert.equal(eventPatch.body.status, 'Done');
-  assert.equal(eventPatch.body.done, true);
-  assert.equal(visualMs < 650, true);
-  assert.equal(taskPatches.length, 0);
-  assert.equal(await page.locator('.api-banner').count(), 0);
+  assert.equal(calls.some((call) => call.method === 'PATCH' && call.path === '/api/calendar/events/event-detail-complete-fail' && call.body.status === 'Done'), true);
+  assert.equal(await page.locator('.detail-title-input').inputValue(), '캘린더 상세 완료 실패 일정');
+  assert.match(await page.locator('.api-banner').textContent(), /Agents Calendar API 500 \/api\/calendar\/events\/event-detail-complete-fail/);
 
   await browser.close();
-  console.log(JSON.stringify({ ok: true, eventPatch: eventPatch.body }, null, 2));
+  console.log(JSON.stringify({ ok: true, patchCalls: calls.filter((call) => call.method === 'PATCH') }, null, 2));
 }
 
 main().catch((error) => {
