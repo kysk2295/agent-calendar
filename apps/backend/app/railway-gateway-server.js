@@ -29,6 +29,7 @@ const { buildRunnerAdapterCatalog } = require('./lib/runner-adapters');
 const { buildGatewayStatus, buildRuntimeProxyRequest, redactGatewayConfig, safeRuntimeError } = require('./lib/runtime-gateway');
 const { HermesRailwayRelay, isRelayAuthorized, relayEnabled } = require('./lib/railway-relay');
 const { projectStateWithAgents, resolveHermesAgent } = require('./lib/agent-registry');
+const { buildScheduleAssistantAnswer, isScheduleQuestion } = require('./lib/schedule-assistant');
 const { createStore } = require('./lib/store-factory');
 const { buildTaskShareDraft } = require('./lib/task-share');
 const { buildVisualBrief } = require('./lib/visual-brief');
@@ -4759,6 +4760,86 @@ function fallbackEvents(res) {
   ]);
 }
 
+function fallbackScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore = null }) {
+  const question = String(body.question || body.message || body.query || '').trim();
+  if (!question) {
+    sendJson(res, 400, {
+      ok: false,
+      error: 'question is required',
+      gatewayFallback: true,
+    });
+    return null;
+  }
+  const state = gatewaySnapshot(gatewayState, gatewayStore);
+  const result = buildScheduleAssistantAnswer({
+    question,
+    filters: body.filters || {},
+    state,
+  });
+  sendJson(res, 200, {
+    ...result,
+    state,
+    gatewayFallback: true,
+  });
+  return result;
+}
+
+function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore = null }) {
+  const question = String(body.question || body.message || body.query || '').trim();
+  if (!question) {
+    sendSseStream(res, [
+      { event: 'error', data: { ok: false, error: 'question is required', gatewayFallback: true } },
+      { event: 'done', data: { ok: false, text: '', error: 'question is required', gatewayFallback: true } },
+    ]);
+    return;
+  }
+  const state = gatewaySnapshot(gatewayState, gatewayStore);
+  const result = buildScheduleAssistantAnswer({
+    question,
+    filters: body.filters || {},
+    state,
+  });
+  const userMessage = {
+    role: 'user',
+    text: question,
+    source: 'schedule-assistant',
+  };
+  const assistantMessage = {
+    role: 'assistant',
+    text: result.answer,
+    source: 'schedule-assistant',
+  };
+  if (gatewayStore && typeof gatewayStore.addChatMessage === 'function') {
+    gatewayStore.addChatMessage(userMessage);
+    gatewayStore.addChatMessage(assistantMessage);
+  } else {
+    addGatewayChatMessage(gatewayState, userMessage);
+    addGatewayChatMessage(gatewayState, assistantMessage);
+  }
+  sendSseStream(res, [
+    {
+      event: 'delta',
+      data: {
+        text: result.answer,
+        source: 'schedule-assistant',
+        search: result.search,
+      },
+    },
+    {
+      event: 'done',
+      data: {
+        ok: true,
+        text: result.answer,
+        answer: result.answer,
+        sources: result.sources,
+        computed: result.computed,
+        search: result.search,
+        gatewayFallback: true,
+      },
+    },
+  ]);
+}
+
 function buildRuntimeRecoveryChatEvents({ message, command } = {}) {
   const recoveryCommand = buildRuntimeRecoveryCommand();
   const visual = {
@@ -4997,6 +5078,24 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
     return;
   }
   const requestBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? parseJsonBuffer(bodyBuffer) : {};
+  if (method === 'POST' && pathSegments[0] === 'chat' && pathSegments[1] === 'stream' && isScheduleQuestion(requestBody.message || requestBody.question || requestBody.query)) {
+    streamScheduleAssistantAsk({
+      res,
+      body: requestBody,
+      gatewayState,
+      gatewayStore,
+    });
+    return;
+  }
+  if (method === 'POST' && pathSegments[0] === 'assistant' && pathSegments[1] === 'ask') {
+    fallbackScheduleAssistantAsk({
+      res,
+      body: requestBody,
+      gatewayState,
+      gatewayStore,
+    });
+    return;
+  }
   const schedulerWriteRequest = pathSegments[0] === 'scheduler' && method !== 'GET';
   const missionScheduleRequest = method === 'POST' && pathSegments[0] === 'missions' && pathSegments[1] === 'schedule';
   const agentProfileCreateRequest = method === 'POST' && pathSegments[0] === 'agents' && !pathSegments[1];
