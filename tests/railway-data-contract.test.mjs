@@ -282,6 +282,14 @@ test('settings preferences are persisted through backend settings API', () => {
   assert.doesNotMatch(appSource, /onClick=\{\(\) => setPrefs\(\{ \.\.\.prefs, \[key\]: !prefs\[key\] \}\)\}/);
 });
 
+test('settings preference rows keep oversized toggles inside the settings card', () => {
+  assert.match(appSource, /className="pref-row"/);
+  assert.match(appSource, /className="pref-copy"/);
+  assert.match(styleSource, /\.pref-box \.pref-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*max-content/);
+  assert.match(styleSource, /\.pref-box \.pref-copy\s*\{[\s\S]*min-width:\s*0/);
+  assert.match(styleSource, /\.pref-box \.switch\s*\{[\s\S]*justify-self:\s*end/);
+});
+
 test('new task date panel removes quick date shortcuts and accordion leading icons', () => {
   assert.doesNotMatch(appSource, /className="new-quick-dates"/);
   assert.doesNotMatch(appSource, /setQuickDate\(addDaysKey\(todayKey\(\), 1\)\).*내일/s);

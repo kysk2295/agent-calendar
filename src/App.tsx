@@ -4133,7 +4133,7 @@ function SettingsOverlay({ settings, setSettings, refresh, setApiError, close, l
       <section className="theme-grid">{themes.map(([key, label, color]) => <button data-active={settings.theme === key} key={key} onClick={() => void saveTheme(key)}><span style={{ background: color }}>{settings.theme === key ? '✓' : ''}</span><b>{label}</b></button>)}</section>
       <section className="theme-preview"><span>H</span><b>선택한 색상이 버튼·강조·캘린더 전반에 즉시 적용됩니다</b></section>
       <div className="settings-label">환경설정</div>
-      <section className="pref-box">{prefRows.map(([key, label, desc]) => <div key={key}><span><b>{label}</b><small>{desc}</small></span><button className="switch" data-active={prefs[key]} onClick={() => void updatePrefs({ ...prefs, [key]: !prefs[key] })}><span /></button></div>)}</section>
+      <section className="pref-box">{prefRows.map(([key, label, desc]) => <div className="pref-row" key={key}><span className="pref-copy"><b>{label}</b><small>{desc}</small></span><button className="switch" data-active={prefs[key]} onClick={() => void updatePrefs({ ...prefs, [key]: !prefs[key] })}><span /></button></div>)}</section>
     </div>
     <footer><span>Agent Calendar · v0.9 · 로컬 저장</span><button className="primary" onClick={close}>완료</button></footer>
   </div></div>;

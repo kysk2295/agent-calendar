@@ -5059,15 +5059,17 @@ textarea { resize: vertical; min-height: 72px; }
 .theme-preview span { background: linear-gradient(150deg, var(--accent), var(--accent-dark)); border-radius: 8px; }
 .theme-preview b { font-size: 12px; }
 .pref-box { overflow: hidden; }
-.pref-box div {
-  display: flex;
+.pref-box .pref-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
   gap: 12px;
   padding: 13px 16px;
   border-bottom: 1px solid var(--line-soft);
 }
-.pref-box div:last-child { border-bottom: 0; }
-.pref-box span:first-child { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.pref-box .pref-row:last-child { border-bottom: 0; }
+.pref-box .pref-copy { min-width: 0; display: grid; gap: 2px; }
+.pref-box .switch { justify-self: end; }
 .pref-box b { font-size: 13px; }
 .pref-box small { color: var(--muted); font-size: 11px; }
 .detail-backdrop,
