@@ -5,10 +5,12 @@ import { test } from 'node:test';
 const root = new URL('../', import.meta.url);
 const source = (path) => readFileSync(new URL(path, root), 'utf8');
 
-test('electron creates a transparent non-focusable floating widget overlay window', () => {
+test('electron gates the floating widget overlay behind an explicit opt-in flag', () => {
   const mainSource = source('electron/main.ts');
   assert.match(mainSource, /let widgetOverlayWindow:\s*BrowserWindow \| null = null/);
-  assert.match(mainSource, /createWidgetOverlayWindow\(\);/);
+  assert.match(mainSource, /function shouldCreateWidgetOverlay\(\)[\s\S]*process\.env\.HERMES_WIDGET_OVERLAY === '1'/);
+  assert.match(mainSource, /if \(shouldCreateWidgetOverlay\(\)\) createWidgetOverlayWindow\(\);/);
+  assert.doesNotMatch(mainSource, /startWidgetActionBridge\(\);\n\s*createWidgetOverlayWindow\(\);/);
   assert.match(mainSource, /function createWidgetOverlayWindow\(\)/);
   assert.match(mainSource, /transparent:\s*true/);
   assert.match(mainSource, /focusable:\s*false/);

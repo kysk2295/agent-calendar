@@ -31,6 +31,10 @@ async function startProxy() {
   proxyBaseUrl = `http://127.0.0.1:${address.port}`;
 }
 
+function shouldCreateWidgetOverlay() {
+  return process.env.HERMES_WIDGET_OVERLAY === '1';
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1320,
@@ -62,7 +66,7 @@ function createWindow() {
     void mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
   startWidgetActionBridge();
-  createWidgetOverlayWindow();
+  if (shouldCreateWidgetOverlay()) createWidgetOverlayWindow();
 }
 
 function overlayUrl(devServerUrl: string) {
