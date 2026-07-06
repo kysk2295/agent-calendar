@@ -1268,6 +1268,36 @@ export function App() {
     });
   }
 
+  function patchItemsById(items: Item[], id: string, patch: Item) {
+    let changed = false;
+    const next = items.map((item, index) => {
+      const keys = new Set([
+        itemId(item, ''),
+        itemId(item, `task-${index}`),
+        itemId(item, `event-${index}`),
+        text(item.taskId),
+      ].filter(Boolean));
+      if (!keys.has(id)) return item;
+      changed = true;
+      return { ...item, ...patch };
+    });
+    return changed ? next : items;
+  }
+
+  function applyOptimisticTaskPatch(id: string, patch: Item) {
+    setState((current) => ({
+      ...current,
+      tasks: patchItemsById(current.tasks, id, patch),
+    }));
+  }
+
+  function applyOptimisticEventPatch(id: string, patch: Item) {
+    setState((current) => ({
+      ...current,
+      events: patchItemsById(current.events, id, patch),
+    }));
+  }
+
   async function patchTask(task: Item, patch: Item, options: { afterPersist?: () => void } = {}) {
     const id = itemId(task, '');
     if (!id) return false;
@@ -1276,12 +1306,14 @@ export function App() {
       return false;
     }
     const snapshot = { ...task, ...patch };
+    applyOptimisticTaskPatch(id, snapshot);
     try {
       await hermesApi.updateTask(id, taskPayload(snapshot));
       options.afterPersist?.();
       await hydrate();
       return true;
     } catch (error) {
+      applyOptimisticTaskPatch(id, task);
       setApiError(error instanceof Error ? error.message : '작업 업데이트 실패');
       return false;
     }
@@ -1295,11 +1327,13 @@ export function App() {
       return false;
     }
     const snapshot = { ...task, ...patch, kind: 'calendar-event', type: 'calendar-event' };
+    applyOptimisticEventPatch(id, snapshot);
     try {
       await hermesApi.updateCalendarEvent(id, calendarEventPayload(snapshot));
       await hydrate();
       return true;
     } catch (error) {
+      applyOptimisticEventPatch(id, task);
       setApiError(error instanceof Error ? error.message : '일정 업데이트 실패');
       return false;
     }

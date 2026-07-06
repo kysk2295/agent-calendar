@@ -159,17 +159,22 @@ test('list editor uses modal emoji picker and preserves folder-edit image patter
   assert.equal(appSource.includes('onFocus={() => setPickerOpen(true)}'), false);
 });
 
-test('task completion waits for backend mutation and hydrate instead of local completion override', () => {
+test('task completion toggles local UI immediately and rolls back on persistence failure', () => {
   assert.doesNotMatch(appSource, /completingTaskIds/);
   assert.doesNotMatch(appSource, /setTimeout\(\(\) => patchTask\(task,\s*\{\s*status:\s*'Done'/);
   assert.doesNotMatch(appSource, /<div className="task-row"[^>]+data-completing/);
+  assert.match(appSource, /function applyOptimisticTaskPatch/);
+  assert.match(appSource, /function applyOptimisticEventPatch/);
   assert.match(appSource, /patchTask\(task,\s*\{\s*status:\s*done \? 'Done' : 'Planned',\s*done\s*\}/);
+  assert.match(appSource, /applyOptimisticTaskPatch\(id,\s*snapshot\)/);
+  assert.match(appSource, /applyOptimisticTaskPatch\(id,\s*task\)/);
 });
 
 test('calendar detail checkbox completes calendar event records through calendar API', () => {
   assert.match(appSource, /const toggleDetailCompletion = async \(\) => \{/);
   assert.match(appSource, /setCompletionOverride\(selectedId \? \{ id: selectedId, done \} : null\)/);
   assert.match(appSource, /patchCalendarEvent\(detailTask,\s*\{\s*status:\s*done \? 'Done' : 'Planned',\s*done\s*\}\)/);
+  assert.match(appSource, /applyOptimisticEventPatch\(id,\s*snapshot\)/);
   assert.match(appSource, /<button className="detail-check" data-done=\{isDone\(detailTask\)\} data-completing=\{completionPulse\}/);
   assert.match(appSource, /<span className="detail-status" data-done=\{isDone\(detailTask\)\}>/);
   assert.doesNotMatch(appSource, /\{!isEvent && <button className="detail-check"/);
