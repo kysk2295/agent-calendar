@@ -3556,90 +3556,220 @@ function ChatDrawer({ messages, input, setInput, send, runs, setChip, close, ope
   </aside>;
 }
 
-function TaskDetailModal({ selectedTask, lists, tags, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, close, delegate }: { selectedTask: Item; lists: TaxonomyItem[]; tags: TaxonomyItem[]; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; close: () => void; delegate: () => void }) {
+function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, close, delegate }: { selectedTask: Item; lists: TaxonomyItem[]; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; close: () => void; delegate: () => void }) {
   const isEvent = isCalendarEventRecord(selectedTask);
+  const selectedId = itemId(selectedTask, '');
+  const [completionOverride, setCompletionOverride] = useState<{ id: string; done: boolean } | null>(null);
+  const [completionPulse, setCompletionPulse] = useState(false);
+  const detailTask = completionOverride?.id === selectedId
+    ? { ...selectedTask, status: completionOverride.done ? 'Done' : 'Planned', done: completionOverride.done }
+    : selectedTask;
   const patchItem = isEvent ? patchCalendarEvent : patchTask;
   const removeItem = isEvent ? removeCalendarEvent : removeTask;
+  const calendar = calendarMetadata(detailTask);
+  const startDate = text(detailTask.date || detailTask.startDate || detailTask.day, '');
+  const startTime = text(detailTask.time || detailTask.t);
+  const endDate = calendar.endDate || startDate;
+  const endTime = calendar.endTime;
+  const hasDuration = Boolean(endTime || (calendar.endDate && calendar.endDate !== startDate));
+  const [dateOpen, setDateOpen] = useState(false);
+  const [dateMode, setDateMode] = useState<'date' | 'duration'>(() => (hasDuration ? 'duration' : 'date'));
+  const [durationDraft, setDurationDraft] = useState({ date: startDate, time: startTime, endDate, endTime });
+  const [listOpen, setListOpen] = useState(false);
+  const [listQuery, setListQuery] = useState('');
+  const [toolPanel, setToolPanel] = useState<'format' | 'comment' | 'more' | null>(null);
+  const [commentText, setCommentText] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const repeat = calendar.repeat || text(detailTask.repeat, 'none');
+  const allDay = calendar.allDay;
+  const reminder = text(detailTask.reminder || detailTask.reminderAt);
+  const [reminderOn, setReminderOn] = useState(!!reminder);
   const listOptions = lists.length ? lists : [{ id: 'inbox', label: '기본함', icon: '📥', group: '리스트', kind: 'list' as TaxonomyKind }];
-  const priorityOptions = ['', 'P1', 'P2', 'P3'];
-  const repeatOptions = ['none', 'daily', 'weekday', 'weekly', 'monthly'];
-  const ownerOptions = ['Me', 'Agent', 'Hybrid'];
-  const currentList = slugify(taskListName(selectedTask));
-  const currentPriority = text(selectedTask.priority);
-  const currentCalendar = calendarMetadata(selectedTask);
-  const currentRepeat = currentCalendar.repeat || 'none';
-  const currentAllDay = currentCalendar.allDay;
-  const currentEndDate = currentCalendar.endDate;
-  const currentEndTime = currentCalendar.endTime;
-  const currentRepeatUntil = currentCalendar.repeatUntil;
-  const currentOwner = taskOwner(selectedTask);
-  const currentTags = taskTags(selectedTask);
-  const toggleTag = (tag: TaxonomyItem) => {
-    const exists = currentTags.some((value) => slugify(value) === slugify(tag.label));
-    patchItem(selectedTask, { tags: exists ? currentTags.filter((value) => slugify(value) !== slugify(tag.label)) : [...currentTags, tag.label] });
+  const currentList = slugify(taskListName(detailTask) || '기본함');
+  const activeList = listOptions.find((option) => currentList === slugify(option.label) || currentList === slugify(option.id)) || listOptions[0];
+  const filteredLists = listOptions.filter((option) => {
+    const query = listQuery.trim().toLowerCase();
+    if (!query) return true;
+    return `${option.label} ${option.group} ${option.id}`.toLowerCase().includes(query);
+  });
+  const pickerBase = new Date(`${startDate || todayKey()}T00:00:00`);
+  const [pickerMonth, setPickerMonth] = useState(() => new Date(pickerBase.getFullYear(), pickerBase.getMonth(), 1));
+  const pickerStart = new Date(pickerMonth.getFullYear(), pickerMonth.getMonth(), 1);
+  pickerStart.setDate(1 - pickerStart.getDay());
+  const pickerCells = Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(pickerStart);
+    day.setDate(pickerStart.getDate() + index);
+    const iso = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(day);
+    return { iso, day: day.getDate(), inMonth: day.getMonth() === pickerMonth.getMonth(), selected: iso === startDate };
+  });
+  const dateTitle = (() => {
+    if (!startDate) return '날짜 없음';
+    const date = new Date(`${startDate}T00:00:00`);
+    const dayText = Number.isNaN(date.getTime()) ? startDate : `${date.getMonth() + 1}월 ${date.getDate()}일`;
+    const prefix = startDate === todayKey() ? '오늘, ' : '';
+    const timeText = allDay ? '' : startTime ? `, ${formatTime(startTime)}${endTime ? ` - ${formatTime(endTime)}` : ''}` : '';
+    return `${prefix}${dayText}${timeText}`;
+  })();
+  const patchDate = (value: string) => patchItem(detailTask, { date: value, startDate: value });
+  const patchTime = (value: string) => patchItem(detailTask, { time: value });
+  const patchEnd = (patch: Item) => (isEvent ? patchCalendarEvent(detailTask, patch) : patchTask(detailTask, patch));
+  const clearDate = () => {
+    setDurationDraft({ date: '', time: '', endDate: '', endTime: '' });
+    patchItem(detailTask, { date: '', startDate: '', time: '', endDate: '', endTime: '', repeat: 'none', allDay: false });
+  };
+  const commitDurationDraft = (patch: Partial<typeof durationDraft> = {}) => {
+    const next = { ...durationDraft, ...patch };
+    setDurationDraft(next);
+    patchItem(detailTask, { date: next.date, startDate: next.date, time: next.time, endDate: next.endDate, endTime: next.endTime });
+  };
+  const notes = plainCalendarNotes(detailTask);
+  const appendDetailNotes = (addition: string) => patchItem(detailTask, { notes: [notes.trim(), addition.trim()].filter(Boolean).join('\n') });
+  const addDetailComment = async () => {
+    const value = commentText.trim();
+    if (!value) return;
+    const ok = await Promise.resolve(appendDetailNotes(`[댓글] ${value}`));
+    if (!ok) return;
+    setCommentText('');
+    setToolPanel(null);
+  };
+  const toggleReminder = async () => {
+    const next = !reminderOn;
+    const ok = await Promise.resolve(patchEnd({ reminder: next ? 'at_time' : '', reminderAt: next ? 'at_time' : '' }));
+    if (ok) setReminderOn(next);
   };
   const toggleDetailCompletion = async () => {
+    const done = !isDone(detailTask);
     if (isEvent) {
-      const done = !isDone(selectedTask);
-      await Promise.resolve(patchCalendarEvent(selectedTask, { status: done ? 'Done' : 'Planned', done }));
+      setCompletionOverride(selectedId ? { id: selectedId, done } : null);
+      setCompletionPulse(true);
+      const ok = await Promise.resolve(patchCalendarEvent(detailTask, { status: done ? 'Done' : 'Planned', done }));
+      setCompletionPulse(false);
+      if (!ok) setCompletionOverride(null);
       return;
     }
-    toggleTask(selectedTask);
+    toggleTask(detailTask);
+  };
+  const applyDatePreset = (kind: 'today' | 'tomorrow' | 'nextWeek' | 'evening') => {
+    const preset = quickDatePreset(kind, startDate);
+    setPickerMonth(new Date(`${preset.date}T00:00:00`));
+    patchItem(detailTask, {
+      date: preset.date,
+      startDate: preset.date,
+      time: preset.time || (kind === 'evening' ? '18:00' : ''),
+      allDay: kind !== 'evening',
+    });
+  };
+  const shiftPickerMonth = (amount: number) => setPickerMonth((current) => new Date(current.getFullYear(), current.getMonth() + amount, 1));
+  const openDateEditor = () => {
+    setDateMode(hasDuration ? 'duration' : 'date');
+    setDateOpen((open) => !open);
+  };
+  const confirmDateEditor = () => {
+    if (dateMode === 'duration') commitDurationDraft();
+    setDateOpen(false);
+  };
+  const closeDetailFloaters = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return;
+    if (target.closest('.detail-date-popover, .detail-date-trigger, .detail-list-popover, .detail-list-pill, .detail-tool-popover, .detail-tool')) return;
+    setDateOpen(false);
+    setListOpen(false);
+    setToolPanel(null);
   };
   const deleteSelected = async () => {
     setDeleteError('');
     setDeleting(true);
     const ok = await Promise.resolve(removeItem(selectedTask));
     setDeleting(false);
-    if (ok) close();
-    else setDeleteError(isEvent ? '일정 삭제 실패' : '작업 삭제 실패');
+    if (!ok) setDeleteError(isEvent ? '일정 삭제 실패' : '작업 삭제 실패');
   };
+  useEffect(() => {
+    setDurationDraft({ date: startDate, time: startTime, endDate, endTime });
+  }, [endDate, endTime, startDate, startTime]);
+  useEffect(() => {
+    setCompletionOverride(null);
+    setCompletionPulse(false);
+  }, [selectedId]);
 
   return <div className="modal-backdrop detail-backdrop" onMouseDown={close}>
-    <div className="detail-modal" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="detail-head">
-        <button className="detail-check" data-done={isDone(selectedTask)} onClick={() => void toggleDetailCompletion()}>{isDone(selectedTask) ? '✓' : ''}</button>
-        <input value={itemTitle(selectedTask, '')} onChange={(event) => patchItem(selectedTask, { title: event.target.value })} />
+    <div
+      className="detail-modal"
+      onMouseDown={(event) => event.stopPropagation()}
+      onMouseDownCapture={(event) => closeDetailFloaters(event.target)}
+      onFocusCapture={(event) => closeDetailFloaters(event.target)}
+    >
+      <header className="detail-topline">
+        <button className="detail-check" data-done={isDone(detailTask)} data-completing={completionPulse} onClick={() => void toggleDetailCompletion()} aria-label="완료 토글">{isDone(detailTask) ? '✓' : ''}</button>
+        <span className="detail-divider" />
+        <span className="detail-status" data-done={isDone(detailTask)}>{isDone(detailTask) ? '완료됨' : '진행 중'}</span>
+        <button className="detail-date-trigger" onClick={openDateEditor}><span>▦</span>{dateTitle}</button>
+        <button className="detail-flag" aria-label="우선순위" onClick={() => patchItem(detailTask, { priority: text(detailTask.priority) ? '' : 'P1' })}>⚐</button>
         <button className="detail-close" onClick={close}>✕</button>
-      </div>
-      <div className="detail-body">
-        <div className="detail-form">
-          <label>날짜</label>
-          <input value={text(selectedTask.date || selectedTask.startDate)} onChange={(event) => patchItem(selectedTask, { date: event.target.value, startDate: event.target.value })} placeholder="YYYY-MM-DD" />
-          <label>시간</label>
-          <input value={text(selectedTask.time || selectedTask.t)} onChange={(event) => patchItem(selectedTask, { time: event.target.value })} placeholder="예: 15:00 (선택)" />
-          <label>종일</label>
-          <div className="detail-options"><button data-active={currentAllDay} onClick={() => patchItem(selectedTask, { allDay: !currentAllDay, time: currentAllDay ? text(selectedTask.time) : '' })}>{currentAllDay ? '종일' : '시간 사용'}</button></div>
-          <label>종료일</label>
-          <input value={currentEndDate} onChange={(event) => (isEvent ? patchCalendarEvent(selectedTask, { endDate: event.target.value }) : patchTask(selectedTask, { endDate: event.target.value }))} placeholder="YYYY-MM-DD (선택)" />
-          <label>종료 시간</label>
-          <input value={currentEndTime} onChange={(event) => (isEvent ? patchCalendarEvent(selectedTask, { endTime: event.target.value }) : patchTask(selectedTask, { endTime: event.target.value }))} placeholder="예: 16:00 (선택)" />
-          <label>리스트</label>
-          <div className="detail-options">{listOptions.map((option) => <button data-active={currentList === slugify(option.label) || currentList === slugify(option.id)} key={option.id} onClick={() => patchItem(selectedTask, { list: option.id, category: option.label, project: option.label })}>{option.icon} {option.label}</button>)}</div>
-          <label>태그</label>
-          <div className="detail-options tag-options">{tags.length ? tags.map((tag) => <button data-active={currentTags.some((value) => slugify(value) === slugify(tag.label))} key={tag.id} onClick={() => toggleTag(tag)}>{tag.icon} {tag.label}</button>) : <button disabled>태그 없음</button>}</div>
-          <label>우선순위</label>
-          <div className="detail-options priority-options">{priorityOptions.map((option) => <button data-active={currentPriority === option} key={option || 'none'} onClick={() => patchItem(selectedTask, { priority: option })}>{option || '없음'}</button>)}</div>
-          <label>반복</label>
-          <div className="detail-options">{repeatOptions.map((option) => <button data-active={currentRepeat === option} key={option} onClick={() => (isEvent ? patchCalendarEvent(selectedTask, { repeat: option }) : patchTask(selectedTask, { repeat: option }))}>{repeatLabel(option)}</button>)}</div>
-          {currentRepeat !== 'none' && <>
-            <label>반복 종료</label>
-            <input value={currentRepeatUntil} onChange={(event) => (isEvent ? patchCalendarEvent(selectedTask, { repeatUntil: event.target.value }) : patchTask(selectedTask, { repeatUntil: event.target.value }))} placeholder="종료일 YYYY-MM-DD (선택)" />
-          </>}
-          <label>담당</label>
-          <div className="detail-options owner-options">{ownerOptions.map((option) => <button data-active={currentOwner === option} key={option} onClick={() => patchItem(selectedTask, { owner: option })}>{option}</button>)}</div>
-        </div>
-        <textarea className="detail-notes" value={plainCalendarNotes(selectedTask)} onChange={(event) => patchItem(selectedTask, { notes: event.target.value })} placeholder="메모 추가..." />
-      </div>
-      {deleteError && <div className="detail-error">{deleteError}</div>}
-      <div className="detail-footer">
-        <button className="danger" disabled={deleting} onClick={() => void deleteSelected()}>{deleting ? '삭제 중' : '삭제'}</button>
+      </header>
+      <main className="detail-compose" data-done={isDone(detailTask)}>
+        <input className="detail-title-input" defaultValue={itemTitle(detailTask, '')} onBlur={(event) => patchItem(detailTask, { title: event.target.value })} placeholder="무엇을 하고 싶으신가요?" autoFocus />
+        <textarea className="detail-notes-input" defaultValue={notes} onBlur={(event) => patchItem(detailTask, { notes: event.target.value })} placeholder="설명 또는 메모 추가" />
+      </main>
+      <footer className="detail-bottomline">
+        <button className="detail-list-pill" onClick={() => setListOpen((open) => !open)}><span>{activeList.icon || '▣'}</span>{activeList.label}<b>▾</b></button>
         <span />
-        {!isEvent && <button onClick={delegate}>⚡ 에이전트에 위임</button>}
-        <button className="primary" onClick={close}>완료</button>
-      </div>
+        <button className="detail-tool" data-active={toolPanel === 'format'} title="서식" onClick={() => setToolPanel(toolPanel === 'format' ? null : 'format')}>A</button>
+        <button className="detail-tool" data-active={toolPanel === 'comment'} title="댓글" onClick={() => setToolPanel(toolPanel === 'comment' ? null : 'comment')}>▣</button>
+        <button className="detail-tool" data-active={toolPanel === 'more'} title="더보기" onClick={() => setToolPanel(toolPanel === 'more' ? null : 'more')}>•••</button>
+        {!isEvent && <button className="detail-tool detail-agent" title="에이전트에 위임" onClick={delegate}>⚡</button>}
+        <button className="detail-delete" disabled={deleting} onClick={() => void deleteSelected()}>{deleting ? '삭제 중' : '삭제'}</button>
+      </footer>
+      {deleteError && <div className="detail-error">{deleteError}</div>}
+      {toolPanel && <div className="detail-tool-popover">
+        {toolPanel === 'format' && <><strong>서식 추가</strong><div className="tool-chip-row"><button onClick={() => appendDetailNotes('## 소제목')}>제목</button><button onClick={() => appendDetailNotes('- 항목')}>목록</button><button onClick={() => appendDetailNotes('```\\n코드\\n```')}>코드</button></div></>}
+        {toolPanel === 'comment' && <><strong>댓글</strong><div><input value={commentText} onChange={(event) => setCommentText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addDetailComment(); }} placeholder="댓글 입력" autoFocus /><button onClick={() => void addDetailComment()}>남기기</button></div></>}
+        {toolPanel === 'more' && <><strong>빠른 작업</strong><div className="tool-chip-row"><button onClick={() => patchDate(todayKey())}>오늘로</button><button onClick={() => patchDate(addDaysKey(todayKey(), 1))}>내일로</button><button onClick={() => patchEnd({ repeat: repeat === 'weekly' ? 'none' : 'weekly' })}>{repeat === 'weekly' ? '반복 해제' : '매주 반복'}</button></div></>}
+      </div>}
+      {listOpen && <div className="detail-list-popover">
+        <label className="new-list-search"><span>⌕</span><input value={listQuery} onChange={(event) => setListQuery(event.target.value)} placeholder="검색" autoFocus /></label>
+        <div className="new-list-options">
+          {filteredLists.map((option) => {
+            const active = slugify(activeList.id) === slugify(option.id) || slugify(activeList.label) === slugify(option.label);
+            return <button className="new-list-row" data-active={active} key={option.id} onClick={async () => {
+              const ok = await Promise.resolve(patchItem(detailTask, { list: option.id, category: option.label, project: option.label }));
+              if (!ok) return;
+              setListOpen(false);
+              setListQuery('');
+            }}>
+              <span className="new-list-icon">{option.icon}</span>
+              <span className="new-list-label">{option.label}</span>
+              <span className="new-list-state">{active ? '✓' : '›'}</span>
+            </button>;
+          })}
+          {!filteredLists.length && <div className="new-list-empty">일치하는 리스트 없음</div>}
+        </div>
+      </div>}
+      {dateOpen && <div className="detail-date-popover">
+        <div className="detail-date-segment"><button data-active={dateMode === 'date'} onClick={() => setDateMode('date')}>날짜</button><button data-active={dateMode === 'duration'} onClick={() => setDateMode('duration')}>지속 시간</button></div>
+        {dateMode === 'date' ? <>
+          <div className="detail-date-presets">
+            <button title="오늘" onClick={() => applyDatePreset('today')}>☼</button>
+            <button title="내일" onClick={() => applyDatePreset('tomorrow')}>⌂</button>
+            <button title="다음 주" onClick={() => applyDatePreset('nextWeek')}>▣<small>+7</small></button>
+            <button title="오늘 저녁" onClick={() => applyDatePreset('evening')}>☾</button>
+          </div>
+          <div className="detail-month-head"><strong>{pickerMonth.getFullYear()}년 {pickerMonth.getMonth() + 1}월</strong><span /><button onClick={() => shiftPickerMonth(-1)}>‹</button><button onClick={() => setPickerMonth(new Date(`${todayKey()}T00:00:00`))}>○</button><button onClick={() => shiftPickerMonth(1)}>›</button></div>
+          <div className="detail-weekdays">{['일', '월', '화', '수', '목', '금', '토'].map((day) => <span key={day}>{day}</span>)}</div>
+          <div className="detail-date-grid">{pickerCells.map((cell) => <button data-muted={!cell.inMonth} data-active={cell.selected} key={cell.iso} onClick={() => patchDate(cell.iso)}>{cell.day}</button>)}</div>
+          <button className="detail-date-row" onClick={() => setDateMode('duration')}><span>◷</span>{startTime ? formatTime(startTime) : '시간 추가'}<b>›</b></button>
+          <button className="detail-date-row" data-active={reminderOn} onClick={toggleReminder}><span>⏰</span>{reminderOn ? '정각 알림 켜짐' : '정각에'}<b>{reminderOn ? '✓' : '›'}</b></button>
+          <button className="detail-date-row" onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none' })}><span>↻</span>{repeatLabel(repeat)}<b>›</b></button>
+        </> : <>
+          <div className="duration-grid">
+            <label>시작</label><input value={durationDraft.date} onChange={(event) => setDurationDraft((current) => ({ ...current, date: event.target.value }))} /><input value={durationDraft.time} onChange={(event) => setDurationDraft((current) => ({ ...current, time: event.target.value }))} placeholder="오후 5:00" />
+            <label>끝</label><input value={durationDraft.endDate} onChange={(event) => setDurationDraft((current) => ({ ...current, endDate: event.target.value }))} /><input value={durationDraft.endTime} onChange={(event) => setDurationDraft((current) => ({ ...current, endTime: event.target.value }))} placeholder="오후 6:00" />
+            <label>전체</label><button className="duration-toggle" data-active={allDay} onClick={() => patchEnd({ allDay: !allDay, time: allDay ? startTime : '' })}><span /></button>
+          </div>
+          <button className="detail-date-row" data-active={reminderOn} onClick={toggleReminder}><span>⏰</span>{reminderOn ? '정각 알림 켜짐' : '정각에'}<b>{reminderOn ? '✓' : '›'}</b></button>
+          <button className="detail-date-row" onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none' })}><span>↻</span>{repeatLabel(repeat)}<b>›</b></button>
+        </>}
+        <footer><button onClick={clearDate}>삭제</button><button className="primary" onClick={confirmDateEditor}>확인</button></footer>
+      </div>}
     </div>
   </div>;
 }
@@ -3653,7 +3783,7 @@ function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, ne
     return <SettingsOverlay settings={settings} setSettings={setSettings} refresh={refresh} setApiError={setApiError} close={() => setModal(null)} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />;
   }
   if (modal === 'task' && selectedTask) {
-    return <TaskDetailModal selectedTask={selectedTask} lists={lists} tags={tags} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} close={() => setModal(null)} delegate={() => { setDelegateText(itemTitle(selectedTask, '')); setModal('delegate'); }} />;
+    return <TaskDetailModal selectedTask={selectedTask} lists={lists} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} close={() => setModal(null)} delegate={() => { setDelegateText(itemTitle(selectedTask, '')); setModal('delegate'); }} />;
   }
   if (modal === 'delegate') {
     const visibleAgents = agents.filter(isAgentSelectable).slice(0, 4);
