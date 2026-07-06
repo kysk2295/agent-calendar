@@ -1388,6 +1388,209 @@ img.avatar {
   gap: 12px;
 }
 
+.plan-screen {
+  max-width: 780px;
+  padding: 10px 2px 26px;
+}
+.plan-screen h1 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+.plan-sub {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.plan-quick {
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  margin-bottom: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+.plan-quick > span {
+  padding-left: 9px;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 300;
+}
+.plan-quick input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 4px;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+}
+.plan-quick button {
+  height: 30px;
+  margin-right: 3px;
+  padding: 0 14px;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+}
+.plan-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 11px;
+  margin-bottom: 22px;
+}
+.plan-stats div {
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.plan-stats span {
+  display: block;
+  margin-bottom: 8px;
+  color: #6E6456;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.plan-stats strong {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+}
+.plan-section { margin-bottom: 22px; }
+.plan-section h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 9px;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.plan-section h2 small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-section h2.danger { color: #C0533B; }
+.plan-section h2.agent { color: #3E7A52; }
+.plan-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.plan-row {
+  width: 100%;
+  min-height: 43px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 13px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--text);
+  text-align: left;
+}
+.plan-row:hover { border-color: #D7C9B2; }
+.plan-row .check, .plan-row > .check {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: transparent;
+  border: 1.5px solid #C9BEA9;
+  border-radius: 6px;
+  font-size: 11px;
+  font-style: normal;
+}
+.plan-row > span {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.plan-row b {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-row small {
+  flex-shrink: 0;
+  color: var(--muted-dark);
+  font-size: 10.5px;
+}
+.plan-row span small {
+  padding: 0;
+  background: transparent;
+}
+.plan-row em {
+  flex-shrink: 0;
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+}
+.plan-row.overdue {
+  border-color: #ECD7CE;
+}
+.plan-row.overdue span small,
+.plan-section h2.danger + .plan-stack .plan-row small:first-of-type {
+  color: #C0533B;
+}
+.plan-row.review-row {
+  background: #F3F7F2;
+  border-color: #CFE3D2;
+}
+.plan-row.review-row i {
+  color: #3E7A52;
+  font-style: normal;
+}
+.plan-row.review-row small { color: #3E7A52; }
+.plan-row.review-row em,
+.plan-row.review-row .approve {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 13px;
+  color: #fff;
+  background: #3E9B72;
+  border: 0;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.plan-row.suggest-row small {
+  padding: 1px 7px;
+  background: #EFE8DA;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.plan-row .mini {
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0 11px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.plan-row .mini.primaryish {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
 .plan-empty {
   padding: 16px;
   color: var(--muted-dark);
