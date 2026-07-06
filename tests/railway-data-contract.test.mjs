@@ -293,7 +293,9 @@ test('agent run approval is persisted through Railway run action API', () => {
   assert.match(apiSource, /\/api\/runs\/\$\{encodeURIComponent\(id\)\}\/approve/);
   assert.match(appSource, /async function approveRun\(/);
   assert.match(appSource, /hermesApi\.approveRun\(id\)/);
-  assert.match(appSource, /status\)\)\s*&&\s*!\/approved\|승인/i);
+  assert.match(appSource, /runs:\s*current\.runs\.filter/);
+  assert.match(appSource, /className="run-approve"/);
+  assert.match(appSource, /onClick=\{\(\) => approveRun\(run\)\}/);
   assert.match(appSource, /approvedRunIdsRef/);
   assert.match(appSource, /\/404\/\.test\(message\)/);
   assert.doesNotMatch(appSource, /setApprovedRunIds/);

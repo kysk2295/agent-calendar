@@ -56,16 +56,19 @@ async function main() {
   });
 
   await page.goto(target);
-  await page.locator('.nav-item').filter({ hasText: '오늘' }).click();
-  await page.waitForSelector('.review-row');
-  assert.equal(await page.locator('.review-row').count(), 2);
+  await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
+  await page.waitForSelector('.run-row');
+  assert.equal(await page.locator('.run-row').count(), 2);
 
-  await page.locator('.review-row', { hasText: 'Stale review run' }).locator('.approve').click();
-  await page.waitForFunction(() => document.querySelectorAll('.review-row').length === 1);
+  await page.locator('.run-row', { hasText: 'Stale review run' }).click();
+  await page.locator('.run-approve').click();
+  await page.waitForFunction(() => document.querySelectorAll('.run-row').length === 1);
   assert.equal(await page.locator('.api-banner').count(), 0);
+  await page.locator('.run-close').click();
 
-  await page.locator('.review-row', { hasText: 'Approving review run' }).locator('.approve').click();
-  await page.waitForFunction(() => !document.querySelector('.review-row'));
+  await page.locator('.run-row', { hasText: 'Approving review run' }).click();
+  await page.locator('.run-approve').click();
+  await page.waitForFunction(() => !document.querySelector('.run-row'));
 
   assert.equal(calls.some((call) => call.path === '/api/runs/run-stale/approve'), true);
   assert.equal(calls.some((call) => call.path === '/api/runs/run-ok/approve'), true);

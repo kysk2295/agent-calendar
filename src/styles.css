@@ -5896,11 +5896,21 @@ textarea { resize: vertical; min-height: 72px; }
   font-size: 10px;
   font-weight: 800;
 }
-.run-head button {
+.run-head .run-close {
   border: 0;
   background: transparent;
   color: #B6AC99;
   font-size: 17px;
+}
+.run-head .run-approve {
+  height: 30px;
+  padding: 0 13px;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 800;
 }
 .plan-steps, .run-timeline { padding: 16px 22px; }
 .plan-steps h3, .run-timeline h3 {

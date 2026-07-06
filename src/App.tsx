@@ -1016,9 +1016,9 @@ export function App() {
       const runs = [
         ...optimisticRunsRef.current.filter((run, index) => !seenRuns.has(itemId(run, `optimistic-run-${index}`))),
         ...remoteRuns,
-      ].map((run, index) => {
+      ].filter((run, index) => {
         const id = itemId(run, `run-${index}`);
-        return approvedRunIdsRef.current.has(id) ? { ...run, status: 'approved', approved: true } : run;
+        return !approvedRunIdsRef.current.has(id) && !/approved|승인/i.test(text(run.status));
       });
       const docs = arr(documentsPayload, 'documents');
       const inboxItems = arr(inbox, 'items', 'commands', 'commandRows');
@@ -2329,7 +2329,7 @@ export function App() {
       {completionNotice && <CompletionToast title={completionNotice.title} undo={undoCompletion} close={() => setCompletionNotice(null)} />}
       {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} send={sendChat} runs={runs} setChip={setChatInput} close={() => setChatOpen(false)} openRun={openRun} />}
       {modal === 'taxonomy' && taxonomyForm && <TaxonomyModal form={taxonomyForm} name={taxonomyName} setName={setTaxonomyName} groupName={taxonomyGroupName} setGroupName={setTaxonomyGroupName} icon={taxonomyIcon} setIcon={setTaxonomyIcon} close={() => { setTaxonomyForm(null); setModal(null); }} submit={() => void createTaxonomy()} />}
-      <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
+      <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} approveRun={approveRun} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
       {!loggedIn && <LoginOverlay email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} authenticateWithPassword={authenticateWithPassword} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} />}
     </div>
   );
@@ -3719,7 +3719,7 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
   </div>;
 }
 
-function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, newTask, createTask, lists, tags, agents, runs, selectedRun, selectedTask, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, delegateText, setDelegateText, delegateAgentId, setDelegateAgentId, startPlan, openRunArtifact, newAgentName, setNewAgentName, newAgentRole, setNewAgentRole, newAgentEmoji, setNewAgentEmoji, createAgent, settings, setSettings, refresh, setApiError, loggedIn, setLoggedIn, logout, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { modal: ModalId; setModal: (modal: ModalId) => void; newTitle: string; setNewTitle: (value: string) => void; newDesc: string; setNewDesc: (value: string) => void; newTask: NewTaskControls; createTask: (extraNotes?: string) => Promise<void>; lists: TaxonomyItem[]; tags: TaxonomyItem[]; agents: Item[]; runs: Item[]; selectedRun?: Item; selectedTask?: Item; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; delegateText: string; setDelegateText: (value: string) => void; delegateAgentId: string; setDelegateAgentId: (value: string) => void; startPlan: () => void; openRunArtifact: (run?: Item) => void; newAgentName: string; setNewAgentName: (value: string) => void; newAgentRole: string; setNewAgentRole: (value: string) => void; newAgentEmoji: string; setNewAgentEmoji: (value: string) => void; createAgent: () => void; settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
+function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, newTask, createTask, lists, tags, agents, runs, selectedRun, selectedTask, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, delegateText, setDelegateText, delegateAgentId, setDelegateAgentId, startPlan, openRunArtifact, approveRun, newAgentName, setNewAgentName, newAgentRole, setNewAgentRole, newAgentEmoji, setNewAgentEmoji, createAgent, settings, setSettings, refresh, setApiError, loggedIn, setLoggedIn, logout, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { modal: ModalId; setModal: (modal: ModalId) => void; newTitle: string; setNewTitle: (value: string) => void; newDesc: string; setNewDesc: (value: string) => void; newTask: NewTaskControls; createTask: (extraNotes?: string) => Promise<void>; lists: TaxonomyItem[]; tags: TaxonomyItem[]; agents: Item[]; runs: Item[]; selectedRun?: Item; selectedTask?: Item; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; delegateText: string; setDelegateText: (value: string) => void; delegateAgentId: string; setDelegateAgentId: (value: string) => void; startPlan: () => void; openRunArtifact: (run?: Item) => void; approveRun: (run: Item) => void; newAgentName: string; setNewAgentName: (value: string) => void; newAgentRole: string; setNewAgentRole: (value: string) => void; newAgentEmoji: string; setNewAgentEmoji: (value: string) => void; createAgent: () => void; settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
   if (!modal) return null;
   if (modal === 'new') {
     return <div className="modal-backdrop new-task-backdrop" onMouseDown={() => setModal(null)}><NewTaskModal title={newTitle} setTitle={setNewTitle} desc={newDesc} setDesc={setNewDesc} controls={newTask} lists={lists} close={() => setModal(null)} submit={createTask} /></div>;
@@ -3770,7 +3770,7 @@ function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, ne
   if (modal === 'run') {
     return <div className="modal-backdrop run-backdrop" onMouseDown={() => setModal(null)}>
       <div className="run-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <RunReport run={selectedRun || runs[0]} close={() => setModal(null)} openArtifact={openRunArtifact} />
+        <RunReport run={selectedRun || runs[0]} close={() => setModal(null)} openArtifact={openRunArtifact} approveRun={approveRun} />
       </div>
     </div>;
   }
@@ -4099,7 +4099,7 @@ function SettingsOverlay({ settings, setSettings, refresh, setApiError, close, l
   </div></div>;
 }
 
-function RunReport({ run: selected, close, openArtifact }: { run?: Item; close: () => void; openArtifact: (run?: Item) => void }) {
+function RunReport({ run: selected, close, openArtifact, approveRun }: { run?: Item; close: () => void; openArtifact: (run?: Item) => void; approveRun: (run: Item) => void }) {
   if (!selected) {
     return <div className="run-report">
       <section className="run-head"><span>대기</span><div><strong>선택된 실행 없음</strong><small>백엔드 런을 선택하세요</small></div><button onClick={close}>✕</button></section>
@@ -4108,8 +4108,9 @@ function RunReport({ run: selected, close, openArtifact }: { run?: Item; close: 
   const run = selected;
   const pct = /done|완료/i.test(text(run.status)) ? 100 : Number(run.pct || run.progress || 0);
   const steps = Array.isArray(run.steps) ? run.steps as Item[] : [];
+  const canApprove = pct >= 100 && !/approved|승인/i.test(text(run.status));
   return <div className="run-report">
-    <section className="run-head"><span>{pct >= 100 ? '완료' : '실행 중'}</span><div><strong>{text(run.title || run.goal, '런')}</strong><small>{text(run.agent, 'default')}</small></div><button onClick={close}>✕</button></section>
+    <section className="run-head"><span>{pct >= 100 ? '완료' : '실행 중'}</span><div><strong>{text(run.title || run.goal, '런')}</strong><small>{text(run.agent, 'default')}</small></div>{canApprove && <button className="run-approve" onClick={() => approveRun(run)}>승인</button>}<button className="run-close" onClick={close}>✕</button></section>
     <div className="run-progress"><span style={{ width: `${pct}%` }} /></div>
     <section className="run-timeline"><h3>실행 타임라인</h3>{steps.map((step, index) => <div className="run-step" key={index}><i data-active={index === steps.length - 1 && pct < 100} /><span><strong>{itemTitle(step, '단계')}</strong><small>{text(step.detail)}</small></span><em>{text(step.time)}</em></div>)}</section>
     <section className="run-artifact"><span>📄</span><div><strong>{text(run.artifact || run.document || run.goal, '실행 결과 정리')}</strong><small>위키 문서 · 완료 후 열기</small></div><button onClick={() => openArtifact(run)}>열기 →</button></section>

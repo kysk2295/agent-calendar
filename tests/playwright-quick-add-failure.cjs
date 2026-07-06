@@ -55,13 +55,13 @@ async function main() {
 
   await page.goto(target);
   await page.getByRole('button', { name: /오늘/ }).first().click();
-  await page.waitForSelector('.plan-quick input');
+  await page.waitForSelector('.list-quick input');
 
-  await page.locator('.plan-quick input').fill('실패해도 남는 빠른 추가');
-  await page.locator('.plan-quick button').click();
+  await page.locator('.list-quick input').fill('실패해도 남는 빠른 추가');
+  await page.locator('.list-quick button').click();
 
   await page.waitForSelector('.api-banner');
-  assert.equal(await page.locator('.plan-quick input').inputValue(), '실패해도 남는 빠른 추가');
+  assert.equal(await page.locator('.list-quick input').inputValue(), '실패해도 남는 빠른 추가');
 
   const createCall = calls.find((call) => call.method === 'POST' && call.path === '/api/tasks');
   assert.equal(Boolean(createCall), true);

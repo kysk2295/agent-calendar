@@ -50,14 +50,15 @@ async function main() {
   });
 
   await page.goto(target);
-  await page.locator('.nav-item').filter({ hasText: '오늘' }).click();
-  await page.waitForSelector('.review-row');
+  await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
+  await page.waitForSelector('.run-row');
 
-  await page.locator('.review-row', { hasText: '승인 실패 보존 런' }).locator('.approve').click();
+  await page.locator('.run-row', { hasText: '승인 실패 보존 런' }).click();
+  await page.locator('.run-approve').click();
 
   await page.waitForSelector('.api-banner');
-  assert.equal(await page.locator('.review-row').count(), 1);
-  assert.match(await page.locator('.review-row').textContent(), /승인 실패 보존 런/);
+  assert.equal(await page.locator('.run-row').count(), 1);
+  assert.match(await page.locator('.run-row').textContent(), /승인 실패 보존 런/);
   assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/runs/run-approval-fail/approve'), true);
 
   await browser.close();
