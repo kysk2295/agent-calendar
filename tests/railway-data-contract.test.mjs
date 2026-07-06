@@ -122,6 +122,7 @@ test('task date controls use the TickTick-style existing calendar toggle without
   assert.doesNotMatch(appSource, /date-glyph/);
   assert.doesNotMatch(styleSource, /\.date-glyph/);
   assert.match(appSource, /<DateEditorIcon name="calendar" className="date-icon"/);
+  assert.match(appSource, /const iconClassName = className === 'system-icon' \? className : `system-icon \$\{className\}`/);
   assert.match(styleSource, /\.detail-date-trigger \.detail-date-icon\s*\{/);
 });
 
