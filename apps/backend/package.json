@@ -1,0 +1,16 @@
+{
+  "name": "agent-calendar-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Railway gateway backend used by the Agent Calendar desktop app and widget integrations.",
+  "type": "commonjs",
+  "main": "app/railway-gateway-server.js",
+  "scripts": {
+    "start": "node app/railway-gateway-server.js",
+    "check": "node -c app/railway-gateway-server.js && node -c app/db/migrate.js",
+    "db:migrate": "node -e \"require('./app/db/migrate').runMigrations().then((result) => { console.log(JSON.stringify(result)); }).catch((error) => { console.error(error); process.exit(1); })\""
+  },
+  "dependencies": {
+    "pg": "^8.16.0"
+  }
+}

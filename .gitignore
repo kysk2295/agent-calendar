@@ -1,6 +1,11 @@
 node_modules/
+apps/*/node_modules/
+.vite/
+apps/*/.vite/
 dist/
 dist-electron/
+apps/desktop/dist/
+apps/desktop/dist-electron/
 .DS_Store
 *.log
 .env*

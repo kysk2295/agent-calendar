@@ -67,6 +67,7 @@ export const hermesApi = {
   },
   askWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/ask', body),
   searchWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/search', body),
+  askSchedule: (body: Record<string, unknown>) => jsonPost('/api/assistant/ask', body),
   getAgents: () => hermesJson<ApiEnvelope>('/api/agents'),
   createAgent: (body: Record<string, unknown>) => jsonPost('/api/agents', body),
   getChannels: () => hermesJson<ApiEnvelope>('/api/channels/status'),

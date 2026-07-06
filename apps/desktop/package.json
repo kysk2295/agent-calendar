@@ -1,0 +1,69 @@
+{
+  "name": "agents-calendar-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent Calendar macOS desktop app backed by the Agent Calendar Railway gateway.",
+  "author": "Agent Calendar",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "electron:dev": "npm run build:electron && concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron dist-electron/main.js\"",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build": "npm run typecheck && npm run build:renderer && npm run build:electron",
+    "test": "npm run build:electron && node --test tests/*.test.mjs",
+    "test:ui:calendar": "node tests/playwright-calendar-crud.cjs",
+    "test:ui:wiki": "node tests/playwright-wiki-graph-ask.cjs",
+    "dist:mac": "npm run build && electron-builder --mac dmg zip --arm64"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "playwright": "^1.61.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.agents.calendar",
+    "productName": "Agent Calendar",
+    "asar": true,
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "public/agent-calendar-logo.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    }
+  }
+}

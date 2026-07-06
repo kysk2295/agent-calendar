@@ -2,6 +2,7 @@ import http, { type IncomingMessage, type Server, type ServerResponse } from 'no
 import { pipeline } from 'node:stream/promises';
 import { URL } from 'node:url';
 import { handleLocalWikiRoute, isLocalWikiRoute } from './localWikiAsk.js';
+import { handleLocalScheduleAskRoute, isLocalScheduleAskRoute } from './scheduleAsk.js';
 
 export type ProxySettings = {
   apiBaseUrl: string;
@@ -76,6 +77,16 @@ export async function handleProxyRequest(
   if (process.env.WIKI_ASK_LOCAL === '1' && isLocalWikiRoute(req.method, req.url)) {
     const settings = options.getSettings();
     await handleLocalWikiRoute(req, res, {
+      fetchImpl: options.fetchImpl,
+      railwayBaseUrl: settings.apiBaseUrl,
+      railwayApiToken: settings.apiToken,
+    });
+    return;
+  }
+
+  if (isLocalScheduleAskRoute(req.method, req.url)) {
+    const settings = options.getSettings();
+    await handleLocalScheduleAskRoute(req, res, {
       fetchImpl: options.fetchImpl,
       railwayBaseUrl: settings.apiBaseUrl,
       railwayApiToken: settings.apiToken,

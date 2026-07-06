@@ -55,7 +55,44 @@ async function main() {
   await page.waitForSelector('.new-task-popover');
 
   await page.locator('.new-date-chip').click();
-  await page.locator('.new-accordion-row', { hasText: '시간' }).click();
+  assert.deepEqual(await page.locator('.new-segment button').allTextContents(), ['날짜', '지속 시간']);
+  assert.equal(await page.locator('.quick-date-presets button').count(), 4);
+  assert.deepEqual(
+    await page.locator('.new-date-control-row').evaluateAll((rows) => rows.map((row) => (row.textContent || '').replace(/\s+/g, ''))),
+    ['시간추가›', '정각에›', '반복›'],
+  );
+  const initialIconBoxes = await page.locator('.new-date-control-row .date-row-icon').evaluateAll((icons) => icons.map((icon) => {
+    const rect = icon.getBoundingClientRect();
+    return { width: Math.round(rect.width), height: Math.round(rect.height), tag: icon.tagName.toLowerCase(), color: getComputedStyle(icon).color };
+  }));
+  assert.deepEqual(initialIconBoxes, [
+    { width: 23, height: 18, tag: 'svg', color: 'rgb(71, 112, 243)' },
+    { width: 23, height: 18, tag: 'svg', color: 'rgb(215, 84, 58)' },
+    { width: 23, height: 18, tag: 'svg', color: 'rgb(111, 106, 99)' },
+  ]);
+  assert.deepEqual(await page.locator('.new-date-footer button').allTextContents(), ['삭제', '확인']);
+  await page.locator('.picker-head button').nth(0).click();
+  await page.locator('.picker-head button').nth(1).click();
+  await page.locator('.picker-head button').nth(2).click();
+  await page.locator('.picker-grid button').filter({ hasText: /^15$/ }).first().click();
+  await page.locator('.quick-date-presets button[title="오늘"]').click();
+  await page.locator('.quick-date-presets button[title="내일"]').click();
+  await page.locator('.quick-date-presets button[title="다음 주"]').click();
+  await page.locator('.quick-date-presets button[title="오늘 저녁"]').click();
+  await page.locator('.new-date-control-row[data-kind="reminder"]').click();
+  await page.locator('.new-date-control-row[data-kind="repeat"]').click();
+  assert.match(await page.locator('.new-date-control-row[data-kind="reminder"]').textContent(), /알림×/);
+  assert.match(await page.locator('.new-date-control-row[data-kind="repeat"]').textContent(), /매주×/);
+  const activeIconBoxes = await page.locator('.new-date-control-row .date-row-icon').evaluateAll((icons) => icons.map((icon) => {
+    const rect = icon.getBoundingClientRect();
+    return { width: Math.round(rect.width), height: Math.round(rect.height), tag: icon.tagName.toLowerCase(), color: getComputedStyle(icon).color };
+  }));
+  assert.deepEqual(activeIconBoxes, [
+    initialIconBoxes[0],
+    { width: 23, height: 18, tag: 'svg', color: 'rgb(215, 84, 58)' },
+    { width: 23, height: 18, tag: 'svg', color: 'rgb(215, 84, 58)' },
+  ]);
+  await page.locator('.new-date-control-row[data-kind="time"]').click();
   await page.waitForSelector('.date-time-menu');
   await page.locator('.date-time-menu button', { hasText: '오후 6:00' }).click();
   await page.waitForFunction(() => !document.querySelector('.date-time-menu'));
@@ -92,6 +129,13 @@ async function main() {
   const popoverBox = await page.locator('.new-task-popover').boundingBox();
   assert.ok(popoverBox);
   await page.mouse.click(popoverBox.x + popoverBox.width - 48, popoverBox.y + popoverBox.height - 48);
+  await page.waitForFunction(() => !document.querySelector('.new-panel'));
+
+  await page.locator('.new-date-chip').click();
+  await page.waitForSelector('.new-panel');
+  await page.locator('.new-date-footer button', { hasText: '삭제' }).click();
+  await page.waitForFunction(() => document.querySelector('.new-date-chip')?.textContent?.includes('날짜 추가'));
+  await page.locator('.new-date-footer button', { hasText: '확인' }).click();
   await page.waitForFunction(() => !document.querySelector('.new-panel'));
 
   await page.locator('.new-list-button').click();

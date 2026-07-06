@@ -21,6 +21,8 @@ type NewTaskControls = {
   setTime: (value: string) => void;
   repeat: string;
   setRepeat: (value: string) => void;
+  reminderOn: boolean;
+  setReminderOn: (value: boolean) => void;
   owner: string;
   setOwner: (value: string) => void;
   list: string;
@@ -137,6 +139,17 @@ function SystemIcon({ name, className = 'system-icon' }: { name: SystemIconName;
     orbit: <><path d="M12 12m-1.7 0a1.7 1.7 0 1 0 3.4 0a1.7 1.7 0 1 0-3.4 0" /><path d="M4.25 12c0-4.28 3.47-7.75 7.75-7.75S19.75 7.72 19.75 12 16.28 19.75 12 19.75 4.25 16.28 4.25 12Z" /><path d="M6.4 6.7c3.3-2.1 8.1-.7 10.7 3.1s2 8.6-1.3 10.7M17.6 17.3c-3.3 2.1-8.1.7-10.7-3.1s-2-8.6 1.3-10.7" /></>,
   };
   return <svg className={className} viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
+}
+
+type DateRowIconName = 'time' | 'reminder' | 'repeat';
+
+function DateRowIcon({ name }: { name: DateRowIconName }) {
+  const paths: Record<DateRowIconName, JSX.Element> = {
+    time: <><circle cx="12" cy="12" r="8.25" /><path d="M12 7.6v4.8l3.15 1.85" /></>,
+    reminder: <><path d="M7.05 7.15a7 7 0 1 1 9.9 9.9a7 7 0 0 1-9.9-9.9Z" /><path d="M8 3.8 4.9 6.25M16 3.8l3.1 2.45M9.45 20.15h5.1M12 8.15v4.35l2.7 1.55" /></>,
+    repeat: <><path d="M17.25 7.5H8.8a4.3 4.3 0 0 0-4.3 4.3c0 1.55.82 2.9 2.05 3.65" /><path d="m14.9 4.95 2.65 2.55-2.65 2.55" /><path d="M6.75 16.5h8.45a4.3 4.3 0 0 0 4.3-4.3c0-1.55-.82-2.9-2.05-3.65" /><path d="m9.1 19.05-2.65-2.55L9.1 13.95" /></>,
+  };
+  return <svg className={`date-row-icon date-row-icon-${name}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
 }
 
 const smartNavGroups: NavGroup[] = [
@@ -449,6 +462,142 @@ function weekRangeLabel(date = todayKey()) {
     day: '2-digit',
   }).format(value).replace(/\. /g, '.').replace(/\.$/, '');
   return `${format(start)} - ${format(end)}`;
+}
+
+type ScheduleQuestionSummary = {
+  scopeLabel: string;
+  from: string;
+  to: string;
+  total: number;
+  done: number;
+  todo: number;
+  workHours: number;
+  workCount: number;
+  summary: string;
+  list: string;
+  sources: Item[];
+};
+
+function isQuestion(value: string) {
+  const raw = value.trim();
+  if (!raw) return false;
+  if (/^(추가|위임|만들어|잡아|생성|넣어|등록|삭제|수정|실행)(?:\s|해|해줘|해줘요|하기|해라|$)/i.test(raw)) return false;
+  return /[?？]$|몇|얼마|뭐|무엇|어떻게|언제|왜|추천|알려줘|비율|평균|총|완료율|했지|어때|정리해줘|할\s*일|할일/i.test(raw);
+}
+
+function scheduleQuestionRange(question: string) {
+  const today = todayKey();
+  const current = new Date(`${today}T00:00:00`);
+  const dayOfWeek = current.getDay() || 7;
+  const monday = addDaysKey(today, 1 - dayOfWeek);
+  if (/오늘/.test(question)) return { from: today, to: today, label: '오늘' };
+  if (/내일/.test(question)) {
+    const tomorrow = addDaysKey(today, 1);
+    return { from: tomorrow, to: tomorrow, label: '내일' };
+  }
+  if (/지난\s*주|저번\s*주/.test(question)) {
+    const from = addDaysKey(monday, -7);
+    return { from, to: addDaysKey(from, 6), label: '지난주' };
+  }
+  if (/이번\s*주|금주/.test(question)) return { from: monday, to: addDaysKey(monday, 6), label: '이번 주' };
+  const monthMatch = question.match(/(?:최근|지난)?\s*(\d+)\s*(?:달|개월)/);
+  if (monthMatch) {
+    const months = Math.max(1, Number(monthMatch[1]) || 1);
+    return { from: addMonthsKey(today, -months), to: today, label: `최근 ${months}개월` };
+  }
+  return { from: '', to: '', label: '전체 기록' };
+}
+
+function scheduleItemDate(item: Item) {
+  const value = text(item.date || item.startDate || item.day || item.due);
+  const match = value.match(/\d{4}-\d{2}-\d{2}/);
+  return match ? match[0] : value.slice(0, 10);
+}
+
+function inScheduleRange(item: Item, from: string, to: string) {
+  if (!from && !to) return true;
+  const date = scheduleItemDate(item);
+  if (!date) return false;
+  return (!from || date >= from) && (!to || date <= to);
+}
+
+function scheduleItemDurationHours(item: Item) {
+  const startTime = text(item.time || item.t);
+  const endTime = text(item.endTime || item.tEnd || calendarMetadata(item).endTime);
+  if (!startTime || !endTime) return 0;
+  const [startHour = 0, startMinute = 0] = startTime.split(':').map((part) => Number(part) || 0);
+  const [endHour = 0, endMinute = 0] = endTime.split(':').map((part) => Number(part) || 0);
+  const minutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+  return minutes > 0 ? minutes / 60 : 0;
+}
+
+function isWorkItem(item: Item) {
+  return /알바|근무|work|shift/i.test([
+    itemTitle(item, ''),
+    taskListName(item),
+    taskTags(item).join(' '),
+    text(item.notes || item.description),
+  ].join(' '));
+}
+
+function taskDataSummary(question: string, items: Item[]): ScheduleQuestionSummary {
+  const range = scheduleQuestionRange(question);
+  const scoped = items.filter((item) => inScheduleRange(item, range.from, range.to));
+  const done = scoped.filter(isDone).length;
+  const todo = scoped.length - done;
+  const workItems = scoped.filter(isWorkItem);
+  const workHours = workItems.reduce((sum, item) => sum + (scheduleItemDurationHours(item) || 4), 0);
+  const list = scoped.slice(0, 20).map((item, index) => {
+    const tags = taskTags(item);
+    return [
+      `${index + 1}. ${itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}`,
+      scheduleItemDate(item) || '날짜 없음',
+      text(item.time || ''),
+      isDone(item) ? '완료' : '미완료',
+      taskListName(item) || text(item.source || ''),
+      tags.length ? `#${tags.join(' #')}` : '',
+    ].filter(Boolean).join(' · ');
+  }).join('\n');
+  const pct = Math.round((done / Math.max(scoped.length, 1)) * 100);
+  return {
+    scopeLabel: range.label,
+    from: range.from,
+    to: range.to,
+    total: scoped.length,
+    done,
+    todo,
+    workHours,
+    workCount: workItems.length,
+    summary: `${range.label} 기준 전체 ${scoped.length}개, 완료 ${done}개, 미완료 ${todo}개, 완료율 ${pct}%, 근무/알바 ${workItems.length}건 ${Number.isInteger(workHours) ? workHours : workHours.toFixed(1)}시간`,
+    list,
+    sources: scoped.slice(0, 10),
+  };
+}
+
+function fallbackAnswer(question: string, summary: ScheduleQuestionSummary) {
+  if (!summary.total) return '아직 해당 범위에 기록이 없어요. 먼저 작업이나 일정을 추가하면 그 데이터를 기준으로 답할 수 있어요.';
+  const rate = Math.round((summary.done / Math.max(summary.total, 1)) * 100);
+  if (/시간|알바|근무/.test(question)) {
+    const hours = Number.isInteger(summary.workHours) ? String(summary.workHours) : summary.workHours.toFixed(1);
+    const basis = summary.workCount ? `${summary.workCount}건 기준` : `${summary.scopeLabel} 기록 기준`;
+    return `${summary.scopeLabel} 알바/근무 시간은 ${hours}시간으로 계산돼요. 근거: ${basis}. 시작~종료 시간이 없는 근무 기록은 회당 4시간으로 추정했어요.`;
+  }
+  if (/완료|완료율|비율|평균/.test(question)) {
+    return `${summary.scopeLabel} 완료율은 ${rate}%예요. ${summary.done}/${summary.total} 완료, 미완료 ${summary.todo}개입니다.\n근거: ${summary.scopeLabel} 작업 ${summary.total}개.`;
+  }
+  if (/추천|뭐|무엇|다음|할\s*일|할일/.test(question)) {
+    const next = summary.sources
+      .filter((item) => !isDone(item))
+      .sort((a, b) => `${scheduleItemDate(a) || '9999-99-99'}:${Number(b.pri || b.priority || 0)}`.localeCompare(`${scheduleItemDate(b) || '9999-99-99'}:${Number(a.pri || a.priority || 0)}`))
+      .slice(0, 3);
+    if (!next.length) return `${summary.scopeLabel}에는 남은 작업이 없어요. 완료된 ${summary.done}개 기록을 보면 지금은 새 목표를 잡아도 괜찮아 보여요.\n근거: ${summary.scopeLabel} 작업 ${summary.total}개.`;
+    return [
+      `${summary.scopeLabel} 기준으로 다음에 하면 좋은 건 ${next.length}개예요.`,
+      ...next.map((item, index) => `${index + 1}. ${itemTitle(item, '작업')}${scheduleItemDate(item) ? ` (${scheduleItemDate(item)})` : ''}`),
+      `근거: 미완료 작업 ${summary.todo}개 중 날짜가 가까운 항목을 우선으로 골랐어요.`,
+    ].join('\n');
+  }
+  return `${summary.summary}입니다.\n근거: ${summary.scopeLabel} 작업 ${summary.total}개.`;
 }
 
 function parseQuick(textValue: string, fallbackDate?: string) {
@@ -783,6 +932,7 @@ export function App() {
   const [newDate, setNewDate] = useState('');
   const [newTime, setNewTime] = useState('');
   const [newRepeat, setNewRepeat] = useState('none');
+  const [newReminderOn, setNewReminderOn] = useState(false);
   const [newOwner, setNewOwner] = useState('me');
   const [newList, setNewList] = useState('inbox');
   const [newAllDay, setNewAllDay] = useState(false);
@@ -1183,6 +1333,7 @@ export function App() {
       repeat: parsed.repeat !== 'none' ? parsed.repeat : newRepeat,
       priority: parsed.priority,
       notes: [newDesc.trim(), extraNotes.trim()].filter(Boolean).join('\n'),
+      ...(newReminderOn ? { reminder: 'at_time', reminderAt: 'at_time' } : {}),
       list: targetList?.id || newList,
       category: targetList?.label || newList,
       project: targetList?.label || newList,
@@ -1200,6 +1351,7 @@ export function App() {
     setNewEndDate('');
     setNewEndTime('');
     setNewRepeat('none');
+    setNewReminderOn(false);
     setNewOwner('me');
     setNewList('inbox');
     setNewAllDay(false);
@@ -1544,9 +1696,39 @@ export function App() {
     }
   }
 
+  async function askData(question: string) {
+    const scheduleItems = [...tasks, ...events.map((event) => ({ ...event, kind: 'calendar-event', type: 'calendar-event' }))];
+    const computed = taskDataSummary(question, scheduleItems);
+    setChatInput('');
+    setChatMessages((current) => [...current, { role: 'user', text: question }, { role: 'assistant', text: '' }]);
+    const localAnswer = fallbackAnswer(question, computed);
+    try {
+      const payload = await hermesApi.askSchedule({
+        question,
+        filters: {
+          from: computed.from || undefined,
+          to: computed.to || undefined,
+        },
+      });
+      const data = obj(payload, 'data');
+      const answer = text(payload.answer || payload.text || data.answer || data.text).trim();
+      setChatMessages((current) => current.map((message, index) => (
+        index === current.length - 1 ? { ...message, text: answer || localAnswer } : message
+      )));
+    } catch {
+      setChatMessages((current) => current.map((message, index) => (
+        index === current.length - 1 ? { ...message, text: localAnswer } : message
+      )));
+    }
+  }
+
   async function sendChat() {
     const message = chatInput.trim();
     if (!message) return;
+    if (isQuestion(message)) {
+      await askData(message);
+      return;
+    }
     setChatInput('');
     setChatMessages((current) => [...current, { role: 'user', text: message }, { role: 'assistant', text: '' }]);
     try {
@@ -2178,6 +2360,8 @@ export function App() {
     setTime: setNewTime,
     repeat: newRepeat,
     setRepeat: setNewRepeat,
+    reminderOn: newReminderOn,
+    setReminderOn: setNewReminderOn,
     owner: newOwner,
     setOwner: setNewOwner,
     list: newList,
@@ -2282,7 +2466,7 @@ export function App() {
         {apiError && <div className="api-banner"><strong>Railway API 확인 필요</strong><span>{apiError}</span><button onClick={() => void hydrate()}>재시도</button></div>}
         {loading ? <Loading /> : (
           <section className="content">
-            {screen === 'calendar' && <CalendarScreen tasks={scheduledTaskItems} events={events} openNewTask={openNewTask} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} calView={calView} setCalView={setCalView} calDate={calDate} setCalDate={setCalDate} placingTaskId={placingTaskId} setPlacingTaskId={setPlacingTaskId} />}
+            {screen === 'calendar' && <CalendarScreen tasks={scheduledTaskItems} events={events} openNewTask={openNewTask} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} calView={calView} setCalView={setCalView} calDate={calDate} setCalDate={setCalDate} placingTaskId={placingTaskId} setPlacingTaskId={setPlacingTaskId} />}
             {screen === 'today' && <TodayScreen tasks={tasks} runs={runs} approveRun={approveRun} quickText={quickText} setQuickText={setQuickText} submitQuick={() => submitQuick(todayKey())} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} openRun={openRun} />}
             {screen === 'tasks' && selectedTaxonomy && <TaxonomyManager item={selectedTaxonomy} edit={(item) => openTaxonomyForm(item.kind, item.group, item)} hide={(item) => void hideTaxonomy(item)} />}
             {(screen === 'tasks' || screen === 'next7' || screen === 'someday') && <TaskListScreen tasks={filteredTasks} quickText={quickText} setQuickText={setQuickText} submitQuick={() => submitQuick(screen === 'next7' ? todayKey() : undefined)} applyRepeatTemplate={(label) => {
@@ -2466,8 +2650,9 @@ function WidgetsScreen({ tasks, events, runs }: { tasks: Item[]; events: Item[];
   </div>;
 }
 
-function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patchTask, calView, setCalView, calDate, setCalDate, placingTaskId, setPlacingTaskId }: { tasks: Item[]; events: Item[]; openNewTask: (date?: string, time?: string) => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; patchTask: (task: Item, patch: Item) => void; calView: 'month' | 'week' | 'day'; setCalView: (view: 'month' | 'week' | 'day') => void; calDate: string; setCalDate: (date: string) => void; placingTaskId: string; setPlacingTaskId: (id: string) => void }) {
+function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patchTask, patchCalendarEvent, calView, setCalView, calDate, setCalDate, placingTaskId, setPlacingTaskId }: { tasks: Item[]; events: Item[]; openNewTask: (date?: string, time?: string) => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; patchTask: (task: Item, patch: Item) => void; patchCalendarEvent: (task: Item, patch: Item) => void; calView: 'month' | 'week' | 'day'; setCalView: (view: 'month' | 'week' | 'day') => void; calDate: string; setCalDate: (date: string) => void; placingTaskId: string; setPlacingTaskId: (id: string) => void }) {
   const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+  const [draggingItem, setDraggingItem] = useState<Item | null>(null);
   const calendarItems: Item[] = [
     ...events.map((event) => ({ ...event, kind: 'calendar-event', type: 'calendar-event' })),
     ...tasks.map((task) => ({ ...task, kind: text(task.kind || 'scheduled-task') })),
@@ -2504,9 +2689,44 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
   ].filter(Boolean).join(' ');
   const calendarPillContent = (item: Item, fallback: string) => {
     const range = isRangePill(item);
-    const showTitle = !range || Number(item._rangeOffset || 0) === 0;
-    const showTime = !!text(item.time || item.t) && (!range || text(item._calendarDate) === text(item._rangeEnd));
-    return <><span>{showTitle ? itemTitle(item, fallback) : '\u00A0'}</span>{showTime && <b>{formatTime(text(item.time || item.t))}</b>}</>;
+    const rangeStart = text(item._calendarDate) === text(item._rangeStart);
+    const rangeEnd = text(item._calendarDate) === text(item._rangeEnd);
+    const endTime = calendarMetadata(item).endTime || text(item.endTime);
+    const timeValue = range && rangeEnd ? text(endTime || item.time || item.t) : text(item.time || item.t);
+    const showTitle = !range || rangeStart;
+    const showTime = !!timeValue && (!range || rangeEnd);
+    return <><span>{showTitle ? itemTitle(item, fallback) : '\u00A0'}</span>{showTime && <b>{formatTime(timeValue)}</b>}</>;
+  };
+  const patchDraggedItem = (item: Item, targetDate: string, targetTime?: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return;
+    const originalStart = itemStartDate(item) || targetDate;
+    const originalEnd = itemEndDate(item, originalStart);
+    const rangeLength = Math.max(1, rangeDates(originalStart, originalEnd).length);
+    const offset = Math.max(0, Math.min(Number(item._rangeOffset || 0) || 0, rangeLength - 1));
+    const nextStart = addDaysKey(targetDate, -offset);
+    const patch: Item = { date: nextStart, startDate: nextStart };
+    if (typeof targetTime === 'string') patch.time = targetTime;
+    if (rangeLength > 1) patch.endDate = addDaysKey(nextStart, rangeLength - 1);
+    else if (text(item.endDate || calendarMetadata(item).endDate)) patch.endDate = nextStart;
+    if (isCalendarEventRecord(item)) patchCalendarEvent(item, patch);
+    else patchTask(item, patch);
+  };
+  const beginDrag = (event: React.DragEvent, item: Item) => {
+    event.stopPropagation();
+    setDraggingItem(item);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', itemId(item, ''));
+  };
+  const dropOnCalendar = (event: React.DragEvent, date: string, time?: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (draggingItem) patchDraggedItem(draggingItem, date, time);
+    setDraggingItem(null);
+  };
+  const allowCalendarDrop = (event: React.DragEvent) => {
+    if (!draggingItem) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
   };
   const activeDate = new Date(`${calDate}T00:00:00`);
   const today = todayKey();
@@ -2548,26 +2768,26 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     return { hour, time, items: dayItems.filter((item) => text(item.time).startsWith(String(hour).padStart(2, '0'))).slice(0, 2) };
   });
   const allDayItems = dayItems.filter((item) => !text(item.time));
-  return <div className="calendar screen-in">
+  return <div className="calendar screen-in" data-dragging={!!draggingItem}>
     <div className="screen-toolbar"><h2>{label}</h2><Legend /><Segment items={['월', '주', '일']} active={calView} setActive={(value) => setCalView(value as 'month' | 'week' | 'day')} values={['month', 'week', 'day']} /><button onClick={() => { setCalDate(todayKey()); setPlacingTaskId(''); }}>오늘</button><button onClick={() => shiftCalendar(-1)}>‹</button><button onClick={() => shiftCalendar(1)}>›</button></div>
     {calView === 'month' && <div className="month-grid">
       {weekdays.map((day) => <div className="weekday" key={day}>{day}</div>)}
-      {cells.map((cell) => <button className="day-cell" data-muted={!cell.inMonth} data-today={cell.today} data-selected={cell.selected} key={cell.date} onClick={() => openNewTask(cell.date)}>
+      {cells.map((cell) => <button className="day-cell" data-date={cell.date} data-muted={!cell.inMonth} data-today={cell.today} data-selected={cell.selected} key={cell.date} onDragOver={allowCalendarDrop} onDrop={(event) => dropOnCalendar(event, cell.date)} onClick={() => openNewTask(cell.date)}>
         <strong onClick={(event) => { event.stopPropagation(); setCalDate(cell.date); setCalView('day'); }}>{cell.day}</strong>
-        {cell.items.map((item, index) => <span className={`event-pill ${calendarItemClass(item)}`} key={`${cell.day}-${index}`} onClick={(event) => { event.stopPropagation(); openTask(item); }}>{calendarPillContent(item, isCalendarEventRecord(item) ? '일정' : '작업')}</span>)}
+        {cell.items.map((item, index) => <span className={`event-pill ${calendarItemClass(item)}`} draggable key={`${cell.day}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}>{calendarPillContent(item, isCalendarEventRecord(item) ? '일정' : '작업')}</span>)}
       </button>)}
     </div>}
     {calView === 'week' && <div className="week-grid">
       {weekCells.map((cell) => <section className="week-col" data-today={cell.today} data-selected={cell.selected} key={cell.date}>
         <button className="week-head" onClick={() => { setCalDate(cell.date); setCalView('day'); }}><span>{cell.weekday}</span><strong>{cell.day}</strong></button>
-        <div className="week-events" onClick={() => openNewTask(cell.date)}>
-          {cell.items.map((item, index) => <button className={`week-event ${calendarItemClass(item)}`} key={`${cell.date}-${index}`} onClick={(event) => { event.stopPropagation(); openTask(item); }}><small>{text(item.time || item.t, index % 2 ? '오후 2:00' : '오전 9:00')}</small>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</button>)}
+        <div className="week-events" onDragOver={allowCalendarDrop} onDrop={(event) => dropOnCalendar(event, cell.date)} onClick={() => openNewTask(cell.date)}>
+          {cell.items.map((item, index) => <button className={`week-event ${calendarItemClass(item)}`} draggable key={`${cell.date}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><small>{text(item.time || item.t, index % 2 ? '오후 2:00' : '오전 9:00')}</small>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</button>)}
         </div>
       </section>)}
     </div>}
     {calView === 'day' && <div className="day-schedule">
       <div className="day-hours">
-        {hours.map((row) => <button className="hour-row" data-placing={!!placingTask} key={row.time} onClick={() => {
+        {hours.map((row) => <button className="hour-row" data-placing={!!placingTask} key={row.time} onDragOver={allowCalendarDrop} onDrop={(event) => dropOnCalendar(event, dayDate, row.time)} onClick={() => {
           if (placingTask) {
             patchTask(placingTask, { date: dayDate, time: row.time });
             setPlacingTaskId('');
@@ -2576,7 +2796,7 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
           }
         }}>
           <span>{formatTime(row.time).replace(':00', '시')}</span>
-          <div>{row.items.map((item, index) => <em className={calendarItemClass(item)} key={`${row.time}-${index}`} onClick={(event) => { event.stopPropagation(); openTask(item); }}><b>{formatTime(text(item.time || item.t, row.time))}</b> {itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</em>)}</div>
+          <div>{row.items.map((item, index) => <em className={calendarItemClass(item)} draggable key={`${row.time}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><b>{formatTime(text(item.time || item.t, row.time))}</b> {itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</em>)}</div>
         </button>)}
       </div>
       <aside className="day-side">
@@ -3548,11 +3768,11 @@ function AgentCalendarLoginExperience({ mode, email, setEmail, password, setPass
 
 function ChatDrawer({ messages, input, setInput, send, runs, setChip, close, openRun }: { messages: Array<{ role: string; text: string }>; input: string; setInput: (value: string) => void; send: () => Promise<void>; runs: Item[]; setChip: (value: string) => void; close: () => void; openRun: (run?: Item) => void }) {
   return <aside className="chat">
-    <header><LogoMark className="chat-mark" /><div><strong>Agent Calendar 콘솔</strong><span>Railway stream</span></div><button onClick={close} aria-label="Agent Calendar 콘솔 닫기">✕</button></header>
+    <header><LogoMark className="chat-mark" /><div><strong>Agent Calendar 콘솔</strong><span>일정 Q&A · Railway stream</span></div><button onClick={close} aria-label="Agent Calendar 콘솔 닫기">✕</button></header>
     <div className="chat-runs">{runs.slice(0, 2).map((run, index) => <button className="chat-run-card" key={itemId(run, `chat-run-${index}`)} onClick={() => openRun(run)}><b>{text(run.goal || run.title, 'Run')}</b><span>{text(run.status, 'running')} · {text(run.agent, 'default')}</span></button>)}</div>
     <div className="messages">{messages.map((message, index) => <div className={`message ${message.role}`} key={index}>{message.text || '응답 수신 중...'}</div>)}</div>
-    <div className="chat-chips">{['오늘 할 일 정리해줘', 'UniPort 백로그 분배', '이번 주 회의 잡아줘'].map((chip) => <button key={chip} onClick={() => setChip(chip)}>{chip}</button>)}</div>
-    <footer><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="Agent Calendar에게 작업 위임" /><button onClick={() => void send()}>전송</button></footer>
+    <div className="chat-chips">{['이번 주 완료율?', '오늘 할 일 정리해줘', 'UniPort 백로그 분배'].map((chip) => <button key={chip} onClick={() => setChip(chip)}>{chip}</button>)}</div>
+    <footer><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="일정에게 묻거나 작업을 위임" /><button onClick={() => void send()}>전송</button></footer>
   </aside>;
 }
 
@@ -3616,6 +3836,7 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
   const patchEnd = (patch: Item) => (isEvent ? patchCalendarEvent(detailTask, patch) : patchTask(detailTask, patch));
   const clearDate = () => {
     setDurationDraft({ date: '', time: '', endDate: '', endTime: '' });
+    setDateMode('date');
     patchItem(detailTask, { date: '', startDate: '', time: '', endDate: '', endTime: '', repeat: 'none', allDay: false });
   };
   const commitDurationDraft = (patch: Partial<typeof durationDraft> = {}) => {
@@ -3703,6 +3924,7 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
         <span className="detail-divider" />
         <button className="detail-date-trigger" data-open={dateOpen} aria-expanded={dateOpen} onClick={openDateEditor}><SystemIcon name="calendar" className="detail-date-icon" />{dateTitle}</button>
         <button className="detail-flag" aria-label="우선순위" onClick={() => patchItem(detailTask, { priority: text(detailTask.priority) ? '' : 'P1' })}>⚐</button>
+        <button className="detail-delete" disabled={deleting} onClick={() => void deleteSelected()} aria-label="삭제" title="삭제">{deleting ? '삭제 중' : '삭제'}</button>
         <button className="detail-close" onClick={close}>✕</button>
       </header>
       <main className="detail-compose" data-done={isDone(detailTask)}>
@@ -3754,17 +3976,17 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
           <div className="detail-month-head"><strong>{pickerMonth.getFullYear()}년 {pickerMonth.getMonth() + 1}월</strong><span /><button onClick={() => shiftPickerMonth(-1)}>‹</button><button onClick={() => setPickerMonth(new Date(`${todayKey()}T00:00:00`))}>○</button><button onClick={() => shiftPickerMonth(1)}>›</button></div>
           <div className="detail-weekdays">{['일', '월', '화', '수', '목', '금', '토'].map((day) => <span key={day}>{day}</span>)}</div>
           <div className="detail-date-grid">{pickerCells.map((cell) => <button data-muted={!cell.inMonth} data-active={cell.selected} key={cell.iso} onClick={() => patchDate(cell.iso)}>{cell.day}</button>)}</div>
-          <button className="detail-date-row" onClick={() => setDateMode('duration')}><span>◷</span>{startTime ? formatTime(startTime) : '시간 추가'}<b>›</b></button>
-          <button className="detail-date-row" data-active={reminderOn} onClick={toggleReminder}><span>⏰</span>{reminderOn ? '정각 알림 켜짐' : '정각에'}<b>{reminderOn ? '✓' : '›'}</b></button>
-          <button className="detail-date-row" onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none' })}><span>↻</span>{repeatLabel(repeat)}<b>›</b></button>
+          <button className="detail-date-row" data-kind="time" onClick={() => setDateMode('duration')}><DateRowIcon name="time" />{startTime ? formatTime(startTime) : '시간 추가'}<b>›</b></button>
+          <button className="detail-date-row" data-kind="reminder" data-active={reminderOn} data-removable={reminderOn} onClick={toggleReminder} aria-label={reminderOn ? '알림 해제' : '정각에'}><DateRowIcon name="reminder" />{reminderOn ? '알림' : '정각에'}<b>{reminderOn ? '×' : '›'}</b></button>
+          <button className="detail-date-row" data-kind="repeat" data-active={repeat !== 'none'} data-removable={repeat !== 'none'} onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none', recurrence: repeat === 'none' ? 'weekly' : '' })} aria-label={repeat === 'none' ? '반복' : '반복 해제'}><DateRowIcon name="repeat" />{repeat === 'none' ? '반복' : repeatLabel(repeat)}<b>{repeat === 'none' ? '›' : '×'}</b></button>
         </> : <>
           <div className="duration-grid">
             <label>시작</label><input value={durationDraft.date} onChange={(event) => setDurationDraft((current) => ({ ...current, date: event.target.value }))} /><input value={durationDraft.time} onChange={(event) => setDurationDraft((current) => ({ ...current, time: event.target.value }))} placeholder="오후 5:00" />
             <label>끝</label><input value={durationDraft.endDate} onChange={(event) => setDurationDraft((current) => ({ ...current, endDate: event.target.value }))} /><input value={durationDraft.endTime} onChange={(event) => setDurationDraft((current) => ({ ...current, endTime: event.target.value }))} placeholder="오후 6:00" />
-            <label>전체</label><button className="duration-toggle" data-active={allDay} onClick={() => patchEnd({ allDay: !allDay, time: allDay ? startTime : '' })}><span /></button>
+            <label>전체</label><span className="duration-spacer" /><button className="duration-toggle" data-active={allDay} onClick={() => patchEnd({ allDay: !allDay, time: allDay ? startTime : '' })}><span /></button>
           </div>
-          <button className="detail-date-row" data-active={reminderOn} onClick={toggleReminder}><span>⏰</span>{reminderOn ? '정각 알림 켜짐' : '정각에'}<b>{reminderOn ? '✓' : '›'}</b></button>
-          <button className="detail-date-row" onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none' })}><span>↻</span>{repeatLabel(repeat)}<b>›</b></button>
+          <button className="detail-date-row" data-kind="reminder" data-active={reminderOn} data-removable={reminderOn} onClick={toggleReminder} aria-label={reminderOn ? '알림 해제' : '정각에'}><DateRowIcon name="reminder" />{reminderOn ? '알림' : '정각에'}<b>{reminderOn ? '×' : '›'}</b></button>
+          <button className="detail-date-row" data-kind="repeat" data-active={repeat !== 'none'} data-removable={repeat !== 'none'} onClick={() => patchEnd({ repeat: repeat === 'none' ? 'weekly' : 'none', recurrence: repeat === 'none' ? 'weekly' : '' })} aria-label={repeat === 'none' ? '반복' : '반복 해제'}><DateRowIcon name="repeat" />{repeat === 'none' ? '반복' : repeatLabel(repeat)}<b>{repeat === 'none' ? '›' : '×'}</b></button>
         </>}
         <footer><button onClick={clearDate}>삭제</button><button className="primary" onClick={confirmDateEditor}>확인</button></footer>
       </div>}
@@ -3838,6 +4060,8 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
   const [listQuery, setListQuery] = useState('');
   const [timeMenu, setTimeMenu] = useState<'date' | 'start' | 'end' | null>(null);
   const [durationDateMenu, setDurationDateMenu] = useState<'start' | 'end' | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const checkRefs = useRef<Array<HTMLInputElement | null>>([]);
   const durationMenuRef = useRef<HTMLDivElement | null>(null);
   const pickerLabel = `${pickerMonth.getFullYear()}년 ${pickerMonth.getMonth() + 1}월`;
@@ -3855,8 +4079,6 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
     return `${String(hour).padStart(2, '0')}:${minute}`;
   });
   const listOptions = lists.length ? lists : [{ id: 'inbox', label: '기본함', icon: '📥', group: '리스트', kind: 'list' as TaxonomyKind }];
-  const ownerOptions = [['me', '나'], ['agent', '에이전트'], ['hybrid', '공동']];
-  const repeatOptions = [['none', '안 함'], ['daily', '매일'], ['weekday', '평일'], ['weekly', '매주'], ['monthly', '매월']];
   const setQuickDate = (date: string) => {
     controls.setDate(date);
     setPickerMonth(new Date(`${date}T00:00:00`));
@@ -3885,13 +4107,34 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
     .filter((item) => item.text)
     .map((item) => `- [${item.done ? 'x' : ' '}] ${item.text}`)
     .join('\n');
-  const submitTask = () => submit(checklistNotes());
+  const submitTask = async () => {
+    if (submittingRef.current || !title.trim()) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      await submit(checklistNotes());
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
   const applyPreset = (kind: 'today' | 'tomorrow' | 'nextWeek' | 'evening') => {
     const preset = quickDatePreset(kind, controls.date);
     setQuickDate(preset.date);
     controls.setTime(preset.time);
     controls.setAllDay(kind !== 'evening');
     controls.setSubPanel(null);
+  };
+  const clearNewDate = () => {
+    controls.setDate('');
+    controls.setTime('');
+    controls.setEndDate('');
+    controls.setEndTime('');
+    controls.setAllDay(false);
+    controls.setRepeat('none');
+    controls.setReminderOn(false);
+    controls.setSubPanel(null);
+    controls.setMode('date');
   };
   const addCheckItem = () => {
     controls.setDatePanel(false);
@@ -4051,30 +4294,33 @@ function NewTaskModal({ title, setTitle, desc, setDesc, controls, lists, close, 
             <button title="다음 주" onClick={() => applyPreset('nextWeek')}>▣<small>+7</small></button>
             <button title="오늘 저녁" onClick={() => applyPreset('evening')}>☾</button>
           </div>
-          <div className="picker-head"><strong>{pickerLabel}</strong><span /><button onClick={() => shiftMonth(-1)}>‹</button><button onClick={() => setQuickDate(todayKey())}>오늘</button><button onClick={() => shiftMonth(1)}>›</button></div>
+          <div className="picker-head"><strong>{pickerLabel}</strong><span /><button onClick={() => shiftMonth(-1)}>‹</button><button onClick={() => setQuickDate(todayKey())}>○</button><button onClick={() => shiftMonth(1)}>›</button></div>
           <div className="picker-weekdays">{['일', '월', '화', '수', '목', '금', '토'].map((day) => <span key={day}>{day}</span>)}</div>
           <div className="picker-grid">{pickerCells.map((cell) => <button data-date={cell.iso} data-muted={!cell.inMonth} data-today={cell.today} data-active={cell.selected} key={cell.iso} onClick={() => setQuickDate(cell.iso)}>{cell.day}</button>)}</div>
-          <NewAccordionRow label="시간" value={controls.allDay ? '종일' : controls.time ? formatTime(controls.time) : '없음'} panel="time" controls={controls} />
+          <button className="new-date-control-row" data-kind="time" onClick={() => controls.setSubPanel(controls.subPanel === 'time' ? null : 'time')}><DateRowIcon name="time" />{controls.allDay ? '종일' : controls.time ? formatTime(controls.time) : '시간 추가'}<b>›</b></button>
           {controls.subPanel === 'time' && <div className="sub-panel">
             <div className="all-day-row"><span>종일</span><button className="switch" data-active={controls.allDay} onClick={() => { controls.setAllDay(!controls.allDay); if (!controls.allDay) controls.setTime(''); }}><span /></button>{controls.time && <button onClick={() => controls.setTime('')}>지우기</button>}</div>
             {timeMenuList('date', controls.time, 'date-time-menu')}
           </div>}
+          <button className="new-date-control-row" data-kind="reminder" data-active={controls.reminderOn} data-removable={controls.reminderOn} onClick={() => controls.setReminderOn(!controls.reminderOn)} aria-label={controls.reminderOn ? '알림 해제' : '정각에'}><DateRowIcon name="reminder" />{controls.reminderOn ? '알림' : '정각에'}<b>{controls.reminderOn ? '×' : '›'}</b></button>
+          <button className="new-date-control-row" data-kind="repeat" data-active={controls.repeat !== 'none'} data-removable={controls.repeat !== 'none'} onClick={() => controls.setRepeat(controls.repeat === 'none' ? 'weekly' : 'none')} aria-label={controls.repeat === 'none' ? '반복' : '반복 해제'}><DateRowIcon name="repeat" />{controls.repeat === 'none' ? '반복' : repeatLabel(controls.repeat)}<b>{controls.repeat === 'none' ? '›' : '×'}</b></button>
         </> : <div className="duration-grid">
           <span>시작</span>{durationDateField('start', controls.date, controls.setDate)}{durationTimeField('start', controls.time, '시간')}
           <span>끝</span>{durationDateField('end', controls.endDate, controls.setEndDate)}{durationTimeField('end', controls.endTime, '시간')}
-          <span>종일</span><button className="switch" data-active={controls.allDay} onClick={() => controls.setAllDay(!controls.allDay)}><span /></button>
+          <span>전체</span><span className="duration-spacer" /><button className="duration-toggle" data-active={controls.allDay} onClick={() => controls.setAllDay(!controls.allDay)}><span /></button>
         </div>}
-        <NewAccordionRow label="반복" value={repeatLabel(controls.repeat)} panel="repeat" controls={controls} />
-        {controls.subPanel === 'repeat' && <div className="option-row">{repeatOptions.map(([value, label]) => <button data-active={controls.repeat === value} key={value} onClick={() => controls.setRepeat(value)}>{label}</button>)}</div>}
-        <NewAccordionRow label="담당" value={ownerOptions.find(([value]) => value === controls.owner)?.[1] || '나'} panel="owner" controls={controls} />
-        {controls.subPanel === 'owner' && <div className="option-row">{ownerOptions.map(([value, label]) => <button data-active={controls.owner === value} key={value} onClick={() => controls.setOwner(value)}>{label}</button>)}</div>}
+        {controls.mode === 'duration' && <>
+          <button className="new-date-control-row" data-kind="reminder" data-active={controls.reminderOn} data-removable={controls.reminderOn} onClick={() => controls.setReminderOn(!controls.reminderOn)} aria-label={controls.reminderOn ? '알림 해제' : '정각에'}><DateRowIcon name="reminder" />{controls.reminderOn ? '알림' : '정각에'}<b>{controls.reminderOn ? '×' : '›'}</b></button>
+          <button className="new-date-control-row" data-kind="repeat" data-active={controls.repeat !== 'none'} data-removable={controls.repeat !== 'none'} onClick={() => controls.setRepeat(controls.repeat === 'none' ? 'weekly' : 'none')} aria-label={controls.repeat === 'none' ? '반복' : '반복 해제'}><DateRowIcon name="repeat" />{controls.repeat === 'none' ? '반복' : repeatLabel(controls.repeat)}<b>{controls.repeat === 'none' ? '›' : '×'}</b></button>
+        </>}
+        <footer className="new-date-footer"><button onClick={clearNewDate}>삭제</button><button className="primary" onClick={() => controls.setDatePanel(false)}>확인</button></footer>
       </div>}
 
     </div>
     <footer className="new-task-footer">
       <button className="new-list-button" onClick={() => { controls.setListPanel(!controls.listPanel); controls.setDatePanel(false); }}>{activeList?.icon || '📥'} {activeList?.label || '기본함'} ▾</button>
       <span />
-      <button className="new-submit" disabled={!title.trim()} onClick={submitTask} aria-label="작업 만들기">↑</button>
+      <button className="new-submit" disabled={!title.trim() || submitting} onClick={() => void submitTask()} aria-label="작업 만들기">↑</button>
     </footer>
     {controls.listPanel && <div className="new-list-panel">
       <label className="new-list-search"><span>⌕</span><input value={listQuery} onChange={(event) => setListQuery(event.target.value)} placeholder="검색" autoFocus /></label>

@@ -127,7 +127,7 @@ async function main() {
   await page.locator('.hour-row').first().click();
   await page.locator('.new-task-title-row input').fill('Playwright 캘린더 일정');
   await page.locator('.new-date-chip').click();
-  await page.locator('.new-accordion-row', { hasText: '시간' }).click();
+  await page.locator('.new-date-control-row[data-kind="time"]').click();
   await page.waitForSelector('.new-panel .date-time-menu');
   await page.locator('.new-panel .date-time-menu button', { hasText: '오전 1:00' }).waitFor();
   await page.locator('.new-panel .date-time-menu button', { hasText: '오전 9:30' }).click();
@@ -143,8 +143,8 @@ async function main() {
   await page.locator('.new-panel .duration-time-menu button', { hasText: '오전 11:30' }).click();
   await page.waitForFunction(() => !document.querySelector('.new-panel'));
   await page.locator('.new-date-chip').click();
-  await page.getByRole('button', { name: '반복' }).click();
-  await page.getByRole('button', { name: '매주' }).click();
+  await page.locator('.new-date-control-row[data-kind="repeat"]').click();
+  await page.locator('.new-date-footer .primary').click();
   await page.locator('.new-task-title-row input').press('Enter');
 
   await page.waitForFunction(() => !document.querySelector('.new-task-popover'));
@@ -159,7 +159,8 @@ async function main() {
   await page.locator('.duration-grid input').nth(3).fill('13:00');
   await page.getByRole('button', { name: '확인' }).click();
   await page.waitForTimeout(900);
-  await page.getByRole('button', { name: '삭제' }).click();
+  await page.locator('.detail-checklist-toggle').click();
+  await page.locator('.detail-tool-popover .danger').click();
   await page.waitForFunction(() => !document.querySelector('.detail-modal'));
 
   const createEvent = calls.find((call) => call.method === 'POST' && call.path === '/api/calendar/events');

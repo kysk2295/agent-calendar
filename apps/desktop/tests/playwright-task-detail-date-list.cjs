@@ -155,9 +155,38 @@ async function main() {
   await page.waitForSelector('.detail-modal');
 
   await page.locator('.detail-date-trigger').click();
+  const initialIconBoxes = await page.locator('.detail-date-row .date-row-icon').evaluateAll((icons) => icons.map((icon) => {
+    const rect = icon.getBoundingClientRect();
+    return { width: Math.round(rect.width), height: Math.round(rect.height), tag: icon.tagName.toLowerCase(), color: getComputedStyle(icon).color };
+  }));
+  assert.deepEqual(initialIconBoxes, [
+    { width: 23, height: 18, tag: 'svg', color: 'rgb(71, 112, 243)' },
+    { width: 23, height: 18, tag: 'svg', color: 'rgb(215, 84, 58)' },
+    { width: 23, height: 18, tag: 'svg', color: 'rgb(111, 106, 99)' },
+  ]);
+  await page.locator('.detail-month-head button').nth(0).click();
+  await page.locator('.detail-month-head button').nth(1).click();
+  await page.locator('.detail-month-head button').nth(2).click();
+  await page.locator('.detail-date-grid button').filter({ hasText: /^15$/ }).first().click();
+  await page.locator('.detail-date-presets button[title="오늘"]').click();
   await page.locator('.detail-date-presets button[title="내일"]').click();
   await page.locator('.detail-date-presets button[title="다음 주"]').click();
   await page.locator('.detail-date-presets button[title="오늘 저녁"]').click();
+  await page.locator('.detail-date-row[data-kind="time"]').click();
+  await page.locator('.detail-date-segment button', { hasText: '날짜' }).click();
+  await page.locator('.detail-date-row', { hasText: '정각에' }).click();
+  await page.locator('.detail-date-row', { hasText: '반복' }).click();
+  assert.match(await page.locator('.detail-date-row[data-kind="reminder"]').textContent(), /알림×/);
+  assert.match(await page.locator('.detail-date-row[data-kind="repeat"]').textContent(), /매주×/);
+  const activeIconBoxes = await page.locator('.detail-date-row .date-row-icon').evaluateAll((icons) => icons.map((icon) => {
+    const rect = icon.getBoundingClientRect();
+    return { width: Math.round(rect.width), height: Math.round(rect.height), tag: icon.tagName.toLowerCase(), color: getComputedStyle(icon).color };
+  }));
+  assert.deepEqual(activeIconBoxes, [
+    initialIconBoxes[0],
+    { width: 23, height: 18, tag: 'svg', color: 'rgb(215, 84, 58)' },
+    { width: 23, height: 18, tag: 'svg', color: 'rgb(215, 84, 58)' },
+  ]);
 
   await page.getByRole('button', { name: '지속 시간' }).click();
   await page.locator('.duration-toggle').click();
@@ -171,6 +200,8 @@ async function main() {
   assert.equal(patches.some((body) => body.date === TOMORROW && body.allDay === true && body.time === ''), true);
   assert.equal(patches.some((body) => body.date === NEXT_WEEK && body.allDay === true && body.time === ''), true);
   assert.equal(patches.some((body) => body.date === TODAY && body.allDay === false && body.time === '18:00'), true);
+  assert.equal(patches.some((body) => body.reminder === 'at_time' && body.reminderAt === 'at_time'), true);
+  assert.equal(patches.some((body) => body.repeat === 'weekly' && body.recurrence === 'weekly'), true);
   assert.equal(patches.some((body) => body.allDay === true && body.time === ''), true);
   assert.equal(finalTask.date, '');
   assert.equal(finalTask.time, '');
