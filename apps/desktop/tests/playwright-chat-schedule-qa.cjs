@@ -64,6 +64,18 @@ async function main() {
       return;
     }
 
+    if (method === 'POST' && path === '/api/assistant/ask') {
+      await route.fulfill({
+        json: {
+          ok: true,
+          answer: '이번 주 완료율은 67%입니다. 2/3 완료 상태이고, 근거: 이번 주 작업 3개를 사용했어요.',
+          llm: { provider: 'local-llm', model: 'qwen2.5:7b', used: true },
+          search: { strategy: 'backend-schedule-rag' },
+        },
+      });
+      return;
+    }
+
     await route.fulfill({
       json: {
         ok: true,
@@ -102,7 +114,9 @@ async function main() {
   }));
 
   const streamCalls = calls.filter((call) => call.method === 'POST' && call.path === '/api/chat/stream');
+  const scheduleCalls = calls.filter((call) => call.method === 'POST' && call.path === '/api/assistant/ask');
   assert.equal(streamCalls.length, 0);
+  assert.equal(scheduleCalls.length, 1);
   assert.match(result.messages, /이번 주 완료율\?/);
   assert.match(result.messages, /완료율은 67%/);
   assert.match(result.messages, /2\/3 완료/);

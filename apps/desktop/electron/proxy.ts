@@ -84,7 +84,10 @@ export async function handleProxyRequest(
     return;
   }
 
-  if (isLocalScheduleAskRoute(req.method, req.url)) {
+  if (
+    (process.env.AGENT_CALENDAR_SCHEDULE_ASK_LOCAL === '1' || process.env.SCHEDULE_ASK_LOCAL === '1')
+    && isLocalScheduleAskRoute(req.method, req.url)
+  ) {
     const settings = options.getSettings();
     await handleLocalScheduleAskRoute(req, res, {
       fetchImpl: options.fetchImpl,

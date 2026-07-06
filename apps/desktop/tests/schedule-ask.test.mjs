@@ -12,6 +12,8 @@ function listen(server) {
 }
 
 test('proxy handles /api/assistant/ask locally with schedule vector retrieval and computed fallback', async () => {
+  const previous = process.env.AGENT_CALENDAR_SCHEDULE_ASK_LOCAL;
+  process.env.AGENT_CALENDAR_SCHEDULE_ASK_LOCAL = '1';
   const calls = [];
   const tasks = [
     { id: 'shift-a', title: '카페 알바 오픈', date: '2026-06-10', time: '09:00', endTime: '13:00', status: 'Done', done: true, tags: ['알바'], category: '근무' },
@@ -60,6 +62,8 @@ test('proxy handles /api/assistant/ask locally with schedule vector retrieval an
     assert.equal(calls.some((call) => new URL(call.url).pathname === '/api/tasks'), true);
     assert.equal(calls.some((call) => new URL(call.url).pathname === '/api/calendar/events'), true);
   } finally {
+    if (previous === undefined) delete process.env.AGENT_CALENDAR_SCHEDULE_ASK_LOCAL;
+    else process.env.AGENT_CALENDAR_SCHEDULE_ASK_LOCAL = previous;
     await new Promise((resolve) => server.close(resolve));
   }
 });

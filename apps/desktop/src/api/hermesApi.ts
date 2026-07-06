@@ -2,6 +2,7 @@ export type ApiEnvelope = Record<string, unknown>;
 
 let apiBaseUrl = '';
 const API_TIMEOUT_MS = 6500;
+const SCHEDULE_ASK_TIMEOUT_MS = 45_000;
 
 export function setApiBaseUrl(baseUrl: string) {
   apiBaseUrl = String(baseUrl || '').replace(/\/+$/g, '');
@@ -11,9 +12,9 @@ function url(path: string) {
   return `${apiBaseUrl}${path}`;
 }
 
-async function hermesJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function hermesJson<T>(path: string, init?: RequestInit, timeoutMs = API_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url(path), {
       headers: {
@@ -33,8 +34,8 @@ async function hermesJson<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
-function jsonPost(path: string, body: Record<string, unknown> = {}) {
-  return hermesJson<ApiEnvelope>(path, { method: 'POST', body: JSON.stringify(body) });
+function jsonPost(path: string, body: Record<string, unknown> = {}, timeoutMs = API_TIMEOUT_MS) {
+  return hermesJson<ApiEnvelope>(path, { method: 'POST', body: JSON.stringify(body) }, timeoutMs);
 }
 
 export const hermesApi = {
@@ -67,7 +68,7 @@ export const hermesApi = {
   },
   askWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/ask', body),
   searchWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/search', body),
-  askSchedule: (body: Record<string, unknown>) => jsonPost('/api/assistant/ask', body),
+  askSchedule: (body: Record<string, unknown>) => jsonPost('/api/assistant/ask', body, SCHEDULE_ASK_TIMEOUT_MS),
   getAgents: () => hermesJson<ApiEnvelope>('/api/agents'),
   createAgent: (body: Record<string, unknown>) => jsonPost('/api/agents', body),
   getChannels: () => hermesJson<ApiEnvelope>('/api/channels/status'),

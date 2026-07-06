@@ -44,6 +44,37 @@ test('proxy forwards API path, query, method, body, and bearer token', async () 
   assert.equal(calls[0].body, '{"title":"desktop task"}');
 });
 
+test('proxy forwards schedule assistant asks to backend by default', async () => {
+  const calls = [];
+  await withServer(async (url, init) => {
+    calls.push({ url, init, body: init.body ? Buffer.from(init.body).toString('utf8') : '' });
+    return new Response(JSON.stringify({
+      ok: true,
+      answer: '백엔드 LLM 응답',
+      llm: { provider: 'local-llm', model: 'qwen2.5:7b', used: true },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }, {
+    apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app',
+    apiToken: 'secret-token',
+  }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ question: '이번 주 완료율?' }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).answer, '백엔드 LLM 응답');
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://hermes-os-production-e174.up.railway.app/api/assistant/ask');
+  assert.equal(calls[0].init.headers.authorization, 'Bearer secret-token');
+  assert.equal(calls[0].body, '{"question":"이번 주 완료율?"}');
+});
+
 test('proxy preserves streaming responses', async () => {
   const stream = new ReadableStream({
     start(controller) {
