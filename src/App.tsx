@@ -128,7 +128,6 @@ function ChatIcon({ className = 'chat-fab-icon' }: { className?: string }) {
 type SystemIconName = 'calendar' | 'check' | 'google' | 'key' | 'mail' | 'orbit';
 
 function SystemIcon({ name, className = 'system-icon' }: { name: SystemIconName; className?: string }) {
-  const iconClassName = className === 'system-icon' ? className : `system-icon ${className}`;
   const paths: Record<SystemIconName, JSX.Element> = {
     calendar: <><path d="M7.5 3.75v2.5M16.5 3.75v2.5M5.5 7.25h13" /><path d="M6.25 5.25h11.5c1.1 0 2 .9 2 2v10.5c0 1.1-.9 2-2 2H6.25c-1.1 0-2-.9-2-2V7.25c0-1.1.9-2 2-2Z" /><path d="M8 11.25h2.5M13.5 11.25H16M8 15h2.5" /></>,
     check: <path d="m6 12.4 3.3 3.35L18 7.25" />,
@@ -137,7 +136,7 @@ function SystemIcon({ name, className = 'system-icon' }: { name: SystemIconName;
     mail: <><path d="M5.75 6.25h12.5c1.1 0 2 .9 2 2v7.5c0 1.1-.9 2-2 2H5.75c-1.1 0-2-.9-2-2v-7.5c0-1.1.9-2 2-2Z" /><path d="m5.5 8.25 6.5 4.5 6.5-4.5" /></>,
     orbit: <><path d="M12 12m-1.7 0a1.7 1.7 0 1 0 3.4 0a1.7 1.7 0 1 0-3.4 0" /><path d="M4.25 12c0-4.28 3.47-7.75 7.75-7.75S19.75 7.72 19.75 12 16.28 19.75 12 19.75 4.25 16.28 4.25 12Z" /><path d="M6.4 6.7c3.3-2.1 8.1-.7 10.7 3.1s2 8.6-1.3 10.7M17.6 17.3c-3.3 2.1-8.1.7-10.7-3.1s-2-8.6 1.3-10.7" /></>,
   };
-  return <svg className={iconClassName} viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
+  return <svg className={className} viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
 }
 
 type DateEditorIconName = 'calendar' | 'sun' | 'sunrise' | 'calendarPlus' | 'moon' | 'clock' | 'alarm' | 'repeat' | 'chevronRight' | 'chevronLeft' | 'circle';
