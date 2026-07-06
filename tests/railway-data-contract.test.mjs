@@ -4,6 +4,7 @@ import { test } from 'node:test';
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const apiSource = readFileSync(new URL('../src/api/hermesApi.ts', import.meta.url), 'utf8');
+const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 
 test('calendar renders only Railway tasks/events for a date, never fallback filler rows', () => {
   assert.equal(appSource.includes('calendarItems.slice(fallbackIndex'), false);
@@ -172,6 +173,15 @@ test('calendar detail checkbox completes calendar event records through calendar
   assert.match(appSource, /<button className="detail-check" data-done=\{isDone\(detailTask\)\} data-completing=\{completionPulse\}/);
   assert.match(appSource, /<span className="detail-status" data-done=\{isDone\(detailTask\)\}>/);
   assert.doesNotMatch(appSource, /\{!isEvent && <button className="detail-check"/);
+});
+
+test('task completion checkboxes match TickTick empty-square size', () => {
+  assert.match(styleSource, /\.row i\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
+  assert.match(styleSource, /\.row\[data-done="true"\] i\s*\{[^}]*background:\s*#FFFFFF;[^}]*border-color:\s*#9A9A9A/s);
+  assert.match(styleSource, /\.task-inspector header \.detail-check\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
+  assert.match(styleSource, /\.detail-topline \.detail-check\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
+  assert.match(styleSource, /\.detail-topline \.detail-check\[data-done="true"\]\s*\{[^}]*background:\s*#FFFFFF;[^}]*border-color:\s*#9A9A9A/s);
+  assert.match(styleSource, /\.new-task-check-row input\[type="checkbox"\]\s*\{[^}]*appearance:\s*none;[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
 });
 
 test('gmail mail connection is wired to Railway mail endpoints', () => {
