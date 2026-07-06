@@ -1756,18 +1756,9 @@ textarea { resize: vertical; min-height: 72px; }
   line-height: 1;
 }
 .inspector-date {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   color: #C0533B;
   font-size: 11.5px;
   font-weight: 800;
-}
-.inspector-date .date-icon {
-  width: 15px;
-  height: 15px;
-  color: currentColor;
-  stroke-width: 2.1;
 }
 .inspector-date.muted {
   color: var(--muted-dark);
@@ -4245,23 +4236,14 @@ textarea { resize: vertical; min-height: 72px; }
 }
 .new-date-chip {
   height: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--accent-dark);
+  color: #3F6BFF;
   font-size: 13px;
   font-weight: 800;
 }
-.new-date-chip .date-icon {
-  width: 17px;
-  height: 17px;
-  color: currentColor;
-  stroke-width: 2.05;
-}
-.new-date-chip[data-has-date="true"] { color: var(--accent-dark); }
+.new-date-chip[data-has-date="true"] { color: #3F6BFF; }
 .new-task-title-row input, .new-task-desc {
   width: 100%;
   min-width: 0;
@@ -5138,24 +5120,21 @@ textarea { resize: vertical; min-height: 72px; }
 }
 .detail-topline .detail-check {
   position: relative;
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
+  width: 12px;
+  height: 12px;
   margin: 0;
   padding: 0;
   background: #FFFFFF;
-  border: 2px solid #9B9B9B;
-  border-radius: 5px;
-  color: transparent;
-  font-size: 21px;
-  font-weight: 500;
+  border: 1.5px solid #9A9A9A;
+  border-radius: 2px;
+  color: #5F6368;
+  font-size: 9px;
+  font-weight: 800;
   line-height: 1;
 }
 .detail-topline .detail-check[data-done="true"] {
   background: #FFFFFF;
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: #9A9A9A;
 }
 .detail-topline .detail-check[data-completing="true"] {
   animation: detailCheckPop .28s ease;
@@ -5194,7 +5173,7 @@ textarea { resize: vertical; min-height: 72px; }
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   border: 0;
   background: transparent;
   color: #4770F3;
@@ -5204,10 +5183,9 @@ textarea { resize: vertical; min-height: 72px; }
 }
 .detail-date-trigger .detail-date-icon {
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  color: currentColor;
-  stroke-width: 2.05;
+  width: 22px;
+  height: 22px;
+  color: #4770F3;
 }
 .detail-flag,
 .detail-close,
