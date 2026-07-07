@@ -1,4 +1,8 @@
+const { cosineSimilarity, embedTextWithMetadata } = require('./embeddings');
+
 const VECTOR_DIMENSIONS = 256;
+const recordEmbeddingCache = new Map();
+const RECORD_EMBEDDING_CACHE_LIMIT = 5000;
 
 const STOP_WORDS = new Set([
   '이번', '지난', '저번', '최근', '오늘', '내일', '동안', '간', '몇', '얼마', '뭐', '무엇',
@@ -168,17 +172,97 @@ function itemSearchText(item) {
   ].filter(Boolean).join(' ');
 }
 
-function vectorSearch(items, question, limit = 8) {
-  const queryVector = embed(question);
-  return items
-    .map((item, index) => {
-      const source = itemSearchText(item);
-      return { item, index, score: cosine(queryVector, embed(source)) };
-    })
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((entry) => entry.item);
+function recordEmbeddingModelKey(options = {}) {
+  const env = options.env || process.env;
+  return text(
+    options.model
+    || env.AGENT_CALENDAR_EMBEDDING_MODEL
+    || env.HERMES_EMBEDDING_MODEL
+    || env.OLLAMA_EMBEDDING_MODEL
+    || 'bge-m3',
+  ).trim() || 'bge-m3';
+}
+
+function recordEmbeddingCacheKey(item, source, options = {}) {
+  return [
+    recordEmbeddingModelKey(options),
+    itemId(item, ''),
+    text(item.updatedAt || item.modifiedAt || item.completedAt || ''),
+    source,
+  ].join('\u001f');
+}
+
+async function embedScheduleRecord(item, source, options = {}) {
+  const key = recordEmbeddingCacheKey(item, source, options);
+  const cached = recordEmbeddingCache.get(key);
+  if (cached) return cached;
+  const embedded = await embedTextWithMetadata(source, options);
+  recordEmbeddingCache.set(key, embedded);
+  if (recordEmbeddingCache.size > RECORD_EMBEDDING_CACHE_LIMIT) {
+    const firstKey = recordEmbeddingCache.keys().next().value;
+    if (firstKey) recordEmbeddingCache.delete(firstKey);
+  }
+  return embedded;
+}
+
+function keywordOverlapScore(question, source) {
+  const queryTokens = new Set(tokenize(question));
+  if (!queryTokens.size) return 0;
+  const sourceTokens = new Set(tokenize(source));
+  let hits = 0;
+  for (const token of queryTokens) {
+    if (sourceTokens.has(token)) hits += 1;
+  }
+  return hits / queryTokens.size;
+}
+
+function dateProximityScore(item, range = {}) {
+  const date = itemDate(item);
+  if (!date) return 0;
+  if (range.from || range.to) {
+    if ((!range.from || date >= range.from) && (!range.to || date <= range.to)) return 1;
+    const boundary = date < range.from ? range.from : range.to;
+    const days = Math.abs((new Date(`${date}T00:00:00Z`) - new Date(`${boundary}T00:00:00Z`)) / 86400000);
+    return 1 / (1 + days / 7);
+  }
+  const days = Math.abs((new Date(`${date}T00:00:00Z`) - new Date(`${todayKey()}T00:00:00Z`)) / 86400000);
+  return 1 / (1 + days / 7);
+}
+
+function isRetrospectiveQuestion(question) {
+  return /완료한|끝낸|지난|저번|회고|완료된/.test(question);
+}
+
+async function vectorSearch(items, question, limit = 8, options = {}) {
+  const query = await embedTextWithMetadata(question, options);
+  const fallbackModels = new Set(query.fallback ? ['hash-fallback'] : []);
+  const retrospective = isRetrospectiveQuestion(question);
+  const entries = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    const source = itemSearchText(item);
+    const embedded = await embedScheduleRecord(item, source, options);
+    if (embedded.fallback) fallbackModels.add('hash-fallback');
+    const embeddingScore = Math.max(0, cosineSimilarity(query.vector, embedded.vector));
+    const dateScore = dateProximityScore(item, options.range || {});
+    const keywordScore = keywordOverlapScore(question, source);
+    const baseScore = (0.55 * embeddingScore) + (0.25 * dateScore) + (0.20 * keywordScore);
+    const score = baseScore * (!retrospective && !isDone(item) ? 1.15 : 1);
+    entries.push({
+      item: { ...item, _score: Number(score.toFixed(6)) },
+      index,
+      score,
+    });
+  }
+  const embeddingModel = fallbackModels.size ? 'hash-fallback' : query.model;
+  return {
+    items: entries
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => (b.score - a.score) || a.index - b.index)
+      .slice(0, limit)
+      .map((entry) => entry.item),
+    embeddingModel,
+  };
 }
 
 function addDaysKey(date, offset) {
@@ -237,11 +321,19 @@ function inRange(item, range) {
   return (!range.from || date >= range.from) && (!range.to || date <= range.to);
 }
 
+const SCHEDULE_SOURCE_TYPE_PATTERN = /task|calendar|event|ticktick|schedule/i;
+
+function canonicalScheduleSourceType(candidates = [], fallback = 'record') {
+  const values = candidates.map((value) => text(value)).filter(Boolean);
+  return values.find((value) => SCHEDULE_SOURCE_TYPE_PATTERN.test(value)) || values[0] || fallback;
+}
+
 function normalizeSource(item, index) {
-  const sourceType = text(item.sourceType || item.kind || item.type || item.source || 'record');
+  const sourceType = canonicalScheduleSourceType([item.sourceType, item.kind, item.type, item.source]);
   return {
     id: itemId(item, `schedule-${index}`),
     title: itemTitle(item),
+    sourceType,
     type: sourceType,
     date: itemDate(item),
     time: itemTime(item),
@@ -251,6 +343,7 @@ function normalizeSource(item, index) {
     tags: itemTags(item),
     list: itemList(item),
     source: sourceType,
+    score: Number(item._score || item.score || 0),
     snippet: compactValue(item.snippet || item.excerpt || item.preview || item.body || item.notes || item.description || item._searchText, 260),
   };
 }
@@ -264,18 +357,22 @@ function dedupeItems(items) {
   return [...byId.values()];
 }
 
+function withScheduleKind(items, kind) {
+  return array(items).map((item) => (item && typeof item === 'object' && !item.kind ? { ...item, kind } : item));
+}
+
 function scheduleItemsFromState(state = {}) {
   return dedupeItems([
-    ...array(state.tasks),
-    ...array(state.events),
-    ...array(state.calendarEvents),
-    ...array(state.ticktickTasks),
-    ...array(state.externalCalendarEvents),
+    ...withScheduleKind(state.tasks, 'task'),
+    ...withScheduleKind(state.events, 'calendar-event'),
+    ...withScheduleKind(state.calendarEvents, 'calendar-event'),
+    ...withScheduleKind(state.ticktickTasks, 'ticktick-task'),
+    ...withScheduleKind(state.externalCalendarEvents, 'external-calendar-event'),
   ]);
 }
 
 function recordFromScheduleItem(item, index, type) {
-  const sourceType = text(item.sourceType || item.kind || item.type || type || 'schedule');
+  const sourceType = canonicalScheduleSourceType([item.sourceType, item.kind, item.type, type], 'schedule');
   return {
     ...item,
     id: itemId(item, `${sourceType}-${index}`),
@@ -421,13 +518,6 @@ function calendarAiRecordsFromState(state = {}) {
     ...array(state.calendarEvents).map((item, index) => recordFromScheduleItem(item, index, 'calendar-event')),
     ...array(state.ticktickTasks).map((item, index) => recordFromScheduleItem(item, index, 'ticktick-task')),
     ...array(state.externalCalendarEvents).map((item, index) => recordFromScheduleItem(item, index, 'external-calendar-event')),
-    ...array(state.documents).map(recordFromDocument),
-    ...array(state.runs).map(recordFromRun),
-    ...array(state.chatMessages).map(recordFromChatMessage),
-    ...array(state.mailMessages).map(recordFromMailMessage),
-    ...array(state.workboardPages).map(recordFromWorkboardPage),
-    ...array(state.agents).map(recordFromAgent),
-    ...array(state.schedulerJobs).map(recordFromSchedulerJob),
   ]);
 }
 
@@ -451,10 +541,10 @@ function applyRecordFilters(records, filters = {}, range) {
   });
 }
 
-function relevantItems(question, scopedItems) {
+async function relevantItems(question, scopedItems, searchOptions = {}) {
   if (/시간|알바|근무/.test(question)) return scopedItems.filter(isWorkItem);
-  const searched = vectorSearch(scopedItems, question, 12);
-  return searched.length ? searched : scopedItems.slice(0, 12);
+  const searched = await vectorSearch(scopedItems, question, 12, searchOptions);
+  return searched.items.length ? searched.items : scopedItems.slice(0, 12);
 }
 
 function isScheduleFirstQuestion(question) {
@@ -465,19 +555,19 @@ function isScheduleSource(record) {
   return /task|calendar|event|ticktick|schedule/i.test(text(record.sourceType || record.type || record.source));
 }
 
-function relevantContextRecords(question, scopedRecords, scopedScheduleItems) {
-  const directScheduleItems = relevantItems(question, scopedScheduleItems).map((item, index) => recordFromScheduleItem(item, index, text(item.kind || item.type || item.source || 'schedule')));
-  const searched = vectorSearch(scopedRecords, question, 16);
+async function relevantContextRecords(question, scopedRecords, scopedScheduleItems, searchOptions = {}) {
+  const directScheduleItems = (await relevantItems(question, scopedScheduleItems, searchOptions)).map((item, index) => recordFromScheduleItem(item, index, canonicalScheduleSourceType([item.kind, item.type], 'schedule')));
+  const searchableRecords = /시간|알바|근무/.test(question) ? scopedRecords.filter(isWorkItem) : scopedRecords;
+  const searched = await vectorSearch(searchableRecords, question, 16, searchOptions);
   const scheduleFirst = isScheduleFirstQuestion(question);
-  const searchedSchedule = searched.filter(isScheduleSource);
-  const searchedWithoutChat = searched.filter((record) => {
-    const sourceType = text(record.sourceType || record.type || record.source);
-    return sourceType !== 'chat-message' && !/wiki/i.test(sourceType);
-  });
+  const searchedSchedule = searched.items.filter(isScheduleSource);
   const combined = scheduleFirst
-    ? [...directScheduleItems, ...searchedSchedule, ...(directScheduleItems.length || searchedSchedule.length ? [] : searchedWithoutChat)]
-    : [...searched, ...directScheduleItems.slice(0, 4)];
-  return dedupeItems(combined).slice(0, 18);
+    ? [...directScheduleItems, ...searchedSchedule]
+    : [...searched.items, ...directScheduleItems.slice(0, 4)];
+  return {
+    records: dedupeItems(combined).slice(0, 18),
+    embeddingModel: searched.embeddingModel,
+  };
 }
 
 function formatHours(hours) {
@@ -488,10 +578,99 @@ function formatHours(hours) {
   return `${rounded}시간`;
 }
 
+function dayDifference(fromDate, toDate) {
+  return Math.round((new Date(`${toDate}T00:00:00Z`) - new Date(`${fromDate}T00:00:00Z`)) / 86400000);
+}
+
+function computedItemSummary(item) {
+  return {
+    id: itemId(item, itemTitle(item)),
+    title: itemTitle(item),
+    date: itemDate(item),
+    time: itemTime(item),
+    endTime: itemEndTime(item),
+  };
+}
+
+function buildDueComputed(items, nowKey = todayKey()) {
+  const dueCandidates = items.filter((item) => !isDone(item) && itemDate(item));
+  const overdueItems = dueCandidates
+    .filter((item) => itemDate(item) < nowKey)
+    .map((item) => ({
+      ...computedItemSummary(item),
+      daysOverdue: Math.max(0, dayDifference(itemDate(item), nowKey)),
+    }))
+    .sort((a, b) => b.daysOverdue - a.daysOverdue || a.date.localeCompare(b.date));
+  const dueSoonItems = dueCandidates
+    .filter((item) => {
+      const daysUntil = dayDifference(nowKey, itemDate(item));
+      return daysUntil >= 0 && daysUntil <= 2;
+    })
+    .map((item) => ({
+      ...computedItemSummary(item),
+      daysUntilDue: Math.max(0, dayDifference(nowKey, itemDate(item))),
+    }))
+    .sort((a, b) => a.daysUntilDue - b.daysUntilDue || a.date.localeCompare(b.date));
+  return { overdueItems, dueSoonItems };
+}
+
+function minutesFromTime(value) {
+  const match = text(value).match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  return (Number(match[1]) * 60) + Number(match[2]);
+}
+
+function buildConflictComputed(items) {
+  const timed = items
+    .map((item) => {
+      const date = itemDate(item);
+      const start = minutesFromTime(itemTime(item));
+      const end = minutesFromTime(itemEndTime(item));
+      if (!date || start === null || end === null || end <= start) return null;
+      return { item, date, start, end };
+    })
+    .filter(Boolean)
+    .sort((a, b) => `${a.date}:${a.start}`.localeCompare(`${b.date}:${b.start}`));
+  const conflictPairs = [];
+  for (let leftIndex = 0; leftIndex < timed.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < timed.length; rightIndex += 1) {
+      const left = timed[leftIndex];
+      const right = timed[rightIndex];
+      if (left.date !== right.date) continue;
+      if (left.start < right.end && right.start < left.end) {
+        conflictPairs.push({
+          date: left.date,
+          items: [computedItemSummary(left.item), computedItemSummary(right.item)],
+        });
+      }
+    }
+  }
+  return { conflictPairs };
+}
+
+function incrementCount(bucket, key) {
+  const normalized = text(key, '').trim();
+  if (!normalized) return;
+  bucket[normalized] = (bucket[normalized] || 0) + 1;
+}
+
+function buildDistributionComputed(items) {
+  const byTag = {};
+  const byList = {};
+  items.forEach((item) => {
+    itemTags(item).forEach((tag) => incrementCount(byTag, tag));
+    incrementCount(byList, itemList(item));
+  });
+  return { byTag, byList };
+}
+
 function buildComputed(question, range, items) {
-  const questionType = /시간|알바|근무/.test(question)
-    ? 'work-hours'
-    : (/완료|비율|완료율/.test(question) ? 'completion-rate' : 'schedule-summary');
+  let questionType = 'schedule-summary';
+  if (/시간|알바|근무/.test(question)) questionType = 'work-hours';
+  else if (!/미완료/.test(question) && /완료|비율|완료율/.test(question)) questionType = 'completion-rate';
+  else if (/기한|마감|지났|임박|늦어|가까운/.test(question)) questionType = 'overdue';
+  else if (/충돌|겹치/.test(question)) questionType = 'conflict';
+  else if (/프로젝트별|비교|균형|작업량/.test(question)) questionType = 'distribution';
   const workItems = items.filter(isWorkItem);
   const countedItems = questionType === 'work-hours' ? workItems : items;
   const done = countedItems.filter(isDone).length;
@@ -506,6 +685,9 @@ function buildComputed(question, range, items) {
     workCount: workItems.length,
     workHours: Math.round(workHours * 100) / 100,
     questionType,
+    ...(questionType === 'overdue' ? buildDueComputed(countedItems) : {}),
+    ...(questionType === 'conflict' ? buildConflictComputed(countedItems) : {}),
+    ...(questionType === 'distribution' ? buildDistributionComputed(countedItems) : {}),
   };
 }
 
@@ -529,35 +711,6 @@ function fallbackAnswer(question, computed, sources) {
 function noItemsContradiction(answer, sources) {
   if (!sources.length) return false;
   return /일정과\s*할\s*일이\s*(?:모두\s*)?없|일정\/할\s*일이\s*(?:모두\s*)?없|할\s*일이\s*(?:모두\s*)?없습니다|기록이\s*없어|기록\s*없음/.test(text(answer));
-}
-
-function repairContradictoryScheduleAnswer(question, computed, sources) {
-  const topSources = sources.slice(0, 5);
-  const pending = topSources.filter((source) => !source.done);
-  const done = topSources.filter((source) => source.done);
-  const evidence = topSources.map((source, index) => {
-    const date = source.date ? `${source.date}${source.time ? ` ${source.time}` : ''}` : '날짜 미상';
-    const status = source.done ? '완료' : '미완료';
-    return `[${index + 1}] ${source.title} (${date}, ${status})`;
-  }).join(', ');
-  const firstAction = pending[0] || topSources[0];
-  const secondAction = pending[1] || topSources[1];
-  const actionText = [firstAction, secondAction].filter(Boolean).map((source, index) => (
-    `${index + 1}. ${source.title}: ${source.date || computed.range.label} 기준 ${source.done ? '이미 완료된 근거로 후속 확인만 하면 됩니다' : '아직 미완료이므로 먼저 상태와 필요한 준비물을 확인하세요'}`
-  )).join('\n');
-  return [
-    `${computed.range.label} DB에는 질문과 관련된 일정/할 일이 ${computed.total}건 있고, 그중 완료 ${computed.done}건, 미완료 ${computed.undone}건입니다. 따라서 기록이 없는 상황이 아니라, 남아 있는 항목을 기준으로 우선순위를 잡아야 하는 상황입니다.`,
-    `핵심 근거는 ${evidence}입니다. 이 근거를 보면 ${computed.range.label}의 중심은 ${topSources[0]?.title || '확인된 일정'}이고, ${pending.length ? `아직 미완료 항목이 ${pending.length}건 남아 있어 실행 순서를 정하는 것이 중요합니다` : `확인된 상위 근거는 모두 완료 상태라 후속 확인이나 다음 일정 정리가 중요합니다`}. ${done.length ? `이미 완료된 항목 ${done.length}건은 진행 이력으로 보고, 남은 항목과 충돌하지 않는지 확인하면 됩니다.` : '완료된 항목이 없으므로 오늘은 실행을 시작하고 완료 상태를 남기는 것이 핵심입니다.'}`,
-    `바로 할 다음 액션은 아래처럼 잡는 것이 좋습니다.\n${actionText || '1. 상위 근거의 날짜와 상태를 확인하고, 실제 실행 가능한 첫 작업으로 쪼개세요.'}`,
-    `질문 "${question}"에 대한 결론은, 일정이 비어 있는 것이 아니라 DB에 남은 일정/할 일이 있으므로 가장 가까운 날짜와 미완료 상태를 기준으로 먼저 처리할 항목을 고르는 것입니다.`
-  ].join('\n\n');
-}
-
-function ensureScheduleAnswerQuality({ question, computed, sources, answer }) {
-  if (noItemsContradiction(answer, sources)) {
-    return repairContradictoryScheduleAnswer(question, computed, sources);
-  }
-  return answer;
 }
 
 function openAiKey(env = process.env) {
@@ -625,6 +778,10 @@ function llmMaxTokens(env = process.env, provider = '') {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
 }
 
+function localScheduleMaxTokens(env = process.env) {
+  return llmMaxTokens(env, 'local-llm') || 220;
+}
+
 function llmTimeoutMs(env = process.env, provider = '') {
   const value = provider === 'local-llm'
     ? (env.AGENT_CALENDAR_LOCAL_LLM_TIMEOUT_MS || env.HERMES_LOCAL_LLM_TIMEOUT_MS || env.LOCAL_LLM_TIMEOUT_MS || env.AGENT_CALENDAR_LLM_TIMEOUT_MS || env.HERMES_LLM_TIMEOUT_MS)
@@ -662,7 +819,7 @@ function scheduleLlmConfigs(env = process.env) {
       baseUrl: openAiCompatibleBaseUrl(localUrl),
       apiKey: localLlmKey(env),
       model: localLlmModel(env),
-      maxTokens: Math.max(llmMaxTokens(env, 'local-llm'), 700),
+      maxTokens: localScheduleMaxTokens(env),
       timeoutMs: llmTimeoutMs(env, 'local-llm'),
     });
   }
@@ -708,16 +865,12 @@ function scheduleContextText({ question, computed, sources }) {
     sourceLines || '관련 DB 기록 없음',
     '',
     '답변 요구:',
-    '- 한국어로 최소 450자 이상 답하라.',
+    '- 질문에 답하는 데 필요한 만큼 충분히 쓰되, 근거 인용 → 해석 → 다음 액션 순서를 지켜라.',
+    '- 각 판단마다 근거가 된 항목 제목과 날짜를 괄호로 인용하라. 예: (근거: 유니포트 회의 7/8)',
     '- 일정/작업 전체가 1건 이상이면 "일정/할 일이 없다"고 말하지 마라. 완료 0건은 기록 없음이 아니라 모두 미완료라는 뜻이다.',
     '- 첫 문단에는 전체 판단을 요약하라.',
-    '- 이어서 DB 근거를 2개 이상 언급하고, 그 근거가 왜 중요한지 해석하라.',
     '- 마지막에는 사용자가 바로 실행할 수 있는 다음 액션을 제안하라.',
   ].join('\n');
-}
-
-function answerCharLength(value) {
-  return text(value).replace(/\s/g, '').length;
 }
 
 async function callScheduleLlm({ llm, messages, fetchImpl }) {
@@ -760,37 +913,32 @@ async function callScheduleLlm({ llm, messages, fetchImpl }) {
   return text(payload?.choices?.[0]?.message?.content).trim();
 }
 
-async function expandScheduleAnswerIfShort({ llm, question, computed, sources, answer, fetchImpl }) {
-  const minimumChars = 450;
-  if (llm.provider !== 'local-llm') return answer;
-  if (answerCharLength(answer) >= minimumChars) return answer;
-  const expanded = await callScheduleLlm({
-    llm,
-    fetchImpl,
-    messages: [
-      {
-        role: 'system',
-        content: [
-          '너는 사용자의 개인 캘린더 AI다.',
-          '이미 작성된 답변을 같은 DB 근거만 사용해서 더 깊고 충분하게 확장하라.',
-          '한국어로 최소 550자 이상 답하라. 핵심 판단, DB 근거 2개 이상, 해석, 바로 실행할 다음 액션을 포함하라.',
-          '새로운 사실을 꾸미지 말고, 근거가 부족한 부분은 부족하다고 말하라.',
-        ].join('\n'),
-      },
-      {
-        role: 'user',
-        content: [
-          scheduleContextText({ question, computed, sources }),
-          '',
-          '초안 답변:',
-          answer,
-          '',
-          '위 초안을 더 길고 구체적인 최종 답변으로 다시 작성하라.',
-        ].join('\n'),
-      },
-    ],
-  });
-  return expanded || answer;
+function scheduleSystemPrompt() {
+  return [
+    '너는 사용자의 개인 캘린더 AI다.',
+    '할 일, 일정, 캘린더 이벤트 등 제공된 DB 기록만 근거로 답하라.',
+    '숫자·시간·비율 질문은 제공된 정확 계산값을 우선 사용하고, 그 숫자가 의미하는 바를 설명하라.',
+    '일정/작업 전체가 1건 이상이면 기록이 없다고 말하지 마라. 완료 0건은 모든 항목이 미완료라는 뜻이다.',
+    'DB 근거가 부족한 부분은 추측하지 말고 부족한 지점을 분명히 말하되, 이미 있는 근거에서 가능한 판단은 끝까지 해라.',
+    '각 판단마다 근거가 된 항목 제목을 괄호로 인용하라. 예: (근거: 유니포트 회의 7/8)',
+    '질문에 답하는 데 필요한 만큼 충분히 쓰되, 근거 인용, 해석, 다음 액션 순서를 지켜라.',
+  ].join('\n');
+}
+
+function scheduleLlmMessages({ question, computed, sources, retryInstruction = '' }) {
+  return [
+    {
+      role: 'system',
+      content: scheduleSystemPrompt(),
+    },
+    {
+      role: 'user',
+      content: [
+        scheduleContextText({ question, computed, sources }),
+        retryInstruction,
+      ].filter(Boolean).join('\n\n'),
+    },
+  ];
 }
 
 async function synthesizeScheduleAnswerWithConfig({ llm, question, computed, sources, fetchImpl = fetch } = {}) {
@@ -798,29 +946,43 @@ async function synthesizeScheduleAnswerWithConfig({ llm, question, computed, sou
   const answer = await callScheduleLlm({
     llm,
     fetchImpl,
-    messages: [
-      {
-        role: 'system',
-        content: [
-          '너는 사용자의 개인 캘린더 AI다.',
-          '할 일, 일정, 캘린더 이벤트 등 제공된 DB 기록만 근거로 답하라.',
-              '질문마다 맥락을 해석해서 GPT 수준의 충분한 길이로 답하라. 최소 450자 이상, 보통 2~4개 문단 또는 5~9개 문장으로, 핵심 판단과 이유와 다음 액션을 포함한다.',
-              '답변 형식을 고정하지 말고 질문 의도에 맞춰 자연스럽게 구조화하라. 필요한 경우 짧은 번호 목록을 써도 된다.',
-              '숫자·시간·비율 질문은 제공된 정확 계산값을 우선 사용하고, 그 숫자가 의미하는 바를 설명하라.',
-              '일정/작업 전체가 1건 이상이면 기록이 없다고 말하지 마라. 완료 0건은 모든 항목이 미완료라는 뜻이다.',
-              'DB 근거가 부족한 부분은 추측하지 말고 부족한 지점을 분명히 말하되, 이미 있는 근거에서 가능한 판단은 끝까지 해라.',
-            ].join('\n'),
-      },
-      {
-        role: 'user',
-        content: scheduleContextText({ question, computed, sources }),
-      },
-    ],
+    messages: scheduleLlmMessages({ question, computed, sources }),
   });
-  const finalAnswer = answer
-    ? await expandScheduleAnswerIfShort({ llm, question, computed, sources, answer, fetchImpl })
-    : '';
-  return finalAnswer ? { answer: finalAnswer, llm: { provider: llm.provider, model: llm.model, used: true } } : null;
+  if (!answer) return null;
+  if (!noItemsContradiction(answer, sources)) {
+    return {
+      answer,
+      answerMode: 'llm',
+      llm: { provider: llm.provider, model: llm.model, used: true },
+    };
+  }
+  const retry = await callScheduleLlm({
+    llm,
+    fetchImpl,
+    messages: scheduleLlmMessages({
+      question,
+      computed,
+      sources,
+      retryInstruction: `sources가 ${sources.length}건 존재한다. 없다고 말하지 말고 다시 답하라.`,
+    }),
+  });
+  if (retry && !noItemsContradiction(retry, sources)) {
+    return {
+      answer: retry,
+      answerMode: 'llm-retry',
+      llm: { provider: llm.provider, model: llm.model, used: true },
+    };
+  }
+  return {
+    answer: fallbackAnswer(question, computed, sources),
+    answerMode: 'fallback',
+    llm: {
+      provider: llm.provider,
+      model: llm.model,
+      used: false,
+      error: 'no_items_contradiction_after_retry',
+    },
+  };
 }
 
 async function synthesizeScheduleAnswer({ question, computed, sources, env = process.env, fetchImpl = fetch } = {}) {
@@ -841,7 +1003,7 @@ async function synthesizeScheduleAnswer({ question, computed, sources, env = pro
           ...synthesis,
           attempts: [
             ...attempts,
-            { provider: llm.provider, model: llm.model, used: true },
+            { provider: llm.provider, model: llm.model, used: Boolean(synthesis.llm?.used), ...(synthesis.llm?.error ? { error: synthesis.llm.error } : {}) },
           ],
         };
       }
@@ -862,21 +1024,24 @@ async function synthesizeScheduleAnswer({ question, computed, sources, env = pro
   throw error;
 }
 
-function buildScheduleAssistantContext({ question, filters = {}, state = {} } = {}) {
+async function buildScheduleAssistantContext({ question, filters = {}, state = {}, env = process.env, fetchImpl = fetch } = {}) {
   const q = text(question).trim();
   const range = questionRange(q, filters);
   const scopedScheduleItems = applyFilters(scheduleItemsFromState(state), filters, range);
   const scopedRecords = applyRecordFilters(calendarAiRecordsFromState(state), filters, range);
-  const records = relevantContextRecords(q, scopedRecords, scopedScheduleItems);
+  const { records, embeddingModel } = await relevantContextRecords(q, scopedRecords, scopedScheduleItems, { env, fetchImpl, range });
   const sources = records.map(normalizeSource);
   const computed = buildComputed(q, range, scopedScheduleItems);
   return {
     ok: true,
     answer: fallbackAnswer(q, computed, sources),
+    answerMode: 'fallback',
     sources,
     computed,
     search: {
       strategy: 'backend-calendar-ai-rag',
+      intent: 'ask',
+      embeddingModel,
       candidateCount: scopedRecords.length,
       scheduleCandidateCount: scopedScheduleItems.length,
       sourceCount: sources.length,
@@ -885,7 +1050,7 @@ function buildScheduleAssistantContext({ question, filters = {}, state = {} } = 
 }
 
 async function buildScheduleAssistantAnswer({ question, filters = {}, state = {}, env = process.env, fetchImpl = fetch } = {}) {
-  const result = buildScheduleAssistantContext({ question, filters, state });
+  const result = await buildScheduleAssistantContext({ question, filters, state, env, fetchImpl });
   const configuredLlms = scheduleLlmConfigs(env);
   try {
     const synthesis = await synthesizeScheduleAnswer({
@@ -896,15 +1061,10 @@ async function buildScheduleAssistantAnswer({ question, filters = {}, state = {}
       fetchImpl,
     });
     if (synthesis?.answer) {
-      const answer = ensureScheduleAnswerQuality({
-        question: text(question).trim(),
-        computed: result.computed,
-        sources: result.sources,
-        answer: synthesis.answer,
-      });
       return {
         ...result,
-        answer,
+        answer: synthesis.answer,
+        answerMode: synthesis.answerMode || 'llm',
         llm: synthesis.llm,
         ...(synthesis.attempts ? { llmAttempts: synthesis.attempts } : {}),
       };
@@ -919,6 +1079,7 @@ async function buildScheduleAssistantAnswer({ question, filters = {}, state = {}
         used: false,
         error: error.message || String(error),
       },
+      answerMode: 'fallback',
       ...(error.attempts ? { llmAttempts: error.attempts } : {}),
     };
   }
@@ -929,6 +1090,7 @@ async function buildScheduleAssistantAnswer({ question, filters = {}, state = {}
       model: '',
       used: false,
     },
+    answerMode: 'fallback',
   };
 }
 
@@ -942,5 +1104,9 @@ function isScheduleQuestion(value) {
 
 module.exports = {
   buildScheduleAssistantAnswer,
+  fallbackAnswer,
   isScheduleQuestion,
+  localLlmModel,
+  noItemsContradiction,
+  scheduleLlmMessages,
 };

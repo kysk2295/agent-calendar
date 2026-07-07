@@ -29,14 +29,22 @@ const { buildRunnerAdapterCatalog } = require('./lib/runner-adapters');
 const { buildGatewayStatus, buildRuntimeProxyRequest, redactGatewayConfig, safeRuntimeError } = require('./lib/runtime-gateway');
 const { HermesRailwayRelay, isRelayAuthorized, relayEnabled } = require('./lib/railway-relay');
 const { projectStateWithAgents, resolveHermesAgent } = require('./lib/agent-registry');
-const { buildScheduleAssistantAnswer, isScheduleQuestion } = require('./lib/schedule-assistant');
+const {
+  buildScheduleAssistantAnswer,
+  fallbackAnswer: fallbackScheduleAnswer,
+  isScheduleQuestion,
+  localLlmModel,
+  noItemsContradiction,
+  scheduleLlmMessages,
+} = require('./lib/schedule-assistant');
+const { buildScheduleIngestDrafts, isScheduleIngestCommand } = require('./lib/schedule-ingest');
 const { createStore } = require('./lib/store-factory');
 const { buildTaskShareDraft } = require('./lib/task-share');
 const { buildVisualBrief } = require('./lib/visual-brief');
 const { buildWorkboardRunPayload, buildWorkboardTaskDraft } = require('./lib/workboard');
 const { mergeUsageSummaries, readExternalUsageSources, usageFromState } = require('./lib/usage-sources');
 const { buildWikiIndex, dateStamp, slugify } = require('./lib/wiki');
-const { answerWikiQuestion } = require('./lib/wiki-rag');
+const { answerWikiQuestion, buildRetrievalOnlyAnswer } = require('./lib/wiki-rag');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const SNAPSHOT_DIR = path.join(ROOT_DIR, 'snapshots');
@@ -139,6 +147,54 @@ function readRequestBody(req) {
 function parseJsonBuffer(buffer) {
   if (!buffer || !buffer.length) return {};
   return JSON.parse(buffer.toString('utf8'));
+}
+
+function parseContentDisposition(value = '') {
+  const result = {};
+  String(value || '').split(';').forEach((part) => {
+    const [rawKey, ...rawValue] = part.trim().split('=');
+    const key = rawKey.trim().toLowerCase();
+    if (!key || !rawValue.length) return;
+    result[key] = rawValue.join('=').trim().replace(/^"|"$/g, '');
+  });
+  return result;
+}
+
+function parseMultipartBuffer(buffer, contentType = '') {
+  const boundary = String(contentType || '').match(/boundary=([^;]+)/i)?.[1];
+  if (!boundary) return {};
+  const raw = buffer.toString('binary');
+  const fields = {};
+  const files = {};
+  raw.split(`--${boundary}`).forEach((part) => {
+    const trimmed = part.replace(/^\r\n/, '').replace(/\r\n$/, '');
+    if (!trimmed || trimmed === '--') return;
+    const [rawHeaders, ...bodyParts] = trimmed.split('\r\n\r\n');
+    const body = bodyParts.join('\r\n\r\n').replace(/\r\n--$/, '');
+    const headers = {};
+    rawHeaders.split('\r\n').forEach((line) => {
+      const [name, ...value] = line.split(':');
+      if (name && value.length) headers[name.trim().toLowerCase()] = value.join(':').trim();
+    });
+    const disposition = parseContentDisposition(headers['content-disposition']);
+    const name = disposition.name;
+    if (!name) return;
+    if (disposition.filename) {
+      files[name] = {
+        filename: disposition.filename,
+        contentType: headers['content-type'] || 'application/octet-stream',
+        buffer: Buffer.from(body, 'binary'),
+      };
+    } else {
+      fields[name] = Buffer.from(body, 'binary').toString('utf8');
+    }
+  });
+  return { ...fields, files };
+}
+
+function parseRequestBuffer(buffer, contentType = '') {
+  if (/multipart\/form-data/i.test(String(contentType || ''))) return parseMultipartBuffer(buffer, contentType);
+  return parseJsonBuffer(buffer);
 }
 
 function queryObject(searchParams) {
@@ -2342,6 +2398,259 @@ function extractRelayCompletionText(value) {
     || extractRelayCompletionText(value.data);
 }
 
+function extractRelayRecordText(record) {
+  if (!record) return '';
+  if (record.event === 'bridge-complete') return extractRelayCompletionText(record.data);
+  if (typeof record.data === 'string') {
+    const sseData = openAiStreamDataFromRecord(record.data);
+    if (sseData && sseData !== '[DONE]') {
+      try {
+        return extractOpenAiStreamDelta(JSON.parse(sseData)).text;
+      } catch {
+        return sseData;
+      }
+    }
+    return record.data;
+  }
+  if (record.data && typeof record.data === 'object') {
+    if (typeof record.data.text === 'string') return record.data.text;
+    if (typeof record.data.content === 'string') return record.data.content;
+    const openAiText = extractOpenAiStreamDelta(record.data).text;
+    if (openAiText) return openAiText;
+    return extractRelayCompletionText(record.data);
+  }
+  return '';
+}
+
+async function runRailwayRelayChatCompletion({ relay, env = process.env, payload, meta = {} } = {}) {
+  if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) return null;
+  const job = relay.enqueue({
+    kind: 'chat.completions',
+    payload,
+    meta: {
+      view: 'calendar-ai',
+      model: payload?.model || '',
+      ...meta,
+    },
+  });
+  const timeoutMs = Number(env.HERMES_RELAY_SCHEDULE_LLM_TIMEOUT_MS || env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000);
+  const deadline = Date.now() + Math.max(1_000, timeoutMs);
+  const finalTextParts = [];
+  let cursor = 0;
+  while (Date.now() < deadline) {
+    const batch = await relay.waitForEvents(job.id, cursor, Math.min(5_000, Math.max(1, deadline - Date.now())));
+    cursor = batch.cursor;
+    for (const record of batch.events || []) {
+      const recordText = record.event === 'bridge-complete' ? '' : extractRelayRecordText(record);
+      if (recordText) finalTextParts.push(recordText);
+      if (record.event === 'error') {
+        const error = new Error(record.data?.error || 'railway relay bridge failed');
+        error.jobId = job.id;
+        throw error;
+      }
+    }
+    if (batch.complete) {
+      return {
+        text: finalTextParts.join('').trim(),
+        jobId: job.id,
+      };
+    }
+  }
+  relay.fail(job.id, new Error('railway relay bridge timed out'));
+  const error = new Error('railway relay bridge timed out');
+  error.jobId = job.id;
+  throw error;
+}
+
+async function runRailwayRelayWikiSearch({ relay, env = process.env, question, path = '', limit = 6 } = {}) {
+  if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) return null;
+  const job = relay.enqueue({
+    kind: 'wiki.search',
+    payload: {
+      query: question,
+      path,
+      limit,
+    },
+    meta: {
+      view: 'wiki-ai',
+      agent: 'wiki-curator',
+      source: 'railway-relay-wiki-search',
+    },
+  });
+  const timeoutMs = Number(env.HERMES_RELAY_WIKI_SEARCH_TIMEOUT_MS || env.HERMES_RELAY_STREAM_TIMEOUT_MS || 45_000);
+  const deadline = Date.now() + Math.max(1_000, timeoutMs);
+  let cursor = 0;
+  let finalData = null;
+  let lastError = '';
+  while (Date.now() < deadline) {
+    const batch = await relay.waitForEvents(job.id, cursor, Math.min(5_000, Math.max(1, deadline - Date.now())));
+    cursor = batch.cursor;
+    for (const record of batch.events || []) {
+      if (record.event === 'error') lastError = record.data?.error || 'railway relay wiki search failed';
+      if (record.event === 'bridge-complete') finalData = record.data || {};
+    }
+    if (batch.complete) break;
+  }
+  if (!finalData) {
+    relay.fail(job.id, new Error(lastError || 'railway relay wiki search timed out'));
+    const error = new Error(lastError || 'railway relay wiki search timed out');
+    error.jobId = job.id;
+    throw error;
+  }
+  if (finalData.ok === false) {
+    const error = new Error(finalData.error || lastError || 'railway relay wiki search failed');
+    error.jobId = job.id;
+    throw error;
+  }
+  return {
+    query: finalData.query || question,
+    sources: Array.isArray(finalData.sources) ? finalData.sources : [],
+    retrieval: {
+      source: 'wiki-files',
+      mode: finalData.retrieval?.mode || (Array.isArray(finalData.sources) && finalData.sources.length ? 'retrieval_only' : 'no-retrieval'),
+      chunkCount: Array.isArray(finalData.sources) ? finalData.sources.length : 0,
+      ...(finalData.retrieval || {}),
+      relayJobId: job.id,
+    },
+    wikiIndex: finalData.wikiIndex || null,
+    relayJobId: job.id,
+  };
+}
+
+async function runRailwayRelayWikiChat({ relay, env = process.env, question, sources, model = '' } = {}) {
+  if (!relay || !relayEnabled(env) || !relay.isBridgeOnline() || !Array.isArray(sources) || !sources.length) return null;
+  const job = relay.enqueue({
+    kind: 'wiki.chat',
+    payload: {
+      question,
+      sources,
+      model: model || localLlmModel(env),
+      max_tokens: Number(env.HERMES_WIKI_LOCAL_LLM_MAX_TOKENS || env.LOCAL_LLM_MAX_TOKENS || 420) || 420,
+    },
+    meta: {
+      view: 'wiki-ai',
+      agent: 'wiki-curator',
+      answerMode: 'llm',
+      source: 'railway-relay-wiki-chat',
+    },
+  });
+  const timeoutMs = Number(env.HERMES_RELAY_WIKI_CHAT_TIMEOUT_MS || env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000);
+  const deadline = Date.now() + Math.max(1_000, timeoutMs);
+  let cursor = 0;
+  const finalTextParts = [];
+  let finalData = null;
+  let lastError = '';
+  while (Date.now() < deadline) {
+    const batch = await relay.waitForEvents(job.id, cursor, Math.min(5_000, Math.max(1, deadline - Date.now())));
+    cursor = batch.cursor;
+    for (const record of batch.events || []) {
+      const recordText = record.event === 'bridge-complete' ? '' : extractRelayRecordText(record);
+      if (recordText) finalTextParts.push(recordText);
+      if (record.event === 'error') lastError = record.data?.error || 'railway relay wiki chat failed';
+      if (record.event === 'bridge-complete') finalData = record.data || {};
+    }
+    if (batch.complete) break;
+  }
+  if (!finalData) {
+    relay.fail(job.id, new Error(lastError || 'railway relay wiki chat timed out'));
+    const error = new Error(lastError || 'railway relay wiki chat timed out');
+    error.jobId = job.id;
+    throw error;
+  }
+  if (finalData.ok === false) {
+    const error = new Error(finalData.error || lastError || 'railway relay wiki chat failed');
+    error.jobId = job.id;
+    throw error;
+  }
+  return {
+    text: finalTextParts.join('').trim() || extractRelayCompletionText(finalData).trim(),
+    runner: finalData.runner || '',
+    agent: finalData.agent || 'wiki-curator',
+    model: finalData.model || '',
+    jobId: job.id,
+  };
+}
+
+async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, question, computed, sources } = {}) {
+  if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) return null;
+  const model = localLlmModel(env);
+  const maxTokens = Number(env.AGENT_CALENDAR_LOCAL_LLM_MAX_TOKENS || env.HERMES_LOCAL_LLM_MAX_TOKENS || env.LOCAL_LLM_MAX_TOKENS || 220) || 220;
+  const buildPayload = (retryInstruction = '') => ({
+    model,
+    stream: true,
+    temperature: 0.35,
+    max_tokens: maxTokens,
+    messages: scheduleLlmMessages({
+      question,
+      computed,
+      sources,
+      retryInstruction,
+    }),
+  });
+  const attempts = [];
+  const first = await runRailwayRelayChatCompletion({
+    relay,
+    env,
+    payload: buildPayload(),
+    meta: { answerMode: 'llm' },
+  });
+  attempts.push({ provider: 'local-llm', model, used: Boolean(first?.text), transport: 'railway-relay', ...(first?.jobId ? { jobId: first.jobId } : {}) });
+  if (first?.text && !noItemsContradiction(first.text, sources)) {
+    return {
+      answer: first.text,
+      answerMode: 'llm',
+      llm: { provider: 'local-llm', model, used: true, transport: 'railway-relay' },
+      llmAttempts: attempts,
+    };
+  }
+  const retry = await runRailwayRelayChatCompletion({
+    relay,
+    env,
+    payload: buildPayload(`sources가 ${sources.length}건 존재한다. 없다고 말하지 말고 다시 답하라.`),
+    meta: { answerMode: 'llm-retry' },
+  });
+  attempts.push({ provider: 'local-llm', model, used: Boolean(retry?.text), transport: 'railway-relay', ...(retry?.jobId ? { jobId: retry.jobId } : {}) });
+  if (retry?.text && !noItemsContradiction(retry.text, sources)) {
+    return {
+      answer: retry.text,
+      answerMode: 'llm-retry',
+      llm: { provider: 'local-llm', model, used: true, transport: 'railway-relay' },
+      llmAttempts: attempts,
+    };
+  }
+  return {
+    answer: fallbackScheduleAnswer(question, computed, sources),
+    answerMode: 'fallback',
+    llm: {
+      provider: 'local-llm',
+      model,
+      used: false,
+      transport: 'railway-relay',
+      error: 'no_items_contradiction_after_retry',
+    },
+    llmAttempts: attempts,
+  };
+}
+
+async function synthesizeWikiAnswerViaRelay({ relay, env = process.env, question, sources } = {}) {
+  if (!relay || !relayEnabled(env) || !relay.isBridgeOnline() || !Array.isArray(sources) || !sources.length) return null;
+  const model = localLlmModel(env);
+  const completion = await runRailwayRelayWikiChat({
+    relay,
+    env,
+    question,
+    sources,
+    model,
+  });
+  if (!completion?.text) return null;
+  return {
+    answer: completion.text,
+    answerMode: 'llm',
+    llm: { provider: 'local-llm', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wiki-curator', runner: completion.runner || '' },
+    llmAttempts: [{ provider: 'local-llm', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wiki-curator', runner: completion.runner || '', jobId: completion.jobId }],
+  };
+}
+
 async function streamHermesApiServerChat({
   res,
   body,
@@ -3312,8 +3621,37 @@ async function fallbackWikiAsk({ res, body = {}, gatewayState, gatewayStore = nu
   });
 }
 
-async function fallbackWikiSearch({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch }) {
+async function fallbackWikiSearch({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch, relay = null }) {
   const question = String(body.question || body.message || body.query || '').trim();
+  if (question && relay && relayEnabled(env) && relay.isBridgeOnline()) {
+    try {
+      const relaySearch = await runRailwayRelayWikiSearch({
+        relay,
+        env,
+        question,
+        path: body.path || '',
+        limit: body.limit || 6,
+      });
+      if (relaySearch) {
+        const answerMode = relaySearch.sources.length ? 'retrieval-only' : 'no-retrieval';
+        sendJson(res, 200, {
+          ok: true,
+          query: relaySearch.query || question,
+          results: relaySearch.sources,
+          sources: relaySearch.sources,
+          answer: relaySearch.sources.length ? buildRetrievalOnlyAnswer(question, relaySearch.sources) : '위키에서 관련 문서를 찾지 못했습니다.',
+          answerMode,
+          retrieval: relaySearch.retrieval,
+          llm: { provider: 'none', used: false },
+          wikiIndex: relaySearch.wikiIndex || {},
+          gatewayFallback: true,
+        });
+        return;
+      }
+    } catch {
+      // Fall through to the in-process wiki fallback so the API still answers when the bridge is busy.
+    }
+  }
   const wikiIndex = fallbackWikiIndex({
     gatewayState,
     gatewayStore,
@@ -3337,6 +3675,7 @@ async function fallbackWikiSearch({ res, body = {}, gatewayState, gatewayStore =
     results: result.sources || [],
     sources: result.sources || [],
     answer: result.answer || '',
+    answerMode: result.answerMode || (result.llm?.used ? 'llm' : 'no-retrieval'),
     retrieval: result.retrieval || {},
     llm: result.llm || { provider: 'none' },
     ...(result.llmAttempts ? { llmAttempts: result.llmAttempts } : {}),
@@ -3360,26 +3699,88 @@ function extractFallbackWikiQuestion(rawMessage = '') {
     .trim() || raw;
 }
 
-async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch }) {
+async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch, relay = null }) {
   const rawMessage = String(body.question || body.message || body.query || '').trim();
   const question = extractFallbackWikiQuestion(rawMessage);
-  const wikiIndex = fallbackWikiIndex({
+  let wikiIndex = fallbackWikiIndex({
     gatewayState,
     gatewayStore,
     env,
     selectedPath: body.path || '',
     query: question,
   });
-  const result = await answerWikiQuestion({
-    question,
-    path: body.path || '',
-    limit: body.limit || 4,
-    store: gatewayStore,
-    wikiIndex,
-    env,
-    fetchImpl,
-  });
-  const answer = result.answer || '위키 검색 결과가 비어 있습니다.';
+  let result = null;
+  if (question && relay && relayEnabled(env) && relay.isBridgeOnline()) {
+    try {
+      const relaySearch = await runRailwayRelayWikiSearch({
+        relay,
+        env,
+        question,
+        path: body.path || '',
+        limit: body.limit || 6,
+      });
+      if (relaySearch) {
+        wikiIndex = relaySearch.wikiIndex || wikiIndex;
+        result = {
+          ok: true,
+          answer: relaySearch.sources.length ? buildRetrievalOnlyAnswer(question, relaySearch.sources) : '위키에서 관련 문서를 찾지 못했습니다.',
+          answerMode: relaySearch.sources.length ? 'retrieval-only' : 'no-retrieval',
+          sources: relaySearch.sources,
+          retrieval: relaySearch.retrieval,
+          llm: { provider: 'none', used: false },
+        };
+      }
+    } catch {
+      result = null;
+    }
+  }
+  if (!result) {
+    result = await answerWikiQuestion({
+      question,
+      path: body.path || '',
+      limit: body.limit || 4,
+      store: gatewayStore,
+      wikiIndex,
+      env,
+      fetchImpl,
+    });
+  }
+  let responseResult = result;
+  if (!result.llm?.used && result.sources?.length && relay && relayEnabled(env) && relay.isBridgeOnline()) {
+    try {
+      const relaySynthesis = await synthesizeWikiAnswerViaRelay({
+        relay,
+        env,
+        question,
+        sources: result.sources,
+      });
+      if (relaySynthesis?.answer) {
+        responseResult = {
+          ...result,
+          answer: relaySynthesis.answer,
+          answerMode: relaySynthesis.answerMode,
+          llm: relaySynthesis.llm,
+          llmAttempts: relaySynthesis.llmAttempts,
+          retrieval: {
+            ...(result.retrieval || {}),
+            mode: 'rag',
+          },
+        };
+      }
+    } catch (error) {
+      responseResult = {
+        ...result,
+        llm: {
+          provider: 'local-llm',
+          model: localLlmModel(env),
+          used: false,
+          transport: 'railway-relay',
+          error: error.message || String(error),
+        },
+      };
+    }
+  }
+  const answer = responseResult.answer || '위키 검색 결과가 비어 있습니다.';
   sendSseStream(res, [
     {
       event: 'delta',
@@ -3387,7 +3788,7 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
         text: answer,
         source: 'wiki-fallback',
         gatewayFallback: true,
-        run: { model: result.llm?.model || 'wiki-retrieval', agent: 'wiki-curator' },
+        run: { model: responseResult.llm?.model || 'wiki-retrieval', agent: 'wiki-curator' },
       },
     },
     {
@@ -3395,13 +3796,14 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
       data: {
         ok: result.ok !== false,
         text: answer,
-        sources: result.sources || [],
-        retrieval: result.retrieval || {},
-        llm: result.llm || { provider: 'none' },
-        ...(result.llmAttempts ? { llmAttempts: result.llmAttempts } : {}),
+        sources: responseResult.sources || [],
+        retrieval: responseResult.retrieval || {},
+        llm: responseResult.llm || { provider: 'none' },
+        answerMode: responseResult.answerMode || (responseResult.llm?.used ? 'llm' : 'no-retrieval'),
+        ...(responseResult.llmAttempts ? { llmAttempts: responseResult.llmAttempts } : {}),
         source: 'wiki-fallback',
         gatewayFallback: true,
-        run: { model: result.llm?.model || 'wiki-retrieval', agent: 'wiki-curator' },
+        run: { model: responseResult.llm?.model || 'wiki-retrieval', agent: 'wiki-curator' },
       },
     },
   ]);
@@ -4921,7 +5323,7 @@ function fallbackEvents(res) {
   ]);
 }
 
-async function fallbackScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch }) {
+async function fallbackScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch, relay = null }) {
   const question = String(body.question || body.message || body.query || '').trim();
   if (!question) {
     sendJson(res, 400, {
@@ -4931,15 +5333,109 @@ async function fallbackScheduleAssistantAsk({ res, body = {}, gatewayState, gate
     });
     return null;
   }
+  if (isScheduleIngestCommand(question)) {
+    return fallbackScheduleAssistantIngest({
+      res,
+      body: { ...body, text: question },
+      gatewayState,
+      gatewayStore,
+      env,
+      fetchImpl,
+      relay,
+    });
+  }
   const state = gatewaySnapshot(gatewayState, gatewayStore);
-  const result = await buildScheduleAssistantAnswer({
+  let result = await buildScheduleAssistantAnswer({
     question,
     filters: body.filters || {},
     state,
     env,
     fetchImpl,
   });
+  if (!result.llm?.used && relay && relayEnabled(env) && relay.isBridgeOnline()) {
+    try {
+      const relaySynthesis = await synthesizeScheduleAnswerViaRelay({
+        relay,
+        env,
+        question,
+        computed: result.computed,
+        sources: result.sources,
+      });
+      if (relaySynthesis?.answer) {
+        result = {
+          ...result,
+          answer: relaySynthesis.answer,
+          answerMode: relaySynthesis.answerMode,
+          llm: relaySynthesis.llm,
+          ...(relaySynthesis.llmAttempts ? { llmAttempts: relaySynthesis.llmAttempts } : {}),
+        };
+      }
+    } catch (error) {
+      result = {
+        ...result,
+        answerMode: 'fallback',
+        llm: {
+          provider: 'local-llm',
+          model: localLlmModel(env),
+          used: false,
+          transport: 'railway-relay',
+          error: error.message || String(error),
+        },
+      };
+    }
+  }
   sendJson(res, 200, {
+    ...result,
+    gatewayFallback: true,
+  });
+  return result;
+}
+
+function relayIngestCompletionImpl({ relay, env = process.env } = {}) {
+  if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) return null;
+  return async ({ model, temperature, maxTokens, messages }) => {
+    const completion = await runRailwayRelayChatCompletion({
+      relay,
+      env,
+      payload: {
+        model,
+        stream: true,
+        temperature,
+        ...(maxTokens ? { max_tokens: maxTokens } : {}),
+        messages,
+      },
+      meta: { answerMode: 'ingest', source: 'railway-relay-ingest' },
+    });
+    return completion?.text || '';
+  };
+}
+
+async function fallbackScheduleAssistantIngest({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch, relay = null }) {
+  const textInput = String(body.text || body.message || body.query || '').trim();
+  const imageFile = body.files?.image || body.files?.file || null;
+  if (!textInput && !imageFile) {
+    sendJson(res, 400, {
+      ok: false,
+      error: 'text is required',
+      drafts: [],
+      warnings: ['text is required'],
+      conflicts: [],
+      ingest: { ocrEngine: 'none' },
+      search: { strategy: 'backend-calendar-ai-rag', intent: 'ingest' },
+      gatewayFallback: true,
+    });
+    return null;
+  }
+  const state = gatewaySnapshot(gatewayState, gatewayStore);
+  const result = await buildScheduleIngestDrafts({
+    textInput,
+    imageFile,
+    state,
+    env,
+    fetchImpl,
+    completionImpl: relayIngestCompletionImpl({ relay, env }),
+  });
+  sendJson(res, result.ok === false ? 400 : 200, {
     ...result,
     state,
     gatewayFallback: true,
@@ -4988,6 +5484,7 @@ async function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewa
         text: result.answer,
         source: 'schedule-assistant',
         search: result.search,
+        answerMode: result.answerMode,
       },
     },
     {
@@ -4999,6 +5496,8 @@ async function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewa
         sources: result.sources,
         computed: result.computed,
         search: result.search,
+        answerMode: result.answerMode,
+        llm: result.llm,
         gatewayFallback: true,
       },
     },
@@ -5242,7 +5741,7 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
     sendJson(res, 404, { ok: false, error: 'relay_not_found' });
     return;
   }
-  const requestBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? parseJsonBuffer(bodyBuffer) : {};
+  const requestBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? parseRequestBuffer(bodyBuffer, req.headers['content-type'] || '') : {};
   if (
     method === 'POST'
     && pathSegments[0] === 'chat'
@@ -5256,6 +5755,7 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
       gatewayStore,
       env,
       fetchImpl,
+      relay,
     });
     return;
   }
@@ -5278,6 +5778,19 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
       gatewayStore,
       env,
       fetchImpl,
+      relay,
+    });
+    return;
+  }
+  if (method === 'POST' && pathSegments[0] === 'assistant' && pathSegments[1] === 'ingest') {
+    await fallbackScheduleAssistantIngest({
+      res,
+      body: requestBody,
+      gatewayState,
+      gatewayStore,
+      env,
+      fetchImpl,
+      relay,
     });
     return;
   }
@@ -5289,6 +5802,7 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
       gatewayStore,
       env,
       fetchImpl,
+      relay,
     });
     return;
   }

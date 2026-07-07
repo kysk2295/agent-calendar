@@ -354,11 +354,13 @@ export async function handleLocalScheduleAskRoute(req: IncomingMessage, res: Ser
   sendJson(res, 200, {
     ok: true,
     answer,
+    answerMode: 'fallback',
     sources,
     computed,
     search: {
       query: question,
       strategy: 'schedule-vector',
+      intent: 'ask',
       range,
       resultCount: sources.length,
       dimensions: VECTOR_DIMENSIONS,

@@ -16,10 +16,11 @@ function url(path: string) {
 async function hermesJson<T>(path: string, init?: RequestInit, timeoutMs = API_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
   try {
     const response = await fetch(url(path), {
       headers: {
-        'content-type': 'application/json',
+        ...(isFormData ? {} : { 'content-type': 'application/json' }),
         ...(init?.headers || {}),
       },
       ...init,
@@ -70,6 +71,7 @@ export const hermesApi = {
   askWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/ask', body),
   searchWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/search', body, WIKI_SEARCH_TIMEOUT_MS),
   askSchedule: (body: Record<string, unknown>) => jsonPost('/api/assistant/ask', body, SCHEDULE_ASK_TIMEOUT_MS),
+  ingestSchedule: (body: FormData) => hermesJson<ApiEnvelope>('/api/assistant/ingest', { method: 'POST', body }, SCHEDULE_ASK_TIMEOUT_MS),
   getAgents: () => hermesJson<ApiEnvelope>('/api/agents'),
   createAgent: (body: Record<string, unknown>) => jsonPost('/api/agents', body),
   getChannels: () => hermesJson<ApiEnvelope>('/api/channels/status'),

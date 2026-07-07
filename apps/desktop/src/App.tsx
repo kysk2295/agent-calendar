@@ -10,6 +10,8 @@ type TaxonomyKind = 'list' | 'tag';
 type TaxonomyItem = { id: string; label: string; icon: string; group: string; kind: TaxonomyKind; recordId?: string; hidden?: boolean };
 type UiPreferences = { notify: boolean; agentShare: boolean; weekStartMon: boolean };
 type CompletionNotice = { task: Item; title: string } | null;
+type ScheduleDraft = { kind: 'event' | 'task'; title: string; date: string; start: string | null; end: string | null; location: string | null; notes: string; confidence: 'high' | 'low'; selected?: boolean };
+type ChatMessage = { role: string; text: string; drafts?: ScheduleDraft[]; warnings?: string[]; conflicts?: Item[] };
 type AuthProvider = HermesAuthProvider;
 type AuthProfileState = HermesAuthProfile;
 type DesktopSettingsState = { apiBaseUrl: string; hasApiToken: boolean; theme: HermesDesktopSettings['theme']; authProfile: AuthProfileState | null; uiPreferences: UiPreferences };
@@ -478,13 +480,6 @@ type ScheduleQuestionSummary = {
   sources: Item[];
 };
 
-function isQuestion(value: string) {
-  const raw = value.trim();
-  if (!raw) return false;
-  if (/^(추가|위임|만들어|잡아|생성|넣어|등록|삭제|수정|실행)(?:\s|해|해줘|해줘요|하기|해라|$)/i.test(raw)) return false;
-  return /[?？]$|몇|얼마|뭐|무엇|어떻게|언제|왜|추천|알려줘|비율|평균|총|완료율|했지|어때|정리해줘|찾아줘|제안해줘|분석해줘|설명해줘|확인해줘|골라줘|짜줘|세워줘|브리핑|체크리스트|우선순위|리스크|일정|캘린더|회의|할\s*일|할일/i.test(raw);
-}
-
 function scheduleQuestionRange(question: string) {
   const today = todayKey();
   const current = new Date(`${today}T00:00:00`);
@@ -894,6 +889,28 @@ function toChatMessage(item: Item) {
   };
 }
 
+function scheduleDraftsFromPayload(payload: ApiEnvelope): ScheduleDraft[] {
+  return arr(payload, 'drafts').map((draft) => ({
+    kind: text(draft.kind) === 'task' ? 'task' : 'event',
+    title: text(draft.title, '일정 초안'),
+    date: text(draft.date),
+    start: text(draft.start) || null,
+    end: text(draft.end) || null,
+    location: text(draft.location) || null,
+    notes: text(draft.notes),
+    confidence: text(draft.confidence) === 'low' ? 'low' : 'high',
+    selected: true,
+  }));
+}
+
+function stringList(payload: ApiEnvelope, key: string) {
+  const direct = payload[key];
+  if (Array.isArray(direct)) return direct.map(String);
+  const data = obj(payload, 'data');
+  const nested = data[key];
+  return Array.isArray(nested) ? nested.map(String) : [];
+}
+
 function settingsPreferences(payload: ApiEnvelope | undefined): UiPreferences {
   const direct = obj(payload, 'uiPreferences');
   const nested = obj(obj(payload, 'settings'), 'uiPreferences');
@@ -984,7 +1001,8 @@ export function App() {
   const [newAgentRole, setNewAgentRole] = useState('');
   const [newAgentEmoji, setNewAgentEmoji] = useState('🤖');
   const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<Array<{ role: string; text: string }>>([]);
+  const [chatAttachment, setChatAttachment] = useState<File | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [completionNotice, setCompletionNotice] = useState<CompletionNotice>(null);
   const widgetActionDrainRef = useRef(false);
   const optimisticRunsRef = useRef<Item[]>([]);
@@ -1696,21 +1714,72 @@ export function App() {
     }
   }
 
-  async function askData(question: string) {
+  async function registerScheduleDrafts(drafts: ScheduleDraft[]) {
+    const selected = drafts.filter((draft) => draft.selected !== false && draft.title.trim() && draft.date.trim());
+    if (!selected.length) return;
+    const registered: ScheduleDraft[] = [];
+    for (const draft of selected) {
+      const item = {
+        title: draft.title.trim(),
+        date: draft.date.trim(),
+        time: draft.start || '',
+        endTime: draft.end || '',
+        location: draft.location || '',
+        notes: draft.notes || '',
+        status: 'Planned',
+        owner: 'Me',
+        kind: draft.kind === 'event' ? 'calendar-event' : 'task',
+        type: draft.kind === 'event' ? 'calendar-event' : 'task',
+      };
+      const ok = draft.kind === 'event'
+        ? await persistCreatedTask(item, 'calendar')
+        : await persistCreatedTask(item, 'task');
+      if (ok) registered.push(draft);
+    }
+    if (registered.length) {
+      const summary = registered.map((draft) => `${draft.date}${draft.start ? ` ${draft.start}` : ''} ${draft.title}`).join('\n');
+      setChatMessages((current) => [...current, { role: 'assistant', text: `${registered.length}건 등록했어요.\n${summary}` }]);
+    }
+  }
+
+  async function askData(question: string, attachment: File | null = chatAttachment) {
     const scheduleItems = [...tasks, ...events.map((event) => ({ ...event, kind: 'calendar-event', type: 'calendar-event' }))];
     const computed = taskDataSummary(question, scheduleItems);
+    const userText = attachment ? `${question || '사진에서 일정 추출해줘'}\n첨부: ${attachment.name}` : question;
     setChatInput('');
-    setChatMessages((current) => [...current, { role: 'user', text: question }, { role: 'assistant', text: '' }]);
+    setChatAttachment(null);
+    setChatMessages((current) => [...current, { role: 'user', text: userText }, { role: 'assistant', text: '' }]);
     const localAnswer = fallbackAnswer(question, computed);
     try {
-      const payload = await hermesApi.askSchedule({
-        question,
-        filters: {
-          from: computed.from || undefined,
-          to: computed.to || undefined,
-        },
-      });
+      let payload: ApiEnvelope;
+      if (attachment) {
+        const formData = new FormData();
+        formData.append('text', question);
+        formData.append('image', attachment);
+        payload = await hermesApi.ingestSchedule(formData);
+      } else {
+        payload = await hermesApi.askSchedule({
+          question,
+          filters: {
+            from: computed.from || undefined,
+            to: computed.to || undefined,
+          },
+        });
+      }
       const data = obj(payload, 'data');
+      const search = obj(payload, 'search');
+      if (attachment || text(search.intent || payload.search && (payload.search as Item).intent) === 'ingest') {
+        const drafts = scheduleDraftsFromPayload(payload);
+        const warnings = stringList(payload, 'warnings');
+        const conflicts = arr(payload, 'conflicts');
+        const summary = drafts.length
+          ? `일정 초안 ${drafts.length}건을 찾았어요. 확인 후 등록됩니다.`
+          : (warnings[0] || '일정 초안을 만들지 못했어요.');
+        setChatMessages((current) => current.map((message, index) => (
+          index === current.length - 1 ? { ...message, text: summary, drafts, warnings, conflicts } : message
+        )));
+        return;
+      }
       const answer = text(payload.answer || payload.text || data.answer || data.text).trim();
       setChatMessages((current) => current.map((message, index) => (
         index === current.length - 1 ? { ...message, text: answer || localAnswer } : message
@@ -1724,49 +1793,8 @@ export function App() {
 
   async function sendChat() {
     const message = chatInput.trim();
-    if (!message) return;
-    if (isQuestion(message)) {
-      await askData(message);
-      return;
-    }
-    setChatInput('');
-    setChatMessages((current) => [...current, { role: 'user', text: message }, { role: 'assistant', text: '' }]);
-    try {
-      const response = await hermesApi.streamChat({ message, view: screen, agent: 'default' });
-      if (!response.ok || !response.body) throw new Error(`chat stream ${response.status}`);
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const textChunk = buffer
-          .split('\n')
-          .filter((line) => line.startsWith('data:'))
-          .map((line) => line.replace(/^data:\s*/, ''))
-          .map((line) => {
-            try {
-              const parsed = JSON.parse(line) as { text?: string; run?: { goal?: string } };
-              return parsed.text || parsed.run?.goal || '';
-            } catch {
-              return '';
-            }
-          })
-          .join('');
-        if (textChunk) {
-          setChatMessages((current) => current.map((msg, index) => (
-            index === current.length - 1 ? { ...msg, text: textChunk } : msg
-          )));
-        }
-      }
-      await hydrate();
-    } catch (error) {
-      setChatInput((current) => current || message);
-      setChatMessages((current) => current.map((msg, index) => (
-        index === current.length - 1 ? { ...msg, text: `Railway 연결 실패: ${error instanceof Error ? error.message : 'unknown error'}` } : msg
-      )));
-    }
+    if (!message && !chatAttachment) return;
+    await askData(message);
   }
 
   async function askWiki() {
@@ -2491,7 +2519,7 @@ export function App() {
         <ChatIcon />
       </button>
       {completionNotice && <CompletionToast title={completionNotice.title} undo={undoCompletion} close={() => setCompletionNotice(null)} />}
-      {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} send={sendChat} runs={runs} setChip={setChatInput} close={() => setChatOpen(false)} openRun={openRun} />}
+      {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} attachment={chatAttachment} setAttachment={setChatAttachment} send={sendChat} runs={runs} setChip={setChatInput} close={() => setChatOpen(false)} openRun={openRun} registerDrafts={registerScheduleDrafts} />}
       {modal === 'taxonomy' && taxonomyForm && <TaxonomyModal form={taxonomyForm} name={taxonomyName} setName={setTaxonomyName} groupName={taxonomyGroupName} setGroupName={setTaxonomyGroupName} icon={taxonomyIcon} setIcon={setTaxonomyIcon} close={() => { setTaxonomyForm(null); setModal(null); }} submit={() => void createTaxonomy()} />}
       <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} approveRun={approveRun} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
       {!loggedIn && <LoginOverlay email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} authenticateWithPassword={authenticateWithPassword} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} />}
@@ -3765,13 +3793,80 @@ function AgentCalendarLoginExperience({ mode, email, setEmail, password, setPass
   </div>;
 }
 
-function ChatDrawer({ messages, input, setInput, send, runs, setChip, close, openRun }: { messages: Array<{ role: string; text: string }>; input: string; setInput: (value: string) => void; send: () => Promise<void>; runs: Item[]; setChip: (value: string) => void; close: () => void; openRun: (run?: Item) => void }) {
+function ScheduleDraftCards({ drafts, warnings = [], conflicts = [], registerDrafts }: { drafts: ScheduleDraft[]; warnings?: string[]; conflicts?: Item[]; registerDrafts: (drafts: ScheduleDraft[]) => Promise<void> }) {
+  const [items, setItems] = useState<ScheduleDraft[]>(() => drafts.map((draft) => ({ ...draft, selected: draft.selected !== false })));
+  const [cancelled, setCancelled] = useState(false);
+  const [saving, setSaving] = useState(false);
+  if (cancelled) return <div className="draft-cancelled">초안을 취소했습니다.</div>;
+  const updateDraft = (index: number, patch: Partial<ScheduleDraft>) => {
+    setItems((current) => current.map((draft, draftIndex) => (draftIndex === index ? { ...draft, ...patch } : draft)));
+  };
+  const conflictText = (index: number) => conflicts
+    .filter((conflict) => Number(conflict.draftIndex) === index)
+    .map((conflict) => {
+      const existing = obj(conflict, 'existing');
+      return text(existing.title || conflict.title || conflict.existing, '기존 일정');
+    })
+    .join(' · ');
+  return <div className="draft-list">
+    {warnings.length > 0 && <div className="draft-warning">{warnings.join('\n')}</div>}
+    {items.map((draft, index) => {
+      const conflict = conflictText(index);
+      return <section className="draft-card" key={`${draft.title}-${index}`}>
+        <label className="draft-check"><input type="checkbox" checked={draft.selected !== false} onChange={(event) => updateDraft(index, { selected: event.target.checked })} /><span>{draft.kind === 'task' ? '할 일' : '일정'}</span>{draft.confidence === 'low' && <b>확인 필요</b>}</label>
+        <input aria-label="초안 제목" value={draft.title} onChange={(event) => updateDraft(index, { title: event.target.value })} />
+        <div className="draft-grid">
+          <input aria-label="초안 날짜" value={draft.date} onChange={(event) => updateDraft(index, { date: event.target.value })} />
+          <input aria-label="초안 시작 시간" value={draft.start || ''} onChange={(event) => updateDraft(index, { start: event.target.value || null })} />
+          <input aria-label="초안 종료 시간" value={draft.end || ''} onChange={(event) => updateDraft(index, { end: event.target.value || null })} />
+        </div>
+        {draft.notes && <small>{draft.notes}</small>}
+        {conflict && <em>충돌: {conflict}</em>}
+      </section>;
+    })}
+    <div className="draft-actions">
+      <button disabled={saving || !items.some((draft) => draft.selected !== false)} onClick={async () => { setSaving(true); await registerDrafts(items); setSaving(false); }}>
+        {saving ? '등록 중' : '선택 항목 등록'}
+      </button>
+      <button onClick={() => setCancelled(true)}>취소</button>
+    </div>
+  </div>;
+}
+
+function ChatDrawer({ messages, input, setInput, attachment, setAttachment, send, runs, setChip, close, openRun, registerDrafts }: { messages: ChatMessage[]; input: string; setInput: (value: string) => void; attachment: File | null; setAttachment: (value: File | null) => void; send: () => Promise<void>; runs: Item[]; setChip: (value: string) => void; close: () => void; openRun: (run?: Item) => void; registerDrafts: (drafts: ScheduleDraft[]) => Promise<void> }) {
+  const [attachmentError, setAttachmentError] = useState('');
+  const chooseAttachment = (file: File | undefined) => {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/heic'].includes(file.type)) {
+      setAttachmentError('png, jpeg, heic 이미지만 첨부할 수 있어요.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setAttachmentError('이미지는 10MB 이하만 첨부할 수 있어요.');
+      return;
+    }
+    setAttachmentError('');
+    setAttachment(file);
+  };
   return <aside className="chat">
     <header><LogoMark className="chat-mark" /><div><strong>Agent Calendar 콘솔</strong><span>일정 Q&A · Railway stream</span></div><button onClick={close} aria-label="Agent Calendar 콘솔 닫기">✕</button></header>
     <div className="chat-runs">{runs.slice(0, 2).map((run, index) => <button className="chat-run-card" key={itemId(run, `chat-run-${index}`)} onClick={() => openRun(run)}><b>{text(run.goal || run.title, 'Run')}</b><span>{text(run.status, 'running')} · {text(run.agent, 'default')}</span></button>)}</div>
-    <div className="messages">{messages.map((message, index) => <div className={`message ${message.role}`} key={index}>{message.text || '응답 수신 중...'}</div>)}</div>
+    <div className="messages">{messages.map((message, index) => <div className={`message ${message.role}`} key={index}><span>{message.text || '응답 수신 중...'}</span>{message.drafts?.length ? <ScheduleDraftCards drafts={message.drafts} warnings={message.warnings} conflicts={message.conflicts} registerDrafts={registerDrafts} /> : null}</div>)}</div>
     <div className="chat-chips">{['이번 주 완료율?', '오늘 할 일 정리해줘', 'UniPort 백로그 분배'].map((chip) => <button key={chip} onClick={() => setChip(chip)}>{chip}</button>)}</div>
-    <footer><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="일정에게 묻거나 작업을 위임" /><button onClick={() => void send()}>전송</button></footer>
+    <footer>
+      <div className="chat-compose">
+        {attachment && <div className="chat-attachment"><span>{attachment.name}</span><button type="button" onClick={() => setAttachment(null)} aria-label="첨부 이미지 제거">×</button></div>}
+        {attachmentError && <div className="chat-attachment-error">{attachmentError}</div>}
+        <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="일정에게 묻거나 작업을 위임" />
+      </div>
+      <div className="chat-send-stack">
+        <label className="chat-attach-button" title="이미지 첨부">
+          <input type="file" accept="image/png,image/jpeg,image/heic" onChange={(event) => chooseAttachment(event.target.files?.[0])} />
+          <span>첨부</span>
+        </label>
+        <button onClick={() => void send()}>전송</button>
+      </div>
+    </footer>
   </aside>;
 }
 

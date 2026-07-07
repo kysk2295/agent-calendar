@@ -6,6 +6,9 @@ dist/
 dist-electron/
 apps/desktop/dist/
 apps/desktop/dist-electron/
+apps/desktop/audit/*.json
+apps/backend/tools/ocr-cli/.build/
+apps/backend/work/
 .DS_Store
 *.log
 .env*

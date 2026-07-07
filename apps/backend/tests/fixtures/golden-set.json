@@ -1,0 +1,242 @@
+[
+  {
+    "kind": "calendar",
+    "question": "오늘 일정 요약해줘",
+    "mustIncludeFacts": ["병원"],
+    "mustNotInclude": ["기록이 없"],
+    "expectedSourceTypes": ["calendar-event", "task"],
+    "expectedComputed": { "questionType": "schedule-summary" }
+  },
+  {
+    "kind": "calendar",
+    "question": "이번 주 완료율을 알려줘",
+    "mustIncludeFacts": ["완료율"],
+    "mustNotInclude": ["알려드릴 수 없"],
+    "expectedSourceTypes": ["calendar-event", "task"],
+    "expectedComputed": { "questionType": "completion-rate" }
+  },
+  {
+    "kind": "calendar",
+    "question": "기한 지났거나 임박한 할 일 정리해줘",
+    "mustIncludeFacts": ["세금계산서"],
+    "mustNotInclude": ["위키"],
+    "expectedSourceTypes": ["task"],
+    "expectedComputed": { "questionType": "overdue" }
+  },
+  {
+    "kind": "calendar",
+    "question": "오늘 겹치는 일정 있어?",
+    "mustIncludeFacts": ["팀 주간회의"],
+    "mustNotInclude": ["아웃소싱"],
+    "expectedSourceTypes": ["calendar-event"],
+    "expectedComputed": { "questionType": "conflict" }
+  },
+  {
+    "kind": "calendar",
+    "question": "프로젝트별 작업 분포 비교해줘",
+    "mustIncludeFacts": ["UniPort"],
+    "mustNotInclude": ["메일"],
+    "expectedSourceTypes": ["task"],
+    "expectedComputed": { "questionType": "distribution" }
+  },
+  {
+    "kind": "calendar",
+    "question": "유니포트 관련해서 이번 주 남은 일 알려줘",
+    "mustIncludeFacts": ["카드뉴스"],
+    "mustNotInclude": ["기록이 없"],
+    "expectedSourceTypes": ["task"],
+    "expectedComputed": { "questionType": "schedule-summary" }
+  },
+  {
+    "kind": "calendar",
+    "question": "병원 예약 언제야?",
+    "mustIncludeFacts": ["병원"],
+    "mustNotInclude": ["위키"],
+    "expectedSourceTypes": ["calendar-event"],
+    "expectedComputed": { "questionType": "schedule-summary" }
+  },
+  {
+    "kind": "calendar",
+    "question": "이번 주 완료한 작업 뭐야?",
+    "mustIncludeFacts": ["초안"],
+    "mustNotInclude": ["없습니다"],
+    "expectedSourceTypes": ["task"],
+    "expectedComputed": { "questionType": "completion-rate" }
+  },
+  {
+    "kind": "calendar",
+    "question": "내일 중요한 일정 요약해줘",
+    "mustIncludeFacts": ["유니포트"],
+    "mustNotInclude": ["chat"],
+    "expectedSourceTypes": ["calendar-event", "task"],
+    "expectedComputed": { "questionType": "schedule-summary" }
+  },
+  {
+    "kind": "calendar",
+    "question": "마감이 가까운 유니포트 작업만 뽑아줘",
+    "mustIncludeFacts": ["회의 준비"],
+    "mustNotInclude": ["기록이 없"],
+    "expectedSourceTypes": ["task"],
+    "expectedComputed": { "questionType": "overdue" }
+  },
+  {
+    "kind": "calendar",
+    "question": "다음 달 제주도 일정 어떻게 돼?",
+    "mustIncludeFacts": ["찾지 못"],
+    "mustNotInclude": ["제주도 여행 확정"],
+    "expectedSourceTypes": [],
+    "expectedComputed": { "questionType": "schedule-summary" }
+  },
+  {
+    "kind": "calendar",
+    "question": "오늘 할 일 중 미완료만 알려줘",
+    "mustIncludeFacts": ["회의 준비"],
+    "mustNotInclude": ["아웃소싱"],
+    "expectedSourceTypes": ["task"],
+    "expectedComputed": { "questionType": "schedule-summary" }
+  },
+  {
+    "kind": "calendar",
+    "question": "이번 주 근무 시간 합계 알려줘",
+    "mustIncludeFacts": ["시간"],
+    "mustNotInclude": ["계산할 수 없"],
+    "expectedSourceTypes": ["calendar-event", "task"],
+    "expectedComputed": { "questionType": "work-hours" }
+  },
+  {
+    "kind": "calendar",
+    "question": "태그별로 일이 균형적인지 봐줘",
+    "mustIncludeFacts": ["UniPort"],
+    "mustNotInclude": ["wiki"],
+    "expectedSourceTypes": ["task"],
+    "expectedComputed": { "questionType": "distribution" }
+  },
+  {
+    "kind": "calendar",
+    "question": "오늘 일정 중 외부 약속만 알려줘",
+    "mustIncludeFacts": ["병원"],
+    "mustNotInclude": ["위키"],
+    "expectedSourceTypes": ["calendar-event"],
+    "expectedComputed": { "questionType": "schedule-summary" }
+  },
+  {
+    "kind": "wiki",
+    "question": "UniPort 시스템 구조를 설명해줘",
+    "mustIncludeFacts": ["Hermes", "Railway"],
+    "mustNotInclude": ["아웃소싱 에이전트"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/UniPort-시스템구조.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "새 기능 만들면 실제 앱에 어떻게 올려?",
+    "mustIncludeFacts": ["프리뷰", "앱 반영"],
+    "mustNotInclude": ["아웃소싱"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/UniPort-개발반영.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "릴리즈는 어떻게 해?",
+    "mustIncludeFacts": ["백업", "프리뷰"],
+    "mustNotInclude": ["없는 배포 서버"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/UniPort-개발반영.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "Mac mini 운영 리스크가 뭐야?",
+    "mustIncludeFacts": ["단일 장비"],
+    "mustNotInclude": ["AWS 클러스터"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/Mac-mini-운영.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "위키 답변은 어떤 근거를 써야 해?",
+    "mustIncludeFacts": ["위키 청크"],
+    "mustNotInclude": ["웹에서 찾아"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/위키-AI-운영원칙.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "Hermes는 어디에서 지식을 읽어?",
+    "mustIncludeFacts": ["LLM Wiki"],
+    "mustNotInclude": ["아웃소싱"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/UniPort-시스템구조.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "콘텐츠 수정 뒤 검증 절차 알려줘",
+    "mustIncludeFacts": ["백업", "프리뷰 이미지 검증"],
+    "mustNotInclude": ["무검증"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/UniPort-개발반영.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "로컬 LLM이 멈추면 뭐가 문제야?",
+    "mustIncludeFacts": ["Mac mini"],
+    "mustNotInclude": ["Kubernetes"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/Mac-mini-운영.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "김치찌개 맛있게 끓이는 법 알려줘",
+    "mustIncludeFacts": ["찾지 못"],
+    "mustNotInclude": ["고춧가루"],
+    "expectedRetrieval": "wiki-files",
+    "expectedAnswerMode": "no-retrieval"
+  },
+  {
+    "kind": "wiki",
+    "question": "프로야구 순위 알려줘",
+    "mustIncludeFacts": ["찾지 못"],
+    "mustNotInclude": ["1위"],
+    "expectedRetrieval": "wiki-files",
+    "expectedAnswerMode": "no-retrieval"
+  },
+  {
+    "kind": "wiki",
+    "question": "UniPort의 실행 층은 뭐야?",
+    "mustIncludeFacts": ["Railway", "Mac mini"],
+    "mustNotInclude": ["아웃소싱"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/UniPort-시스템구조.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "개발 반영 경로에서 건너뛰면 안 되는 건?",
+    "mustIncludeFacts": ["백업", "프리뷰"],
+    "mustNotInclude": ["바로 배포"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/UniPort-개발반영.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "위키에 없는 내용은 어떻게 답해야 해?",
+    "mustIncludeFacts": ["없다고"],
+    "mustNotInclude": ["상상해서"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/위키-AI-운영원칙.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "Hermes와 Railway 관계를 설명해줘",
+    "mustIncludeFacts": ["Hermes", "Railway"],
+    "mustNotInclude": ["아웃소싱 에이전트"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/UniPort-시스템구조.md"
+  },
+  {
+    "kind": "wiki",
+    "question": "답변 출처 표기는 어떻게 해야 해?",
+    "mustIncludeFacts": ["출처"],
+    "mustNotInclude": ["출처 생략"],
+    "expectedRetrieval": "wiki-files",
+    "expectedFirstSourcePath": "2_wiki/위키-AI-운영원칙.md"
+  }
+]
