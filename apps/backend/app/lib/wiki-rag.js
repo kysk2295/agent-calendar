@@ -65,6 +65,28 @@ function lexicalScore(question = '', content = '') {
   return hits / queryTokens.size;
 }
 
+function wordTokens(value = '') {
+  return normalizeText(value).match(/[a-z0-9가-힣]+/g) || [];
+}
+
+function titlePathScore(question = '', chunk = {}) {
+  const queryWords = new Set(wordTokens(question).filter((token) => token.length > 1));
+  if (!queryWords.size) return 0;
+  const titlePath = normalizeText([chunk.title, chunk.path].filter(Boolean).join(' '));
+  const titleWords = wordTokens([chunk.title, chunk.path].filter(Boolean).join(' ')).filter((token) => token.length > 1);
+  if (!titleWords.length) return 0;
+  let hits = 0;
+  for (const token of queryWords) {
+    if (titlePath.includes(token)) hits += 1;
+  }
+  let coverage = hits / queryWords.size;
+  const meaningfulTitleWords = titleWords.filter((token) => !/md|wiki|raw|output/.test(token));
+  if (meaningfulTitleWords.length && meaningfulTitleWords.every((token) => queryWords.has(token) || normalizeText(question).includes(token))) {
+    coverage += 0.45;
+  }
+  return Math.min(1, coverage);
+}
+
 function chunkText(text = '', { maxLength = 1200, overlap = 120 } = {}) {
   const normalized = String(text || '').replace(/\r\n/g, '\n').trim();
   if (!normalized) return [];
@@ -165,11 +187,13 @@ function rankWikiChunks(question = '', chunks = [], { limit = 5, path = '' } = {
       const content = [chunk.title, chunk.content, chunk.excerpt].filter(Boolean).join('\n');
       const vectorScore = cosineSimilarity(queryVector, embedding);
       const textScore = lexicalScore(question, content);
+      const titleScore = titlePathScore(question, chunk);
       return {
         ...chunk,
-        score: Number((vectorScore * 0.68 + textScore * 0.32).toFixed(6)),
+        score: Number((vectorScore * 0.42 + textScore * 0.23 + titleScore * 0.35).toFixed(6)),
         vectorScore: Number(vectorScore.toFixed(6)),
         textScore: Number(textScore.toFixed(6)),
+        titleScore: Number(titleScore.toFixed(6)),
         excerpt: chunk.excerpt || excerpt(chunk.content || ''),
       };
     })
@@ -249,6 +273,35 @@ function localLlmKey(env = process.env) {
   ).trim();
 }
 
+function llmMaxTokens(env = process.env, provider = '') {
+  const value = provider === 'local-llm'
+    ? (env.AGENT_CALENDAR_LOCAL_LLM_MAX_TOKENS || env.HERMES_LOCAL_LLM_MAX_TOKENS || env.LOCAL_LLM_MAX_TOKENS || env.AGENT_CALENDAR_LLM_MAX_TOKENS || env.HERMES_LLM_MAX_TOKENS)
+    : (env.AGENT_CALENDAR_LLM_MAX_TOKENS || env.HERMES_LLM_MAX_TOKENS || env.OPENAI_MAX_TOKENS);
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+}
+
+function llmTimeoutMs(env = process.env, provider = '') {
+  const value = provider === 'openai-oauth'
+    ? (env.AGENT_CALENDAR_OPENAI_OAUTH_TIMEOUT_MS || env.HERMES_OPENAI_OAUTH_TIMEOUT_MS || env.OPENAI_OAUTH_TIMEOUT_MS || env.AGENT_CALENDAR_LLM_TIMEOUT_MS || env.HERMES_LLM_TIMEOUT_MS)
+    : provider === 'local-llm'
+      ? (env.AGENT_CALENDAR_LOCAL_LLM_TIMEOUT_MS || env.HERMES_LOCAL_LLM_TIMEOUT_MS || env.LOCAL_LLM_TIMEOUT_MS || env.AGENT_CALENDAR_LLM_TIMEOUT_MS || env.HERMES_LLM_TIMEOUT_MS)
+      : (env.AGENT_CALENDAR_OPENAI_TIMEOUT_MS || env.HERMES_OPENAI_TIMEOUT_MS || env.OPENAI_TIMEOUT_MS || env.AGENT_CALENDAR_LLM_TIMEOUT_MS || env.HERMES_LLM_TIMEOUT_MS);
+  const parsed = Number(value || 45000);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 45000;
+}
+
+function llmContextChars(env = process.env) {
+  const parsed = Number(env.AGENT_CALENDAR_WIKI_LLM_CONTEXT_CHARS || env.HERMES_WIKI_LLM_CONTEXT_CHARS || 520);
+  return Number.isFinite(parsed) && parsed > 120 ? Math.floor(parsed) : 520;
+}
+
+function compactLlmContext(value = '', maxLength = 520) {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!normalized || normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength).trim()}...`;
+}
+
 function openAiCompatibleBaseUrl(value = '') {
   const baseUrl = String(value || '').trim().replace(/\/+$/g, '');
   if (!baseUrl) return '';
@@ -266,6 +319,9 @@ function wikiLlmConfigs(env = process.env) {
       baseUrl: openAiCompatibleBaseUrl(oauthUrl),
       apiKey: oauthKey,
       model: openAiModel(env),
+      maxTokens: llmMaxTokens(env, 'openai-oauth'),
+      timeoutMs: llmTimeoutMs(env, 'openai-oauth'),
+      contextChars: llmContextChars(env),
     });
   }
   const localUrl = localLlmUrl(env);
@@ -276,6 +332,9 @@ function wikiLlmConfigs(env = process.env) {
       baseUrl: openAiCompatibleBaseUrl(localUrl),
       apiKey: localLlmKey(env),
       model: localLlmModel(env),
+      maxTokens: llmMaxTokens(env, 'local-llm'),
+      timeoutMs: llmTimeoutMs(env, 'local-llm'),
+      contextChars: llmContextChars(env),
     });
   }
   const apiKey = openAiKey(env);
@@ -286,6 +345,9 @@ function wikiLlmConfigs(env = process.env) {
       baseUrl: openAiBaseUrl(env),
       apiKey,
       model: openAiModel(env),
+      maxTokens: llmMaxTokens(env, 'openai'),
+      timeoutMs: llmTimeoutMs(env, 'openai'),
+      contextChars: llmContextChars(env),
     });
   }
   return configs;
@@ -294,30 +356,51 @@ function wikiLlmConfigs(env = process.env) {
 async function synthesizeWithConfig({ llm, question, sources, fetchImpl = fetch } = {}) {
   if (!llm) return null;
   const context = sources.map((source, index) => (
-    `[${index + 1}] ${source.title || source.path}\npath: ${source.path || ''}\n${source.content || source.excerpt || ''}`
+    `[${index + 1}] ${source.title || source.path}\npath: ${source.path || ''}\n${compactLlmContext(source.excerpt || source.content || '', llm.contextChars || 520)}`
   )).join('\n\n');
   const headers = {
     'content-type': 'application/json',
   };
   if (llm.apiKey) headers.authorization = `Bearer ${llm.apiKey}`;
-  const response = await fetchImpl(`${llm.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: llm.model,
-      temperature: 0.2,
-      messages: [
-        {
-          role: 'system',
-          content: 'You answer from the provided Hermes LLM-Wiki retrieval context. If context is insufficient, say so directly. Answer in Korean.',
-        },
-        {
-          role: 'user',
-          content: `질문:\n${question}\n\n검색 컨텍스트:\n${context}`,
-        },
-      ],
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), llm.timeoutMs || 45000);
+  let response;
+  try {
+    response = await fetchImpl(`${llm.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: llm.model,
+        temperature: 0.2,
+        ...(llm.maxTokens ? { max_tokens: llm.maxTokens } : {}),
+        messages: [
+          {
+            role: 'system',
+            content: [
+              '너는 Hermes LLM-Wiki 검색 결과를 근거로 답하는 한국어 위키 AI다.',
+              '반드시 한국어로만 답하라. 영어로 서론을 쓰거나 문서를 재구성하지 마라.',
+              '사용자 질문에 직접 답하고, 제공된 검색 컨텍스트 밖의 내용은 추측하지 마라.',
+              '질문이 "한 문장"이나 "요약"을 요구하면 짧고 자연스럽게 답하라.',
+            ].join('\n'),
+          },
+          {
+            role: 'user',
+            content: `질문:\n${question}\n\n검색 컨텍스트:\n${context}`,
+          },
+        ],
+      }),
+    });
+  } catch (error) {
+    if (controller.signal.aborted || error.name === 'AbortError') {
+      const timeoutError = new Error(`${llm.errorPrefix}:timeout:${llm.timeoutMs || 45000}`);
+      timeoutError.llm = llm;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) {
     const text = typeof response.text === 'function' ? await response.text() : '';
     const error = new Error(`${llm.errorPrefix}:${response.status}:${text.slice(0, 160)}`);
@@ -374,6 +457,7 @@ async function answerWikiQuestion({
   wikiIndex = null,
   env = process.env,
   fetchImpl = fetch,
+  synthesize = true,
 } = {}) {
   const normalizedQuestion = String(question || '').trim();
   const resolvedLimit = Math.max(1, Number(limit) || 5);
@@ -416,7 +500,7 @@ async function answerWikiQuestion({
   let llm = { provider: 'none', used: false };
   let llmAttempts = null;
   let answer = '';
-  if (sources.length) {
+  if (synthesize && sources.length) {
     try {
       const synthesis = await synthesizeWikiAnswer({
         question: normalizedQuestion,

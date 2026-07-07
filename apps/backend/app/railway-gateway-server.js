@@ -3324,11 +3324,12 @@ async function fallbackWikiSearch({ res, body = {}, gatewayState, gatewayStore =
   const result = await answerWikiQuestion({
     question,
     path: body.path || '',
-    limit: body.limit || 8,
+    limit: body.limit || 4,
     store: gatewayStore,
     wikiIndex,
     env,
     fetchImpl,
+    synthesize: false,
   });
   sendJson(res, result.ok === false ? 400 : 200, {
     ok: result.ok !== false,
@@ -3344,12 +3345,24 @@ async function fallbackWikiSearch({ res, body = {}, gatewayState, gatewayStore =
   });
 }
 
+function extractFallbackWikiQuestion(rawMessage = '') {
+  const raw = String(rawMessage || '').trim();
+  if (!raw) return '';
+
+  const explicitQ = raw.match(/(?:^|\n)\s*Q\s*[:：]\s*([\s\S]*?)(?=\n\s*(?:SOURCES?|근거|검색|Context)\s*[:：]|$)/i);
+  if (explicitQ?.[1]?.trim()) return explicitQ[1].trim();
+
+  const koreanQuestion = raw.match(/(?:^|\n)\s*질문\s*[:：]\s*([\s\S]*?)(?=\n\s*(?:SOURCES?|근거|검색|Context)\s*[:：]|$)/i);
+  if (koreanQuestion?.[1]?.trim()) return koreanQuestion[1].trim();
+
+  return raw
+    .split(/\n\s*(?:SOURCES?|근거|검색|Context)[:：]/i)[0]
+    .trim() || raw;
+}
+
 async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch }) {
   const rawMessage = String(body.question || body.message || body.query || '').trim();
-  const question = rawMessage
-    .replace(/^.*?질문[:：]\s*/s, '')
-    .split(/\n\n(?:근거|검색|Sources?|Context)[:：]/i)[0]
-    .trim() || rawMessage;
+  const question = extractFallbackWikiQuestion(rawMessage);
   const wikiIndex = fallbackWikiIndex({
     gatewayState,
     gatewayStore,
@@ -3360,7 +3373,7 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
   const result = await answerWikiQuestion({
     question,
     path: body.path || '',
-    limit: body.limit || 8,
+    limit: body.limit || 4,
     store: gatewayStore,
     wikiIndex,
     env,

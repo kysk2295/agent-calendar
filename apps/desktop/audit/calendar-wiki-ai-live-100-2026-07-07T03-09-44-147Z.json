@@ -1,0 +1,2379 @@
+{
+  "ok": true,
+  "mode": "live-no-route-fulfill",
+  "target": "http://127.0.0.1:5174/",
+  "requested": {
+    "totalIterations": 100,
+    "calendarIterations": 50,
+    "wikiIterations": 50
+  },
+  "completed": {
+    "total": 100,
+    "calendar": 50,
+    "wiki": 50
+  },
+  "apiCalls": {
+    "assistantAsk": 50,
+    "wikiSearch": 50,
+    "wikiStream": 50,
+    "nonWikiStream": 0
+  },
+  "providerCounts": {
+    "local-llm": 100
+  },
+  "failures": [],
+  "results": [
+    {
+      "kind": "calendar",
+      "index": 0,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 3098,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행한 일정과 작업, 그리고 완료한 것들을 확인해 보시면 좋겠습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 1,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2139,
+      "answerPreview": "이 정보로는 이번 주 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행한 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 2,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2185,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 3,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2553,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행한 일정과 작업, 그리고 완료된 일수를 확인하시면 됩니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 4,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 3362,
+      "answerPreview": "이 정보가 제공된 상태에서 이번 주의 완료율을 한 문장으로 알려드리기는 어렵습니다. 추가로 이번 주에 수행한 일정이나 작업의 요약이 필요합니다. 그 내용을 알려주시면 완료율을 정확히 계산할 수 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 5,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2582,
+      "answerPreview": "이 정보로는 이번 주 완료율을 한 문장으로 알려드리기 어렵습니다. 추가로 이번 주의 작업과 일정, 그리고 완료한 항목 수를 확인해 주시면 도와드릴 수 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 6,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2188,
+      "answerPreview": "이 데이터를 제공된 정보로는 이번 주 완료율을 한 문장으로 알려드리기 어렵습니다. 추가로 이번 주에 수행한 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 7,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 3347,
+      "answerPreview": "이 정보로는 이번 주 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 어떤 일정이나 작업이 있었는지, 그리고 그 중 얼마나 완료되었는지를 확인하시면 더 정확한 답변을 드릴 수 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 8,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2716,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 정확히 알 수 없습니다. 더 많은 작업 및 일정 정보가 필요합니다. 추가적으로 어떤 일을 처리했는지, 얼마나 했는지 알려주시면 도와드릴 수 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 9,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2181,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행한 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 10,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2224,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 정확히 알 수 없습니다. 더 많은 작업 및 일정 정보가 필요합니다. 추가로 필요한 정보나 기록이 있으시다면 알려주세요.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 11,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 3454,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가적으로 이번 주에 어떤 일정이나 작업이 있었는지, 그리고 그 중 얼마나 완료되었는지를 확인하시면 더 정확한 답변을 드릴 수 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 12,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 3401,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 근무/알바 건수와 시간, 완료한 일정/작업 내용 등을 제공해주실 수 있나요? 이를 통해 완료율을 계산할 수 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 13,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2618,
+      "answerPreview": "이 정보로는 이번 주 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 근무/알바 건수와 시간, 완료한 일정/작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 14,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2603,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행한 일정과 작업, 그리고 완료된 것들을 확인해 보시면 좋겠습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 15,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2373,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 16,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2179,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행한 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 17,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2194,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 18,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2018,
+      "answerPreview": "이 기간 동안의 작업이나 일정 정보가 없습니다. 추가로 근무/알바 시간과 일정을 확인해 주시면 도와드릴 수 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 19,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2468,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가적으로 이번 주에 수행된 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 20,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2196,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 21,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2181,
+      "answerPreview": "이 정보가 제공된 상태에서 이번 주의 완료율을 한 문장으로 알려드리기 어렵습니다. 추가로 이번 주에 수행한 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 22,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2954,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 근무/알바 건수와 시간, 완료한 일정/작업 내용 등을 제공해주시면 도움이 될 것 같습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 23,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2453,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 24,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2180,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 25,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2192,
+      "answerPreview": "이 정보가 제공된 상태에서 이번 주의 완료율을 한 문장으로 알려드리기 어렵습니다. 추가로 이번 주에 수행한 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 26,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2143,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 정확히 계산할 수 없습니다. 더 많은 작업 및 일정 정보가 필요합니다. 추가로 제공해주시면 감사하겠습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 27,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2232,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행한 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 28,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2465,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행한 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 29,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2181,
+      "answerPreview": "이 정보로는 이번 주 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 30,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2044,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 알려드리기 어렵습니다. 추가로 이번 주에 수행한 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 31,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2551,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정이나 작업, 완료한 일정 등에 대한 정보가 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 32,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 1745,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 정확히 알 수 없습니다. 더详细的日程或工作记录是必要的。",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 33,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2176,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행한 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 34,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2190,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 35,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 1953,
+      "answerPreview": "이 정보로는 이번 주 완료율을 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 36,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2187,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 37,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2465,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 38,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2178,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 39,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 3027,
+      "answerPreview": "이 정보만으로 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수는 없습니다. 추가로 근무/알바 건수와 시간, 완료된 일정/작업 요약 등을 제공해주시면 도움이 될 것 같습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 40,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 3093,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 더 많은 작업 및 일정 정보가 필요합니다. 추가적으로 어떤 일을 처리했는지, 얼마나 했는지에 대한 정보를 제공해주시면 감사하겠습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 41,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2413,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 정확히 알 수 없습니다. 더 많은 작업 및 일정 정보가 필요합니다. 추가로 필요한 정보나 기록이 있으시다면 알려주세요.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 42,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2642,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행한 일정과 작업, 그리고 완료된 일수를 확인해주시면 감사하겠습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 43,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2938,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 알려드리기 어렵습니다. 추가로 이주간에 수행한 작업과 완료된 일정, 근무/알바 시간 등을 제공해주시면 도와드릴 수 있을 것 같습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 44,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2699,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 정확히 알 수 없습니다. 더 많은 작업과제가 있는지, 그리고 그 중에서 완료된 것들이 있는지를 알려주시면 도와드릴 수 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 45,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2484,
+      "answerPreview": "이 정보가 제공된 상태에서 이번 주의 완료율을 한 문장으로 알려드리기는 어렵습니다. 추가로 이번 주에 수행한 작업과 완료한 일정, 근무 시간 등이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 46,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2181,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정과 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 47,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2166,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 한 문장으로 정확히 알려드릴 수 없습니다. 추가로 이번 주에 수행된 일정이나 작업의 요약이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 48,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2458,
+      "answerPreview": "이 정보로는 이번 주 완료율을 한 문장으로 알려드리기 어렵습니다. 추가로 이번 주에 수행한 작업과 완료된 일정, 근무/알바 시간 등이 필요합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "calendar",
+      "index": 49,
+      "question": "이번 주 완료율을 한 문장으로 알려줘?",
+      "status": 200,
+      "elapsedMs": 2048,
+      "answerPreview": "이 정보로는 이번 주의 완료율을 계산할 수 없습니다. 더详细的日程或工作记录是必要的，包括已完成和未完成的任务数量。",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "search": {
+        "strategy": "backend-calendar-ai-rag",
+        "candidateCount": 0,
+        "scheduleCandidateCount": 0,
+        "sourceCount": 0
+      },
+      "sourceCount": 0
+    },
+    {
+      "kind": "wiki",
+      "index": 0,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3911,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처에 기반한 에이전트가 개발된 코파일럿으로 구성되어 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 1,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 5529,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아웃소싱 에이전트가 참여하는 코파일럿 프로젝트의 전체 구조를 나타내며, 이를 통해 텔레그램 팀과 디스코드에서 생성된 데이터를 처리하고, 위키 및 스킬을 통한 정보 제공이 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 2,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3589,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처에 기반한 에이전트가 개발된 코파일럿을 통해 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 3,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3283,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처가 포함된 코파일럿에서 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 4,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4268,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키가 개발한 에이전트를 통해 텔레그램 팀과 디스코드에 연결하여 편리하게 사용할 수 있는 시스템입니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 5,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3995,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처가 포함된 코파일럿 프로젝트의 전체 구조를 나타내며, 이를 통해 개발 반영까지 관리된다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 6,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3424,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처, 에이전트 등으로 구성되어 있으며, 개발 반영까지 포함된다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 7,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4713,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키, 스킬을 통합해 투자입문 설계 솔루션을 제공하는 시스템으로, UniPort 프로젝트의 핵심 구성 요소들을 아키텍처에 포함시킨다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 8,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3079,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처, 에이전트 등의 요소로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 9,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3599,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아웃소싱 에이전트가 참여하는 복잡한 네트워크 구조를 통해 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 10,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3754,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키가 개발한 아키텍처에 헤르메스 에이전트가 포함된 코파일럿을 통해 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 11,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3125,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 에이전트가 포함된 코파일럿 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 12,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 5686,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아키텍처가 포함된 코파일럿 프로젝트의 전체 구조를 나타내며, 이를 통해 텔레그램 팀과 디스코드 @pm봇을 통한 커뮤니케이션부터 위키 및 스킬까지 다양한 요소들이 개발 반영됩니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 13,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3024,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아티팩트가 포함된 코파일럿 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 14,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3619,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 헤르메스 에이전트가 포함된 코파일럿 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 15,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4910,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아웃소싱 에이전트가 참여하는 복잡한 네트워크 구조로, 텔레그램 팀과 디스코드를 통해 채팅을 주고받으며, 위키 및 스킬에 연결됩니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 16,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3579,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처에 기반한 에이전트가 개발된 코파일럿을 통해 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 17,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3442,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아웃소싱 에이전트가 참여하는 복잡한 네트워크 구조를 통해 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 18,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3366,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아웃소싱 에이전트가 참여하는 복잡한 네트워크 구조를 통해 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 19,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4181,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처가 포함된 코파일럿 프로젝트의 전체 구조를 나타내며, 이를 통해 개발 반영까지 관리된다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 20,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4148,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키가 개발한 아키텍처에 헤르메스 에이전트가 포함되어 있으며, 이를 통해 다양한 기능을 제공하고 개발 반영이 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 21,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3384,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아웃소싱 에이전트가 포함된 코파일럿 시스템으로 구성되어 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 22,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4066,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처에 기반한 에이전트 개발을 통한 투자입문 솔루션을 제공합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 23,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3636,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처에 기반한 에이전트가 개발된 코파일럿을 통해 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 24,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4329,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키, 스킬을 통해 개발된 아키텍처로, 헤르메스가 UniPort의 에이전트 역할을 하며, 위키와 스킬이 개발 반영됩니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 25,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4021,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 위키, 스킬을 통해 개발된 아키텍처에 기반한 에이전트가 포함된 코파일럿으로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 26,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3285,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키, 스킬을 통한 개발 반영까지 포함된 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 27,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3209,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키가 개발한 에이전트 기반 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 28,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4674,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아웃소싱 에이전트가 참여하는 텔레그램 팀과 디스코드 @pm봇을 통해 통신하며, 위키와 스킬을 연결하는 코파일럿 프로젝트입니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 29,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3293,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아웃소싱 에이전트가 포함된 헤르메스 네트워크로 구성되어 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 30,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3612,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아웃소싱 에이전트가 참여하는 복잡한 네트워크 구조를 통해 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 31,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3070,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키가 개발한 에이전트 기반 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 32,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3523,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처에 기반한 에이전트가 개발된 코파일럿으로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 33,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3305,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키가 개발한 에이전트 기반 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 34,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4665,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아웃소싱 에이전트가 참여하는 복잡한 네트워크 구조로, 텔레그램 팀과 디스코드를 통해 통신하며, 위키와 스킬을 연동합니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 35,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3278,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키, 스킬을 통한 개발 반영까지 포함된 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 36,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4259,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아키텍처가 통합된 코파일럿으로, 헤르메스가 위키 및 스킬을 관리하고 UniPort의 개발 반영까지 포함된다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 37,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3586,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처에 기반한 에이전트가 개발된 코파일럿으로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 38,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3597,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아웃소싱 에이전트가 참여하는 복잡한 네트워크 구조를 통해 이루어진다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 39,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4142,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처가 포함된 코파일럿 프로젝트로, 이를 통해 개발 반영까지의 전체적인 시스템 구조를 제공한다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 40,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 2970,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키, 스킬을 통해 개발된 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 41,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3329,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 에이전트가 포함된 코파일럿 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 42,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4167,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처가 포함된 코파일럿 프로젝트의 전체 구조를 나타내며, 이를 통해 개발 반영까지 관리된다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 43,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3200,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 아웃소싱 에이전트가 포함된 코파일럿 시스템으로 구성되어 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 44,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4550,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 헤르메스 에이전트가 참여하는 코파일럿 프로젝트의 전체 구조를 나타내며, 이를 통해 UniPort의 개발과 운영에 대한 다양한 요소들이 결합되어 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 45,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 2992,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키, 스킬을 통합한 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 46,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 4705,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 헤르메스 에이전트가 참여하는 코파일럿 프로젝트의 전체 구조를 나타내며, 이를 통해 UniPort 프로젝트의 개발과 운영을 관리하고 있습니다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 47,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3558,
+      "answerPreview": "UniPort 시스템 구조는 헤르메스와 아키텍처에 기반한 에이전트가 개발된 코파일럿으로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 48,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3171,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키가 개발한 에이전트 기반 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    },
+    {
+      "kind": "wiki",
+      "index": 49,
+      "question": "UniPort 시스템구조를 한 문장으로 요약해줘",
+      "status": {
+        "search": 200,
+        "stream": 200
+      },
+      "elapsedMs": 3495,
+      "answerPreview": "UniPort 시스템 구조는 Hermes와 위키, 스킬을 통한 개발 반영까지 포함된 아키텍처로 구성되어 있다.",
+      "llm": {
+        "provider": "local-llm",
+        "model": "qwen2.5:3b",
+        "used": true
+      },
+      "retrieval": {
+        "source": "wiki-files",
+        "mode": "rag",
+        "chunkCount": 4
+      },
+      "sourceCount": 4,
+      "firstSource": {
+        "path": "2_wiki/UniPort-시스템구조.md",
+        "title": "UniPort 시스템 구조",
+        "score": 0.551153
+      }
+    }
+  ],
+  "updatedAt": "2026-07-07T03:14:56.573Z",
+  "finishedAt": "2026-07-07T03:14:56.573Z"
+}

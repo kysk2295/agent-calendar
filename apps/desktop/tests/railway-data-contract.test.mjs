@@ -110,7 +110,10 @@ test('task surfaces exclude calendar-only event records', () => {
 test('wiki graph is interactive and wiki ask uses Railway LLM endpoint', () => {
   assert.match(apiSource, /askWiki:/);
   assert.match(apiSource, /\/api\/wiki\/ask/);
+  assert.match(apiSource, /const WIKI_SEARCH_TIMEOUT_MS = 60_000/);
+  assert.match(apiSource, /searchWiki: \(body: Record<string, unknown>\) => jsonPost\('\/api\/wiki\/search', body, WIKI_SEARCH_TIMEOUT_MS\)/);
   assert.match(appSource, /function askWiki\(/);
+  assert.doesNotMatch(appSource, /path:\s*activeWikiId/);
   assert.doesNotMatch(appSource, /wikiRag/);
   assert.doesNotMatch(appSource, /answerWikiQuestion/);
   assert.doesNotMatch(appSource, /buildWikiRagContext/);

@@ -1779,7 +1779,6 @@ export function App() {
     try {
       const searchPayload = await hermesApi.searchWiki({
         question,
-        path: activeWikiId,
         limit: 8,
         includeJournal: wikiIncludeJournal,
         includeRaw: wikiIncludeRaw,

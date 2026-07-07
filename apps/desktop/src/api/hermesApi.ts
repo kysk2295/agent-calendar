@@ -3,6 +3,7 @@ export type ApiEnvelope = Record<string, unknown>;
 let apiBaseUrl = '';
 const API_TIMEOUT_MS = 6500;
 const SCHEDULE_ASK_TIMEOUT_MS = 45_000;
+const WIKI_SEARCH_TIMEOUT_MS = 60_000;
 
 export function setApiBaseUrl(baseUrl: string) {
   apiBaseUrl = String(baseUrl || '').replace(/\/+$/g, '');
@@ -67,7 +68,7 @@ export const hermesApi = {
     return hermesJson<ApiEnvelope>(`/api/wiki${params.toString() ? `?${params}` : ''}`);
   },
   askWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/ask', body),
-  searchWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/search', body),
+  searchWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/search', body, WIKI_SEARCH_TIMEOUT_MS),
   askSchedule: (body: Record<string, unknown>) => jsonPost('/api/assistant/ask', body, SCHEDULE_ASK_TIMEOUT_MS),
   getAgents: () => hermesJson<ApiEnvelope>('/api/agents'),
   createAgent: (body: Record<string, unknown>) => jsonPost('/api/agents', body),
