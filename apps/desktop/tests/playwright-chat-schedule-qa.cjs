@@ -70,7 +70,7 @@ async function main() {
           ok: true,
           answer: '이번 주 완료율은 67%입니다. 2/3 완료 상태이고, 근거: 이번 주 작업 3개를 사용했어요.',
           llm: { provider: 'local-llm', model: 'qwen2.5:7b', used: true },
-          search: { strategy: 'backend-schedule-rag' },
+          search: { strategy: 'backend-calendar-ai-rag' },
         },
       });
       return;

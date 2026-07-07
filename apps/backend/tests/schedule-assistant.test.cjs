@@ -98,7 +98,7 @@ test('assistant ask computes work hours from backend tasks and calendar events',
     assert.equal(payload.computed.workCount, 2);
     assert.equal(payload.computed.total, 2);
     assert.deepEqual(payload.sources.map((source) => source.id).sort(), ['event-shift-b', 'task-shift-a']);
-    assert.equal(payload.search.strategy, 'backend-schedule-rag');
+    assert.equal(payload.search.strategy, 'backend-calendar-ai-rag');
     assert.equal(payload.gatewayFallback, true);
   } finally {
     await close(server);
@@ -202,7 +202,7 @@ test('assistant ask uses OpenAI-compatible LLM when an API key is configured', a
     const requestBody = JSON.parse(llmCalls[0].init.body);
     assert.equal(requestBody.model, 'gpt-test-calendar');
     assert.equal(requestBody.messages[0].role, 'system');
-    assert.match(requestBody.messages[0].content, /아래 데이터만 근거/);
+    assert.match(requestBody.messages[0].content, /DB 기록만 근거/);
     assert.match(requestBody.messages[1].content, /8\.5/);
     assert.match(requestBody.messages[1].content, /카페 알바 오픈/);
     assert.match(requestBody.messages[1].content, /카페 알바 마감/);
@@ -286,7 +286,7 @@ test('assistant ask uses Railway OpenAI OAuth proxy when configured', async () =
     assert.equal(llmCalls[0].init.headers.authorization, 'Bearer oauth-proxy-key');
     const requestBody = JSON.parse(llmCalls[0].init.body);
     assert.equal(requestBody.model, 'gpt-oauth-calendar');
-    assert.match(requestBody.messages[0].content, /아래 데이터만 근거/);
+    assert.match(requestBody.messages[0].content, /DB 기록만 근거/);
     assert.match(requestBody.messages[1].content, /8\.5/);
     assert.match(requestBody.messages[1].content, /카페 알바 오픈/);
     assert.match(requestBody.messages[1].content, /카페 알바 마감/);
@@ -449,6 +449,94 @@ test('assistant ask falls back from Railway OpenAI OAuth proxy to local Qwen-com
   }
 });
 
+test('assistant ask retrieves broader calendar AI DB context, not only schedule rows', async () => {
+  const state = {
+    tasks: [
+      {
+        id: 'task-unrelated',
+        title: '장보기',
+        date: '2026-07-01',
+        status: 'Planned',
+        done: false,
+      },
+    ],
+    events: [],
+    documents: [
+      {
+        id: 'doc-uniport-backlog',
+        title: 'UniPort 백로그 회의',
+        source: 'document',
+        createdAt: '2026-07-02T09:00:00Z',
+        content: 'UniPort 백로그는 결제 API 안정화와 온보딩 문서 정리를 먼저 봐야 한다.',
+      },
+    ],
+    runs: [
+      {
+        id: 'run-uniport-deploy',
+        goal: 'UniPort 배포 점검',
+        status: 'done',
+        createdAt: '2026-07-03T11:00:00Z',
+        summary: '배포 전 환경변수와 Railway 상태를 다시 확인했다.',
+      },
+    ],
+    chatMessages: [
+      {
+        id: 'chat-uniport-note',
+        role: 'user',
+        text: 'UniPort는 다음 회의 전에 온보딩 문서가 필요하다고 메모했다.',
+        createdAt: '2026-07-03T12:00:00Z',
+      },
+    ],
+  };
+  const llmCalls = [];
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      OPENAI_API_KEY: 'test-openai-key',
+      OPENAI_CHAT_MODEL: 'gpt-test-calendar',
+    },
+    gatewayStore: createStore(state),
+    fetchImpl: async (url, init = {}) => {
+      llmCalls.push({ url: String(url), init });
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: 'UniPort는 결제 API 안정화와 온보딩 문서를 먼저 보면 좋겠습니다.',
+            },
+          },
+        ],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        question: 'UniPort 백로그는 다음에 뭘 보면 좋을까?',
+      }),
+    });
+    const payload = await response.json();
+    const requestBody = JSON.parse(llmCalls[0].init.body);
+    const promptContext = requestBody.messages[1].content;
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.answer, 'UniPort는 결제 API 안정화와 온보딩 문서를 먼저 보면 좋겠습니다.');
+    assert.equal(payload.search.strategy, 'backend-calendar-ai-rag');
+    assert.ok(payload.sources.some((source) => source.type === 'document' && source.title === 'UniPort 백로그 회의'));
+    assert.ok(payload.sources.some((source) => source.type === 'run' && source.title === 'UniPort 배포 점검'));
+    assert.match(promptContext, /\(document\) UniPort 백로그 회의/);
+    assert.match(promptContext, /\(run\) UniPort 배포 점검/);
+    assert.match(promptContext, /결제 API 안정화/);
+  } finally {
+    await close(server);
+  }
+});
+
 test('assistant ask falls back to computed answer when LLM request fails', async () => {
   const state = {
     tasks: [
@@ -553,7 +641,7 @@ test('chat stream routes schedule questions to schedule assistant instead of run
     assert.match(response.headers.get('content-type') || '', /text\/event-stream/);
     assert.match(body, /event: delta/);
     assert.match(body, /8\.5시간|8시간 30분/);
-    assert.match(body, /backend-schedule-rag/);
+    assert.match(body, /backend-calendar-ai-rag/);
   } finally {
     await close(server);
   }

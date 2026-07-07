@@ -16,6 +16,17 @@ function text(value, fallback = '') {
   return String(value || fallback);
 }
 
+function compactValue(value, maxLength = 700) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.trim().slice(0, maxLength);
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    return JSON.stringify(value).slice(0, maxLength);
+  } catch {
+    return '';
+  }
+}
+
 function array(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -30,11 +41,11 @@ function itemId(item, fallback) {
 }
 
 function itemTitle(item) {
-  return text(item.title || item.name || item.summary || item.subject || item.label, '일정');
+  return text(item.title || item.name || item.summary || item.subject || item.label || item.goal, '기록');
 }
 
 function itemDate(item) {
-  return firstDate(item.date || item.startDate || item.day || item.due || item.start || item.completedAt || item.completedTime);
+  return firstDate(item.date || item.startDate || item.day || item.due || item.start || item.createdAt || item.updatedAt || item.completedAt || item.completedTime);
 }
 
 function itemTags(item) {
@@ -144,6 +155,7 @@ function cosine(a, b) {
 }
 
 function itemSearchText(item) {
+  if (item._searchText) return text(item._searchText);
   return [
     itemTitle(item),
     itemDate(item),
@@ -220,9 +232,11 @@ function inRange(item, range) {
 }
 
 function normalizeSource(item, index) {
+  const sourceType = text(item.sourceType || item.kind || item.type || item.source || 'record');
   return {
     id: itemId(item, `schedule-${index}`),
     title: itemTitle(item),
+    type: sourceType,
     date: itemDate(item),
     time: itemTime(item),
     endTime: itemEndTime(item),
@@ -230,7 +244,8 @@ function normalizeSource(item, index) {
     done: isDone(item),
     tags: itemTags(item),
     list: itemList(item),
-    source: text(item.source || item.kind || item.type || 'schedule'),
+    source: sourceType,
+    snippet: compactValue(item.snippet || item.excerpt || item.preview || item.body || item.notes || item.description || item._searchText, 260),
   };
 }
 
@@ -253,6 +268,163 @@ function scheduleItemsFromState(state = {}) {
   ]);
 }
 
+function recordFromScheduleItem(item, index, type) {
+  const sourceType = text(item.sourceType || item.kind || item.type || type || 'schedule');
+  return {
+    ...item,
+    id: itemId(item, `${sourceType}-${index}`),
+    sourceType,
+    _searchText: [
+      sourceType,
+      itemTitle(item),
+      itemDate(item),
+      itemTime(item),
+      itemEndTime(item),
+      isDone(item) ? '완료' : '미완료',
+      itemStatus(item),
+      itemList(item),
+      itemTags(item).join(' '),
+      compactValue(item.notes || item.description || item.body, 900),
+    ].filter(Boolean).join('\n'),
+  };
+}
+
+function recordFromDocument(document, index) {
+  const sourceType = text(document.source || document.kind || 'document');
+  const title = itemTitle(document);
+  const body = compactValue(document.content || document.body || document.text || document.excerpt || document.summary || document.notes, 1400);
+  return {
+    ...document,
+    id: itemId(document, `document-${index}`),
+    title,
+    sourceType,
+    date: itemDate(document),
+    snippet: body,
+    _searchText: [
+      sourceType,
+      title,
+      text(document.path || document.wikiPath || document.filePath),
+      text(document.status),
+      body,
+    ].filter(Boolean).join('\n'),
+  };
+}
+
+function recordFromRun(run, index) {
+  const title = text(run.goal || run.title || run.command || run.id, '실행 기록');
+  const body = compactValue(run.summary || run.result || run.output || run.final || run.error || run.notes || run.artifacts || run.logs, 1200);
+  return {
+    ...run,
+    id: itemId(run, `run-${index}`),
+    title,
+    sourceType: 'run',
+    date: itemDate(run),
+    status: text(run.status || run.state),
+    snippet: body,
+    _searchText: [
+      'run',
+      title,
+      text(run.agent || run.agentId || run.model),
+      text(run.status || run.state),
+      body,
+    ].filter(Boolean).join('\n'),
+  };
+}
+
+function recordFromChatMessage(message, index) {
+  const body = compactValue(message.text || message.body || message.content || message.message, 900);
+  return {
+    ...message,
+    id: itemId(message, `chat-${index}`),
+    title: `${text(message.role || message.sender || 'chat')} 메시지`,
+    sourceType: 'chat-message',
+    date: itemDate(message),
+    snippet: body,
+    _searchText: ['chat-message', text(message.role || message.sender), body].filter(Boolean).join('\n'),
+  };
+}
+
+function recordFromMailMessage(message, index) {
+  const title = text(message.subject || message.title || message.preview || message.from, '메일');
+  const body = compactValue(message.body || message.text || message.preview || message.snippet, 1000);
+  return {
+    ...message,
+    id: itemId(message, `mail-${index}`),
+    title,
+    sourceType: 'mail',
+    date: itemDate(message),
+    snippet: body,
+    _searchText: [
+      'mail',
+      title,
+      text(message.from || message.sender),
+      text(message.to),
+      body,
+    ].filter(Boolean).join('\n'),
+  };
+}
+
+function recordFromWorkboardPage(page, index) {
+  const title = itemTitle(page);
+  const body = compactValue(page.body || page.content || page.description || page.columns || page.cards || page.items, 1200);
+  return {
+    ...page,
+    id: itemId(page, `workboard-${index}`),
+    title,
+    sourceType: 'workboard-page',
+    date: itemDate(page),
+    snippet: body,
+    _searchText: ['workboard-page', title, body].filter(Boolean).join('\n'),
+  };
+}
+
+function recordFromAgent(agent, index) {
+  const title = text(agent.displayName || agent.name || agent.id, '에이전트');
+  const body = compactValue(agent.role || agent.description || agent.status || agent.profileReadiness || agent.runtimeBinding, 900);
+  return {
+    ...agent,
+    id: itemId(agent, `agent-${index}`),
+    title,
+    sourceType: 'agent',
+    date: itemDate(agent),
+    status: text(agent.status || agent.state),
+    snippet: body,
+    _searchText: ['agent', title, text(agent.role), text(agent.status || agent.state), body].filter(Boolean).join('\n'),
+  };
+}
+
+function recordFromSchedulerJob(job, index) {
+  const title = itemTitle(job);
+  const body = compactValue(job.prompt || job.command || job.description || job.notes || job.schedule, 900);
+  return {
+    ...job,
+    id: itemId(job, `scheduler-${index}`),
+    title,
+    sourceType: 'scheduler-job',
+    date: itemDate(job),
+    status: text(job.status || job.state),
+    snippet: body,
+    _searchText: ['scheduler-job', title, text(job.status || job.state), body].filter(Boolean).join('\n'),
+  };
+}
+
+function calendarAiRecordsFromState(state = {}) {
+  return dedupeItems([
+    ...array(state.tasks).map((item, index) => recordFromScheduleItem(item, index, 'task')),
+    ...array(state.events).map((item, index) => recordFromScheduleItem(item, index, 'calendar-event')),
+    ...array(state.calendarEvents).map((item, index) => recordFromScheduleItem(item, index, 'calendar-event')),
+    ...array(state.ticktickTasks).map((item, index) => recordFromScheduleItem(item, index, 'ticktick-task')),
+    ...array(state.externalCalendarEvents).map((item, index) => recordFromScheduleItem(item, index, 'external-calendar-event')),
+    ...array(state.documents).map(recordFromDocument),
+    ...array(state.runs).map(recordFromRun),
+    ...array(state.chatMessages).map(recordFromChatMessage),
+    ...array(state.mailMessages).map(recordFromMailMessage),
+    ...array(state.workboardPages).map(recordFromWorkboardPage),
+    ...array(state.agents).map(recordFromAgent),
+    ...array(state.schedulerJobs).map(recordFromSchedulerJob),
+  ]);
+}
+
 function applyFilters(items, filters = {}, range) {
   const list = text(filters.list).toLowerCase();
   const tag = text(filters.tag).replace(/^#/, '').toLowerCase();
@@ -264,10 +436,28 @@ function applyFilters(items, filters = {}, range) {
   });
 }
 
+function applyRecordFilters(records, filters = {}, range) {
+  const sourceType = text(filters.sourceType || filters.type).toLowerCase();
+  return records.filter((record) => {
+    if (!inRange(record, range)) return false;
+    if (sourceType && text(record.sourceType || record.type || record.source).toLowerCase() !== sourceType) return false;
+    return true;
+  });
+}
+
 function relevantItems(question, scopedItems) {
   if (/시간|알바|근무/.test(question)) return scopedItems.filter(isWorkItem);
   const searched = vectorSearch(scopedItems, question, 12);
   return searched.length ? searched : scopedItems.slice(0, 12);
+}
+
+function relevantContextRecords(question, scopedRecords, scopedScheduleItems) {
+  const directScheduleItems = relevantItems(question, scopedScheduleItems).map((item, index) => recordFromScheduleItem(item, index, text(item.kind || item.type || item.source || 'schedule')));
+  const searched = vectorSearch(scopedRecords, question, 16);
+  const combined = /시간|알바|근무|완료|완료율|비율|평균|총/.test(question)
+    ? [...directScheduleItems, ...searched]
+    : [...searched, ...directScheduleItems.slice(0, 4)];
+  return dedupeItems(combined).slice(0, 18);
 }
 
 function formatHours(hours) {
@@ -279,9 +469,13 @@ function formatHours(hours) {
 }
 
 function buildComputed(question, range, items) {
-  const done = items.filter(isDone).length;
-  const total = items.length;
+  const questionType = /시간|알바|근무/.test(question)
+    ? 'work-hours'
+    : (/완료|비율|완료율/.test(question) ? 'completion-rate' : 'schedule-summary');
   const workItems = items.filter(isWorkItem);
+  const countedItems = questionType === 'work-hours' ? workItems : items;
+  const done = countedItems.filter(isDone).length;
+  const total = countedItems.length;
   const workHours = workItems.reduce((sum, item) => sum + (durationHours(item) || 4), 0);
   return {
     range,
@@ -291,9 +485,7 @@ function buildComputed(question, range, items) {
     completionRate: total ? Math.round((done / total) * 1000) / 10 : 0,
     workCount: workItems.length,
     workHours: Math.round(workHours * 100) / 100,
-    questionType: /시간|알바|근무/.test(question)
-      ? 'work-hours'
-      : (/완료|비율|완료율/.test(question) ? 'completion-rate' : 'schedule-summary'),
+    questionType,
   };
 }
 
@@ -415,28 +607,29 @@ function scheduleLlmConfigs(env = process.env) {
 
 function scheduleContextText({ question, computed, sources }) {
   const sourceLines = sources.map((source, index) => [
-    `[${index + 1}] ${source.title}`,
+    `[${index + 1}] (${source.type || source.source || 'record'}) ${source.title}`,
     `id: ${source.id}`,
     `date: ${source.date || 'unknown'}`,
     `time: ${source.time || ''}${source.endTime ? `-${source.endTime}` : ''}`,
     `done: ${source.done ? 'true' : 'false'}`,
     `list: ${source.list || ''}`,
     `tags: ${(source.tags || []).join(', ')}`,
+    source.snippet ? `snippet: ${source.snippet}` : '',
   ].filter(Boolean).join('\n')).join('\n\n');
   return [
     `질문: ${question}`,
     '',
-    '계산 요약:',
+    '정확 계산이 필요한 일정/작업 요약:',
     `기간: ${computed.range.label} (${computed.range.from || '처음'} ~ ${computed.range.to || '끝'})`,
-    `전체: ${computed.total}`,
+    `일정/작업 전체: ${computed.total}`,
     `완료: ${computed.done}`,
     `미완료: ${computed.undone}`,
     `완료율: ${computed.completionRate}%`,
     `근무/알바 건수: ${computed.workCount}`,
     `근무/알바 시간: ${computed.workHours}`,
     '',
-    '근거 목록:',
-    sourceLines || '관련 일정/작업 없음',
+    'DB 검색 근거:',
+    sourceLines || '관련 DB 기록 없음',
   ].join('\n');
 }
 
@@ -456,10 +649,11 @@ async function synthesizeScheduleAnswerWithConfig({ llm, question, computed, sou
         {
           role: 'system',
           content: [
-            '너는 사용자의 할 일·일정 데이터를 분석하는 비서다.',
-            '아래 데이터만 근거로 한국어 3~5문장으로 답하라.',
-            '숫자 질문은 제공된 계산값을 우선 사용하고 명확한 값으로 답하라.',
-            '데이터에 없는 것은 추측하지 말고, 무엇을 더 기록하면 되는지 알려줘라.',
+            '너는 사용자의 캘린더 AI다.',
+            '할 일, 일정, 문서, 실행 기록, 채팅, 메일, 워크보드 등 제공된 DB 기록만 근거로 한국어로 자연스럽게 답하라.',
+            '답변 형식을 고정하지 말고 질문 의도에 맞춰 간결하게 설명하라.',
+            '숫자·시간·비율 질문은 제공된 정확 계산값을 우선 사용하라.',
+            'DB 근거가 부족하면 추측하지 말고 어떤 기록이 더 필요할지 말하라.',
           ].join('\n'),
         },
         {
@@ -522,18 +716,20 @@ async function synthesizeScheduleAnswer({ question, computed, sources, env = pro
 function buildScheduleAssistantContext({ question, filters = {}, state = {} } = {}) {
   const q = text(question).trim();
   const range = questionRange(q, filters);
-  const scopedItems = applyFilters(scheduleItemsFromState(state), filters, range);
-  const items = relevantItems(q, scopedItems);
-  const sources = items.map(normalizeSource);
-  const computed = buildComputed(q, range, items);
+  const scopedScheduleItems = applyFilters(scheduleItemsFromState(state), filters, range);
+  const scopedRecords = applyRecordFilters(calendarAiRecordsFromState(state), filters, range);
+  const records = relevantContextRecords(q, scopedRecords, scopedScheduleItems);
+  const sources = records.map(normalizeSource);
+  const computed = buildComputed(q, range, scopedScheduleItems);
   return {
     ok: true,
     answer: fallbackAnswer(q, computed, sources),
     sources,
     computed,
     search: {
-      strategy: 'backend-schedule-rag',
-      candidateCount: scopedItems.length,
+      strategy: 'backend-calendar-ai-rag',
+      candidateCount: scopedRecords.length,
+      scheduleCandidateCount: scopedScheduleItems.length,
       sourceCount: sources.length,
     },
   };
