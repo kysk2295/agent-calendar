@@ -127,7 +127,7 @@ OCR·소형 LLM의 날짜 인식 오류(7월 8일↔8월 7일, 오전↔오후)�
 ### 4.2 이미지 → 텍스트
 
 - **1순위: Apple Vision 프레임워크 OCR** (Mac mini 로컬). 한국어 인쇄체·손글씨 인식이 소형 비전 LLM보다 정확하고 빠르다. 작은 Swift CLI 헬퍼(`apps/backend/tools/ocr-cli`)로 감싸 `child_process`로 호출. 결과: 텍스트 블록 + 좌표.
-- **2순위(폴백): Ollama 비전 모델** `qwen2.5-vl:7b`. OCR 결과가 빈약하거나(글자 수 < 10) 이미지가 표/포스터처럼 레이아웃 해석이 필요할 때 사용.
+- **2순위(폴백): Ollama 비전 모델** `qwen2.5vl:7b`. OCR 결과가 빈약하거나(글자 수 < 10) 이미지가 표/포스터처럼 레이아웃 해석이 필요할 때 사용.
 - 어떤 경로를 탔는지 응답 `ingest.ocrEngine: "apple-vision" | "qwen-vl" | "none"`으로 표기.
 
 ### 4.3 텍스트 → 일정 초안 (구조화)
@@ -319,7 +319,7 @@ M1 정직성 ──→ M2 임베딩 ──→ M3 평가 체계 ──→ M4 품�
 |---|---|---|---|
 | 5.8 | Apple Vision OCR 헬퍼: Swift CLI(`ocr-cli <image>` → JSON 텍스트 블록), Node에서 child_process 호출 | `apps/backend/tools/ocr-cli` (신규) | 한국어 예약 문자 캡처에서 날짜·시간 문자열 정확 추출 |
 | 5.9 | 이미지 첨부 UI + multipart 업로드 (1장, 10MB, jpg/png/heic) | `App.tsx`, 게이트웨이 | 첨부 → ingest → 카드 렌더 |
-| 5.10 | `qwen2.5-vl:7b` 폴백 (OCR 글자 수 < 10 또는 표/포스터), `ingest.ocrEngine` 표기 | `schedule-ingest.js` | 유닛: 폴백 분기. 응답에 engine 표기 |
+| 5.10 | `qwen2.5vl:7b` 폴백 (OCR 글자 수 < 10 또는 표/포스터), `ingest.ocrEngine` 표기 | `schedule-ingest.js` | 유닛: 폴백 분기. 응답에 engine 표기 |
 | 5.11 | 이미지 골든셋 10장(시간표2·포스터2·예약문자2·카톡2·손글씨2) 측정 | `tests/fixtures/ingest-golden/` | 날짜 ≥ 95%, 제목 유사 ≥ 90%, 환각 0건 |
 
 **종료 게이트:** §6.1 입력 모드 하드 어서션 전체 통과 + 입력 골든셋 20건 기준 충족.
@@ -330,7 +330,7 @@ M1 정직성 ──→ M2 임베딩 ──→ M3 평가 체계 ──→ M4 품�
 |---|---|---|
 | bge-m3 지연 초과 | 임베딩 1회 > 100ms | `nomic-embed-text`로 교체 (모듈 인터페이스 동일) |
 | 7b 메모리/지연 부족 | p95 > 6s 또는 OOM | q4 양자화 → 그래도 안 되면 3b 유지 + 골든셋 점수로 손익 기록 |
-| Apple Vision 헬퍼 빌드 실패 | Swift 툴체인 문제 | Phase 3 순서 뒤집어 qwen2.5-vl 단독으로 먼저 출시, OCR은 후속 |
+| Apple Vision 헬퍼 빌드 실패 | Swift 툴체인 문제 | Phase 3 순서 뒤집어 qwen2.5vl 단독으로 먼저 출시, OCR은 후속 |
 | 골든셋이 DB 변경으로 깨짐 | 기대 사실 불일치 | 골든셋에 `verifiedAt` 날짜 기록, 실패 시 DB 먼저 확인하는 절차 명시 |
 
 ---

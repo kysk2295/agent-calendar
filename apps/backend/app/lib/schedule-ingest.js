@@ -40,8 +40,8 @@ function visionLlmModel(env = process.env) {
     env.AGENT_CALENDAR_VISION_LLM_MODEL
     || env.HERMES_VISION_LLM_MODEL
     || env.LOCAL_VISION_LLM_MODEL
-    || 'qwen2.5-vl:7b',
-  ).trim() || 'qwen2.5-vl:7b';
+    || 'qwen2.5vl:7b',
+  ).trim() || 'qwen2.5vl:7b';
 }
 
 function localLlmUrl(env = process.env) {

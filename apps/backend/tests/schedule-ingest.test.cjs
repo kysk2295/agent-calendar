@@ -393,7 +393,7 @@ test('assistant ingest falls back to qwen vision model when Apple OCR text is sp
     env: {
       AGENT_CALENDAR_LOCAL_LLM_URL: 'http://127.0.0.1:11434',
       AGENT_CALENDAR_LOCAL_LLM_MODEL: 'qwen2.5:7b',
-      AGENT_CALENDAR_VISION_LLM_MODEL: 'qwen2.5-vl:7b',
+      AGENT_CALENDAR_VISION_LLM_MODEL: 'qwen2.5vl:7b',
     },
     ocrRunner: async () => ({
       engine: 'apple-vision',
@@ -403,7 +403,7 @@ test('assistant ingest falls back to qwen vision model when Apple OCR text is sp
     fetchImpl: async (url, init = {}) => {
       const body = JSON.parse(init.body || '{}');
       models.push(body.model);
-      if (body.model === 'qwen2.5-vl:7b') {
+      if (body.model === 'qwen2.5vl:7b') {
         return new Response(JSON.stringify({
           choices: [{ message: { content: '7월 22일 화요일 오후 7시 UniPort 데모데이 포스터' } }],
         }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -436,7 +436,7 @@ test('assistant ingest falls back to qwen vision model when Apple OCR text is sp
 
   assert.equal(result.ok, true);
   assert.equal(result.ingest.ocrEngine, 'qwen-vl');
-  assert.deepEqual(models, ['qwen2.5-vl:7b', 'qwen2.5:7b']);
+  assert.deepEqual(models, ['qwen2.5vl:7b', 'qwen2.5:7b']);
   assert.equal(result.drafts[0].title, 'UniPort 데모데이');
 });
 
