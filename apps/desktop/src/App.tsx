@@ -218,7 +218,7 @@ function wikiStreamCommand(question: string, sources: Item[]) {
   }).join('\n');
   return [
     '위키 큐레이터 답변.',
-    '규칙: SOURCES만 사용. 한국어 한 문장, 120자 이하. 반드시 문장 끝에 [1]처럼 인용. 모르면 "위키 근거 부족".',
+    '규칙: SOURCES만 사용. 한국어로 최소 350자 이상 충분히 답하라. 보통 2~4개 문단 또는 5~9문장으로 핵심 판단, 근거, 다음 액션/리스크를 포함하라. 중요한 문장 끝에는 [1]처럼 인용하라. 모르면 "위키 근거 부족"이라고 말하라.',
     '',
     `Q: ${question}`,
     '',
@@ -482,7 +482,7 @@ function isQuestion(value: string) {
   const raw = value.trim();
   if (!raw) return false;
   if (/^(추가|위임|만들어|잡아|생성|넣어|등록|삭제|수정|실행)(?:\s|해|해줘|해줘요|하기|해라|$)/i.test(raw)) return false;
-  return /[?？]$|몇|얼마|뭐|무엇|어떻게|언제|왜|추천|알려줘|비율|평균|총|완료율|했지|어때|정리해줘|할\s*일|할일/i.test(raw);
+  return /[?？]$|몇|얼마|뭐|무엇|어떻게|언제|왜|추천|알려줘|비율|평균|총|완료율|했지|어때|정리해줘|찾아줘|제안해줘|분석해줘|설명해줘|확인해줘|골라줘|짜줘|세워줘|브리핑|체크리스트|우선순위|리스크|일정|캘린더|회의|할\s*일|할일/i.test(raw);
 }
 
 function scheduleQuestionRange(question: string) {

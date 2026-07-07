@@ -302,6 +302,10 @@ function compactLlmContext(value = '', maxLength = 520) {
   return `${normalized.slice(0, maxLength).trim()}...`;
 }
 
+function preferWikiFiles(env = process.env) {
+  return /^(1|true|yes)$/i.test(String(env.AGENT_CALENDAR_WIKI_PREFER_FILES || env.HERMES_WIKI_PREFER_FILES || ''));
+}
+
 function openAiCompatibleBaseUrl(value = '') {
   const baseUrl = String(value || '').trim().replace(/\/+$/g, '');
   if (!baseUrl) return '';
@@ -332,7 +336,7 @@ function wikiLlmConfigs(env = process.env) {
       baseUrl: openAiCompatibleBaseUrl(localUrl),
       apiKey: localLlmKey(env),
       model: localLlmModel(env),
-      maxTokens: llmMaxTokens(env, 'local-llm'),
+      maxTokens: Math.max(llmMaxTokens(env, 'local-llm'), 700),
       timeoutMs: llmTimeoutMs(env, 'local-llm'),
       contextChars: llmContextChars(env),
     });
@@ -381,7 +385,8 @@ async function synthesizeWithConfig({ llm, question, sources, fetchImpl = fetch 
               '너는 Hermes LLM-Wiki 검색 결과를 근거로 답하는 한국어 위키 AI다.',
               '반드시 한국어로만 답하라. 영어로 서론을 쓰거나 문서를 재구성하지 마라.',
               '사용자 질문에 직접 답하고, 제공된 검색 컨텍스트 밖의 내용은 추측하지 마라.',
-              '질문이 "한 문장"이나 "요약"을 요구하면 짧고 자연스럽게 답하라.',
+              '질문이 명시적으로 짧은 답을 요구하지 않는 한 최소 350자 이상, 2~4개 문단 또는 5~9문장으로 답하라.',
+              '핵심 판단, 근거, 리스크나 다음 액션을 포함하고 중요한 문장에는 [1]처럼 근거 번호를 붙여라.',
             ].join('\n'),
           },
           {
@@ -409,7 +414,83 @@ async function synthesizeWithConfig({ llm, question, sources, fetchImpl = fetch 
   }
   const payload = await response.json();
   const answer = String(payload?.choices?.[0]?.message?.content || '').trim();
-  return answer ? { answer, llm: { provider: llm.provider, model: llm.model, used: true } } : null;
+  const finalAnswer = answer
+    ? await expandWikiAnswerIfShort({ llm, question, sources, answer, fetchImpl })
+    : '';
+  return finalAnswer ? { answer: finalAnswer, llm: { provider: llm.provider, model: llm.model, used: true } } : null;
+}
+
+function answerCharLength(value = '') {
+  return String(value || '').replace(/\s/g, '').length;
+}
+
+async function expandWikiAnswerIfShort({ llm, question, sources, answer, fetchImpl = fetch } = {}) {
+  const minimumChars = 350;
+  if (llm.provider !== 'local-llm') return answer;
+  if (answerCharLength(answer) >= minimumChars) return answer;
+  const context = sources.map((source, index) => (
+    `[${index + 1}] ${source.title || source.path}\npath: ${source.path || ''}\n${compactLlmContext(source.excerpt || source.content || '', llm.contextChars || 520)}`
+  )).join('\n\n');
+  const headers = {
+    'content-type': 'application/json',
+  };
+  if (llm.apiKey) headers.authorization = `Bearer ${llm.apiKey}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), llm.timeoutMs || 45000);
+  let response;
+  try {
+    response = await fetchImpl(`${llm.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: llm.model,
+        temperature: 0.2,
+        ...(llm.maxTokens ? { max_tokens: llm.maxTokens } : {}),
+        messages: [
+          {
+            role: 'system',
+            content: [
+              '너는 Hermes LLM-Wiki 검색 결과를 근거로 답하는 한국어 위키 AI다.',
+              '이미 작성된 답변을 같은 SOURCES만 사용해서 더 깊고 충분하게 확장하라.',
+              '한국어로 최소 450자 이상 답하고, 핵심 판단, 근거, 리스크나 다음 액션을 포함하라.',
+              '중요한 문장 끝에는 [1]처럼 근거 번호를 붙여라. 검색 컨텍스트 밖의 사실은 추가하지 마라.',
+            ].join('\n'),
+          },
+          {
+            role: 'user',
+            content: [
+              `질문:\n${question}`,
+              '',
+              `검색 컨텍스트:\n${context}`,
+              '',
+              '초안 답변:',
+              answer,
+              '',
+              '위 초안을 최종 답변으로 다시 작성하라.',
+            ].join('\n'),
+          },
+        ],
+      }),
+    });
+  } catch (error) {
+    if (controller.signal.aborted || error.name === 'AbortError') {
+      const timeoutError = new Error(`${llm.errorPrefix}:timeout:${llm.timeoutMs || 45000}`);
+      timeoutError.llm = llm;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (!response.ok) {
+    const text = typeof response.text === 'function' ? await response.text() : '';
+    const error = new Error(`${llm.errorPrefix}:${response.status}:${text.slice(0, 160)}`);
+    error.llm = llm;
+    throw error;
+  }
+  const payload = await response.json();
+  return String(payload?.choices?.[0]?.message?.content || '').trim() || answer;
 }
 
 async function synthesizeWikiAnswer({ question, sources, env = process.env, fetchImpl = fetch } = {}) {
@@ -472,13 +553,13 @@ async function answerWikiQuestion({
     };
   }
 
-  if (store && typeof store.indexWikiNotes === 'function' && wikiIndex && Array.isArray(wikiIndex.notes)) {
+  if (!preferWikiFiles(env) && store && typeof store.indexWikiNotes === 'function' && wikiIndex && Array.isArray(wikiIndex.notes)) {
     await store.indexWikiNotes(wikiIndex.notes);
   }
 
   let source = 'wiki-files';
   let chunks = [];
-  if (store && typeof store.searchWikiChunks === 'function') {
+  if (!preferWikiFiles(env) && store && typeof store.searchWikiChunks === 'function') {
     source = 'server-db';
     chunks = await store.searchWikiChunks(normalizedQuestion, { limit: resolvedLimit, path });
   } else {

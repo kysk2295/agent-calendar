@@ -5243,6 +5243,22 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
     return;
   }
   const requestBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? parseJsonBuffer(bodyBuffer) : {};
+  if (
+    method === 'POST'
+    && pathSegments[0] === 'chat'
+    && pathSegments[1] === 'stream'
+    && (String(requestBody.view || '') === 'wiki' || String(requestBody.agent || requestBody.agentId || '').includes('wiki'))
+  ) {
+    await fallbackWikiChatStream({
+      res,
+      body: requestBody,
+      gatewayState,
+      gatewayStore,
+      env,
+      fetchImpl,
+    });
+    return;
+  }
   if (method === 'POST' && pathSegments[0] === 'chat' && pathSegments[1] === 'stream' && isScheduleQuestion(requestBody.message || requestBody.question || requestBody.query)) {
     await streamScheduleAssistantAsk({
       res,
@@ -5267,22 +5283,6 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
   }
   if (method === 'POST' && pathSegments[0] === 'wiki' && pathSegments[1] === 'search') {
     await fallbackWikiSearch({
-      res,
-      body: requestBody,
-      gatewayState,
-      gatewayStore,
-      env,
-      fetchImpl,
-    });
-    return;
-  }
-  if (
-    method === 'POST'
-    && pathSegments[0] === 'chat'
-    && pathSegments[1] === 'stream'
-    && (String(requestBody.view || '') === 'wiki' || String(requestBody.agent || requestBody.agentId || '').includes('wiki'))
-  ) {
-    await fallbackWikiChatStream({
       res,
       body: requestBody,
       gatewayState,

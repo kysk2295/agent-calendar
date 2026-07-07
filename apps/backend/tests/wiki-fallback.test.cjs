@@ -227,8 +227,10 @@ test('wiki stream fallback times out stalled OpenAI OAuth before using local LLM
     assert.match(body, /"provider":"local-llm"/);
     assert.match(body, /"provider":"openai-oauth"/);
     assert.match(body, /timeout|aborted/i);
-    assert.equal(llmCalls.length, 2);
+    assert.equal(llmCalls.length, 3);
     assert.ok(llmCalls[0].init.signal, 'OAuth request should receive an abort signal');
+    const expandBody = JSON.parse(llmCalls[2].init.body || '{}');
+    assert.match(expandBody.messages[1].content, /초안 답변/);
   } finally {
     await close(server);
     await rm(wikiRoot, { recursive: true, force: true });

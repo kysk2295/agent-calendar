@@ -431,12 +431,15 @@ test('assistant ask falls back from Railway OpenAI OAuth proxy to local Qwen-com
     const payload = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(llmCalls.length, 2);
+    assert.equal(llmCalls.length, 3);
     assert.equal(llmCalls[0].url, 'https://openai-oauth.test/v1/chat/completions');
     assert.equal(llmCalls[1].url, 'http://127.0.0.1:11434/v1/chat/completions');
+    assert.equal(llmCalls[2].url, 'http://127.0.0.1:11434/v1/chat/completions');
     const localRequestBody = JSON.parse(llmCalls[1].init.body);
     assert.equal(localRequestBody.model, 'qwen2.5:7b');
     assert.match(localRequestBody.messages[1].content, /8\.5/);
+    const expandRequestBody = JSON.parse(llmCalls[2].init.body);
+    assert.match(expandRequestBody.messages[1].content, /초안 답변/);
     assert.equal(payload.answer, '로컬 Qwen 응답: 선택한 기간 알바는 총 8시간 30분입니다.');
     assert.deepEqual(payload.llm, { provider: 'local-llm', model: 'qwen2.5:7b', used: true });
     assert.equal(payload.llmAttempts.length, 2);
