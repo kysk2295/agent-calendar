@@ -1,0 +1,70 @@
+{
+  "ok": true,
+  "target": "http://127.0.0.1:5174/",
+  "iterations": 100,
+  "liveRounds": 0,
+  "calendarIterations": 50,
+  "wikiIterations": 50,
+  "calls": {
+    "assistantAsk": 50,
+    "wikiSearch": 50,
+    "wikiStream": 50,
+    "nonWikiStream": 0
+  },
+  "livePassthrough": {
+    "calendar": 0,
+    "wikiSearch": 0,
+    "wikiStream": 0
+  },
+  "handled": {
+    "calendar": 50,
+    "wikiSearch": 50,
+    "wikiStream": 50
+  },
+  "samples": {
+    "assistant": [
+      {
+        "question": "CALENDAR_AI_0 이번 주 완료율?",
+        "filters": {
+          "from": "2026-07-06",
+          "to": "2026-07-12"
+        }
+      },
+      {
+        "question": "CALENDAR_AI_1 이번 주 완료율?",
+        "filters": {
+          "from": "2026-07-06",
+          "to": "2026-07-12"
+        }
+      }
+    ],
+    "wikiSearch": [
+      {
+        "question": "WIKI_AI_0 UniPort 시스템구조 요약",
+        "path": "",
+        "limit": 8,
+        "includeJournal": false,
+        "includeRaw": false
+      },
+      {
+        "question": "WIKI_AI_1 UniPort 시스템구조 요약",
+        "path": "",
+        "limit": 8,
+        "includeJournal": false,
+        "includeRaw": false
+      }
+    ],
+    "wikiStream": [
+      {
+        "view": "wiki",
+        "agent": "wiki-curator",
+        "mode": "wiki_qa_fast"
+      },
+      {
+        "view": "wiki",
+        "agent": "wiki-curator",
+        "mode": "wiki_qa_fast"
+      }
+    ]
+  }
+}

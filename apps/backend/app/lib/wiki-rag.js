@@ -189,24 +189,122 @@ function buildRetrievalOnlyAnswer(question = '', sources = []) {
 }
 
 function openAiKey(env = process.env) {
-  return String(env.OPENAI_API_KEY || env.HERMES_OPENAI_API_KEY || '').trim();
+  return String(env.OPENAI_API_KEY || env.HERMES_OPENAI_API_KEY || env.AGENT_CALENDAR_OPENAI_API_KEY || '').trim();
 }
 
-async function synthesizeWithOpenAI({ question, sources, env = process.env, fetchImpl = fetch } = {}) {
+function openAiModel(env = process.env) {
+  return String(env.OPENAI_CHAT_MODEL || env.HERMES_OPENAI_CHAT_MODEL || env.AGENT_CALENDAR_OPENAI_MODEL || 'gpt-4o-mini').trim() || 'gpt-4o-mini';
+}
+
+function localLlmModel(env = process.env) {
+  return String(
+    env.AGENT_CALENDAR_LOCAL_LLM_MODEL
+    || env.HERMES_LOCAL_LLM_MODEL
+    || env.LOCAL_LLM_MODEL
+    || env.OLLAMA_MODEL
+    || 'qwen2.5:7b'
+  ).trim() || 'qwen2.5:7b';
+}
+
+function openAiBaseUrl(env = process.env) {
+  return String(env.OPENAI_BASE_URL || env.HERMES_OPENAI_BASE_URL || env.AGENT_CALENDAR_OPENAI_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/+$/g, '');
+}
+
+function openAiOAuthUrl(env = process.env) {
+  return String(
+    env.AGENT_CALENDAR_OPENAI_OAUTH_URL
+    || env.HERMES_OPENAI_OAUTH_URL
+    || env.OPENAI_OAUTH_URL
+    || env.RAILWAY_SERVICE_OPENAI_OAUTH_URL
+    || ''
+  ).trim().replace(/\/+$/g, '');
+}
+
+function openAiOAuthKey(env = process.env) {
+  return String(
+    env.AGENT_CALENDAR_OPENAI_OAUTH_PROXY_API_KEY
+    || env.HERMES_OPENAI_OAUTH_PROXY_API_KEY
+    || env.OPENAI_OAUTH_PROXY_API_KEY
+    || env.PROXY_API_KEY
+    || ''
+  ).trim();
+}
+
+function localLlmUrl(env = process.env) {
+  return String(
+    env.AGENT_CALENDAR_LOCAL_LLM_URL
+    || env.HERMES_LOCAL_LLM_URL
+    || env.LOCAL_LLM_URL
+    || env.OLLAMA_BASE_URL
+    || ''
+  ).trim().replace(/\/+$/g, '');
+}
+
+function localLlmKey(env = process.env) {
+  return String(
+    env.AGENT_CALENDAR_LOCAL_LLM_API_KEY
+    || env.HERMES_LOCAL_LLM_API_KEY
+    || env.LOCAL_LLM_API_KEY
+    || ''
+  ).trim();
+}
+
+function openAiCompatibleBaseUrl(value = '') {
+  const baseUrl = String(value || '').trim().replace(/\/+$/g, '');
+  if (!baseUrl) return '';
+  return /\/v1$/i.test(baseUrl) ? baseUrl : `${baseUrl}/v1`;
+}
+
+function wikiLlmConfigs(env = process.env) {
+  const configs = [];
+  const oauthUrl = openAiOAuthUrl(env);
+  const oauthKey = openAiOAuthKey(env);
+  if (oauthUrl && oauthKey) {
+    configs.push({
+      provider: 'openai-oauth',
+      errorPrefix: 'openai_oauth_request_failed',
+      baseUrl: openAiCompatibleBaseUrl(oauthUrl),
+      apiKey: oauthKey,
+      model: openAiModel(env),
+    });
+  }
+  const localUrl = localLlmUrl(env);
+  if (localUrl) {
+    configs.push({
+      provider: 'local-llm',
+      errorPrefix: 'local_llm_request_failed',
+      baseUrl: openAiCompatibleBaseUrl(localUrl),
+      apiKey: localLlmKey(env),
+      model: localLlmModel(env),
+    });
+  }
   const apiKey = openAiKey(env);
-  if (!apiKey) return null;
-  const model = String(env.OPENAI_CHAT_MODEL || env.HERMES_OPENAI_CHAT_MODEL || 'gpt-4o-mini').trim();
+  if (apiKey) {
+    configs.push({
+      provider: 'openai',
+      errorPrefix: 'openai_request_failed',
+      baseUrl: openAiBaseUrl(env),
+      apiKey,
+      model: openAiModel(env),
+    });
+  }
+  return configs;
+}
+
+async function synthesizeWithConfig({ llm, question, sources, fetchImpl = fetch } = {}) {
+  if (!llm) return null;
   const context = sources.map((source, index) => (
     `[${index + 1}] ${source.title || source.path}\npath: ${source.path || ''}\n${source.content || source.excerpt || ''}`
   )).join('\n\n');
-  const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
+  const headers = {
+    'content-type': 'application/json',
+  };
+  if (llm.apiKey) headers.authorization = `Bearer ${llm.apiKey}`;
+  const response = await fetchImpl(`${llm.baseUrl}/chat/completions`, {
     method: 'POST',
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      'content-type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
-      model,
+      model: llm.model,
       temperature: 0.2,
       messages: [
         {
@@ -222,11 +320,50 @@ async function synthesizeWithOpenAI({ question, sources, env = process.env, fetc
   });
   if (!response.ok) {
     const text = typeof response.text === 'function' ? await response.text() : '';
-    throw new Error(`openai_request_failed:${response.status}:${text.slice(0, 160)}`);
+    const error = new Error(`${llm.errorPrefix}:${response.status}:${text.slice(0, 160)}`);
+    error.llm = llm;
+    throw error;
   }
   const payload = await response.json();
   const answer = String(payload?.choices?.[0]?.message?.content || '').trim();
-  return answer ? { answer, provider: 'openai', model } : null;
+  return answer ? { answer, llm: { provider: llm.provider, model: llm.model, used: true } } : null;
+}
+
+async function synthesizeWikiAnswer({ question, sources, env = process.env, fetchImpl = fetch } = {}) {
+  const configs = wikiLlmConfigs(env);
+  if (!configs.length) return null;
+  const attempts = [];
+  for (const llm of configs) {
+    try {
+      const synthesis = await synthesizeWithConfig({
+        llm,
+        question,
+        sources,
+        fetchImpl,
+      });
+      if (synthesis?.answer) {
+        return {
+          ...synthesis,
+          attempts: [
+            ...attempts,
+            { provider: llm.provider, model: llm.model, used: true },
+          ],
+        };
+      }
+      attempts.push({ provider: llm.provider, model: llm.model, used: false, error: 'empty_llm_answer' });
+    } catch (error) {
+      attempts.push({
+        provider: llm.provider,
+        model: llm.model,
+        used: false,
+        error: error.message || String(error),
+      });
+    }
+  }
+  const error = new Error(attempts.map((attempt) => attempt.error).filter(Boolean).join(' | ') || 'llm_unavailable');
+  error.llm = attempts[attempts.length - 1] || configs[configs.length - 1];
+  error.attempts = attempts;
+  throw error;
 }
 
 async function answerWikiQuestion({
@@ -261,7 +398,7 @@ async function answerWikiQuestion({
     source = 'server-db';
     chunks = await store.searchWikiChunks(normalizedQuestion, { limit: resolvedLimit, path });
   } else {
-    chunks = rankWikiChunks(normalizedQuestion, chunksFromWikiNotes(wikiIndex?.notes || []), { limit: resolvedLimit, path });
+    chunks = rankWikiChunks(normalizedQuestion, chunksFromWikiNotes(wikiIndex?.ragNotes || wikiIndex?.notes || []), { limit: resolvedLimit, path });
   }
 
   const sources = chunks.slice(0, resolvedLimit).map((chunk) => ({
@@ -276,11 +413,12 @@ async function answerWikiQuestion({
     source: chunk.source || '',
   }));
 
-  let llm = { provider: 'none' };
+  let llm = { provider: 'none', used: false };
+  let llmAttempts = null;
   let answer = '';
   if (sources.length) {
     try {
-      const synthesis = await synthesizeWithOpenAI({
+      const synthesis = await synthesizeWikiAnswer({
         question: normalizedQuestion,
         sources,
         env,
@@ -288,10 +426,17 @@ async function answerWikiQuestion({
       });
       if (synthesis) {
         answer = synthesis.answer;
-        llm = { provider: synthesis.provider, model: synthesis.model };
+        llm = synthesis.llm;
+        llmAttempts = synthesis.attempts || null;
       }
     } catch (error) {
-      llm = { provider: 'openai', error: error.message || 'openai_request_failed' };
+      llm = {
+        provider: error.llm?.provider || 'openai',
+        model: error.llm?.model || '',
+        used: false,
+        error: error.message || 'llm_request_failed',
+      };
+      llmAttempts = error.attempts || null;
     }
   }
   if (!answer) answer = buildRetrievalOnlyAnswer(normalizedQuestion, sources);
@@ -302,10 +447,11 @@ async function answerWikiQuestion({
     sources: sources.map(({ content, ...sourceItem }) => sourceItem),
     retrieval: {
       source,
-      mode: llm.provider && llm.provider !== 'none' && !llm.error ? 'rag' : 'retrieval_only',
+      mode: llm.used ? 'rag' : 'retrieval_only',
       chunkCount: sources.length,
     },
     llm,
+    ...(llmAttempts ? { llmAttempts } : {}),
   };
 }
 

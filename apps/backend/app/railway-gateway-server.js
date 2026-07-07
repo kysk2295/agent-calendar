@@ -35,7 +35,7 @@ const { buildTaskShareDraft } = require('./lib/task-share');
 const { buildVisualBrief } = require('./lib/visual-brief');
 const { buildWorkboardRunPayload, buildWorkboardTaskDraft } = require('./lib/workboard');
 const { mergeUsageSummaries, readExternalUsageSources, usageFromState } = require('./lib/usage-sources');
-const { dateStamp, slugify } = require('./lib/wiki');
+const { buildWikiIndex, dateStamp, slugify } = require('./lib/wiki');
 const { answerWikiQuestion } = require('./lib/wiki-rag');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -3121,7 +3121,73 @@ function pendingWikiNote(selectedPath = '') {
   };
 }
 
+function candidateWikiRoots(env = process.env) {
+  return [
+    env.HERMES_WIKI_ROOT,
+    '/Users/koyunseo/Library/Mobile Documents/com~apple~CloudDocs/LLM-Wiki',
+    '/Users/goyunseo/Library/Mobile Documents/com~apple~CloudDocs/LLM-Wiki',
+    env.HOME ? path.join(env.HOME, 'Library/Mobile Documents/com~apple~CloudDocs/LLM-Wiki') : '',
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+}
+
+function resolveReadableWikiRoot(env = process.env) {
+  for (const wikiRoot of candidateWikiRoots(env)) {
+    try {
+      if (fs.existsSync(wikiRoot) && fs.statSync(wikiRoot).isDirectory()) return wikiRoot;
+    } catch {
+      // Try the next configured/default wiki root.
+    }
+  }
+  return '';
+}
+
+function localWikiRagNotes(wikiRoot = '', notes = []) {
+  return (Array.isArray(notes) ? notes : []).map((note) => {
+    const relativePath = String(note.path || '').replace(/^\/+/, '');
+    let content = '';
+    try {
+      const absolutePath = path.resolve(wikiRoot, relativePath);
+      const rootPath = path.resolve(wikiRoot);
+      if (absolutePath.startsWith(`${rootPath}${path.sep}`) && fs.existsSync(absolutePath)) {
+        content = fs.readFileSync(absolutePath, 'utf8');
+      }
+    } catch {
+      content = '';
+    }
+    return {
+      ...note,
+      content: content || note.content || note.excerpt || '',
+    };
+  });
+}
+
 function fallbackWikiIndex({ gatewayState, gatewayStore = null, env = process.env, selectedPath = '', query = '' } = {}) {
+  const localWikiRoot = resolveReadableWikiRoot(env);
+  if (localWikiRoot) {
+    try {
+      const localIndex = buildWikiIndex({
+        wikiRoot: localWikiRoot,
+        selectedPath,
+        query,
+      });
+      const result = {
+        ...localIndex,
+        wikiRoot: localWikiRoot,
+        gatewayFallback: true,
+        runtimeReachable: false,
+        fallbackReason: 'local-wiki-root',
+      };
+      Object.defineProperty(result, 'ragNotes', {
+        value: localWikiRagNotes(localWikiRoot, localIndex.notes),
+        enumerable: false,
+      });
+      return result;
+    } catch {
+      // Fall through to snapshot/state fallbacks if the local vault cannot be indexed.
+    }
+  }
   const snapshotPath = path.join(SNAPSHOT_DIR, 'wiki-index-snapshot.json');
   try {
     const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
@@ -3244,6 +3310,88 @@ async function fallbackWikiAsk({ res, body = {}, gatewayState, gatewayStore = nu
     },
     gatewayFallback: true,
   });
+}
+
+async function fallbackWikiSearch({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch }) {
+  const question = String(body.question || body.message || body.query || '').trim();
+  const wikiIndex = fallbackWikiIndex({
+    gatewayState,
+    gatewayStore,
+    env,
+    selectedPath: body.path || '',
+    query: question,
+  });
+  const result = await answerWikiQuestion({
+    question,
+    path: body.path || '',
+    limit: body.limit || 8,
+    store: gatewayStore,
+    wikiIndex,
+    env,
+    fetchImpl,
+  });
+  sendJson(res, result.ok === false ? 400 : 200, {
+    ok: result.ok !== false,
+    query: question,
+    results: result.sources || [],
+    sources: result.sources || [],
+    answer: result.answer || '',
+    retrieval: result.retrieval || {},
+    llm: result.llm || { provider: 'none' },
+    ...(result.llmAttempts ? { llmAttempts: result.llmAttempts } : {}),
+    wikiIndex,
+    gatewayFallback: true,
+  });
+}
+
+async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch }) {
+  const rawMessage = String(body.question || body.message || body.query || '').trim();
+  const question = rawMessage
+    .replace(/^.*?질문[:：]\s*/s, '')
+    .split(/\n\n(?:근거|검색|Sources?|Context)[:：]/i)[0]
+    .trim() || rawMessage;
+  const wikiIndex = fallbackWikiIndex({
+    gatewayState,
+    gatewayStore,
+    env,
+    selectedPath: body.path || '',
+    query: question,
+  });
+  const result = await answerWikiQuestion({
+    question,
+    path: body.path || '',
+    limit: body.limit || 8,
+    store: gatewayStore,
+    wikiIndex,
+    env,
+    fetchImpl,
+  });
+  const answer = result.answer || '위키 검색 결과가 비어 있습니다.';
+  sendSseStream(res, [
+    {
+      event: 'delta',
+      data: {
+        text: answer,
+        source: 'wiki-fallback',
+        gatewayFallback: true,
+        run: { model: result.llm?.model || 'wiki-retrieval', agent: 'wiki-curator' },
+      },
+    },
+    {
+      event: 'done',
+      data: {
+        ok: result.ok !== false,
+        text: answer,
+        sources: result.sources || [],
+        retrieval: result.retrieval || {},
+        llm: result.llm || { provider: 'none' },
+        ...(result.llmAttempts ? { llmAttempts: result.llmAttempts } : {}),
+        source: 'wiki-fallback',
+        gatewayFallback: true,
+        run: { model: result.llm?.model || 'wiki-retrieval', agent: 'wiki-curator' },
+      },
+    },
+  ]);
 }
 
 function gatewayPublicBaseUrl(env = process.env) {
@@ -5104,6 +5252,33 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
     });
     return;
   }
+  if (method === 'POST' && pathSegments[0] === 'wiki' && pathSegments[1] === 'search') {
+    await fallbackWikiSearch({
+      res,
+      body: requestBody,
+      gatewayState,
+      gatewayStore,
+      env,
+      fetchImpl,
+    });
+    return;
+  }
+  if (
+    method === 'POST'
+    && pathSegments[0] === 'chat'
+    && pathSegments[1] === 'stream'
+    && (String(requestBody.view || '') === 'wiki' || String(requestBody.agent || requestBody.agentId || '').includes('wiki'))
+  ) {
+    await fallbackWikiChatStream({
+      res,
+      body: requestBody,
+      gatewayState,
+      gatewayStore,
+      env,
+      fetchImpl,
+    });
+    return;
+  }
   const schedulerWriteRequest = pathSegments[0] === 'scheduler' && method !== 'GET';
   const missionScheduleRequest = method === 'POST' && pathSegments[0] === 'missions' && pathSegments[1] === 'schedule';
   const agentProfileCreateRequest = method === 'POST' && pathSegments[0] === 'agents' && !pathSegments[1];
@@ -5513,6 +5688,17 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
     }
     if (method === 'POST' && pathSegments[0] === 'wiki' && pathSegments[1] === 'ask') {
       await fallbackWikiAsk({
+        res,
+        body,
+        gatewayState,
+        gatewayStore,
+        env,
+        fetchImpl,
+      });
+      return;
+    }
+    if (method === 'POST' && pathSegments[0] === 'wiki' && pathSegments[1] === 'search') {
+      await fallbackWikiSearch({
         res,
         body,
         gatewayState,
