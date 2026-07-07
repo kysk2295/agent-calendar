@@ -316,7 +316,8 @@ test('assistant ingest accepts multipart image attachment with text without writ
 
     assert.equal(response.status, 200);
     assert.equal(payload.search.intent, 'ingest');
-    assert.equal(payload.ingest.ocrEngine, 'apple-vision');
+    // OCR CLI가 없는 호스트에서는 비전 폴백이 이미지 텍스트화를 맡는다.
+    assert.equal(payload.ingest.ocrEngine, 'qwen-vl');
     assert.equal(payload.drafts[0].title, '병원 예약');
     assert.equal(payload.drafts[0].confidence, 'low');
     assert.equal(store.writes.length, 0);
@@ -530,4 +531,44 @@ test('buildScheduleIngestDrafts reports an honest warning when the relay complet
   assert.ok(result.warnings.some((warning) => warning.includes('relay LLM이 빈 응답')));
   assert.equal(result.llm.used, false);
   assert.equal(result.llm.transport, 'railway-relay');
+});
+
+test('buildScheduleIngestDrafts falls back to vision completion when the OCR runner throws', async () => {
+  const completionModels = [];
+  const result = await buildScheduleIngestDrafts({
+    textInput: '',
+    imageFile: { buffer: Buffer.from('fake-image'), filename: 'appointment.png', contentType: 'image/png' },
+    state: { events: [] },
+    env: {},
+    ocrRunner: async () => {
+      throw new Error('spawn ocr-cli ENOENT');
+    },
+    completionImpl: async ({ model }) => {
+      completionModels.push(model);
+      if (model === 'qwen2.5vl:7b') {
+        return '[OO정형외과] 김세오님 7월 21일 화요일 오전 10:30 예약되었습니다.';
+      }
+      return JSON.stringify({
+        drafts: [
+          {
+            kind: 'event',
+            title: 'OO정형외과 예약',
+            date: '2026-07-21',
+            start: '10:30',
+            end: null,
+            location: null,
+            notes: '원문: 7월 21일 화요일 오전 10:30 예약',
+            confidence: 'high',
+          },
+        ],
+        warnings: [],
+      });
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(completionModels, ['qwen2.5vl:7b', 'qwen2.5:7b']);
+  assert.equal(result.ingest.ocrEngine, 'qwen-vl');
+  assert.equal(result.drafts.length, 1);
+  assert.equal(result.drafts[0].date, '2026-07-21');
 });

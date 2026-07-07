@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
+import fs from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,6 +17,30 @@ let widgetOverlayWindow: BrowserWindow | null = null;
 let proxyBaseUrl = '';
 let widgetActionPoller: NodeJS.Timeout | null = null;
 
+app.setName('agents-calendar-desktop');
+
+function logLifecycle(message: string, details: Record<string, unknown> = {}) {
+  try {
+    const logDir = app.getPath('logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.appendFileSync(
+      path.join(logDir, 'main.log'),
+      `${new Date().toISOString()} ${message} ${JSON.stringify(details)}\n`,
+      'utf8',
+    );
+  } catch {
+    // Logging must never make the desktop app less stable.
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  logLifecycle('uncaughtException', { message: error.message, stack: error.stack });
+});
+
+process.on('unhandledRejection', (reason) => {
+  logLifecycle('unhandledRejection', { reason: reason instanceof Error ? { message: reason.message, stack: reason.stack } : String(reason) });
+});
+
 function appIconPath() {
   if (process.env.VITE_DEV_SERVER_URL) return path.join(process.cwd(), 'public', 'agent-calendar-logo.png');
   return path.join(__dirname, '..', 'dist', 'agent-calendar-logo.png');
@@ -29,6 +54,7 @@ async function startProxy() {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Failed to start Agent Calendar API proxy');
   proxyBaseUrl = `http://127.0.0.1:${address.port}`;
+  logLifecycle('proxy-started', { proxyBaseUrl });
 }
 
 function shouldCreateWidgetOverlay() {
@@ -36,6 +62,7 @@ function shouldCreateWidgetOverlay() {
 }
 
 function createWindow() {
+  logLifecycle('create-window');
   mainWindow = new BrowserWindow({
     width: 1320,
     height: 824,
@@ -56,6 +83,28 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  mainWindow.on('closed', () => {
+    logLifecycle('main-window-closed');
+    mainWindow = null;
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    logLifecycle('render-process-gone', { reason: details.reason, exitCode: details.exitCode });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      void mainWindow.reload();
+    }
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    logLifecycle('did-fail-load', { errorCode, errorDescription, validatedURL });
+  });
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (/401|unauthorized|failed|error/i.test(message)) {
+      logLifecycle('renderer-console', { level, message, line, sourceId });
+    }
   });
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
@@ -204,14 +253,25 @@ ipcMain.handle('widget:actions-clear', async (_event, ids: unknown) => {
 });
 
 app.whenReady().then(async () => {
+  logLifecycle('app-ready', { userData: app.getPath('userData') });
   await startProxy();
   if (process.platform === 'darwin') app.dock?.setIcon(appIconPath());
   createWindow();
   app.on('activate', () => {
+    logLifecycle('activate', { windowCount: BrowserWindow.getAllWindows().length });
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
+  logLifecycle('window-all-closed', { platform: process.platform });
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  logLifecycle('before-quit');
+});
+
+app.on('will-quit', () => {
+  logLifecycle('will-quit');
 });

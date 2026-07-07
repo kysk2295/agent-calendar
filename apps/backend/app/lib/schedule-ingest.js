@@ -370,17 +370,21 @@ async function buildScheduleIngestDrafts({ textInput = '', imageFile = null, sta
   if (hasImage) {
     try {
       ocr = normalizeOcrResult(await ocrRunner({ file: imageFile, env }));
-      if (ocr.text.replace(/\s+/g, '').length < 10) {
+    } catch (error) {
+      // OCR CLI가 없는 호스트(Railway 등)에서는 비전 폴백이 유일한 경로다.
+      ocr = { engine: 'none', text: '', blocks: [] };
+    }
+    if (ocr.text.replace(/\s+/g, '').length < 10) {
+      try {
         const visionText = await callVisionImageText({ file: imageFile, env, fetchImpl, completionImpl });
         if (visionText) {
           ocr = { engine: 'qwen-vl', text: visionText, blocks: ocr.blocks || [] };
         }
+      } catch (error) {
+        // 비전 폴백 실패 시 OCR 결과(비어 있을 수 있음)로 계속 진행한다.
       }
-      rawText = [rawInputText, ocr.text].filter(Boolean).join('\n').trim();
-    } catch (error) {
-      ocr = { engine: 'apple-vision', text: '', blocks: [] };
-      rawText = rawInputText;
     }
+    rawText = [rawInputText, ocr.text].filter(Boolean).join('\n').trim();
   }
   if (!rawText) {
     return {
@@ -411,7 +415,7 @@ async function buildScheduleIngestDrafts({ textInput = '', imageFile = null, sta
     drafts: validated.drafts,
     warnings: validated.warnings,
     conflicts,
-    ingest: { ocrEngine: hasImage ? (ocr.engine || 'apple-vision') : 'none', ocrBlocks: ocr.blocks || [] },
+    ingest: { ocrEngine: hasImage ? (ocr.engine || 'none') : 'none', ocrBlocks: ocr.blocks || [] },
     search: { strategy: 'backend-calendar-ai-rag', intent: 'ingest' },
     llm: extraction.llm || { provider: 'none', used: false },
   };
