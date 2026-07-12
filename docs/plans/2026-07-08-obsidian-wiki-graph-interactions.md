@@ -1,0 +1,1308 @@
+# Plan: Obsidian-style wiki graph interactions
+
+- Date: 2026-07-08
+- Owner: Codex
+- Work size: Large
+- Status: Verified with Graph Banner local-scope, Graph Banner click-to-activate overlay, Graph Banner pointerup activation, Graph Banner pointer-events lock, Graph Banner re-entry overlay reset, Graph Banner DOM/CSS content contract, Graph Banner source host/control classes, dense focus active-node placement, exact context-label anchoring, dense context-only labels, cropped context-label text, dense focus active/context-only node render, active top-label balance, scatter-force, neutral-node, no-inner-header, no-chat-fab, no-app-sidebar, white-canvas, markdown-link fallback-edge, large-active-label, full-window-shell, graph-pane-chrome, focus-zoom-label, focus-label-culling, quiet-side-actions, Obsidian vault-shell, Obsidian title/tab-strip, graph-pane-aligned tab, expanded vault-tree, vault-footer-controls, right-graph-controls, vault-shell-width, tree-toolbar-controls, tree-toolbar-svg-icons, journal-me-vault-switcher, pale-edge-large-label, radial-label-overlap, raw-youtube-left-crop, dense-focus-pale-edge-density, and focus-window-bottom-frame iteration
+
+## Goal
+
+위키 그래프의 조작감을 Obsidian 그래프 뷰에 가깝게 만든다. 그래프는 처음부터 바로 조작 가능해야 하며, 노드 hover는 관련 노드와 엣지를 강조하고, 단일 클릭은 그래프 안에서 노드를 선택/라벨 표시하며, 더블클릭은 문서 열기로 이어져야 한다. Command/Ctrl plus/minus 확대/축소도 Obsidian처럼 동작해야 한다.
+
+2026-07-08 추가 반복: `ras0q/obsidian-graph-banner`는 Obsidian의 내부 `localgraph` leaf를 만든 뒤 노트 헤더에 옮겨 꽂는 구조다. Electron/React 앱에는 Obsidian 비공개 API를 직접 이식할 수 없으므로, 동등한 제품 의미인 "현재 선택 노트 기준 local graph banner"를 그래프 캔버스 스코프로 구현한다.
+
+## Non-Goals
+
+- 드래그한 노드 위치를 DB나 파일에 저장하지 않는다.
+- 백엔드 위키 스키마는 변경하지 않는다.
+
+## Touched Boundaries
+
+- Backend gateway: none
+- Backend library: none
+- DB/migrations: none
+- Electron bridge: none
+- Electron local wiki service: `apps/desktop/electron/localWikiAsk.ts`, `apps/desktop/electron/localWikiGraph.ts`
+- React UI: `apps/desktop/src/App.tsx`, `apps/desktop/src/styles.css`
+- Tests: `apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+- Docs: this plan
+
+## Success Criteria
+
+- [x] 노드 hover 시 해당 노드, 직접 연결 노드, 직접 연결 엣지만 선명하게 보인다.
+- [x] hover 상태에서 무관한 노드와 엣지는 Obsidian처럼 뒤로 물러난다.
+- [x] 노드를 드래그하면 해당 노드 좌표와 연결 엣지 좌표가 같이 갱신된다.
+- [x] 그래프는 overlay 활성화 없이 즉시 조작 가능하다.
+- [x] 단일 클릭은 노드 선택/라벨 표시, 더블클릭은 문서 열기로 동작한다.
+- [x] 빈 공간 드래그 pan, wheel/버튼 zoom, Command/Ctrl plus/minus zoom은 유지된다.
+- [x] wheel zoom은 Obsidian처럼 마우스 아래 노드를 앵커로 유지한다.
+- [x] 오른쪽 그래프 설정/타임랩스 컨트롤을 주 조작점으로 제공한다.
+- [x] 그래프 설정 패널에서 이름 표시, 노드 크기, 링크 두께, 링크 밝기를 조절할 수 있다.
+- [x] 그래프 설정 패널에서 Obsidian식 필터 입력, 고립 노드 표시 토글, 그룹 목록을 제공한다.
+- [x] 타임랩스 버튼은 진행 바와 노드/엣지 애니메이션을 실제로 재생한다.
+- [x] 로컬 위키 그래프가 Obsidian처럼 path/no-extension/basename/title 링크, embed, Markdown 링크를 엣지로 해석한다.
+- [x] `obsidian-graph-banner`처럼 현재 선택 노트를 중심으로 직접 연결 노트/링크만 보는 로컬 그래프 스코프를 제공한다.
+- [x] 로컬 그래프 스코프는 설정 패널과 오른쪽 액션 버튼에서 즉시 전환되며, 캔버스는 `data-scope="local"` 상태를 노출한다.
+- [x] 로컬 그래프 스코프는 `obsidian-graph-banner`처럼 처음에는 click-to-activate 배너로 시작하고, overlay 클릭 후 조작 가능해지며, 캔버스 밖 클릭 시 다시 비활성화된다.
+- [x] 로컬 그래프 overlay 활성화는 `obsidian-graph-banner` 원본처럼 `pointerup` 이벤트에서도 즉시 열린다.
+- [x] 로컬 그래프 비활성 상태에서는 `obsidian-graph-banner` 원본 CSS처럼 내부 그래프 SVG가 pointer event를 받지 않고, overlay 활성화 후에만 pointer event가 복구된다.
+- [x] 로컬 그래프를 global graph로 나갔다가 다시 들어와도 `obsidian-graph-banner`처럼 inactive overlay부터 다시 시작한다.
+- [x] 로컬 그래프 캔버스는 원본 플러그인의 `.graph-banner-content`, `.graph-banner-overlay`, `data-interactive`, 투명 기본 border, 활성 accent border 계약을 노출한다.
+- [x] 로컬 그래프 비활성 Graph Banner 상태에서는 원본 플러그인이 `.graph-controls`를 닫는 것처럼 내부 graph zoom controls도 숨긴다.
+- [x] 로컬 그래프 캔버스는 `ras0q/obsidian-graph-banner` 원본처럼 `.view-content.graph-banner-content` host를 노출하고, 내부 controls는 `.graph-controls.is-close` 계약을 노출한다.
+- [x] 고립 노드는 균일한 외곽 링이 아니라 Obsidian full graph처럼 중심 클러스터 주변과 가장자리로 넓게 흩어진다.
+- [x] `반발 힘` 슬라이더는 연결 노드뿐 아니라 고립 노드의 중심 이탈 거리에도 실제 영향을 준다.
+- [x] 활성 노드 강조는 앱 accent/gold 색이 아니라 Obsidian처럼 중립 회색 계열로 유지된다.
+- [x] 그래프 집중 보기에서 문서 트리 패널을 접고 캔버스가 작업 영역 대부분을 차지한다.
+- [x] 그래프 집중 보기에서 질문 입력/추천/스코프 UI를 접고 캔버스 세로 공간도 회수한다.
+- [x] 그래프 집중 보기에서 카드형 border/radius를 제거해 Obsidian editor canvas처럼 평평한 그래프 표면으로 보인다.
+- [x] 그래프 집중 보기에서 내부 앱 헤더/범례 chrome을 숨겨 그래프 캔버스가 바로 시작된다.
+- [x] 그래프 집중 보기에서 앱 전용 채팅 FAB를 숨겨 Obsidian 그래프 뷰에 없는 떠 있는 UI를 제거한다.
+- [x] 그래프 집중 보기에서 전역 앱 사이드바를 숨겨 Obsidian 그래프 뷰처럼 캔버스가 화면 대부분을 차지한다.
+- [x] 그래프 집중 보기에서 좌상단 앱 zoom toolbar를 숨기고 캔버스/SVG 배경을 Obsidian처럼 순백으로 맞춘다.
+- [x] API graph edges가 비어 있어도 노트 본문 `[[링크]]`, embed, Markdown 링크에서 Obsidian식 fallback edge를 만들어 그래프 선을 복구한다.
+- [x] 그래프 집중 보기에서 active node label을 Obsidian처럼 큰 검정 라벨로 키워 선택 상태를 바로 읽을 수 있게 한다.
+- [x] 그래프 집중 보기에서 전역 topbar와 content inset을 제거해 Obsidian graph pane처럼 캔버스가 창 가장자리까지 확장된다.
+- [x] 그래프 집중 보기에서 Obsidian graph pane처럼 좌측 history glyph, 중앙 `그래프 뷰` 제목, 우측 ellipsis chrome을 얇게 표시한다.
+- [x] 그래프 집중 보기에서 확대하면 Obsidian처럼 주변 노드 라벨이 드러나며 노드 이름을 바로 읽을 수 있다.
+- [x] 그래프 집중 보기에서 확대해도 고립 노드 라벨은 과밀하게 쏟아지지 않고 연결 클러스터 중심으로 라벨이 드러난다.
+- [x] 그래프 집중 보기에서 오른쪽 앱 액션 컨트롤은 Obsidian처럼 낮은 시각 우선순위로 물러나고 hover/focus 때만 선명해진다.
+- [x] 그래프 집중 보기에서 Obsidian 창처럼 왼쪽 아이콘 레일, vault tree, `LLM-Wiki` vault footer가 그래프 pane과 함께 보인다.
+- [x] 그래프 집중 보기에서 Obsidian 앱처럼 macOS window dots, active `그래프 뷰` tab, close/new-tab affordance가 있는 상단 title/tab strip이 먼저 보인다.
+- [x] 그래프 집중 보기의 active `그래프 뷰` tab은 vault shell 위가 아니라 실제 Obsidian처럼 graph pane 시작선 이후에 배치된다.
+- [x] 그래프 집중 보기의 왼쪽 vault tree는 `0_inbox`, `1_raw`, `2_wiki`, `3_output`, `4_journal` 같은 Obsidian vault root folder와 펼쳐진 journal 날짜 child를 보여준다.
+- [x] 그래프 집중 보기의 vault footer는 Obsidian처럼 vault switcher, `LLM-Wiki` vault name, help, settings controls를 보여준다.
+- [x] 그래프 집중 보기의 오른쪽 graph controls는 Obsidian처럼 pane chrome 아래의 조용한 세로 레일로 배치되고, fullscreen/local graph/settings/timelapse 역할을 명시한다.
+- [x] 그래프 집중 보기의 왼쪽 vault shell 폭은 실제 Obsidian window-id 캡처처럼 약 414px로 맞춰 graph pane 시작선을 Obsidian에 가깝게 둔다.
+- [x] 그래프 집중 보기의 file explorer toolbar는 Obsidian처럼 5개 컨트롤 row를 보여주고 tree 상단 중간 지점에 배치된다.
+- [x] 그래프 집중 보기의 file explorer toolbar는 placeholder box가 아니라 Obsidian처럼 역할별 SVG icon button으로 렌더링된다.
+- [x] 그래프 집중 보기의 expanded `4_journal` folder는 Obsidian 캡처처럼 `_me` child를 날짜 child 위에 보여준다.
+- [x] 그래프 집중 보기의 vault footer switcher는 텍스트 조합이 아니라 Obsidian처럼 stacked chevron SVG로 렌더링된다.
+- [x] 그래프 집중 보기에서 확대 시 연결 노드 라벨은 Obsidian graph zoom처럼 큰 라벨로 렌더링되고, active/hot edge도 짙은 앱 강조선이 아니라 옅은 hairline으로 남는다.
+- [x] 그래프 집중 보기의 macOS-style window frame bottom edge는 실제 Obsidian window-id 캡처의 `x=34, y=26, width=1920, height=1050, bottom=1076` geometry에 맞춘다.
+- [x] 실제 LLM-Wiki처럼 700개 이상 노트가 있는 dense graph에서 focus zoom 라벨은 active/관련 고우선순위 노드만 남겨 Obsidian-unlike label flood를 막는다.
+- [x] dense graph focus zoom에서 SVG에 렌더링되는 노드는 active/context만 남기고, edge geometry는 유지해 Obsidian reference crop처럼 sparse하게 보이게 한다.
+- [x] dense graph focus zoom에서는 Obsidian graph처럼 frontmatter/title이 아니라 파일 basename 라벨을 보여준다.
+- [x] focus-mode `4_journal` tree child는 Obsidian reference처럼 `_me` 다음 `2025-03-21`부터 보이도록 날짜 오름차순으로 정렬한다.
+- [x] dense graph focus zoom에서 active node/label은 Obsidian reference처럼 그래프 pane 상단 영역으로 pan 된다.
+- [x] dense graph focus zoom에서 Obsidian reference의 `2026-06-03-youtube-6AA-xSFPvdU`와 `2026-06-26-researcher-document-analysis...` 컨텍스트 라벨을 정확히 고르고 좌하단/우하단 crop 위치에 앵커링한다.
+- [x] dense graph focus zoom에서 Obsidian reference crop에 없는 임의 linked 노드 라벨(`index`, `domains` 등)을 숨기고 active/context 라벨만 남긴다.
+- [x] dense graph focus zoom에서 긴 researcher context 라벨은 Obsidian reference처럼 잘린 파일명 길이로 렌더링한다.
+- [x] dense graph focus zoom에서 active/context 외 주변 노드 렌더링을 더 강하게 줄여 Obsidian reference crop처럼 sparse하게 보인다.
+- [x] dense graph focus zoom에서 active label top이 1988px Obsidian reference의 상단 라벨 위치에 더 가깝게 배치된다.
+- [x] dense graph focus zoom에서 raw youtube context label이 Obsidian reference처럼 캔버스 왼쪽에서 더 많이 crop되도록 배치된다.
+- [x] dense focus zoom에서 라벨/노드 cap은 sparse하게 유지하되, Obsidian reference crop처럼 희미한 background edge 밀도는 36-46개 범위로 유지한다.
+
+## Edge Cases
+
+- 고립 노드 hover:
+- 줌/팬 상태에서 노드 드래그:
+- 노드 드래그 후 클릭 오작동:
+- 더블클릭이 SVG pointer capture와 충돌하는 경우:
+- 확대 시 SVG transform 순서와 pan 보정식이 어긋나는 경우:
+
+## Test Plan
+
+제품 코드보다 테스트를 먼저 작성한다.
+
+- RED:
+  - [x] `playwright-wiki-graph-interactions.cjs`가 hover focus/muted 상태와 노드 드래그 좌표 갱신을 검증하고 현재 구현에서 실패한다.
+  - [x] `local-wiki-graph.test.mjs`가 Obsidian식 링크 해석을 검증하고 현재 구현에서 실패한다.
+- GREEN:
+  - [x] WikiScreen에 hovered/dragged node 상태와 coordinate transform을 추가해 테스트를 통과시킨다.
+  - [x] Electron local wiki graph resolver를 백엔드 위키 resolver 수준으로 맞춰 테스트를 통과시킨다.
+- REFACTOR:
+  - [x] CSS data attribute를 정리해 Obsidian식 강조/흐림을 구현한다.
+
+## Acceptance Gates
+
+- [x] `node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+- [x] `node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+- [x] `node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+- [x] `node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+- [x] `npm --workspace apps/desktop run typecheck`
+- [x] `npm --workspace apps/desktop run test`
+
+건너뛴 gate:
+
+- Gate:
+  - Reason:
+
+## Implementation Checklist
+
+- [x] Step 1: Obsidian interaction surface를 확인하고 테스트 요구를 확정한다.
+- [x] Step 2: hover/drag Playwright 테스트를 추가하고 RED를 확인한다.
+- [x] Step 3: SVG hover, focus, muted, drag state를 구현한다.
+- [x] Step 4: 자동 검증과 시각 QA를 실행한다.
+- [x] Step 5: 로컬 위키 그래프 링크 해석을 Obsidian식으로 보강한다.
+- [x] Step 6: 그래프 resolver를 별도 모듈로 분리해 `localWikiAsk.ts` 파일 크기를 250 LOC 이하로 유지한다.
+- [x] Step 7: wheel zoom anchor drift를 테스트로 재현하고 pan/zoom 계산을 수정한다.
+- [x] Step 8: 설정 패널을 필터/그룹/표시/동작 섹션으로 확장하고 필터가 실제 렌더링 노드/엣지에 반영되게 한다.
+- [x] Step 9: `obsidian-graph-banner` 구현을 확인하고 현재 노트 기준 local graph 스코프를 추가한다.
+- [x] Step 10: Obsidian full graph 레퍼런스와 맞도록 고립 노드 링 배치를 deterministic scatter 배치로 바꾼다.
+- [x] Step 11: scatter 배치에서도 `반발 힘` 설정이 실제 좌표 변화를 만들도록 회귀를 수정한다.
+- [x] Step 12: 활성 노드 stroke의 gold/accent 강조를 제거하고 Obsidian식 neutral graph tone으로 맞춘다.
+- [x] Step 13: Obsidian 그래프 뷰처럼 캔버스 폭을 넓히는 그래프 집중 보기 토글을 추가한다.
+- [x] Step 14: 그래프 집중 보기에서 상단 질문 UI를 숨겨 Obsidian처럼 그래프가 세로 공간까지 크게 쓰게 한다.
+- [x] Step 15: focus mode의 그래프 패널 border/radius를 제거해 카드 프레임감을 줄인다.
+- [x] Step 16: focus mode의 `지식 그래프` 내부 헤더와 범례 줄을 숨겨 Obsidian 그래프 캔버스와 더 가까운 표면을 만든다.
+- [x] Step 17: focus mode에서 앱 전용 chat FAB를 숨겨 Obsidian 그래프 뷰의 캔버스 집중도를 맞춘다.
+- [x] Step 18: focus mode에서 전역 앱 사이드바를 숨겨 캔버스가 Obsidian 그래프 뷰처럼 화면 좌측까지 확장되게 한다.
+- [x] Step 19: focus mode에서 앱 zoom toolbar와 warm canvas tint를 제거해 직접 Obsidian 그래프 캡처의 white canvas와 맞춘다.
+- [x] Step 20: graph payload에 edges가 없을 때도 노트 본문 링크를 해석해 Obsidian vault graph처럼 엣지를 복구한다.
+- [x] Step 21: focus mode의 active node label을 크게 키워 Obsidian 그래프 확대/선택 상태의 라벨 가독성을 맞춘다.
+- [x] Step 22: focus mode에서 전역 topbar와 content padding을 제거해 그래프 캔버스를 창 가장자리까지 확장한다.
+- [x] Step 23: focus mode 캔버스 위에 Obsidian graph pane chrome을 추가한다.
+- [x] Step 24: focus mode에서 확대 시 주변 노드 라벨을 드러내 Obsidian zoom 상태의 읽힘을 맞춘다.
+- [x] Step 25: focus zoom 라벨을 연결 노드 중심으로 제한해 고립 노드 라벨 과밀을 줄인다.
+- [x] Step 26: focus mode 오른쪽 액션 컨트롤의 opacity와 active 배경을 낮춰 Obsidian graph pane의 희미한 컨트롤 우선순위에 맞춘다.
+- [x] Step 27: focus mode에 Obsidian-style vault shell을 추가해 왼쪽 rail/tree와 graph pane이 함께 보이게 한다.
+- [x] Step 28: focus mode에 Obsidian-style title/tab strip을 추가해 앱 창 상단 구조와 graph pane 시작 위치를 실제 Obsidian 캡처에 더 가깝게 맞춘다.
+- [x] Step 29: title/tab strip을 왼쪽 workspace header와 graph pane tab 영역으로 분리해 active graph tab이 graph pane 위에서 시작되게 한다.
+- [x] Step 30: focus-mode vault tree를 Obsidian reference처럼 root folder fallback과 expanded journal date children으로 보강한다.
+- [x] Step 31: focus-mode vault footer에 Obsidian-style vault switcher, help, settings controls를 추가한다.
+- [x] Step 32: focus-mode 오른쪽 graph controls를 Obsidian pane chrome 아래로 내리고 Graph Banner local graph 역할을 명시한다.
+- [x] Step 33: valid Obsidian window-id capture와 앱 1988px capture를 비교해 focus-mode vault shell 폭을 414px로 맞춘다.
+- [x] Step 34: focus-mode file explorer toolbar를 Obsidian reference처럼 5개 controls row로 맞춘다.
+- [x] Step 35: focus-mode file explorer toolbar를 실제 SVG icon button으로 바꿔 Obsidian reference의 상단 action row와 더 가깝게 맞춘다.
+- [x] Step 36: focus-mode expanded journal tree와 vault switcher를 Obsidian reference의 `_me` child 및 stacked chevron footer control에 맞춘다.
+- [x] Step 37: focus-mode zoom labels와 hot edges를 Obsidian reference처럼 큰 라벨/옅은 hairline edge 톤으로 맞춘다.
+- [x] Step 38: focus zoom 라벨을 active node 기준 방사형 anchor로 배치해 Obsidian-unlike label pileup을 줄인다.
+- [x] Step 39: focus-mode Obsidian window frame inset 기준에 맞춰 graph shell/frame 테스트 기대값을 갱신한다.
+- [x] Step 40: 실제 LLM-Wiki 규모의 dense graph에서 focus zoom label/node 렌더링을 active 관련 subset으로 cull한다.
+- [x] Step 41: dense focus zoom 라벨을 Obsidian filename/basename 방식으로 전환하고 라벨/노드 cap을 더 엄격하게 줄인다.
+- [x] Step 42: focus-mode journal tree를 Obsidian reference date sequence에 맞춰 날짜 오름차순으로 정렬한다.
+- [x] Step 43: `ras0q/obsidian-graph-banner`의 overlay 활성화 모델을 local graph scope에 적용한다.
+- [x] Step 44: dense focus zoom active node placement를 Obsidian reference의 상단 label 위치에 맞춰 보정한다.
+- [x] Step 45: dense focus zoom context label selection을 exact filename 우선으로 바꾸고 Obsidian reference crop 위치에 앵커링한다.
+- [x] Step 46: dense focus zoom에서 임의 linked labels를 제거해 Obsidian reference crop의 3-label 구조에 맞춘다.
+- [x] Step 47: dense context label text length를 줄여 researcher label이 Obsidian reference처럼 crop 안에서 과하게 번지지 않게 한다.
+- [x] Step 48: dense context researcher label anchor를 `start`로 좁혀 Obsidian reference crop의 왼쪽 시작 위치에 맞춘다.
+- [x] Step 49: dense focus zoom render node cap을 줄이고 focus vault tree를 reference처럼 journal date sequence 중심으로 맞춘다.
+- [x] Step 50: focus titlebar window dots와 rail active fill을 inactive Obsidian reference chrome에 맞춘다.
+- [x] Step 51: focus file-explorer toolbar row를 Obsidian reference의 왼쪽 action row 위치로 이동한다.
+- [x] Step 52: `obsidian-graph-banner` 원본에 맞춰 local graph overlay 활성화를 `click` 의존이 아닌 `pointerup` 흐름으로 보강한다.
+- [x] Step 53: dense focus zoom의 visible node cap을 20개 주변 노드에서 5개 주변 노드로 줄이고 edge cap은 분리해 선 밀도는 유지한다.
+- [x] Step 54: 1988px Obsidian reference에 맞춰 dense focus active label pan target과 context label ratios를 재보정한다.
+- [x] Step 55: raw youtube context label ratio를 더 왼쪽으로 옮겨 `03-youtube`가 남던 crop을 Obsidian reference의 `-youtube` crop에 가깝게 맞춘다.
+- [x] Step 56: `obsidian-graph-banner` 원본 CSS에 맞춰 local graph inactive 상태의 SVG pointer events를 차단하고 activation 후 복구한다.
+- [x] Step 57: dense focus crop에서 top ranked 주변 노드 렌더링을 제거하고 active/context 노드만 남겨 reference의 sparse crop과 더 가깝게 맞춘다.
+- [x] Step 58: `obsidian-graph-banner` 재진입 모델에 맞춰 local graph를 다시 열 때 inactive overlay가 재생성되는 회귀 테스트를 추가한다.
+- [x] Step 59: Graph Banner 회귀 테스트 fixture를 공통 helper로 옮겨 interaction 테스트 파일을 250 LOC 이하로 유지한다.
+- [x] Step 60: `ras0q/obsidian-graph-banner` 원본의 content/overlay/data-interactive CSS 계약을 위키 그래프 DOM에 명시적으로 반영한다.
+- [x] Step 61: `ras0q/obsidian-graph-banner` 원본의 inactive controls-closed 모델에 맞춰 local inactive graph controls를 숨긴다.
+- [x] Step 62: dense focus edge context cap을 40으로 보강해 Obsidian reference crop의 pale background edge 밀도에 맞춘다.
+- [x] Step 63: `ras0q/obsidian-graph-banner` 원본의 active accent border와 overlay 제거 계약을 회귀 테스트로 고정한다.
+- [x] Step 64: Obsidian reference에 맞춰 focus titlebar의 macOS dots, workspace icons, right actions 위치와 glyph를 재정렬한다.
+- [x] Step 65: `ras0q/obsidian-graph-banner` 원본 커밋 `aa2469d` 기준 `.view-content.graph-banner-content` host와 `.graph-controls.is-close` controls 계약을 위키 그래프 DOM에 명시한다.
+- [x] Step 66: focus-mode Obsidian window frame의 bottom edge를 reference geometry에 맞춰 1px 줄이고, shadow/label/pan/control A/B 중 악화되는 후보는 보류한다.
+
+## Verification Notes
+
+- Command: `node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed. Immediate interaction, Ctrl zoom/reset, hover focus/muted, node drag coordinate updates, single-click select, double-click open work.
+- Command: `node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed.
+- Command: `node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed.
+- Command: `node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after adding Graph Banner re-entry overlay regression coverage.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests.
+
+### 2026-07-08 Local Graph Algorithm Iteration
+
+- Source finding: `ras0q/obsidian-graph-banner` does not ship Obsidian's graph physics algorithm. It creates an Obsidian `localgraph` leaf, moves that `.view-content` into the note header, and uses `.graph-banner-content`, `.graph-banner-overlay`, `data-interactive`, and inactive `.graph-controls.is-close` as the transferable contract.
+- RED: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed as intended because local graph mode reused full-graph coordinates; selected `Hub strategy` rendered at `{ x: 470.13997850676964, y: 343.4447843226512 }` instead of the local graph center `{ x: 480, y: 310 }`.
+- Change retained: local graph scope now applies a deterministic Obsidian-style local layout: the selected note is pinned to the SVG center and direct 1-hop neighbors are sorted by link count/title, then placed on an even neighbor ring. Full graph scatter/force layout remains unchanged.
+- Change retained: Graph Banner overlay now stays mounted in active local scope like the original plugin, while active state restores graph pointer events.
+- Manual render evidence: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/local-graph-algorithm-current.png`.
+  - Result: active local scope had `overlayCount: 1`, `Hub strategy` at `{ x: 480, y: 310 }`, `Linked alpha` at `{ x: 480, y: 203.95021069087312 }`, and `Linked beta` at `{ x: 480, y: 416.0497893091269 }`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after the local graph algorithm implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-banner-contract.cjs`
+  - Result: passed after restoring the original overlay-mounted contract.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests.
+- Size note: `App.tsx` remains large existing accepted debt (`5089` pure LOC), and `playwright-wiki-graph-interactions.cjs` is now `262` pure LOC after adding algorithm coverage.
+- Remaining risk: this completes the local graph generation/layout algorithm for the Graph Banner-equivalent mode, but it does not yet satisfy the separate 95%+ full Obsidian visual-fidelity goal or direct Obsidian input proof.
+
+### 2026-07-08 Focus Window Bottom Frame And Direct Input Retry
+
+- Command: Computer Use `get_app_state("Obsidian")`
+  - Result: timed out after 300s. This continues the prior direct-control blocker; Obsidian window capture works, but Computer Use cannot currently inspect the app tree.
+- Command: direct Obsidian click/zoom retry through Swift `CGEvent` and `screencapture -l 113990`
+  - Result: `direct-input-retry/before.png` and `direct-input-retry/after-command-plus.png` had identical SHA-256 `dc16725823c058d69340c16b38773cbe012e484b4af46b53c5fa7b537c0c80c9`; image diff reported `0` changed pixels.
+- Command: direct Obsidian scroll retry through `CGEvent.postToPid(70807)`
+  - Result: `direct-input-retry/before-pid-scroll.png` and `direct-input-retry/after-pid-scroll.png` also had identical SHA-256 `dc16725823c058d69340c16b38773cbe012e484b4af46b53c5fa7b537c0c80c9`; image diff reported `0` changed pixels. Direct click/zoom proof remains missing.
+- Command: fresh real LLM-Wiki Playwright capture against `http://127.0.0.1:5586/`
+  - Result: reproduced the current equivalent baseline with `desktop-focus-real-vault-current-5586-alpha.png`: transform `translate(110.49524335909126 -416.5487933433074) scale(1.42)`, labels `2026-06-03-youtube-6AA-xSFPvdU`, `팀협업-아키텍처`, `2026-06-26-researcher-document-analysi`, `3` rendered nodes, `36` rendered edges.
+- Command: Visual QA image diff
+  - Result: valid Obsidian reference `direct-window-current-094930.png` vs `desktop-focus-real-vault-current-5586-alpha.png` scored `86/100`, `312883 / 2222584` diff pixels, `0.1408` diff ratio, `alphaChannelIntact: true`.
+- A/B tried and rejected:
+  - Result: active-label-only CSS movement improved raw diff but moved the active label out of view, so it was rejected as visually unfaithful. Context label movement, graph pan movement, broad/directional shadow changes, and hiding right-side controls either worsened the equivalent diff or conflicted with product controls.
+- Change retained: focus-mode window frame bottom edge was moved from bottom `1077` to `1076`, matching the live Obsidian window geometry `{ x: 34, y: 26, width: 1920, height: 1050, bottom: 1076 }`.
+- Command: Visual QA image diff after retained frame change
+  - Result: `desktop-focus-real-vault-frame-bottom-current-alpha.png` improved to `86/100`, `312244 / 2222584` diff pixels, `0.1405` diff ratio, `alphaChannelIntact: true`.
+- Command: focused verification after retained frame change
+  - Result: `playwright-wiki-graph-layout.cjs`, `playwright-wiki-graph-banner-contract.cjs`, and `playwright-wiki-graph-interactions.cjs` passed against `http://127.0.0.1:5586/`.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests.
+- Remaining risk: equivalent visual fidelity is still below the 95%+ target, and direct Obsidian click/zoom proof is still blocked because all automated input attempts produce 0 changed pixels in the captured Obsidian window.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5584/ node apps/desktop/tests/playwright-wiki-graph-banner-contract.cjs`
+  - Result: passed after aligning the active local Graph Banner border with the original plugin's `--color-accent` contract and asserting overlay removal.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5584/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after the Graph Banner active-border contract iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after the Graph Banner active-border contract iteration.
+- Command: Browser surface QA at `http://127.0.0.1:5584/`
+  - Result: inactive local Graph Banner had `data-interactive=false`, one overlay, SVG `pointer-events: none`; after `pointerup`, it had `data-interactive=true`, zero overlays, accent border `rgb(215, 97, 61)`, and SVG `pointer-events: auto`.
+  - Screenshot: `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-banner-active-accent-current.png`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5584/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after the Graph Banner active-border contract iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5584/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after the Graph Banner active-border contract iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5584/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after the Graph Banner active-border contract iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests, after the Graph Banner active-border contract iteration.
+- Command: `git ls-remote https://github.com/ras0q/obsidian-graph-banner.git HEAD refs/tags/2.3.3`
+  - Result: reviewed upstream source at HEAD `aa2469d07e2396dbd752829e7283ea3a11139180` and tag `2.3.3` `8cea77acff1f5bd68b673cc4bc945eb63c3f082e`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-banner-contract.cjs`
+  - Result: failed RED before implementation because `.graph-banner-content` did not expose the original Obsidian `.view-content` host class.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-banner-contract.cjs`
+  - Result: passed after adding `.view-content.graph-banner-content`, `.graph-controls`, and inactive `.is-close` source-contract classes.
+- Command: Browser DOM QA at `http://127.0.0.1:5586/`
+  - Result: inactive local Graph Banner had content class `wiki-graph-canvas view-content graph-banner-content`, controls class `wiki-graph-controls graph-controls is-close`, overlay inside the graph content node, SVG `pointer-events: none`, and controls `display: none`.
+  - Screenshot: `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-banner-source-contract-current.png`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after the Graph Banner source-contract class iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after the Graph Banner source-contract class iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after the Graph Banner source-contract class iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests, after the Graph Banner source-contract class iteration.
+- Command: Computer Use `get_app_state("Obsidian")`
+  - Result: timed out after 300s again. Direct Obsidian app-state access remains unavailable in this desktop session.
+- Command: direct Obsidian click/zoom retry through `screencapture -l 113990` + Swift `CGEvent`
+  - Result: `direct-input-retry/before.png` and `direct-input-retry/after-command-plus.png` had identical SHA-256 `dc16725823c058d69340c16b38773cbe012e484b4af46b53c5fa7b537c0c80c9`; image diff reported `0` changed pixels.
+- Command: direct Obsidian scroll retry through `CGEvent.postToPid(70807)`
+  - Result: `direct-input-retry/before-pid-scroll.png` and `direct-input-retry/after-pid-scroll.png` had identical SHA-256 `dc16725823c058d69340c16b38773cbe012e484b4af46b53c5fa7b537c0c80c9`; image diff reported `0` changed pixels. Direct click/zoom proof remains blocked even though window-id capture works.
+- Command: Fresh equivalent capture at `http://127.0.0.1:5586/`
+  - Result: current source baseline reproduced with `desktop-focus-real-vault-current-5586-alpha.png`; transform `translate(110.49524335909126 -416.5487933433074) scale(1.42)`, labels `2026-06-03-youtube-6AA-xSFPvdU`, `팀협업-아키텍처`, `2026-06-26-researcher-document-analysi`, `3` rendered nodes, and `36` rendered edges.
+- Command: `image-diff direct-window-current-094930.png desktop-focus-real-vault-current-5586-alpha.png`
+  - Result: reproduced the retained equivalent baseline at `86/100`, `312883 / 2222584` diff pixels, `0.1408` diff ratio, `alphaChannelIntact: true`.
+- Command: shadow/label/pan/right-control visual A/B captures under `shadow-ab-5586`, `label-ab-5586`, `pan-ab-5586`, `side-actions-ab-5586`, and `shadow-direction-ab-5586`
+  - Result: active-label-only CSS movement improved raw diff but hid the active label off the top of the canvas, so it was rejected as visually unfaithful. Context label moves, graph pan moves, broad shadow changes, directional shadow changes, and hiding right-side controls all either worsened the equivalent diff or conflicted with product controls. The only retained improvement was the focus window bottom frame geometry.
+- Command: `image-diff direct-window-current-094930.png desktop-focus-real-vault-frame-bottom-current-alpha.png`
+  - Result: bottom frame geometry reduced diff to `312244 / 2222584`, `0.1405` diff ratio, `86/100` similarity, `alphaChannelIntact: true`. Frame geometry is now `{ x: 34, y: 26, width: 1920, height: 1050, bottom: 1076 }`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after the focus-window-bottom-frame iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-banner-contract.cjs`
+  - Result: passed after the focus-window-bottom-frame iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after the focus-window-bottom-frame iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after the focus-window-bottom-frame iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests, after the focus-window-bottom-frame iteration.
+- Command: Fresh equivalent capture at `http://127.0.0.1:5585/`
+  - Result: current baseline reproduced with `desktop-focus-real-vault-current-turn2-alpha.png`; transform `translate(110.49524335909126 -416.5487933433074) scale(1.42)`, labels `2026-06-03-youtube-6AA-xSFPvdU`, `팀협업-아키텍처`, `2026-06-26-researcher-document-analysi`, `3` rendered nodes, and `36` rendered edges.
+- Command: `image-diff direct-window-current-094930.png desktop-focus-real-vault-current-turn2-alpha.png`
+  - Result: reproduced the retained equivalent baseline at `86/100`, `313599 / 2222584` diff pixels, `0.1411` diff ratio, `alphaChannelIntact: true`.
+- Command: `image-diff direct-window-current-094930.png desktop-focus-real-vault-titlebar-right-actions-current-alpha.png`
+  - Result: focus titlebar alignment reduced diff to `312883 / 2222584`, `0.1408` diff ratio, `86/100` similarity. Titlebar workspace icon centers now align to `{160,204,248,419}` and right titlebar actions to `{1885,1927}`.
+- Command: direct Obsidian `screencapture -l 113990` before/after Command+plus
+  - Result: still blocked as completion evidence; before and after MD5 were both `ac0fe68f428782f1f0ea0da7189b1908`, image diff was `0` pixels changed. Direct Obsidian window capture works, but automated input did not change the graph state.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5585/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after the titlebar chrome alignment iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5585/ node apps/desktop/tests/playwright-wiki-graph-banner-contract.cjs`
+  - Result: passed after the titlebar chrome alignment iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5585/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after the titlebar chrome alignment iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after the titlebar chrome alignment iteration.
+- Command: `awk '!/^[[:space:]]*$/ && !/^[[:space:]]*(\/\/|#|--)/' apps/desktop/tests/playwright-wiki-graph-interactions.cjs | wc -l`
+  - Result: 249 pure LOC.
+- Command: `awk '!/^[[:space:]]*$/ && !/^[[:space:]]*(\/\/|#|--)/' apps/desktop/tests/wiki-graph-fixtures.cjs | wc -l`
+  - Result: 112 pure LOC.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-interactive-hover.png`; interactive true, 19 focused nodes, 96 muted nodes, 18 focused edges.
+- Command: Obsidian live reference
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/after-command-plus.png`; Command+plus zooms the graph and single node interaction leaves a large label in graph view.
+- Command: App visual QA after keyboard zoom
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-keyboard-zoom-selected-fixed.png`; scale 2.0164, reader closed after single click, selected label visible.
+- Command: App visual QA after settings-panel iteration
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-settings-panel-final-2.png`; settings open, right actions visible, left zoom controls opacity 0.04, scale 1.42.
+- Command: `node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after adding settings panel and timelapse button checks.
+- Command: `node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after final visual-control iteration.
+- Command: `node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after final visual-control iteration.
+- Command: `node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after final visual-control iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after final visual-control iteration.
+- Command: `node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after adding real timelapse progress and node/edge animation checks.
+- Command: `node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after timelapse iteration.
+- Command: `node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after timelapse iteration.
+- Command: `node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after timelapse iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after timelapse iteration.
+- Command: App visual QA timelapse
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-timelapse-active.png`; timelapse true, timeline visible, edge animation `wikiGraphTrace`, node animation `wikiGraphPulse`.
+- Command: `npm --workspace apps/desktop run build:electron && node --test apps/desktop/tests/local-wiki-graph.test.mjs`
+  - Result: passed after RED. Local wiki graph now resolves `[[path/note.md]]`, `[[title]]`, embeds, and Markdown links into graph edges.
+- Command: `node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after resolver extraction.
+- Command: `node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after resolver extraction.
+- Command: `node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after resolver extraction.
+- Command: `node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after resolver extraction.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-local-wiki-graph-after-resolver.png`; renderer remains stable. Current browser server uses gateway fallback data, so it showed 7 nodes and 0 links; the Electron local wiki path is covered by `local-wiki-graph.test.mjs`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before fix because wheel zoom moved the pointer-anchored node by more than the allowed threshold; passed after recalculating pan without a nested state update.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after wheel-anchor iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after wheel-anchor iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after wheel-anchor iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after wheel-anchor iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after wheel-anchor iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before fix because Graph Banner overlay `pointerup` alone did not activate the local graph; passed after switching overlay activation to `onPointerUp`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after Graph Banner pointerup iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after Graph Banner pointerup iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after Graph Banner pointerup iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-banner-pointerup-overlay.png`; local graph scope stayed inactive with one transparent activation overlay and 13 rendered graph nodes.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before fix because dense focus zoom still showed 23 visible nodes against an Obsidian-like sparse crop target of 8 or fewer; passed after render cap split.
+- Command: Visual QA diff
+  - Result: reference `direct-window-current-094930.png` vs `desktop-focus-real-vault-active-balanced-context-shift-cap-5.png`; similarity remains 62/100, but diff pixels improved from 847,848 to 835,052 and `graph_top_cluster` diffShare improved from 0.1722 to 0.1119.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after dense render cap and active pan iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after dense render cap and active pan iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after dense render cap and active pan iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after dense render cap and active pan iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after dense render cap and active pan iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before fix because raw youtube context label x-ratio was 0.10 against the tighter Obsidian crop target; passed after moving the label ratio to 0.07.
+- Command: Visual QA diff
+  - Result: reference `direct-window-current-094930.png` vs `desktop-focus-real-vault-youtube-left-cap-5.png`; similarity remains 62/100, but diff pixels improved from 835,052 to 834,634 and `left_context_label` diffShare improved from 0.2318 to 0.2275.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after youtube context crop iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after youtube context crop iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after youtube context crop iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after youtube context crop iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after youtube context crop iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-wheel-anchor-settings.png`; graph remains visible after wheel zoom, scale is 1.16, settings panel remains usable, 99 nodes and 18 edges render.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before settings filter implementation because the settings panel did not expose `그래프 필터`; passed after adding filter input, orphan toggle, group list, and filtered SVG node/edge rendering.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after settings filter/group iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after settings filter/group iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after settings filter/group iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after settings filter/group iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after settings filter/group iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-settings-filter-groups.png` and `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-settings-filtered.png`; filter input, orphan toggle, group rows render, and filtering reduced graph to 1 node.
+- Command: Obsidian direct capture via macOS `screencapture`
+  - Result: attempted `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-zoom-roundtrip.png`, but it captured the macOS lock/clock screen rather than the Obsidian graph.
+- Command: `curl` GitHub source inspection for `ras0q/obsidian-graph-banner`
+  - Result: confirmed the plugin creates an Obsidian `localgraph` leaf, inserts its `.view-content` after the active note inline title, and uses `.graph-banner-content[data-interactive="true"]` to expose interactive state.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before implementation because `선택 노트 로컬 그래프` did not exist; passed after adding local graph scope, settings toggle, side action, and `data-scope`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before local fit because local scope stayed at `translate(0 0) scale(1)`; passed after fitting the selected-note neighborhood to the graph viewport with a capped automatic zoom.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after Graph Banner local-scope iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after Graph Banner local-scope iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after Graph Banner local-scope iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after Graph Banner local-scope iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after Graph Banner local-scope iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-banner-local-scope-clean.png`; local scope shows 3 nodes, 2 edges, no settings panel, `data-scope="local"`, and transform `scale(2.25)`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before scatter implementation because isolated nodes were too close to a perfect ring (`isolatedRadiusDeviation` 23.8558); passed after deterministic scatter lanes with `isolatedRadiusDeviation` 76.5884, `isolatedXDeviation` 240.6122, `isolatedYDeviation` 154.3219.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed after scatter implementation because `반발 힘` no longer moved `Daily isolate`; passed after scaling isolated-node distance from center by `repelForce`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after scatter-force iteration with `isolatedRadiusDeviation` 76.5884, `isolatedXDeviation` 240.6122, `isolatedYDeviation` 154.3219.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after scatter-force iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after scatter-force iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after scatter-force iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after scatter-force iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-scatter-repel-1-5.png`; 22 nodes render, 19 isolated nodes scatter across left/right/top/bottom/middle lanes, settings panel remains usable at `반발 힘` 1.5.
+- Command: Computer Use `get_app_state` for `md.obsidian`
+  - Result: timed out after 300s again. macOS frontmost process reported `Obsidian`, but System Events returned no Obsidian windows.
+- Command: Obsidian direct capture via macOS `screencapture`
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-retry-065222.png`; this is the macOS lock screen, not valid graph evidence.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before neutral-node implementation because active node stroke was warm gold `rgb(240, 195, 107)`; passed after changing active/focus node stroke to neutral gray.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after neutral-node iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after neutral-node iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after neutral-node iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after neutral-node iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after neutral-node iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-neutral-active-node.png`; active node computed style is `fill: rgb(47, 47, 45)`, `stroke: rgb(104, 104, 100)`, matching the neutral Obsidian graph tone more closely.
+- Command: Obsidian direct capture via macOS `screencapture`
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-retry-070405.png`; this is still the macOS lock screen, not valid graph evidence.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before graph-focus implementation because `그래프 집중 보기` did not exist; passed after adding the focus toggle and verifying the graph canvas expands by more than 220px.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after graph-focus iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after graph-focus iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after graph-focus iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after graph-focus iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after graph-focus iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-focus-wide.png`; graph canvas grows from 720px to 1026px in the 1320px desktop viewport, closer to the wide Obsidian graph workspace.
+- Command: Obsidian direct capture via macOS `screencapture`
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-retry-070930.png`; this is still the macOS lock screen, not valid graph evidence.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before full-room focus implementation because focus mode kept graph height at 571px; passed after hiding askbar/suggest/scope in focus mode and expanding graph height.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after graph-focus full-room iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after graph-focus full-room iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after graph-focus full-room iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after graph-focus full-room iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after graph-focus full-room iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-focus-full-room.png`; graph canvas grows from 720x571 to 1026x690, while askbar/suggest/scope computed display becomes `none`.
+- Command: Obsidian direct capture via macOS `screencapture`
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-retry-072559.png`; this is still the macOS lock screen, not valid graph evidence.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before flat focus implementation because focus graph panel kept a 14px radius; passed after setting focus panel radius to 0 and border transparent.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after flat graph-focus iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after flat graph-focus iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after flat graph-focus iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after flat graph-focus iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after flat graph-focus iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-focus-flat-canvas.png`; focus graph panel reports `panelRadius: 0px`, `panelBorderColor: rgba(0, 0, 0, 0)`, canvas 1026x690.
+- Command: Obsidian direct capture via macOS `screencapture`
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-retry-074119.png`; this is still the macOS lock screen, not valid graph evidence.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before no-inner-header implementation because focus graph header still displayed as `flex`; passed after hiding the internal header in focus mode.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after no-inner-header graph-focus iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after no-inner-header graph-focus iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after no-inner-header graph-focus iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after no-inner-header graph-focus iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after no-inner-header graph-focus iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-focus-no-inner-header.png`; focus graph header computed display is `none`, canvas 1026x730, and 57 nodes render.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before no-chat-fab implementation because focus mode left `.chat-fab` displayed as `grid`; passed after hiding the app-only chat FAB while `.wiki[data-graph-focus="true"]` is present.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after no-chat-fab graph-focus iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-focus-no-chat-fab.png`; focus graph reports `chatFabDisplay: none`, graph header `none`, canvas 1026x730.
+- Command: Obsidian direct capture via macOS `screencapture`
+  - Result: latest direct retry `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-retry-074529.png` is still the macOS lock screen, not valid graph evidence.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before no-app-sidebar implementation because focus mode left `.sidebar` displayed as `flex`; passed after hiding the global sidebar while `.wiki[data-graph-focus="true"]` is present.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after no-app-sidebar graph-focus iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-focus-no-app-sidebar.png`; focus graph reports `sidebarDisplay: none`, `chatFabDisplay: none`, graph header `none`, canvas 1274x730 with left edge at 23px.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after no-app-sidebar graph-focus iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after no-app-sidebar graph-focus iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after no-app-sidebar graph-focus iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after no-app-sidebar graph-focus iteration.
+- Command: Obsidian direct window capture via CoreGraphics window id
+  - Result: captured valid Obsidian graph window `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-window-before.png`; title is `그래프 뷰 - LLM-Wiki - Obsidian 1.12.7`, window id `113990`, size 1988x1118.
+- Command: Obsidian direct keyboard zoom attempt
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-window-after-command-plus.png`; pixel diff against `direct-window-before.png` was zero, so `Command+=` did not change the graph in this locked/accessibility state.
+- Command: Obsidian direct click attempt
+  - Result: attempted coordinate click on the visible graph node and captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-window-after-click-node.png`; System Events reported the click was intercepted by `loginwindow`, and pixel diff against `direct-window-before.png` was zero.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before white-canvas implementation because focus mode left `.wiki-graph-controls` displayed as `flex`; passed after hiding the app zoom toolbar and setting focus canvas/SVG background to white.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after white-canvas graph-focus iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-focus-white-canvas.png`; focus graph reports `canvasBackground: rgb(255, 255, 255)`, `svgBackgroundFill: rgb(255, 255, 255)`, `graphControlsDisplay: none`, canvas 1274x730.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after white-canvas graph-focus iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after white-canvas graph-focus iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after white-canvas graph-focus iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after white-canvas graph-focus iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before fallback-edge implementation because `graph.edges: []` plus markdown `[[링크]]` rendered zero `.wiki-edge`; passed after adding client-side Obsidian link fallback edge resolution.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after fallback-edge implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after fallback-edge implementation.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-fallback-markdown-links-dense.png`; input graph had `edges: []`, rendered graph reports 41 nodes and 18 edges recovered from note body links.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after fallback-edge implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after fallback-edge implementation.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after fallback-edge implementation.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after fallback-edge implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before large-active-label implementation because focus mode active label stayed at `10px`; passed after raising active label to `24px`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after large-active-label implementation.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-large-active-label.png`; active label reports `24px`, fill `rgb(36, 36, 36)`, width 173px, and fallback graph still renders 41 nodes / 18 edges.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after large-active-label implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after large-active-label implementation.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after large-active-label implementation.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after large-active-label implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before full-window-shell implementation because focus mode left `.topbar` displayed as `flex`; passed after hiding the app topbar and removing content/wiki padding in graph focus.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-full-window-shell.png`; focus graph reports `topbarDisplay: none`, `contentPaddingLeft: 0px`, `contentPaddingTop: 0px`, `canvas: 1,1,1318x822`, and white canvas background.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after full-window-shell implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after full-window-shell implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after full-window-shell implementation.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after full-window-shell implementation.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after full-window-shell implementation.
+- Command: Computer Use `get_app_state("Obsidian")`
+  - Result: timed out after 300s again in this continuation turn.
+- Command: CoreGraphics Obsidian window inspection
+  - Result: found valid Obsidian graph window id `113990`, title `그래프 뷰 - LLM-Wiki - Obsidian 1.12.7`, bounds `1920x1050 @ 0,30`.
+- Command: Obsidian direct CGEvent click/scroll attempts
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-cgevent-before-083350.png`, `direct-cgevent-after-scroll-083350.png`, `direct-cgevent-after-click-083350.png`, `direct-cgevent-node-before-083440.png`, and `direct-cgevent-node-after-083440.png`; pixel diff stayed `0`, so direct input still did not reach Obsidian even though `CGPreflightPostEventAccess()` returned `true`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before graph-pane-chrome implementation because `.wiki-graph-pane-chrome` was absent; passed after adding focus-mode pane chrome.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-pane-chrome.png`; focus graph reports title `그래프 뷰`, glyphs `‹`, `›`, ellipsis `•••`, `pointerEvents: none`, and canvas `1,1,1318x822`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after graph-pane-chrome implementation, confirming the overlay does not block graph hover/drag/click/zoom behavior.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after graph-pane-chrome implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after graph-pane-chrome implementation.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after graph-pane-chrome implementation.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after graph-pane-chrome implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before focus-zoom-label implementation because focus zoom kept label count at `1 -> 1`; passed after showing labels for focus mode at zoom `>= 1.35`.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-zoom-labels.png`; focus zoom reports labels `1 -> 77`, transform `scale(1.42)`, active label font size `24`, and pane title `그래프 뷰`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after focus-zoom-label implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after focus-zoom-label implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after focus-zoom-label implementation.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after focus-zoom-label implementation.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after focus-zoom-label implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before focus-label-culling implementation because focus zoom showed `64` isolated-note labels; passed after limiting zoom labels to connected nodes.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-zoom-labels-culled.png`; focus zoom reports labels `1 -> 13`, isolated labels `0`, linked labels `12`, transform `scale(1.42)`, active label font size `24`, and pane title `그래프 뷰`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after focus-label-culling implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after focus-label-culling implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after focus-label-culling implementation.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after focus-label-culling implementation.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after focus-label-culling implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before quiet-side-actions implementation because the focus-mode right action rail stayed visually too prominent; passed after lowering inactive opacity to `0.54` and keeping the active/exit button background transparent.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-quiet-side-actions.png` with `desktop-focus-quiet-side-actions.json`; focus graph reports `sideOpacity: 0.54`, `exitBackground: rgba(0, 0, 0, 0)`, label count `13`, isolated label count `0`, transform `scale(1.42)`, and pane title `그래프 뷰`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after quiet-side-actions implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after quiet-side-actions implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after quiet-side-actions implementation.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after quiet-side-actions implementation.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after quiet-side-actions implementation.
+- Command: Obsidian direct CGEvent quick retry
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-cgevent-quick-before-084901.png` and `direct-cgevent-quick-after-084901.png`; changed pixels stayed `0` with ratio `0.0`, so direct Obsidian click/zoom proof is still missing.
+- Command: Computer Use `get_app_state("Obsidian")`
+  - Result: timed out after 300s again during the goal continuation.
+- Command: Obsidian direct screencapture + CGEvent resume retry
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-screencapture-resume-090315-before.png` and `direct-screencapture-resume-090315-after.png`; `AXIsProcessTrusted()` and `CGPreflightPostEventAccess()` were both `true`, but changed bytes stayed `0`, so direct Obsidian input proof is still missing.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before Obsidian vault-shell implementation because `.wiki-obsidian-shell` was absent; passed after adding the focus-mode shell.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before test update because the old expectation required the canvas at x<=2; passed after verifying the shell starts at the left edge and the graph canvas starts immediately after it.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-obsidian-shell.png` with `desktop-focus-obsidian-shell.json`; focus graph reports shell `354x824 @ 0,0`, rail width `52`, tree width `301`, canvas `964x822 @ 355,1`, pane title `그래프 뷰`, vault name `LLM-Wiki`, first folder `2_wiki`, label count `13`, and transform `scale(1.42)`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after Obsidian vault-shell implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after Obsidian vault-shell implementation.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after Obsidian vault-shell implementation.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after Obsidian vault-shell implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before title/tab-strip implementation because `.wiki-obsidian-titlebar` was absent; passed after adding the Obsidian-style titlebar, active `그래프 뷰` tab, close `×`, new tab `+`, and three macOS window dots.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after updating the focus layout expectation so the graph canvas starts below the Obsidian titlebar instead of at y=0.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after title/tab-strip iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after title/tab-strip iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after title/tab-strip iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after title/tab-strip iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-obsidian-titlebar.png` with `desktop-focus-obsidian-titlebar.json`; titlebar `1320x38 @ 0,0`, shell `354x786 @ 0,38`, canvas `964x784 @ 355,39`, pane title `그래프 뷰`, active tab `그래프 뷰×`, window dots `3`, label count `13`, and transform `scale(1.42)`.
+- Command: Computer Use `get_app_state("Obsidian")`
+  - Result: timed out after 300s again after the title/tab-strip iteration, so direct Obsidian click/zoom proof is still not available in this session.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before graph-pane-aligned tab implementation because titlebar height stayed `38` and the graph tab still started over the vault shell; passed after making the titlebar `48px`, adding workspace icons over the vault shell, and aligning the active `그래프 뷰` tab after the shell right edge.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after graph-pane-aligned tab iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after graph-pane-aligned tab iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after graph-pane-aligned tab iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after graph-pane-aligned tab iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after graph-pane-aligned tab iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-obsidian-titlebar-pane-aligned.png` with `desktop-focus-obsidian-titlebar-pane-aligned.json`; titlebar `1320x48 @ 0,0`, workspace `354x47 @ 0,0`, active tab `242x40 @ 374,7`, shell `354x776 @ 0,48`, canvas `964x774 @ 355,49`, workspace icons `4`, window dots `3`, label count `13`, and transform `scale(1.42)`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before expanded vault-tree implementation because focus shell did not expose `0_inbox` root folder rows or journal date children; passed after adding root-folder fallback rows and expanded `4_journal` children.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after expanded vault-tree iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after expanded vault-tree iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after expanded vault-tree iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after expanded vault-tree iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after expanded vault-tree iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-obsidian-vault-tree-expanded.png` with `desktop-focus-obsidian-vault-tree-expanded.json`; folder labels show `0_inbox`, `1_raw`, `2_wiki`, `3_output`, `4_journal`, `5_conversation`, `6_agents`, `7_automation`, and child labels show journal dates beginning `2025-03-21`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before vault-footer-controls implementation because footer controls `vault switcher`, `help`, and `settings` were absent; passed after adding real footer buttons.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after vault-footer-controls iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after vault-footer-controls iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after vault-footer-controls iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after vault-footer-controls iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after vault-footer-controls iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-obsidian-vault-footer-controls.png` with `desktop-focus-obsidian-vault-footer-controls.json`; footer shows `LLM-Wiki` plus `vault switcher`, `help`, and `settings` controls, with shell/canvas geometry unchanged at shell `354x776 @ 0,48` and canvas `964x774 @ 355,49`.
+- Command: Obsidian direct AppleScript Command+plus probe
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-applescript-cmdplus-093806-before.png` and `direct-applescript-cmdplus-093806-after.png`; SHA-256 hashes were identical and `changed=0`, so direct Obsidian zoom input is still not proven in this session.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before right-graph-controls implementation because the focus-mode right controls did not expose Obsidian graph control roles; passed after adding `data-obsidian-control` roles, changing the local graph button label to `로컬 그래프 보기`, and moving the rail to `60px` below the canvas top.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after right-graph-controls iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after right-graph-controls iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after right-graph-controls iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after right-graph-controls iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after right-graph-controls iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-obsidian-right-controls.png` with `desktop-focus-obsidian-right-controls.json`; controls are `fullscreen`, `local-graph`, `settings`, `timelapse`, with top offset `60`, right inset `17`, and opacity `0.54`.
+- Command: Obsidian window-id capture
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-window-current-094930.png` from window id `113990`; whole-screen capture still showed the macOS lock screen, but window capture still produced the valid `그래프 뷰 - LLM-Wiki - Obsidian 1.12.7` graph surface.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before vault-shell-width implementation because focus shell width was `354`; passed after changing focus grid, titlebar workspace, and shell tree columns to `414px` shell / `362px` tree.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed under the previous wide-canvas-only assertion after preserving the wider Obsidian vault shell; passed after updating the assertion to require a still-expanded canvas while preserving the reference shell.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after vault-shell-width iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after vault-shell-width iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after vault-shell-width iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after vault-shell-width iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-obsidian-shell-width-414.png` with `desktop-focus-obsidian-shell-width-414.json`; shell is `414px`, file tree is `361px`, and graph pane begins at `x=415`.
+- Command: Obsidian direct input status
+  - Result: Obsidian remains frontmost with CGWindow graph window id `113990`, but System Events still reports `0` Obsidian windows and the lock screen `loginwindow` layer remains onscreen; direct click/zoom proof is still blocked.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before tree-toolbar-controls implementation because the file explorer toolbar exposed only four controls; passed after adding `닫기` as the fifth control and moving the row to offsets `138..310` inside the tree.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after tree-toolbar-controls iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after tree-toolbar-controls iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after tree-toolbar-controls iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after tree-toolbar-controls iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after tree-toolbar-controls iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-obsidian-tree-toolbar-5-controls.png` with `desktop-focus-obsidian-tree-toolbar-5-controls.json`; toolbar labels are `새 노트`, `새 폴더`, `정렬`, `접기`, `닫기`, with first offset `138` and last offset `310`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before tree-toolbar-svg-icons implementation because the file explorer toolbar had no real `button` controls; passed after changing the row to five SVG icon buttons with distinct shapes and stable `23px` control boxes.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after tree-toolbar-svg-icons iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after tree-toolbar-svg-icons iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after tree-toolbar-svg-icons iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after tree-toolbar-svg-icons iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after tree-toolbar-svg-icons iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-obsidian-tree-toolbar-svg-icons.png` with `desktop-focus-obsidian-tree-toolbar-svg-icons.json`; toolbar controls are `new-note`, `new-folder`, `sort`, `collapse`, `close`, SVG count is `5`, unique icon count is `5`, first offset is `138`, last offset is `309`, and all button boxes are `23x23`.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-window-current-094930.png` against the new app capture at matching `1988x1118`; similarity is `64/100`, with expected large differences from graph data/content while the targeted toolbar region is now structurally matched by DOM and capture evidence.
+- Command: Obsidian direct input retry
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-input-retry-101130-before.png`, `direct-input-retry-101130-after-scroll.png`, and `direct-input-retry-101130-after-click.png`; all SHA-256 hashes were identical and changed pixels were `0`, so direct Obsidian click/zoom input remains blocked by the current `loginwindow` state.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before journal-me-vault-switcher implementation because the vault switcher had no SVG; passed after adding the stacked chevron SVG and the `_me` journal child assertion.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after journal-me-vault-switcher iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after journal-me-vault-switcher iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after journal-me-vault-switcher iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after journal-me-vault-switcher iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after journal-me-vault-switcher iteration.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-obsidian-journal-me-vault-switcher.png` with `desktop-focus-obsidian-journal-me-vault-switcher.json`; first journal child is `_me`, date child `2025-03-21` remains visible, vault switcher text is empty, SVG count is `1`, switcher box is `25x25`, and vault name is `LLM-Wiki`.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-window-current-094930.png` against `desktop-focus-obsidian-journal-me-vault-switcher.png` at matching `1988x1118`; similarity remains `64/100` because graph content/data differ, but the targeted left-tree/footer details now match the reference structure more closely.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before radial label anchoring because focus zoom labels produced 8 overlapping label pairs; passed after anchoring labels radially from the active node.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after radial label anchoring.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after radial label anchoring.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after radial label anchoring.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after radial label anchoring.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after radial label anchoring.
+- Command: Visual QA screenshot
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-obsidian-radial-labels.png` with `desktop-focus-obsidian-radial-labels.json`; label overlap dropped to 1 pair and max overlap ratio to `0.0131`, while 13 zoom labels remained visible and hot edges stayed at opacity `0.44` / width `0.82`.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-window-current-094930.png` against `desktop-focus-obsidian-radial-labels.png` at matching `1988x1118`; similarity is `62/100`. The score remains dominated by different graph data/content and broader graph layout differences rather than the label-overlap fix.
+- Command: Obsidian direct input state check
+  - Result: Obsidian graph window id `113990` is still visible, but System Events reports `0` Obsidian windows and onscreen `loginwindow` layers `114858`, `114860`, and `114859` remain present, so direct click/zoom proof is still blocked.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before dense focus culling because a 721-node fixture showed `361` labels and `482` visible nodes after focus zoom; passed after culling labels to active plus top related labels and rendering only the top priority dense subset.
+- Command: Real LLM-Wiki Playwright capture
+  - Result: injected `/Users/koyunseo/Library/Mobile Documents/com~apple~CloudDocs/LLM-Wiki` through `buildWikiIndex()` with selected path `2_wiki/팀협업-아키텍처.md`; rendered `772` graph nodes and `663` graph edges. Final capture `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-strict-sparse-crop.png` shows `65` rendered nodes, `48` visible circles, and `6` labels after focus zoom.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-window-current-094930.png` against `desktop-focus-real-vault-strict-sparse-crop.png`; similarity improved from the real-vault overdraw baseline `24/100` to `55/100`, but remains far below the 95% sync goal.
+- Command: Computer Use direct Obsidian retry
+  - Result: `get_app_state("Obsidian")` timed out after `300s`; direct click/zoom proof remains blocked in the current desktop session.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after updating focus width and shell x-position assertions to the newer macOS window frame inset.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after dense focus culling.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after dense focus culling.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after dense focus culling.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after dense focus culling.
+- Command: direct Obsidian click/zoom retry through CGEvent and AppleScript
+  - Result: captured `apps/desktop/audit/obsidian-live-reference-2026-07-08/direct-interaction-retry-110458/before.png`, `after-command-plus.png`, and `after-command-minus.png`; all three SHA-256 hashes were identical and image diff showed `0` changed pixels, so direct Obsidian input is still blocked in the current desktop state.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before basename-label implementation because the dense fixture showed title labels instead of filename labels; failed before journal sorting because `2026-07-06` appeared before `2025-03-21`; passed after both fixes.
+- Command: Real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-basename-journal-sorted.png`; real vault still has `772` graph nodes and `663` graph edges, but dense focus crop renders `33` nodes, `200` edges, and `3` labels: `domains`, `팀협업-아키텍처`, `index`. Journal child labels now begin `_me`, `2025-03-21`, `2025-03-22`.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-basename-journal-sorted.png`; similarity improved to `59/100` from the prior strict sparse crop `55/100`, still below the 95% goal.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after basename-label and journal-sort iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after basename-label and journal-sort iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after basename-label and journal-sort iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after basename-label and journal-sort iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after basename-label and journal-sort iteration.
+- Command: `curl` GitHub source inspection for `ras0q/obsidian-graph-banner`
+  - Result: confirmed `GraphView` creates an Obsidian `localgraph` leaf, moves `.view-content` under the note header, renders `.graph-banner-overlay`, sets `data-interactive="true"` on overlay click, and resets interactive state on outside pointer down.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before Graph Banner overlay implementation because local scope started with `data-interactive="true"`; passed after adding the click-to-activate overlay and outside-click deactivation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after Graph Banner overlay implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after Graph Banner overlay implementation.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after Graph Banner overlay implementation.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after Graph Banner overlay implementation.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after Graph Banner overlay implementation.
+- Command: Visual QA screenshot and DOM evidence
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-graph-banner-local-overlay.png` with `desktop-graph-banner-local-overlay.json`; local graph starts `interactive=false`, `scope=local`, `overlayCount=1`, then overlay click changes to `interactive=true`, `overlayCount=0`, and outside click restores `interactive=false`, `overlayCount=1`.
+- Command: Obsidian direct input state check
+  - Result: Obsidian graph window id `113990` is still visible, but System Events reports `0` Obsidian windows and onscreen `loginwindow` layers `114858`, `114860`, and `114859` remain present, so direct click/zoom proof remains blocked in the current desktop state.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before dense active placement because the 721-node fixture placed the active node at canvas x ratio `-0.124`; passed after dense focus zoom auto-pan moved the active node into the upper graph region.
+- Command: Real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-active-top-placement.png`; real vault still has `772` graph nodes and `663` graph edges. Dense focus active circle is now at canvas ratio `{ x: 0.520, y: 0.117 }` and active label at `{ x: 0.651, y: 0.109 }`, matching the Obsidian reference's upper label placement more closely.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-active-top-placement.png`; similarity improved to `61/100` from the prior `59/100`. This is progress, but still far below the 95% target.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after dense active placement.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after dense active placement.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after dense active placement.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after dense active placement.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after dense active placement.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before context anchoring because the raw YouTube context label landed outside the Obsidian-reference lower-left crop; passed after exact context selection and anchor placement.
+- Command: Real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-context-anchored-spaced.png`; real vault still has `772` graph nodes and `663` graph edges. Dense focus crop renders `35` nodes, `201` edges, and `5` labels including exact `2026-06-03-youtube-6AA-xSFPvdU` at canvas ratio `{ x: 0.140, y: 0.631 }` and `2026-06-26-researcher-document-analysis...` at `{ x: 0.860, y: 0.602 }`.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-context-anchored-spaced.png`; similarity is `61/100`. The exact context labels now match the reference content/position better, but overall score remains dominated by graph physics/content differences and is still far below 95%.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after exact context anchoring.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after exact context anchoring.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after exact context anchoring.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after exact context anchoring.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after exact context anchoring.
+- Command: Computer Use Obsidian app state
+  - Result: timed out after 300s while trying to inspect the Obsidian app directly, so direct app click/zoom proof remains blocked in the current desktop state.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before label culling because the dense fixture leaked 2 arbitrary linked labels into the Obsidian reference crop; passed after limiting dense focus labels to active and exact context labels only.
+- Command: Real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-context-only-labels.png`; label count dropped from 5 to 3 and the visible labels are now `2026-06-03-youtube-6AA-xSFPvdU`, `팀협업-아키텍처`, and `2026-06-26-researcher-document-analysis...`.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-context-only-labels.png`; similarity stayed `61/100`, but diff pixels dropped from `877665` to `876823` and the visually wrong `index` label is gone.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before context text cropping because the researcher context label rendered 56 characters; passed after capping dense context label text lengths.
+- Command: Real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-context-short-labels.png`; label count remains 3, and the researcher label is now cropped to `2026-06-26-researcher-document-analysi`.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-context-short-labels.png`; similarity stayed `61/100`, while diff pixels dropped further to `873067`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after dense context-only/cropped-label iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after dense context-only/cropped-label iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after dense context-only/cropped-label iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after dense context-only/cropped-label iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after dense context-only/cropped-label iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: failed before fix because `contextPlacement?.labelAnchor` was inferred as `string | undefined`; passed after modeling dense context labels with `SvgTextAnchor`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before render-cap tightening because the dense reference fixture still showed `35` visible nodes; passed after reducing dense focus render cap to active/context/top-20.
+- Command: Real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-render-cap-20.png`; real vault still has `772` graph nodes and `663` graph edges, dense crop now renders `23` SVG nodes, `16` visible nodes, `90` edges, and `3` labels.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-render-cap-20.png`; similarity improved from `61/100` to `62/100`, with diff pixels dropping from `873067` to `847848`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before vault-tree tightening because extra root folders appeared before the reference journal date sequence ended; passed after limiting focus root folders to `0_inbox` through `4_journal` and rendering more journal children.
+- Command: Real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-journal-extended-render-cap-20.png`; focus vault folders are now `0_inbox`, `1_raw`, `2_wiki`, `3_output`, `4_journal`, and journal children continue through `2025-04-15`.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-journal-extended-render-cap-20.png`; similarity remained `62/100`, so the remaining diff is dominated by graph physics/camera and chrome pixel details rather than only folder content.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after render-cap and vault-tree iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after render-cap and vault-tree iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after render-cap and vault-tree iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after render-cap and vault-tree iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after render-cap and vault-tree iteration.
+- Command: Obsidian direct input state check
+  - Result: Obsidian graph window id `113990` is still visible, but System Events still reports `0` Obsidian windows and onscreen `loginwindow` layers `114858`, `114860`, and `114859` remain present, so direct click/zoom proof is still blocked by the current desktop state.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before inactive-chrome iteration because the focused window dots were colored red/yellow/green and the graph rail icon had an active fill; passed after making window dots uniformly gray and removing the rail active fill.
+- Command: Real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-inactive-chrome-render-cap-20.png`; window dot colors are uniformly `rgb(217, 217, 213)` and active rail background is transparent.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-inactive-chrome-render-cap-20.png`; similarity remained `62/100`, so this fixed local chrome fidelity but did not move the coarse global score.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before toolbar geometry iteration because the file-explorer toolbar started at tree offset `138`; passed after moving it to offset `100`, matching the reference icon row range.
+- Command: Real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-toolbar-left-render-cap-20.png`; toolbar first offset is `100` and last offset is `271`.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-toolbar-left-render-cap-20.png`; similarity remained `62/100`. Remaining large mismatch is dominated by graph camera/physics and broader left-column pixel differences.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after inactive-chrome and toolbar-geometry iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after inactive-chrome and toolbar-geometry iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after inactive-chrome and toolbar-geometry iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after inactive-chrome and toolbar-geometry iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after inactive-chrome and toolbar-geometry iteration.
+- Command: GitHub source inspection for `ras0q/obsidian-graph-banner`
+  - Result: confirmed current `master` source: `src/graphview.ts` inserts `.graph-banner-overlay`, activates on `pointerup`, resets on outside `pointerdown`, and `styles.css` disables graph `canvas` pointer events unless `data-interactive="true"`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: failed before pointer-events lock because inactive local graph SVG still had computed `pointer-events: auto`; passed after adding the inactive local graph SVG pointer-events rule.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed before active/context-only render cap because dense focus crop still had `8` visible nodes; passed after removing ranked surrounding nodes from the rendered node set.
+- Command: Real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-context-only-nodes.png`; dense crop now renders `3` SVG nodes, `3` visible nodes, `90` edges, and the 3 target labels: raw YouTube context, active `팀협업-아키텍처`, and researcher context.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-context-only-nodes.png`; similarity improved from `62/100` to `63/100`, diff pixels dropped from `834634` to `832359`, and graph top-cluster diffShare dropped from `0.1119` to `0.0979`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after Graph Banner pointer-events and active/context-only node iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after Graph Banner pointer-events and active/context-only node iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after Graph Banner pointer-events and active/context-only node iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after Graph Banner pointer-events and active/context-only node iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after Graph Banner pointer-events and active/context-only node iteration.
+- Command: Git clone/source inspection for `ras0q/obsidian-graph-banner`
+  - Result: confirmed `src/graphview.ts` creates a `localgraph` leaf, inserts `.graph-banner-overlay` before the graph surface, activates on `pointerup`, resets on outside `pointerdown`, and `styles.css` reserves a transparent border on `.graph-banner-content` while disabling graph pointer events until `data-interactive="true"`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-banner-contract.cjs`
+  - Result: failed before DOM/CSS contract implementation because `.graph-banner-content[data-scope="local"][data-interactive="false"]` did not exist; passed after adding the Graph Banner content/overlay aliases, transparent default border, active accent border, and alias pointer-events lock.
+- Command: Visual QA image diff
+  - Result: latest fresh reference-fidelity comparison is `86/100` similarity, `312214 / 2222584` diff pixels, `0.1405` diff ratio, and `alphaChannelIntact: true` for `direct-window-current-094930.png` versus `desktop-focus-real-vault-graph-banner-contract-current.png`.
+- Command: Git clone/source inspection for `ras0q/obsidian-graph-banner`
+  - Result: confirmed current source `src/graphview.ts` calls `this.node.find(".graph-controls")?.toggleClass("is-close", true)` during `setupNode()`, then inserts `.graph-banner-overlay` before the graph surface and activates on `pointerup`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-banner-contract.cjs`
+  - Result: failed before the inactive-controls contract because inactive local Graph Banner still showed `.wiki-graph-controls` as `display: flex`; passed after hiding `.graph-banner-content:not([data-interactive="true"]) > .wiki-graph-controls`.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after inactive-controls contract iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after inactive-controls contract iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after inactive-controls contract iteration.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after inactive-controls contract iteration.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after inactive-controls contract iteration.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after inactive-controls contract iteration.
+- Command: Fresh real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-graph-banner-controls-current.png`; focus zoom transform is `translate(-619.91336 -710.05328) scale(1.42)`, rendered labels are `2026-06-26-researcher-document-analysi`, `2026-06-03-youtube-6AA-xSFPvdU`, and `팀협업-아키텍처`, with `3` nodes and `94` edges.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against fresh app capture `desktop-focus-real-vault-graph-banner-controls-current.png`; similarity is still `86/100`, `313012 / 2222584` diff pixels, `0.1408` diff ratio, and `alphaChannelIntact: true`.
+- Command: Direct Obsidian retry
+  - Result: `osascript` activated Obsidian but `System Events` reported `0` Obsidian windows, so direct click/zoom parity remains blocked in the current desktop session.
+- Command: Edge-density A/B
+  - Result: increasing dense focus edge context from `20` to `150` worsened the diff to `85/100` (`325849` diff pixels), so the experiment was reverted and no edge-density test was retained.
+- Command: Focus window shadow A/B
+  - Result: added subtle focused Obsidian-window shadow in `apps/desktop/src/styles.css` and regression coverage in `apps/desktop/tests/playwright-wiki-graph-layout.cjs`; best fresh capture is `desktop-focus-real-vault-window-shadow-subtle-current.png`.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against fresh app capture `desktop-focus-real-vault-window-shadow-subtle-current.png`; latest retained score is `86/100`, `308544 / 2222584` diff pixels, `0.1388` diff ratio, and `alphaChannelIntact: true`.
+- Command: Backdrop edge texture A/B
+  - Result: a low-priority dense-focus SVG backdrop edge layer produced `desktop-focus-real-vault-backdrop-texture-current.png` with `22` backdrop edges, but worsened similarity to `85/100` (`335746 / 2222584`, `0.1511` diff ratio). The product-code experiment and its RED test were removed; the capture is kept only as audit evidence.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed after retained subtle-shadow and failed-backdrop revert.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-banner-contract.cjs`
+  - Result: passed after retained subtle-shadow and failed-backdrop revert.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed after retained subtle-shadow and failed-backdrop revert.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed after retained subtle-shadow and failed-backdrop revert.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed after retained subtle-shadow and failed-backdrop revert.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed after retained subtle-shadow and failed-backdrop revert.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests after retained subtle-shadow and failed-backdrop revert.
+- Command: Changed-file size check
+  - Result: `App.tsx` 5048 pure LOC, `styles.css` 7261 pure LOC, `playwright-wiki-graph-layout.cjs` 538 pure LOC. These are existing accepted debt for this feature surface; no new retained test file was added in this iteration.
+
+## Remaining Risks
+
+- Risk: 드래그 위치는 현재 세션 UI 상태에만 남는다.
+  - Mitigation: 이번 작업의 non-goal로 두고, 필요하면 이후 사용자별 graph layout persistence로 확장한다.
+- Risk: 아직 Obsidian과 완전히 같은 설정 패널 항목, physics easing, node density는 구현되지 않았다.
+  - Mitigation: 다음 반복에서 실제 Obsidian 캡처와 앱 캡처를 더 세밀하게 비교한다.
+- Risk: 브라우저 dev 서버가 Electron local wiki route가 아닌 gateway fallback 데이터를 쓰면 실제 링크 밀도 개선이 화면에서 바로 보이지 않는다.
+  - Mitigation: Electron 앱 구동 상태에서 LLM-Wiki vault를 대상으로 다시 캡처하거나, dev 서버에도 local wiki route와 동일한 graph payload를 주입하는 QA harness를 추가한다.
+- Risk: Computer Use Obsidian app inspection timed out during the latest iteration.
+  - Mitigation: existing Obsidian capture `after-command-plus.png` was used for the zoom behavior comparison; retry direct Computer Use in a later iteration before claiming 95% sync.
+- Risk: direct Obsidian screencapture also hit the macOS lock/clock screen.
+  - Mitigation: do not use that artifact as graph evidence; continue using earlier valid Obsidian graph captures until a fresh unlocked Obsidian capture succeeds.
+- Risk: repeated direct Obsidian retries still hit either Computer Use timeout or lock screen.
+  - Mitigation: keep the 95% sync goal open. Once the Mac is unlocked and Computer Use can inspect Obsidian, repeat zoom/click capture and compare against the current app captures.
+- Risk: window-id capture now proves the Obsidian graph pixels, but direct click and keyboard zoom are still blocked by `loginwindow` intercepting input in the current session.
+  - Mitigation: do not claim 95% sync yet. Continue visual-diff-driven UI alignment from valid Obsidian captures, and repeat the direct zoom/click roundtrip when the interactive session is unlocked.
+- Risk: low-level CGEvent click and scroll also produced zero pixel diff against the Obsidian graph window even with post-event access granted.
+  - Mitigation: keep direct-interaction completion open. Next iteration should try an unlocked foreground session or a different event path before claiming interaction parity.
+- Risk: focus zoom label culling now favors connected nodes, so isolated notes stay unlabeled until selected or hovered.
+  - Mitigation: this better matches the uncluttered Obsidian graph feel. If isolated-note inspection becomes important, add a hover/selection label path rather than always-on labels.
+- Risk: focus-mode right actions are now intentionally quieter, so users may notice the exit/settings controls less at first glance.
+  - Mitigation: hover/focus raises opacity, and the controls remain keyboard/button accessible. If discoverability becomes an issue, add a short first-run hint outside the Obsidian-fidelity mode.
+- Risk: focus mode now includes an Obsidian-style vault shell, so the graph canvas is narrower than the previous full-window shell.
+  - Mitigation: this is intentional for reference fidelity. Keep non-focus mode and the exit action available when the user wants the app-specific tree/reader workflow.
+- Risk: dense focus zoom now culls rendered graph nodes, which improves Obsidian-like visual sparsity but is not a full physics-level clone of Obsidian's canvas renderer.
+  - Mitigation: keep all graph data in state and cull only the focus-zoom render surface. Next fidelity work should align graph pan/physics placement against a fresh interactive Obsidian capture.
+- Risk: latest reference-fidelity score is still only `55/100`, not the requested 95%+.
+  - Mitigation: do not claim completion. Remaining large gaps are graph content position/physics, real Obsidian direct input proof, and left-tree date/content mismatch in the current real-vault QA capture.
+- Risk: latest reference-fidelity score is still only `59/100`, not the requested 95%+.
+  - Mitigation: do not claim completion. The remaining dominant gap is graph pan/physics placement: the app now has Obsidian-like label count and filename labels, but the active cluster is still centered differently from the live Obsidian reference.
+- Risk: latest reference-fidelity score improved to `61/100`, still far below the requested 95%+.
+  - Mitigation: do not claim completion. Active label placement is closer now; remaining major gaps are surrounding label/node selection, exact graph physics, left explorer pixel match, and direct Obsidian click/zoom proof once `loginwindow` stops intercepting input.
+- Risk: exact context labels now match the live Obsidian reference content and crop positions, but the latest reference-fidelity score remains `61/100`, still far below the requested 95%+.
+  - Mitigation: do not claim completion. The next meaningful gain likely requires matching Obsidian's graph physics/camera state or obtaining a fresh interactive Obsidian session where click/zoom can be driven directly instead of inferred from static window capture.
+- Risk: dense context-only labels and cropped researcher text reduce diff pixels but the latest reference-fidelity score is still `61/100`, far below the requested 95%+.
+  - Mitigation: do not claim completion. The score is now dominated less by large wrong labels and more by graph physics/camera state, left explorer pixel differences, and blocked direct Obsidian interaction proof.
+- Risk: latest reference-fidelity score improved to `62/100`, still far below the requested 95%+.
+  - Mitigation: do not claim completion. Render node density and left journal sequence are closer now; the next meaningful gains likely require matching Obsidian's graph camera/physics more exactly and unblocking direct Obsidian click/zoom capture.
+- Risk: inactive titlebar chrome and file-explorer toolbar geometry now match more local reference details, but the latest reference-fidelity score remains `62/100`, still far below 95%+.
+  - Mitigation: do not claim completion. Direct Obsidian interaction is still blocked by `loginwindow`, and future iterations should prioritize graph camera/physics alignment over small chrome-only adjustments.
+- Risk: active/context-only node rendering improves sparse crop fidelity, but the latest reference-fidelity score is still only `63/100`, far below 95%+.
+  - Mitigation: do not claim completion. The remaining high-impact gaps are label weight/stroke, exact graph camera/physics, broader left-tree pixel differences, and direct Obsidian interaction proof once the desktop session can accept input.
+- Risk: latest fresh reference-fidelity score is still `86/100`, not the requested 95%+.
+  - Mitigation: do not claim completion. The inactive Graph Banner controls contract is now closer to the plugin, but the remaining score gap is dominated by bottom/side window geometry, graph camera/physics, live vault content drift, and still-blocked direct Obsidian click/zoom proof.
+- Risk: backdrop edge texture looked plausible by eye but objectively worsened the pixel diff.
+  - Mitigation: do not add synthetic edge texture without a better extraction from the live Obsidian capture. Future graph iterations should be A/B guarded before retention.
+
+### 2026-07-08 Dense Edge Cap 40 Iteration
+
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed first for the intended RED case: `large focus graph should keep enough pale background edges... got 20`.
+- Change: raised dense focus edge context from 20 to 40 while keeping rendered node and label caps unchanged.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed.
+- Command: focused Playwright gates
+  - Result: `playwright-wiki-graph-layout.cjs`, `playwright-wiki-graph-banner-contract.cjs`, `playwright-wiki-graph-interactions.cjs`, `playwright-wiki-search-surface-buttons.cjs`, and `playwright-wiki-graph-ask.cjs` all passed against `http://127.0.0.1:5573/`.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests.
+- Command: changed-file size check
+  - Result: `App.tsx` 5048 pure LOC, `playwright-wiki-graph-layout.cjs` 540 pure LOC, and this plan 1027 pure LOC. `App.tsx` and the large layout test remain accepted debt for this UI surface per `docs/DESIGN.md` and the existing plan.
+- Command: Visual QA image diff
+  - Result: retained valid reference-aligned baseline remains `86/100`, `308307 / 2222584` diff pixels for `desktop-focus-real-vault-youtube-anchor-left-001-current.png`. A later live capture scored `87/100`, `289892 / 2222584` diff pixels, but used a different active note (`jjjjj`), so it is non-equivalent evidence and not the fidelity baseline.
+- Direct Obsidian retry:
+  - Result: still blocked. `osascript` reported `0` Obsidian windows and Computer Use `get_app_state("Obsidian")` timed out after 300s.
+
+### 2026-07-08 Graph Banner Contract Reverification
+
+- Command: GitHub source inspection for `ras0q/obsidian-graph-banner`
+  - Result: reconfirmed the source-level contract used by this implementation: `.graph-banner-content`, `.graph-banner-overlay`, `data-interactive`, overlay `pointerup` activation, inactive graph pointer-events lock, and inactive graph controls closing.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-banner-contract.cjs`
+  - Result: passed.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-interactions.cjs`
+  - Result: passed.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: passed.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-search-surface-buttons.cjs`
+  - Result: passed.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
+  - Result: passed.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests.
+- Command: fresh Playwright capture plus Visual QA image diff
+  - Result: `desktop-focus-fresh-current.png` scored `87/100`, `289892 / 2222584` diff pixels, but the active note was `jjjjj`, not the reference `팀협업-아키텍처`; keep it as non-equivalent evidence only. The retained equivalent baseline remains `86/100`, `308307 / 2222584` diff pixels.
+- Direct Obsidian retry:
+  - Result: still blocked. `osascript` reported `0` Obsidian windows and Computer Use `get_app_state("Obsidian")` timed out after 300s, so direct click/zoom proof is not yet available.
+
+### 2026-07-08 Dense Edge Spread A/B
+
+- Command: GitHub source inspection for `ras0q/obsidian-graph-banner`
+  - Result: reconfirmed that the plugin contributes the Graph Banner DOM/activation contract, not Obsidian's graph physics engine. The implementation should keep using `.graph-banner-content`, `.graph-banner-overlay`, `data-interactive`, pointerup activation, inactive pointer-event lock, and inactive controls closed as the transferable contract.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: failed for the intended experimental RED case when asserting dense focus edge spread: current retained cap-36 rendered `36` visible edges, but the fixture measured `left: 0`, `right: 30`, `lower: 0`.
+- Change tried and removed: selected dense background edges from broader visible graph candidates with left/right/lower quotas, pinned context-node endpoints into edge geometry, and added context edges to the dense test fixture.
+- Command: `HERMES_UI_URL=http://127.0.0.1:5573/ node apps/desktop/tests/playwright-wiki-graph-layout.cjs`
+  - Result: the experiment could be made green on the fixture, but fresh real LLM-Wiki visual evidence worsened.
+- Command: fresh real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-spread-current-alpha.png` with `3` labels, `3` rendered nodes, `36` edges, and edge spread `left: 14`, `right: 24`, `lower: 12`.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-spread-current-alpha.png`; similarity worsened to `85/100`, `323824 / 2222584` diff pixels, `0.1457` diff ratio, and `alphaChannelIntact: true`.
+- Decision: reverted the edge-spread product-code and test changes. Retained state remains the prior dense cap-36 edge selection because its equivalent baseline is better (`86/100`, `308307 / 2222584` diff pixels).
+- Command: focused verification after revert
+  - Result: `playwright-wiki-graph-layout.cjs`, `playwright-wiki-graph-banner-contract.cjs`, `playwright-wiki-graph-interactions.cjs`, `playwright-wiki-search-surface-buttons.cjs`, and `playwright-wiki-graph-ask.cjs` all passed against `http://127.0.0.1:5573/`.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests.
+
+### 2026-07-08 Cap 40 Recheck And Revert
+
+- Command: GitHub source inspection for `ras0q/obsidian-graph-banner`
+  - Result: reconfirmed the transferable contract is DOM/activation behavior: `.graph-banner-content`, `.graph-banner-overlay`, `data-interactive`, overlay `pointerup` activation, inactive pointer-events lock, outside-pointer reset, and inactive graph controls closed.
+- Change tried and rejected: dense focus rendered edge cap was raised from 36 to 40.
+  - Result: fresh equivalent real-vault capture worsened to `85/100`, `336125 / 2222584` diff pixels, `0.1512` diff ratio, with `40` rendered edges.
+- Decision: reverted rendered dense edge cap back to 36. The `focusZoomRankedNodes.slice(0, 40)` candidate set remains only an input pool for edge selection; the final rendered cap is again `.slice(0, 36)`.
+- Remaining risk: even after reverting the failed cap-40 experiment, direct Obsidian click/zoom proof is still blocked in the current desktop session and equivalent visual fidelity remains below the 95%+ target.
+- Command: focused verification after cap-36 revert
+  - Result: `playwright-wiki-graph-banner-contract.cjs`, `playwright-wiki-graph-interactions.cjs`, `playwright-wiki-graph-layout.cjs`, `playwright-wiki-search-surface-buttons.cjs`, and `playwright-wiki-graph-ask.cjs` all passed against `http://127.0.0.1:5573/`.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed.
+- Command: fresh real LLM-Wiki Playwright capture
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-cap36-reverted-current-alpha.png` with transform `translate(110.49524335909126 -416.5487933433074) scale(1.42)`, labels `2026-06-03-youtube-6AA-xSFPvdU`, `팀협업-아키텍처`, `2026-06-26-researcher-document-analysi`, `3` rendered nodes, `2` visible circles, and `36` rendered edges.
+- Command: Visual QA image diff
+  - Result: compared valid Obsidian reference `direct-window-current-094930.png` against `desktop-focus-real-vault-cap36-reverted-current-alpha.png`; similarity is back to `86/100`, `314769 / 2222584` diff pixels, `0.1416` diff ratio, and `alphaChannelIntact: true`.
+- Visual QA note:
+  - Result: independent reviewer subagent passes were not spawned because the current Codex multi-agent tool policy only permits subagents when explicitly requested by the user. The automated fresh capture/diff and focused interaction gates were run instead.
+
+### 2026-07-08 Direct Obsidian Retry And Active Label A/B
+
+- Command: `screencapture -l 113990` before/after AppleScript `Command+=`
+  - Result: direct Obsidian window capture stayed pixel-identical; both files had MD5 `ac0fe68f428782f1f0ea0da7189b1908`, and image diff reported `0` changed pixels. Direct click/zoom proof remains unavailable in this desktop session.
+- Command: Playwright CSS-only A/B against valid Obsidian reference `direct-window-current-094930.png`
+  - Result: baseline cap-36 capture was `86/100`, `314769 / 2222584` diff pixels, `0.1416` diff ratio.
+- Change retained: focus-mode active graph label now applies `transform: translate(42px, -8px)` so the selected note label sits closer to the live Obsidian reference.
+- Command: fresh real LLM-Wiki capture after retained active-label shift
+  - Result: captured `apps/desktop/audit/obsidian-wiki-graph-2026-07-08/desktop-focus-real-vault-active-label-shift-current-alpha.png`; transform remains `translate(110.49524335909126 -416.5487933433074) scale(1.42)`, labels remain `2026-06-03-youtube-6AA-xSFPvdU`, `팀협업-아키텍처`, `2026-06-26-researcher-document-analysi`, rendered nodes remain `3`, and rendered edges remain `36`.
+- Command: Visual QA image diff
+  - Result: valid reference vs `desktop-focus-real-vault-active-label-shift-current-alpha.png` improved to `86/100`, `313599 / 2222584` diff pixels, `0.1411` diff ratio, `alphaChannelIntact: true`.
+- Command: viewport-shift CSS-only A/B
+  - Result: all tested whole-graph viewport shifts worsened to `85/100` with at least `325316` diff pixels, so no viewport shift was retained.
+- Command: focused verification after retained active-label shift
+  - Result: `playwright-wiki-graph-layout.cjs`, `playwright-wiki-graph-interactions.cjs`, `playwright-wiki-graph-banner-contract.cjs`, `playwright-wiki-search-surface-buttons.cjs`, and `playwright-wiki-graph-ask.cjs` all passed against `http://127.0.0.1:5573/`.
+- Command: `npm --workspace apps/desktop run typecheck`
+  - Result: passed.
+- Command: `npm --workspace apps/desktop run test`
+  - Result: passed, 64/64 tests.
+
+### 2026-07-12 Vault-Agnostic Focus Context
+
+- Goal: remove reference-vault filename matching from dense focus mode so any user's vault produces context labels from graph structure.
+- Success criteria: no LLM-Wiki-specific filename needles remain in product code; dense focus still renders the active note plus two deterministic context labels; Graph Banner activation, zoom, drag, and local graph behavior remain unchanged.
+- Test plan: make the large-vault Playwright fixture use unrelated generic filenames, assert the product source contains no reference filename fragments, then run focused graph tests, desktop typecheck, and the desktop test suite.
+- Fallback: retain the existing visual placement slots and edge caps while changing only how nodes are selected; revert only this iteration if generic selection destabilizes interaction or layout gates.
+- [x] RED: generic-vault regression fails while reference filename needles remain.
+- [x] GREEN: context selection is deterministic and based on graph data rather than filenames.
+- [x] VERIFY: focused Playwright tests, typecheck, desktop tests, and manual desktop QA pass.
+
+#### Verification Evidence
+
+- RED: `playwright-wiki-graph-layout.cjs` failed on the product-source guard while the two reference-vault filename needles remained.
+- GREEN: the same test passed with generic `customer-discovery-evidence` and `quarterly-strategy-synthesis` nodes selected by active adjacency, link count, projected distance, and stable label ordering.
+- Automated: graph layout, Graph Banner contract, graph interactions, desktop typecheck, desktop build, and all 64 desktop tests passed.
+- Manual QA: in the live browser surface, focus mode activated, `Control+=` changed the viewport to `scale(1.42)`, local graph mode activated at `scale(2.25)`, and the browser console contained no warnings or errors.
+- Runtime hypotheses: reference filenames remaining in product code was refuted by source search; generic context selection failure was refuted by the large-vault Playwright scenario; interaction regression was refuted by Playwright and manual browser use.
+- Review limitation: independent review agents could not start because the workspace agent-thread limit was already reached. No independent PASS is claimed for this iteration.
+- Remaining visual risk: this fixes vault generality, not the still-open 95% Obsidian pixel-fidelity target. The previous equivalent reference baseline remains 86/100 until a fresh equivalent real-vault capture is available.

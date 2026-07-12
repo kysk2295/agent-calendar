@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { hermesApi, setApiBaseUrl, type ApiEnvelope } from './api/hermesApi';
 
 type ScreenId = 'calendar' | 'today' | 'next7' | 'tasks' | 'kanban' | 'mail' | 'notes' | 'someday' | 'review' | 'wiki' | 'diary' | 'search' | 'agents' | 'widgets' | 'settings' | 'login';
@@ -109,7 +109,7 @@ const screenMeta: Record<ScreenId, { title: string; sub: string }> = {
 const TAXONOMY_SOURCE = 'hermes-desktop-taxonomy';
 const CALENDAR_META_MARKER = '[Agent Calendar]\n';
 const DEFAULT_UI_PREFERENCES: UiPreferences = { notify: true, agentShare: true, weekStartMon: true };
-const LOGO_SRC = '/agent-calendar-logo.png';
+const LOGO_SRC = './agent-calendar-logo.png';
 const IS_WIDGET_OVERLAY = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('overlay') === 'widgets';
 
 if (IS_WIDGET_OVERLAY && typeof document !== 'undefined') {
@@ -257,6 +257,16 @@ function agentIdentity(item: Item, fallback = '') {
 function createdAgentFrom(payload: ApiEnvelope): Item {
   const nested = obj(payload, 'agent');
   if (agentIdentity(nested)) return nested;
+  const profileRequest = obj(payload, 'profileRequest');
+  if (agentIdentity(profileRequest)) {
+    return {
+      ...profileRequest,
+      id: agentIdentity(profileRequest),
+      status: 'pending',
+      pending: true,
+      source: 'profile-request',
+    };
+  }
   return agentIdentity(payload) ? payload : {};
 }
 
@@ -360,6 +370,8 @@ function agentStatusLabel(agent: Item) {
   if (/busy|running|작업|executing/.test(raw)) return '작업중';
   if (/active|online|connected|활성/.test(raw)) return '활성';
   if (/idle|유휴/.test(raw)) return '유휴';
+  if (/pending|requested|대기/.test(raw)) return '생성 대기';
+  if (/unavailable|offline|disconnected|사용 불가/.test(raw)) return '사용 불가';
   if (/blocked|error|fail|오류/.test(raw)) return '확인 필요';
   return raw ? text(agent.hermesProfileStatus || agent.profileStatus || agent.status) : '상태 없음';
 }
@@ -369,7 +381,9 @@ function agentDisplayName(agent: Item) {
 }
 
 function isAgentSelectable(agent: Item) {
-  return agent.hermesProfilePresent !== false && !/missing|누락/i.test(text(agent.hermesProfileStatus || agent.status));
+  return agent.hermesProfilePresent !== false
+    && !agent.pending
+    && !/missing|누락|pending|requested|unavailable|offline|disconnected|사용 불가/i.test(text(agent.hermesProfileStatus || agent.status));
 }
 
 function dateKeyInTimeZone(date = new Date()) {
@@ -1126,29 +1140,36 @@ export function App() {
     if (blocking) setLoading(true);
     setApiError('');
     try {
-      const optionalRequest = (label: string, request: Promise<ApiEnvelope>, fallback: ApiEnvelope = {}) => request.catch((error) => {
-        setApiError(error instanceof Error ? error.message : `${label} 불러오기 실패`);
+      const optionalRequest = (label: string, request: Promise<ApiEnvelope>, fallback: ApiEnvelope = {}, options: { quiet?: boolean } = {}) => request.catch((error) => {
+        if (!options.quiet) setApiError(error instanceof Error ? error.message : `${label} 불러오기 실패`);
         return fallback;
       });
-      const settingsRequest = optionalRequest('설정', hermesApi.getSettings());
+      const settingsRequest = optionalRequest('설정', hermesApi.getSettings(), {}, { quiet: true });
+      const dashboardRequest = optionalRequest('상태', hermesApi.getDashboardState());
+      const tasksRequest = optionalRequest('작업', hermesApi.getTasks());
+      const eventsRequest = optionalRequest('일정', hermesApi.getCalendarEvents());
+      const agentsRequest = optionalRequest('에이전트', hermesApi.getAgents());
+      const wikiRequest = optionalRequest('위키', hermesApi.getWiki(), state.wiki);
+      const inboxRequest = optionalRequest('메일함', hermesApi.getInbox());
+      const documentsRequest = optionalRequest('문서', hermesApi.getDocuments());
       const automationRequest = optionalRequest('자동화', hermesApi.getAutomation());
       const usageRequest = optionalRequest('사용량', hermesApi.getUsage());
       const toolsRequest = optionalRequest('도구', hermesApi.getTools());
       const channelsRequest = optionalRequest('채널', hermesApi.getChannels());
       const chatRequest = optionalRequest('채팅', hermesApi.getChatMessages());
       const [dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, usage, tools, settingsPayload, channels, documentsPayload, chatPayload] = await Promise.all([
-        hermesApi.getDashboardState(),
-        hermesApi.getTasks(),
-        hermesApi.getCalendarEvents(),
-        hermesApi.getAgents(),
-        hermesApi.getWiki(),
-        hermesApi.getInbox(),
+        dashboardRequest,
+        tasksRequest,
+        eventsRequest,
+        agentsRequest,
+        wikiRequest,
+        inboxRequest,
         automationRequest,
         usageRequest,
         toolsRequest,
         settingsRequest,
         channelsRequest,
-        hermesApi.getDocuments(),
+        documentsRequest,
         chatRequest,
       ]);
       const rawTasks = arr(tasksPayload, 'tasks');
@@ -1297,7 +1318,7 @@ export function App() {
   }
 
   async function persistCreatedTask(task: Item, source: 'task' | 'calendar' = 'task', options: { requireHydrated?: boolean } = {}) {
-    let created = false;
+    let created: Item | null = null;
     try {
       if (source === 'calendar') {
         const response = await hermesApi.createCalendarEvent(calendarEventPayload(task));
@@ -1306,10 +1327,10 @@ export function App() {
           const visible = await waitForCreatedCalendarEventInBackend(createdEvent);
           if (!visible) {
             setApiError('생성한 일정을 캘린더에서 아직 확인하지 못했습니다. 잠시 후 다시 시도하세요.');
-            return false;
+            return null;
           }
         }
-        created = true;
+        created = createdEvent;
       } else {
         const response = await hermesApi.createTask(desktopTaskPayload(task));
         const createdTask = responseTask(response) || task;
@@ -1317,16 +1338,16 @@ export function App() {
           const visible = await waitForCreatedTaskInBackend(createdTask);
           if (!visible) {
             setApiError('생성한 작업을 목록에서 아직 확인하지 못했습니다. 잠시 후 다시 시도하세요.');
-            return false;
+            return null;
           }
         }
-        created = true;
+        created = createdTask;
       }
       await hydrate();
-      return true;
+      return created;
     } catch (error) {
       setApiError(error instanceof Error ? error.message : '작업 생성 실패');
-      return options.requireHydrated ? false : created;
+      return options.requireHydrated ? null : created;
     }
   }
 
@@ -1404,10 +1425,10 @@ export function App() {
     if (source === 'calendar') {
       const eventTask = { ...task, kind: 'calendar-event', type: 'calendar-event' };
       const created = await persistCreatedTask(eventTask, 'calendar', { requireHydrated: options.requireHydrated });
-      return created ? eventTask : null;
+      return created;
     }
     const created = await persistCreatedTask(task, 'task', { requireHydrated: options.requireHydrated });
-    return created ? task : null;
+    return created;
   }
 
   function submitQuick(fallbackDate?: string) {
@@ -1654,8 +1675,9 @@ export function App() {
   async function startPlan(goal: string, agentId = selectedAgentId) {
     const textValue = goal.trim();
     if (!textValue) return;
+    let task: Item | null = null;
     try {
-      const task = await createQuickTask(textValue, todayKey(), { owner: 'Agent', status: 'Doing', source: 'task' });
+      task = await createQuickTask(textValue, todayKey(), { owner: 'Agent', status: 'Doing', source: 'task' });
       if (!task) return;
       const runPayload = await hermesApi.launchMission({
         templateId: 'product-build',
@@ -1671,6 +1693,17 @@ export function App() {
       openScreen('agents');
       void hydrate();
     } catch (error) {
+      const taskId = itemId(task || {}, '');
+      if (taskId) {
+        try {
+          await hermesApi.deleteTask(taskId);
+          await hydrate();
+        } catch (rollbackError) {
+          const message = rollbackError instanceof Error ? rollbackError.message : '생성 작업 롤백 실패';
+          setApiError(`미션 실행 실패 · ${message}`);
+          return;
+        }
+      }
       setApiError(error instanceof Error ? error.message : '미션 실행 실패');
     }
   }
@@ -2111,27 +2144,20 @@ export function App() {
 
   async function openRunArtifact(run?: Item) {
     if (!run) return;
-    const runId = itemId(run, `run-${Date.now()}`);
-    const title = text(run.artifact || run.document || run.goal || run.title, '실행 결과 정리');
-    try {
-      const payload = await saveDocument({
-        title,
-        body: `🤖 ${text(run.agent, 'Agent Calendar')} 실행 결과\n\n[목표]\n${text(run.goal || run.title, title)}\n\n[상태]\n${text(run.status, 'running')} · ${text(run.step, '실행 타임라인을 확인하세요.')}`,
-        tag: '업무',
-        kind: 'doc',
-        source: 'hermes-desktop-run-artifact',
-        runId,
-      });
-      const doc = createdDocumentFrom(payload);
-      const docId = persistedDocumentIdentity(doc);
-      if (!docId) throw new Error('실행 결과 문서를 찾을 수 없습니다.');
-      setActiveWikiId(docId);
-      setWikiReaderOpen(true);
-      openScreen('wiki');
-      setModal(null);
-    } catch (error) {
-      setApiError(error instanceof Error ? error.message : '실행 결과 저장 실패');
+    const artifactId = text(run.artifactPath || run.documentPath || run.documentId || run.artifactId, '');
+    const document = state.docs.find((item) => {
+      const id = persistedDocumentIdentity(item);
+      return Boolean(artifactId && (id === artifactId || text(item.path || item.wikiPath) === artifactId));
+    });
+    const docId = persistedDocumentIdentity(document || {}, artifactId);
+    if (!docId) {
+      setApiError('실행 결과 문서를 찾을 수 없습니다.');
+      return;
     }
+    setActiveWikiId(docId);
+    setWikiReaderOpen(true);
+    openScreen('wiki');
+    setModal(null);
   }
 
   async function approveRun(run: Item) {
@@ -2148,10 +2174,6 @@ export function App() {
       await hydrate();
     } catch (error) {
       const message = error instanceof Error ? error.message : '실행 승인 실패';
-      if (/404/.test(message)) {
-        setApiError('');
-        return;
-      }
       approvedRunIdsRef.current.delete(id);
       setState((current) => ({ ...current, runs: previousRuns }));
       setApiError(message);
@@ -2451,6 +2473,14 @@ export function App() {
     );
   }
 
+  if (!loggedIn) {
+    return (
+      <div className="app-root login-root" data-theme={settings.theme}>
+        <LoginScreen email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} authenticateWithPassword={authenticateWithPassword} />
+      </div>
+    );
+  }
+
   return (
     <div className="app-root" data-theme={settings.theme}>
       <aside className="sidebar">
@@ -2522,7 +2552,6 @@ export function App() {
       {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} attachment={chatAttachment} setAttachment={setChatAttachment} send={sendChat} runs={runs} setChip={setChatInput} close={() => setChatOpen(false)} openRun={openRun} registerDrafts={registerScheduleDrafts} />}
       {modal === 'taxonomy' && taxonomyForm && <TaxonomyModal form={taxonomyForm} name={taxonomyName} setName={setTaxonomyName} groupName={taxonomyGroupName} setGroupName={setTaxonomyGroupName} icon={taxonomyIcon} setIcon={setTaxonomyIcon} close={() => { setTaxonomyForm(null); setModal(null); }} submit={() => void createTaxonomy()} />}
       <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} approveRun={approveRun} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
-      {!loggedIn && <LoginOverlay email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} authenticateWithPassword={authenticateWithPassword} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} />}
     </div>
   );
 }
@@ -3316,6 +3345,319 @@ function wikiBody(item: Item) {
   return text(item.content || item.body || item.markdown || item.summary || item.extract || item.excerpt, '');
 }
 
+function stripWikiExtension(value: string) {
+  return value.replace(/\.md$/i, '');
+}
+
+function wikiBasename(value: string) {
+  return stripWikiExtension(value.split('/').filter(Boolean).pop() || value);
+}
+
+function cleanWikiTarget(rawTarget = '') {
+  const target = String(rawTarget || '')
+    .split('|')[0]
+    .split('#')[0]
+    .trim()
+    .replace(/^<|>$/g, '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  try {
+    return decodeURIComponent(target);
+  } catch (error) {
+    if (error instanceof URIError) return target;
+    throw error;
+  }
+}
+
+function buildWikiGraphFallbackEdges(nodes: Item[]) {
+  const maps = {
+    byPath: new Map<string, string>(),
+    byPathNoExt: new Map<string, string>(),
+    byBasename: new Map<string, string>(),
+    byTitle: new Map<string, string>(),
+  };
+  nodes.forEach((node, index) => {
+    const id = text(node.path || node.wikiPath || node.id || node._id || node.key, `wiki-${index}`);
+    const pathValue = text(node.path || node.wikiPath || node.id || node._id || node.key, id);
+    const titleValue = text(node.title || node.label, '');
+    maps.byPath.set(pathValue.toLowerCase(), id);
+    maps.byPathNoExt.set(stripWikiExtension(pathValue).toLowerCase(), id);
+    if (!maps.byBasename.has(wikiBasename(pathValue).toLowerCase())) maps.byBasename.set(wikiBasename(pathValue).toLowerCase(), id);
+    if (titleValue && !maps.byTitle.has(titleValue.toLowerCase())) maps.byTitle.set(titleValue.toLowerCase(), id);
+  });
+
+  const edges = new Map<string, Item>();
+  nodes.forEach((node, index) => {
+    const from = text(node.path || node.wikiPath || node.id || node._id || node.key, `wiki-${index}`);
+    const sourcePath = text(node.path || node.wikiPath || node.id || node._id || node.key, from);
+    const sourceDir = sourcePath.includes('/') ? sourcePath.split('/').slice(0, -1).join('/') : '';
+    for (const match of wikiBody(node).matchAll(/!?\[\[([^\]]+)\]\]|(?<!!)\[[^\]]+\]\(([^)]+)\)/g)) {
+      const rawTarget = cleanWikiTarget(match[1] || match[2] || '');
+      if (!rawTarget || /^[a-z]+:/i.test(rawTarget)) continue;
+      const ext = rawTarget.split('/').pop()?.match(/\.[^.]+$/)?.[0].toLowerCase() || '';
+      if (ext && ext !== '.md') continue;
+      const direct = stripWikiExtension(rawTarget);
+      const relative = sourceDir ? `${sourceDir}/${rawTarget}`.replace(/\/+/g, '/') : rawTarget;
+      const candidates = [rawTarget, `${direct}.md`, direct, relative, `${stripWikiExtension(relative)}.md`, stripWikiExtension(relative), wikiBasename(rawTarget)];
+      const to = candidates
+        .map((candidate) => maps.byPath.get(candidate.toLowerCase()) || maps.byPathNoExt.get(stripWikiExtension(candidate).toLowerCase()) || maps.byTitle.get(stripWikiExtension(candidate).toLowerCase()) || maps.byBasename.get(wikiBasename(candidate).toLowerCase()) || '')
+        .find(Boolean) || '';
+      if (!to || to === from) continue;
+      const pair = [from, to].sort().join('::');
+      if (!edges.has(pair)) edges.set(pair, { id: `fallback-${pair}`, from, to });
+    }
+  });
+  return [...edges.values()];
+}
+
+function hashText(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+type WikiGraphLayoutOptions = {
+  centerForce?: number;
+  repelForce?: number;
+  linkDistance?: number;
+};
+
+function buildWikiGraphLayout(rawNodes: Item[], fallbackNodes: Item[], rawEdges: Item[], options: WikiGraphLayoutOptions = {}) {
+  const sourceNodes = rawNodes.length ? rawNodes : fallbackNodes;
+  const width = 960;
+  const height = 620;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const centerForce = Number.isFinite(options.centerForce) ? Number(options.centerForce) : 1;
+  const repelForce = Number.isFinite(options.repelForce) ? Number(options.repelForce) : 1;
+  const linkDistance = Number.isFinite(options.linkDistance) ? Number(options.linkDistance) : 1;
+  const groups = Array.from(new Set(sourceNodes.map((node) => text(node.group || node.folder || node.kind, '기타'))));
+  const nodeId = (node: Item, index: number) => text(node.path || node.wikiPath || node.id || node._id || node.key, `wiki-${index}`);
+  const nodeAliases = (node: Item, id: string) => [
+    id,
+    text(node.id),
+    text(node._id),
+    text(node.key),
+    text(node.path),
+    text(node.wikiPath),
+    text(node.title),
+    text(node.label),
+  ].filter(Boolean);
+  const nodes = sourceNodes.map((node, index) => {
+    const id = nodeId(node, index);
+    const seed = hashText(`${id}:${text(node.title || node.path)}`);
+    const angle = ((seed % 10000) / 10000) * Math.PI * 2;
+    const radius = 36 + (((seed >>> 8) % 1000) / 1000) * 82;
+    const group = text(node.group || node.folder || node.kind, '기타');
+    const seededX = centerX + Math.cos(angle) * radius;
+    const seededY = centerY + Math.sin(angle) * radius * .78;
+    return {
+      node,
+      id,
+      x: Number.isFinite(Number(node.x)) ? Number(node.x) : seededX,
+      y: Number.isFinite(Number(node.y)) ? Number(node.y) : seededY,
+      vx: 0,
+      vy: 0,
+      r: 4,
+      label: text(node.label || node.title || node.path, '노트'),
+      group,
+      linkCount: 0,
+    };
+  });
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const aliases = new Map<string, string>();
+  nodes.forEach((node) => {
+    nodeAliases(node.node, node.id).forEach((alias) => aliases.set(alias, node.id));
+  });
+  const edges = rawEdges
+    .map((edge, index) => {
+      const from = aliases.get(text(edge.from)) || text(edge.from);
+      const to = aliases.get(text(edge.to)) || text(edge.to);
+      return {
+        id: text(edge.id, `edge-${index}`),
+        from,
+        to,
+      };
+    })
+    .filter((edge) => edge.from && edge.to && byId.has(edge.from) && byId.has(edge.to));
+
+  const adjacency = new Map(nodes.map((node) => [node.id, new Set<string>()]));
+  edges.forEach((edge) => {
+    const from = byId.get(edge.from);
+    const to = byId.get(edge.to);
+    if (from) from.linkCount += 1;
+    if (to) to.linkCount += 1;
+    adjacency.get(edge.from)?.add(edge.to);
+    adjacency.get(edge.to)?.add(edge.from);
+  });
+
+  nodes.forEach((node) => {
+    const explicitRadius = Number(node.node.r);
+    node.r = Number.isFinite(explicitRadius)
+      ? explicitRadius
+      : node.linkCount
+        ? Math.min(13, 3.4 + Math.sqrt(node.linkCount) * 2.35)
+        : 2.8;
+  });
+
+  const linkedNodes = nodes.filter((node) => node.linkCount > 0);
+  const isolatedNodes = nodes.filter((node) => node.linkCount === 0);
+  const components: typeof nodes[] = [];
+  const visited = new Set<string>();
+  linkedNodes
+    .slice()
+    .sort((a, b) => b.linkCount - a.linkCount || a.label.localeCompare(b.label))
+    .forEach((start) => {
+      if (visited.has(start.id)) return;
+      const component: typeof nodes = [];
+      const stack = [start.id];
+      visited.add(start.id);
+      while (stack.length) {
+        const currentId = stack.pop() || '';
+        const current = byId.get(currentId);
+        if (current) component.push(current);
+        adjacency.get(currentId)?.forEach((nextId) => {
+          const next = byId.get(nextId);
+          if (!next || next.linkCount === 0 || visited.has(nextId)) return;
+          visited.add(nextId);
+          stack.push(nextId);
+        });
+      }
+      components.push(component);
+    });
+
+  components.sort((a, b) => b.length - a.length);
+  const componentCenters = new Map<string, { x: number; y: number }>();
+  components.forEach((component, componentIndex) => {
+    const satelliteAngle = ((componentIndex - 1) / Math.max(components.length - 1, 1)) * Math.PI * 2 - Math.PI / 2;
+    const baseCenter = componentIndex === 0
+      ? { x: centerX - 10, y: centerY + 12 }
+      : {
+        x: centerX + Math.cos(satelliteAngle) * 210,
+        y: centerY + Math.sin(satelliteAngle) * 145,
+      };
+    const componentRadius = Math.min(165, Math.max(44, 25 + Math.sqrt(component.length) * 22)) * linkDistance;
+    component
+      .slice()
+      .sort((a, b) => b.linkCount - a.linkCount || a.label.localeCompare(b.label))
+      .forEach((node, index) => {
+        const seed = hashText(`${node.id}:linked:${componentIndex}`);
+        const angle = index === 0
+          ? 0
+          : ((index - 1) / Math.max(component.length - 1, 1)) * Math.PI * 2 + ((seed % 1000) / 1000) * .28;
+        const radius = index === 0
+          ? 0
+          : componentRadius * (.45 + (((seed >>> 9) % 1000) / 1000) * .4);
+        node.x = baseCenter.x + Math.cos(angle) * radius;
+        node.y = baseCenter.y + Math.sin(angle) * radius * .78;
+        componentCenters.set(node.id, baseCenter);
+      });
+  });
+
+  const orderedIsolates = isolatedNodes
+    .slice()
+    .sort((a, b) => hashText(a.id) - hashText(b.id) || a.label.localeCompare(b.label));
+  orderedIsolates.forEach((node, index) => {
+    const seed = hashText(`${node.id}:isolate`);
+    const scatter = (shift: number) => (((seed >>> shift) % 1000) / 1000);
+    const lane = (index + (seed % 7)) % 5;
+    const left = 58 + scatter(3) * 252;
+    const right = width - 58 - scatter(5) * 252;
+    const top = 58 + scatter(7) * 128;
+    const bottom = height - 58 - scatter(9) * 128;
+    const middleX = 180 + scatter(11) * 600;
+    const middleY = 112 + scatter(13) * 396;
+    const base = lane === 0
+      ? { x: left, y: 92 + scatter(15) * 438 }
+      : lane === 1
+        ? { x: right, y: 92 + scatter(17) * 438 }
+        : lane === 2
+          ? { x: middleX, y: top }
+          : lane === 3
+            ? { x: middleX, y: bottom }
+            : { x: 86 + scatter(19) * 788, y: 74 + scatter(21) * 472 };
+    const forceScale = .5 + Math.sqrt(Math.max(.1, repelForce)) * .5;
+    const dx = (base.x - centerX) * forceScale;
+    const dy = (base.y - centerY) * forceScale;
+    const centerEllipse = (dx * dx) / (180 * 180) + (dy * dy) / (125 * 125);
+    if (centerEllipse < 1) {
+      const angle = Math.atan2(dy || .1, dx || .1);
+      node.x = Math.min(width - 58, Math.max(58, centerX + Math.cos(angle) * 238 * Math.sqrt(repelForce)));
+      node.y = Math.min(height - 58, Math.max(58, centerY + Math.sin(angle) * 172 * Math.sqrt(repelForce)));
+    } else {
+      node.x = Math.min(width - 58, Math.max(58, centerX + dx));
+      node.y = Math.min(height - 58, Math.max(58, centerY + dy));
+    }
+  });
+
+  const iterations = linkedNodes.length > 650 ? 90 : linkedNodes.length > 320 ? 120 : 165;
+  const repelDistance = linkedNodes.length > 650 ? 130 : 210;
+  for (let step = 0; step < iterations; step += 1) {
+    for (let left = 0; left < linkedNodes.length; left += 1) {
+      const a = linkedNodes[left];
+      for (let right = left + 1; right < linkedNodes.length; right += 1) {
+        const b = linkedNodes[right];
+        let dx = a.x - b.x;
+        let dy = a.y - b.y;
+        let distanceSq = dx * dx + dy * dy;
+        if (distanceSq < .01) {
+          const jitter = hashText(`${a.id}:${b.id}`) / 0xffffffff;
+          dx = Math.cos(jitter * Math.PI * 2) * .1;
+          dy = Math.sin(jitter * Math.PI * 2) * .1;
+          distanceSq = dx * dx + dy * dy;
+        }
+        if (distanceSq > repelDistance * repelDistance) continue;
+        const distance = Math.sqrt(distanceSq);
+        const force = ((72 + a.r * b.r * 6.2) * repelForce) / distanceSq;
+        const fx = (dx / distance) * force;
+        const fy = (dy / distance) * force;
+        a.vx += fx;
+        a.vy += fy;
+        b.vx -= fx;
+        b.vy -= fy;
+      }
+    }
+
+    edges.forEach((edge) => {
+      const from = byId.get(edge.from);
+      const to = byId.get(edge.to);
+      if (!from || !to) return;
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+      const target = (48 + Math.min(34, (from.r + to.r) * 2.2)) * linkDistance;
+      const force = (distance - target) * .021;
+      const fx = (dx / distance) * force;
+      const fy = (dy / distance) * force;
+      from.vx += fx;
+      from.vy += fy;
+      to.vx -= fx;
+      to.vy -= fy;
+    });
+
+    linkedNodes.forEach((node) => {
+      const target = componentCenters.get(node.id) || { x: centerX, y: centerY };
+      const centerPull = (node.linkCount > 2 ? .0024 : .0015) * centerForce;
+      node.vx += (target.x - node.x) * centerPull + (centerX - node.x) * .0008;
+      node.vy += (target.y - node.y) * centerPull + (centerY - node.y) * .0008;
+      node.vx *= .76;
+      node.vy *= .76;
+      node.x = Math.min(width - 58, Math.max(58, node.x + node.vx));
+      node.y = Math.min(height - 58, Math.max(58, node.y + node.vy));
+    });
+  }
+
+  return {
+    nodes: nodes.map(({ vx: _vx, vy: _vy, ...node }) => node),
+    edges,
+    groups,
+    viewBox: `0 0 ${width} ${height}`,
+  };
+}
+
 function stripFrontmatter(value: string) {
   return value.replace(/^---\s*\n[\s\S]*?\n---\s*/u, '').trim();
 }
@@ -3373,12 +3715,32 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
   const [graphZoom, setGraphZoom] = useState(1);
   const [graphPan, setGraphPan] = useState({ x: 0, y: 0 });
   const [graphPanning, setGraphPanning] = useState(false);
+  const [graphSettingsOpen, setGraphSettingsOpen] = useState(false);
+  const [graphTimelapseActive, setGraphTimelapseActive] = useState(false);
+  const [graphShowLabels, setGraphShowLabels] = useState(true);
+  const [graphNodeScale, setGraphNodeScale] = useState(1);
+  const [graphLinkScale, setGraphLinkScale] = useState(1);
+  const [graphLinkOpacity, setGraphLinkOpacity] = useState(.62);
+  const [graphCenterForce, setGraphCenterForce] = useState(1);
+  const [graphRepelForce, setGraphRepelForce] = useState(1);
+  const [graphLinkDistance, setGraphLinkDistance] = useState(1);
+  const [graphFilterQuery, setGraphFilterQuery] = useState('');
+  const [graphShowOrphans, setGraphShowOrphans] = useState(true);
+  const [graphLocalMode, setGraphLocalMode] = useState(false);
+  const [graphBannerInteractive, setGraphBannerInteractive] = useState(false);
+  const [graphFocusMode, setGraphFocusMode] = useState(false);
+  const [hoveredGraphId, setHoveredGraphId] = useState('');
+  const [draggedGraphPositions, setDraggedGraphPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [treeQuery, setTreeQuery] = useState('');
   const [openTreeGroups, setOpenTreeGroups] = useState<Set<string>>(() => new Set());
+  const graphCanvasRef = useRef<HTMLDivElement | null>(null);
   const graphDragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const graphNodeDragRef = useRef<{ id: string; x: number; y: number; nodeX: number; nodeY: number; moved: boolean } | null>(null);
+  const lastGraphClickRef = useRef<{ id: string; at: number } | null>(null);
+  const suppressGraphClickRef = useRef(false);
   const graph = obj(wiki, 'graph');
   const graphNodesRaw = arr(graph, 'nodes');
-  const graphEdges = arr(graph, 'edges');
+  const graphEdgesRaw = arr(graph, 'edges');
   const wikiNotes = arr(wiki, 'notes').length ? arr(wiki, 'notes') : (arr(wiki, 'documents').length ? arr(wiki, 'documents') : docs);
   const list = wikiNotes;
   const selectedFromApi = wikiDetail(wiki);
@@ -3412,28 +3774,101 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
   const docGroups = folders
     .map((tag) => ({ tag, docs: list.filter((node) => text(node.folder || node.tag || node.category || node.kind, '기타') === tag && matchesTreeQuery(node)) }))
     .filter((group) => group.docs.length);
-  const graphGroups = Array.isArray(graph.groups) ? graph.groups.map(String).slice(0, 8) : Array.from(new Set(graphNodesRaw.map((node) => text(node.group, '기타')))).slice(0, 8);
-  const graphNodes = (graphNodesRaw.length ? graphNodesRaw : list).map((node, index) => {
-    const id = itemId(node, `wiki-${index}`);
-    return {
-      node,
-      id,
-      x: Number(node.x ?? 80 + (index % 18) * 46),
-      y: Number(node.y ?? 80 + Math.floor(index / 18) * 34),
-      r: Number(node.r ?? Math.min(10, 3.5 + Number(node.linkCount || 0) * 0.7)),
-      label: text(node.label || node.title || node.path, '노트'),
-      group: text(node.group || node.folder || node.kind, '기타'),
-      linkCount: Number(node.linkCount || 0),
-    };
+  const obsidianVaultFolders = ['0_inbox', '1_raw', '2_wiki', '3_output', '4_journal']
+    .map((tag) => ({ tag, docs: docGroups.find((group) => group.tag === tag)?.docs || [] }))
+    .slice(0, 5);
+  const graphEdges = useMemo(() => graphEdgesRaw.length ? graphEdgesRaw : buildWikiGraphFallbackEdges(list), [graphEdgesRaw, list]);
+  const graphLayout = useMemo(() => buildWikiGraphLayout(graphNodesRaw, list, graphEdges, {
+    centerForce: graphCenterForce,
+    repelForce: graphRepelForce,
+    linkDistance: graphLinkDistance,
+  }), [graphNodesRaw, list, graphEdges, graphCenterForce, graphRepelForce, graphLinkDistance]);
+  const graphGroups = (Array.isArray(graph.groups) ? graph.groups.map(String) : graphLayout.groups).slice(0, 8);
+  const graphNodes = graphLayout.nodes.map((entry) => {
+    const draggedPosition = draggedGraphPositions[entry.id];
+    return draggedPosition ? { ...entry, x: draggedPosition.x, y: draggedPosition.y } : entry;
   });
-  const graphById = new Map(graphNodes.map((entry) => [entry.id, entry]));
+  const graphLayoutEdges = graphLayout.edges;
   const activeGraphId = activePath || itemId(active || {}, '');
+  const activeLocalGraphIds = new Set<string>();
+  if (activeGraphId) {
+    activeLocalGraphIds.add(activeGraphId);
+    graphLayoutEdges.forEach((edge) => {
+      const from = text(edge.from);
+      const to = text(edge.to);
+      if (from === activeGraphId) activeLocalGraphIds.add(to);
+      if (to === activeGraphId) activeLocalGraphIds.add(from);
+    });
+  }
+  const localGraphHasActive = Boolean(activeGraphId && graphNodes.some((entry) => entry.id === activeGraphId));
+  const localGraphScopeActive = graphLocalMode && localGraphHasActive;
+  const localGraphCenter = { x: 480, y: 310 };
+  const localGraphNodeOrder = new Map(
+    graphNodes
+      .filter((entry) => activeLocalGraphIds.has(entry.id) && entry.id !== activeGraphId)
+      .sort((left, right) => right.linkCount - left.linkCount || left.label.localeCompare(right.label))
+      .map((entry, index) => [entry.id, index]),
+  );
+  const localGraphNeighborCount = localGraphNodeOrder.size;
+  const scopedGraphNodes = localGraphScopeActive
+    ? graphNodes.map((entry) => {
+      if (!activeLocalGraphIds.has(entry.id)) return entry;
+      if (draggedGraphPositions[entry.id]) return entry;
+      if (entry.id === activeGraphId) return { ...entry, x: localGraphCenter.x, y: localGraphCenter.y };
+      const neighborIndex = localGraphNodeOrder.get(entry.id);
+      if (neighborIndex === undefined) return entry;
+      const angle = localGraphNeighborCount === 1
+        ? -Math.PI / 2
+        : -Math.PI / 2 + (neighborIndex / localGraphNeighborCount) * Math.PI * 2;
+      const radius = Math.min(180, 112 + Math.sqrt(localGraphNeighborCount) * 8);
+      return {
+        ...entry,
+        x: localGraphCenter.x + Math.cos(angle) * radius,
+        y: localGraphCenter.y + Math.sin(angle) * radius * .86,
+      };
+    })
+    : graphNodes;
+  const graphInteractive = !localGraphScopeActive || graphBannerInteractive;
+  useEffect(() => {
+    if (!localGraphScopeActive || !graphBannerInteractive) return undefined;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && graphCanvasRef.current?.contains(target)) return;
+      setGraphBannerInteractive(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [localGraphScopeActive, graphBannerInteractive]);
+  const graphFilterNeedle = graphFilterQuery.trim().toLowerCase();
+  const visibleGraphNodes = scopedGraphNodes.filter((entry) => {
+    if (localGraphScopeActive && !activeLocalGraphIds.has(entry.id)) return false;
+    if (!graphShowOrphans && entry.linkCount === 0) return false;
+    if (!graphFilterNeedle) return true;
+    return [entry.label, entry.id, entry.group, text(entry.node.path || entry.node.wikiPath || '')]
+      .join(' ')
+      .toLowerCase()
+      .includes(graphFilterNeedle);
+  });
+  const visibleGraphIds = new Set(visibleGraphNodes.map((entry) => entry.id));
+  const visibleGraphEdges = graphLayoutEdges.filter((edge) => visibleGraphIds.has(text(edge.from)) && visibleGraphIds.has(text(edge.to)));
+  const graphById = new Map(visibleGraphNodes.map((entry) => [entry.id, entry]));
+  const activeGraphNode = graphById.get(activeGraphId);
   const connected = new Set<string>();
-  graphEdges.forEach((edge) => {
+  visibleGraphEdges.forEach((edge) => {
     if (text(edge.from) === activeGraphId) connected.add(text(edge.to));
     if (text(edge.to) === activeGraphId) connected.add(text(edge.from));
   });
-  const graphViewBox = text(graph.viewBox, '0 0 960 620');
+  const hoveredConnected = new Set<string>();
+  if (hoveredGraphId) {
+    hoveredConnected.add(hoveredGraphId);
+    visibleGraphEdges.forEach((edge) => {
+      const from = text(edge.from);
+      const to = text(edge.to);
+      if (from === hoveredGraphId) hoveredConnected.add(to);
+      if (to === hoveredGraphId) hoveredConnected.add(from);
+    });
+  }
+  const graphViewBox = graphLayout.viewBox;
   const viewBoxParts = graphViewBox.split(/\s+/).map(Number);
   const graphBox = {
     x: Number.isFinite(viewBoxParts[0]) ? viewBoxParts[0] : 0,
@@ -3441,8 +3876,124 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
     width: Number.isFinite(viewBoxParts[2]) ? viewBoxParts[2] : 960,
     height: Number.isFinite(viewBoxParts[3]) ? viewBoxParts[3] : 620,
   };
+  const denseFocusZoomLabels = graphFocusMode && graphZoom >= 1.35 && (visibleGraphNodes.length > 220 || visibleGraphEdges.length > 180);
+  const focusZoomRankedNodes = graphFocusMode && graphZoom >= 1.35
+    ? visibleGraphNodes
+      .filter((entry) => entry.linkCount > 0 && entry.id !== activeGraphId)
+      .map((entry) => {
+        const anchor = activeGraphNode || { x: graphBox.x + graphBox.width / 2, y: graphBox.y + graphBox.height / 2 };
+        const distance = Math.hypot(entry.x - anchor.x, entry.y - anchor.y);
+        const activeNeighborScore = connected.has(entry.id) ? 100000 : 0;
+        return {
+          id: entry.id,
+          score: activeNeighborScore + entry.linkCount * 1000 - distance,
+          label: entry.label,
+        };
+      })
+      .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label))
+    : [];
+  const denseFocusProjectedPan = denseFocusZoomLabels && activeGraphNode
+    ? {
+      x: graphBox.x + graphBox.width * .52 - activeGraphNode.x * graphZoom,
+      y: graphBox.y + graphBox.height * .105 - activeGraphNode.y * graphZoom,
+    }
+    : null;
+  type SvgTextAnchor = 'start' | 'middle' | 'end' | 'inherit';
+  type DenseFocusContextNode = {
+    id: string;
+    label: string;
+    key: string;
+    nodeRatio: { x: number; y: number };
+    labelRatio: { x: number; y: number };
+    labelLimit: number;
+    labelAnchor: SvgTextAnchor;
+    score: number;
+  };
+  const denseFocusContextNodes = denseFocusProjectedPan
+    ? (() => {
+      const slots: Array<Omit<DenseFocusContextNode, 'id' | 'label' | 'score'>> = [
+      {
+        key: 'left-context',
+        nodeRatio: { x: .02, y: .58 },
+        labelRatio: { x: .01, y: .648 },
+        labelLimit: 36,
+        labelAnchor: 'middle',
+      },
+      {
+        key: 'right-context',
+        nodeRatio: { x: .66, y: .92 },
+        labelRatio: { x: .60, y: .617 },
+        labelLimit: 38,
+        labelAnchor: 'start',
+      },
+      ];
+      const selectedIds = new Set<string>();
+      return slots.map((slot) => {
+        const selected = visibleGraphNodes
+          .filter((entry) => entry.id !== activeGraphId && entry.linkCount > 0 && !selectedIds.has(entry.id))
+          .map((entry) => {
+            const projected = {
+              x: (entry.x * graphZoom + denseFocusProjectedPan.x - graphBox.x) / graphBox.width,
+              y: (entry.y * graphZoom + denseFocusProjectedPan.y - graphBox.y) / graphBox.height,
+            };
+            const distance = Math.hypot(projected.x - slot.nodeRatio.x, projected.y - slot.nodeRatio.y);
+            return {
+              id: entry.id,
+              label: entry.label,
+              key: slot.key,
+              nodeRatio: slot.nodeRatio,
+              labelRatio: slot.labelRatio,
+              labelLimit: slot.labelLimit,
+              labelAnchor: slot.labelAnchor,
+              score: (connected.has(entry.id) ? 100000 : 0) + entry.linkCount * 1000 - distance,
+            };
+          })
+          .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label))[0];
+        if (selected) selectedIds.add(selected.id);
+        return selected;
+      }).filter((entry): entry is DenseFocusContextNode => Boolean(entry));
+    })()
+    : [];
+  const denseFocusContextById = new Map(denseFocusContextNodes.map((entry) => [entry.id, entry]));
+  const focusZoomLabelIds = new Set<string>();
+  if (focusZoomRankedNodes.length) {
+    const labelLimit = denseFocusZoomLabels ? 0 : visibleGraphNodes.length;
+    focusZoomRankedNodes
+      .slice(0, labelLimit)
+      .forEach((entry) => focusZoomLabelIds.add(entry.id));
+  }
+  denseFocusContextNodes.forEach((entry) => focusZoomLabelIds.add(entry.id));
+  const focusZoomRenderIds = new Set<string>();
+  const focusZoomEdgeIds = new Set<string>();
+  if (denseFocusZoomLabels) {
+    if (activeGraphId) focusZoomRenderIds.add(activeGraphId);
+    if (activeGraphId) focusZoomEdgeIds.add(activeGraphId);
+    focusZoomRankedNodes.slice(0, 40).forEach((entry) => focusZoomEdgeIds.add(entry.id));
+    denseFocusContextNodes.forEach((entry) => focusZoomRenderIds.add(entry.id));
+    denseFocusContextNodes.forEach((entry) => focusZoomEdgeIds.add(entry.id));
+  }
+  const renderedGraphNodes = denseFocusZoomLabels
+    ? visibleGraphNodes.filter((entry) => focusZoomRenderIds.has(entry.id))
+    : visibleGraphNodes;
+  const renderedGraphEdges = denseFocusZoomLabels
+    ? visibleGraphEdges
+      .filter((edge) => focusZoomEdgeIds.has(text(edge.from)) && focusZoomEdgeIds.has(text(edge.to)))
+      .sort((left, right) => {
+        const leftFrom = text(left.from);
+        const leftTo = text(left.to);
+        const rightFrom = text(right.from);
+        const rightTo = text(right.to);
+        const scoreEdge = (from: string, to: string) => (
+          (from === activeGraphId || to === activeGraphId ? 1000 : 0) +
+          (denseFocusContextById.has(from) || denseFocusContextById.has(to) ? 100 : 0)
+        );
+        return scoreEdge(rightFrom, rightTo) - scoreEdge(leftFrom, leftTo) || text(left.id).localeCompare(text(right.id));
+      })
+      .slice(0, 36)
+    : visibleGraphEdges;
+  const activeGraphX = activeGraphNode?.x;
+  const activeGraphY = activeGraphNode?.y;
   const clampGraphZoom = (value: number) => Math.min(3, Math.max(.45, value));
-  const setClampedGraphZoom = (value: number) => setGraphZoom(clampGraphZoom(value));
   const resetGraphView = () => {
     setGraphZoom(1);
     setGraphPan({ x: 0, y: 0 });
@@ -3455,28 +4006,69 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
       return next;
     });
   };
-  const graphPoint = (event: { currentTarget: HTMLElement | SVGSVGElement; clientX: number; clientY: number }) => {
+  const graphPoint = (event: { currentTarget: Element; clientX: number; clientY: number }) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
       x: graphBox.x + ((event.clientX - rect.left) / rect.width) * graphBox.width,
       y: graphBox.y + ((event.clientY - rect.top) / rect.height) * graphBox.height,
     };
   };
+  const graphContentPoint = (event: { currentTarget: Element; clientX: number; clientY: number }) => {
+    const point = graphPoint(event);
+    return {
+      x: (point.x - graphPan.x) / graphZoom,
+      y: (point.y - graphPan.y) / graphZoom,
+    };
+  };
   const zoomAt = (nextZoom: number, anchor: { x: number; y: number }) => {
-    setGraphZoom((currentZoom) => {
-      const clamped = clampGraphZoom(nextZoom);
-      const ratio = clamped / currentZoom;
-      setGraphPan((currentPan) => ({
-        x: anchor.x - (anchor.x - currentPan.x) * ratio,
-        y: anchor.y - (anchor.y - currentPan.y) * ratio,
-      }));
-      return clamped;
+    const clamped = clampGraphZoom(nextZoom);
+    setGraphPan({
+      x: anchor.x - ((anchor.x - graphPan.x) / graphZoom) * clamped,
+      y: anchor.y - ((anchor.y - graphPan.y) / graphZoom) * clamped,
     });
+    setGraphZoom(clamped);
+  };
+  const graphCenter = { x: graphBox.x + graphBox.width / 2, y: graphBox.y + graphBox.height / 2 };
+  useEffect(() => {
+    if (!denseFocusZoomLabels || !Number.isFinite(activeGraphX) || !Number.isFinite(activeGraphY)) return;
+    const target = { x: graphBox.x + graphBox.width * .52, y: graphBox.y + graphBox.height * .075 };
+    const nextPan = {
+      x: target.x - Number(activeGraphX) * graphZoom,
+      y: target.y - Number(activeGraphY) * graphZoom,
+    };
+    setGraphPan((current) => (
+      Math.hypot(current.x - nextPan.x, current.y - nextPan.y) < .5 ? current : nextPan
+    ));
+  }, [denseFocusZoomLabels, activeGraphX, activeGraphY, graphBox.x, graphBox.y, graphBox.width, graphBox.height, graphZoom]);
+  const fitLocalGraphView = () => {
+    const localNodes = graphNodes.filter((entry) => activeLocalGraphIds.has(entry.id));
+    if (!localNodes.length) return;
+    const xs = localNodes.map((entry) => entry.x);
+    const ys = localNodes.map((entry) => entry.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const localWidth = Math.max(120, maxX - minX + 104);
+    const localHeight = Math.max(100, maxY - minY + 88);
+    const nextZoom = Math.min(2.25, clampGraphZoom(Math.min(graphBox.width / localWidth, graphBox.height / localHeight) * .74));
+    const localCenter = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+    setGraphZoom(nextZoom);
+    setGraphPan({
+      x: graphCenter.x - localCenter.x * nextZoom,
+      y: graphCenter.y - localCenter.y * nextZoom,
+    });
+  };
+  const updateGraphLocalMode = (enabled: boolean) => {
+    setGraphLocalMode(enabled);
+    setGraphBannerInteractive(false);
+    if (enabled && localGraphHasActive) window.requestAnimationFrame(fitLocalGraphView);
+    else resetGraphView();
   };
   const suggest = ['UniPort BM 요약', '트레이딩 규칙은?', '이번 주에 뭘 배웠지?'];
   const engineLabel = text(answerMeta.agent || answerMeta.model || answerMeta.provider, '');
   const fallbackLabel = answerMeta.gatewayFallback === true ? '검색 fallback' : '';
-  return <div className="wiki screen-in">
+  return <div className="wiki screen-in" data-graph-focus={graphFocusMode}>
     <div className="askbar"><div><span>H</span><input value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') ask(); }} placeholder="위키에게 물어보세요 — AI가 쌓인 지식으로 답합니다" /></div><button disabled={asking} onClick={ask}>{asking ? '답변 중' : '질문'}</button></div>
     <div className="wiki-suggest">{suggest.map((item) => <button key={item} onClick={() => setQuestion(item)}>{item}</button>)}</div>
     <div className="wiki-scope">
@@ -3484,23 +4076,140 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
       <label><input type="checkbox" checked={includeRaw} onChange={(event) => setIncludeRaw(event.target.checked)} /> raw 포함</label>
     </div>
     {answer && <div className="wiki-answer"><span>H</span><p>{answer}{sources.length > 0 && <small>{sources.slice(0, 3).map((source) => text(source.title || source.path, '참조 문서')).join(' · ')}</small>}{(engineLabel || fallbackLabel) && <small>{[engineLabel, fallbackLabel].filter(Boolean).join(' · ')}</small>}</p><button onClick={dismissAnswer}>✕</button></div>}
-    <div className="wiki-main">
+    {graphFocusMode && <div className="wiki-obsidian-titlebar" aria-hidden="true">
+      <div className="wiki-obsidian-titlebar-workspace">
+        <div className="wiki-obsidian-window-dots">
+          <span className="wiki-obsidian-window-dot" />
+          <span className="wiki-obsidian-window-dot" />
+          <span className="wiki-obsidian-window-dot" />
+        </div>
+        {['folder', 'search', 'bookmark', 'split'].map((name) => <span className="wiki-obsidian-title-icon" key={name}>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            {name === 'folder' && <path d="M4 7h6l2 2h8v10H4zM4 7V5h6l2 2" />}
+            {name === 'search' && <path d="m15.5 15.5 4 4M10.5 17a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z" />}
+            {name === 'bookmark' && <path d="M7 4h10v16l-5-3-5 3z" />}
+            {name === 'split' && <path d="M5 5h14v14H5zM13 5v14" />}
+          </svg>
+        </span>)}
+      </div>
+      <div className="wiki-obsidian-tabs">
+        <div className="wiki-obsidian-tab" data-active="true"><span>그래프 뷰</span><i>×</i></div>
+        <div className="wiki-obsidian-new-tab">+</div>
+      </div>
+      <div className="wiki-obsidian-title-actions">
+        <span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 9 5 5 5-5" /></svg></span>
+        <span><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="16" rx="2" /><path d="M15 4v16" /></svg></span>
+      </div>
+    </div>}
+    <div className="wiki-main" data-graph-focus={graphFocusMode}>
+      <aside className="wiki-obsidian-shell" aria-label="Obsidian vault navigator">
+        <nav className="wiki-obsidian-rail" aria-label="Obsidian tools">
+          {['file', 'search', 'bookmark', 'graph', 'calendar', 'terminal', 'list'].map((name) => <span data-active={name === 'graph'} aria-hidden="true" key={name}>
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              {name === 'file' && <path d="M7 4h7l3 3v13H7zM14 4v4h4" />}
+              {name === 'search' && <path d="m15.5 15.5 4 4M10.5 17a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z" />}
+              {name === 'bookmark' && <path d="M7 4h10v16l-5-3-5 3z" />}
+              {name === 'graph' && <><circle cx="7" cy="8" r="2" /><circle cx="17" cy="7" r="2" /><circle cx="12" cy="17" r="2" /><path d="m9 9 6 6M15.2 8.6 13 15M8.2 9.6 11 15" /></>}
+              {name === 'calendar' && <path d="M6 5h12v14H6zM6 9h12M9 3v4M15 3v4" />}
+              {name === 'terminal' && <path d="m7 8 4 4-4 4M13 17h5" />}
+              {name === 'list' && <path d="M8 7h11M8 12h11M8 17h11M4 7h.1M4 12h.1M4 17h.1" />}
+            </svg>
+          </span>)}
+        </nav>
+        <div className="wiki-obsidian-tree">
+          <div className="wiki-obsidian-tree-toolbar" aria-hidden="true">
+            {[
+              { control: 'new-note', label: '새 노트' },
+              { control: 'new-folder', label: '새 폴더' },
+              { control: 'sort', label: '정렬' },
+              { control: 'collapse', label: '접기' },
+              { control: 'close', label: '닫기' },
+            ].map((item) => <span aria-label={item.label} data-obsidian-toolbar-control={item.control} key={item.control}>
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                {item.control === 'new-note' && <><path d="M6.5 4.5h8l3 3v12h-11z" /><path d="M14.5 4.5v4h4M9.5 14.5h5M12 12v5" /></>}
+                {item.control === 'new-folder' && <><path d="M4.5 8h6l1.7 2h7.3v8.5h-15z" /><path d="M4.5 8V5.5h5.8l1.7 2H18" /><path d="M12 12.5v4M10 14.5h4" /></>}
+                {item.control === 'sort' && <><path d="M7 7h10M9 12h8M11 17h6" /><path d="m5 8 2-2 2 2M5 16l2 2 2-2" /></>}
+                {item.control === 'collapse' && <><path d="M6.5 7.5h11M8.5 12h7M10.5 16.5h3" /><path d="m7 10 5-4 5 4M7 14l5 4 5-4" /></>}
+                {item.control === 'close' && <path d="M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5" />}
+              </svg>
+            </span>)}
+          </div>
+          <div className="wiki-obsidian-folders">
+            {obsidianVaultFolders.map((group) => {
+              const expanded = group.tag === '4_journal' || openTreeGroups.has(group.tag);
+              return <div className="wiki-obsidian-folder" data-open={expanded} key={group.tag}>
+                <button className="wiki-obsidian-folder-row" type="button" onClick={() => toggleTreeGroup(group.tag)}>
+                  <i>{expanded ? '⌄' : '›'}</i><span>{group.tag}</span>
+                </button>
+                {expanded && group.tag === '4_journal' && <button className="wiki-obsidian-folder-child" type="button" onClick={() => setTreeQuery('4_journal/_me')}>_me</button>}
+                {expanded && group.docs
+                  .slice()
+                  .sort((a, b) => group.tag === '4_journal' ? journalDateKey(a).localeCompare(journalDateKey(b)) : 0)
+                  .slice(0, group.tag === '4_journal' ? 26 : 16)
+                  .map((node, index) => {
+                  const pathValue = text(node.path || node.wikiPath || node.id || '', '');
+                  const label = stripWikiExtension(pathValue.split('/').filter(Boolean).pop() || itemTitle(node, `note-${index}`));
+                  return <button className="wiki-obsidian-folder-child" type="button" key={`${group.tag}-${pathValue || index}`} onClick={() => { setActiveWikiId(pathValue || itemId(node, `wiki-${index}`)); setReaderOpen(true); }}>{label}</button>;
+                })}
+              </div>;
+            })}
+          </div>
+          <div className="wiki-obsidian-vault">
+            <span className="wiki-obsidian-vault-control" aria-label="vault switcher">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 9 4-4 4 4M8 15l4 4 4-4" /></svg>
+            </span>
+            <strong>LLM-Wiki</strong>
+            <i />
+            <span className="wiki-obsidian-vault-control" aria-label="help">?</span>
+            <span className="wiki-obsidian-vault-control" aria-label="settings">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M4.8 7.2l2.1 2.1M17.1 14.7l2.1 2.1M3 12h3M18 12h3M4.8 16.8l2.1-2.1M17.1 9.3l2.1-2.1" /></svg>
+            </span>
+          </div>
+        </div>
+      </aside>
       <section className="wiki-graph-panel">
-        <header><strong>🕸 지식 그래프</strong><small>{graphNodes.length}개 노트 · {graphEdges.length}개 링크</small><i />{graphGroups.slice(0, 5).map((tag) => <span className="wiki-legend" key={tag}><b style={{ background: colors[tag] || colors.기타 }} />{tag}</span>)}</header>
-        <div className="wiki-graph-canvas" data-panning={graphPanning} onWheel={(event) => { event.preventDefault(); zoomAt(graphZoom * (event.deltaY > 0 ? .9 : 1.1), graphPoint(event)); }}>
-          <div className="wiki-graph-controls" aria-label="그래프 확대 축소">
-            <button aria-label="그래프 확대" onClick={() => setClampedGraphZoom(graphZoom * 1.18)}>+</button>
-            <button aria-label="그래프 축소" onClick={() => setClampedGraphZoom(graphZoom / 1.18)}>−</button>
+        <header><strong>지식 그래프</strong><small>{localGraphScopeActive ? '로컬 그래프 · ' : ''}{visibleGraphNodes.length}개 노트 · {visibleGraphEdges.length}개 링크</small><i />{graphGroups.slice(0, 5).map((tag) => <span className="wiki-legend" key={tag}><b style={{ background: colors[tag] || colors.기타 }} />{tag}</span>)}</header>
+        <div ref={graphCanvasRef} className="wiki-graph-canvas view-content graph-banner-content" data-panning={graphPanning} data-interactive={graphInteractive} data-scope={localGraphScopeActive ? 'local' : 'global'} data-dense-focus={denseFocusZoomLabels} data-timelapse={graphTimelapseActive} style={{ '--wiki-edge-opacity': graphLinkOpacity, '--wiki-edge-scale': graphLinkScale } as CSSProperties} tabIndex={0} onKeyDown={(event) => {
+          if (!event.metaKey && !event.ctrlKey) return;
+          if (event.key === '+' || event.key === '=') {
+            event.preventDefault();
+            zoomAt(graphZoom * 1.42, graphCenter);
+          } else if (event.key === '-' || event.key === '_') {
+            event.preventDefault();
+            zoomAt(graphZoom / 1.42, graphCenter);
+          } else if (event.key === '0') {
+            event.preventDefault();
+            resetGraphView();
+          }
+        }} onWheel={(event) => { event.preventDefault(); zoomAt(graphZoom * (event.deltaY > 0 ? .86 : 1.16), graphPoint(event)); }}>
+          {graphTimelapseActive && <div className="wiki-graph-timelapse" aria-label="타임랩스 재생 중"><span /></div>}
+          {graphFocusMode && <div className="wiki-graph-pane-chrome" aria-hidden="true"><span>‹</span><span>›</span><strong>그래프 뷰</strong><em>•••</em></div>}
+          {localGraphScopeActive && <button className="wiki-graph-banner-overlay graph-banner-overlay" type="button" aria-label="로컬 그래프 활성화" onClick={(event) => { event.stopPropagation(); setGraphBannerInteractive(true); }} onPointerUp={(event) => { event.stopPropagation(); setGraphBannerInteractive(true); }} />}
+          <div className={`wiki-graph-controls graph-controls${graphInteractive ? '' : ' is-close'}`} aria-label="그래프 확대 축소">
+            <button aria-label="그래프 확대" onClick={() => zoomAt(graphZoom * 1.18, graphCenter)}>+</button>
+            <button aria-label="그래프 축소" onClick={() => zoomAt(graphZoom / 1.18, graphCenter)}>−</button>
             <button aria-label="그래프 위치 초기화" onClick={resetGraphView}>⌂</button>
             <span>{Math.round(graphZoom * 100)}%</span>
           </div>
           <svg className="wiki-graph-svg" viewBox={graphViewBox} preserveAspectRatio="xMidYMid meet" onPointerDown={(event) => {
+            if (!graphInteractive) return;
             const target = event.target as Element;
             if (target.closest('.wiki-svg-node')) return;
             graphDragRef.current = { x: event.clientX, y: event.clientY, panX: graphPan.x, panY: graphPan.y };
             setGraphPanning(true);
             event.currentTarget.setPointerCapture(event.pointerId);
           }} onPointerMove={(event) => {
+            if (graphNodeDragRef.current) {
+              const point = graphContentPoint(event);
+              const drag = graphNodeDragRef.current;
+              const nextX = drag.nodeX + point.x - drag.x;
+              const nextY = drag.nodeY + point.y - drag.y;
+              const moved = drag.moved || Math.hypot(point.x - drag.x, point.y - drag.y) > 4;
+              graphNodeDragRef.current = { ...drag, moved };
+              if (moved) suppressGraphClickRef.current = true;
+              setDraggedGraphPositions((current) => ({ ...current, [drag.id]: { x: nextX, y: nextY } }));
+              return;
+            }
             if (!graphDragRef.current) return;
             const rect = event.currentTarget.getBoundingClientRect();
             setGraphPan({
@@ -3508,34 +4217,154 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
               y: graphDragRef.current.panY + ((event.clientY - graphDragRef.current.y) * graphBox.height / rect.height),
             });
           }} onPointerUp={(event) => {
+            if (graphNodeDragRef.current) {
+              const finishedDrag = graphNodeDragRef.current;
+              if (finishedDrag.moved) {
+                suppressGraphClickRef.current = true;
+                window.setTimeout(() => { suppressGraphClickRef.current = false; }, 0);
+              } else {
+                const now = Date.now();
+                const previous = lastGraphClickRef.current;
+                setActiveWikiId(finishedDrag.id);
+                if (previous?.id === finishedDrag.id && now - previous.at < 360) setReaderOpen(true);
+                lastGraphClickRef.current = { id: finishedDrag.id, at: now };
+              }
+              graphNodeDragRef.current = null;
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+              return;
+            }
             graphDragRef.current = null;
             setGraphPanning(false);
             if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
           }} onPointerCancel={() => {
+            graphNodeDragRef.current = null;
             graphDragRef.current = null;
             setGraphPanning(false);
           }}>
             <rect className="wiki-graph-bg" x="0" y="0" width="100%" height="100%" />
             <g className="wiki-graph-viewport" transform={`translate(${graphPan.x} ${graphPan.y}) scale(${graphZoom})`}>
-              {graphEdges.map((edge, index) => {
+              {renderedGraphEdges.map((edge, index) => {
                 const from = graphById.get(text(edge.from));
                 const to = graphById.get(text(edge.to));
                 if (!from || !to) return null;
                 const hot = from.id === activeGraphId || to.id === activeGraphId;
-                return <line className="wiki-edge" data-hot={hot} key={text(edge.id, `edge-${index}`)} x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
+                const focus = Boolean(hoveredGraphId && (from.id === hoveredGraphId || to.id === hoveredGraphId));
+                const muted = Boolean(hoveredGraphId && !focus);
+                return <line className="wiki-edge" data-hot={hot} data-focus={focus} data-muted={muted} key={text(edge.id, `edge-${index}`)} x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
               })}
-              {graphNodes.map((entry) => {
+              {renderedGraphNodes.map((entry) => {
                 const activeNode = entry.id === activeGraphId;
-                const visibleLabel = activeNode || connected.has(entry.id) || entry.linkCount > 3;
-                return <g className="wiki-svg-node" data-active={activeNode} data-connected={connected.has(entry.id)} key={entry.id} onClick={() => { setActiveWikiId(entry.id); setReaderOpen(true); }}>
-                  <circle cx={entry.x} cy={entry.y} r={entry.r} fill={colors[entry.group] || colors.기타} />
-                  <title>{entry.label}</title>
-                  {visibleLabel && <text x={entry.x + entry.r + 5} y={entry.y + 4}>{entry.label.slice(0, 28)}</text>}
+                const contextPlacement = denseFocusContextById.get(entry.id);
+                const contextPinned = contextPlacement && !draggedGraphPositions[entry.id] ? contextPlacement : undefined;
+                const pinnedDenseLabel = Boolean(denseFocusZoomLabels && focusZoomLabelIds.has(entry.id));
+                const nodeX = contextPinned
+                  ? (graphBox.x + graphBox.width * contextPinned.nodeRatio.x - graphPan.x) / graphZoom
+                  : entry.x;
+                const nodeY = contextPinned
+                  ? (graphBox.y + graphBox.height * contextPinned.nodeRatio.y - graphPan.y) / graphZoom
+                  : entry.y;
+                const labelOverride = contextPinned
+                  ? {
+                    x: (graphBox.x + graphBox.width * contextPinned.labelRatio.x - graphPan.x) / graphZoom,
+                    y: (graphBox.y + graphBox.height * contextPinned.labelRatio.y - graphPan.y) / graphZoom,
+                  }
+                  : null;
+                const focusZoomLabel = graphFocusMode && graphZoom >= 1.35 && (entry.linkCount > 0 || focusZoomLabelIds.has(entry.id)) && (!denseFocusZoomLabels || focusZoomLabelIds.has(entry.id));
+                const visibleLabel = activeNode || (graphShowLabels && (denseFocusZoomLabels ? focusZoomLabel : (entry.linkCount > 4 || focusZoomLabel)));
+                const focus = Boolean(hoveredGraphId && hoveredConnected.has(entry.id));
+                const muted = Boolean(hoveredGraphId && !hoveredConnected.has(entry.id) && !activeNode && !pinnedDenseLabel);
+                const labelSource = activeGraphNode || { x: graphBox.x + graphBox.width / 2, y: graphBox.y + graphBox.height / 2 };
+                const labelAngle = activeNode ? -.22 : Math.atan2(nodeY - labelSource.y, nodeX - labelSource.x);
+                const labelVectorX = Math.cos(labelAngle);
+                const labelVectorY = Math.sin(labelAngle);
+                const labelOffset = entry.r * graphNodeScale + (focusZoomLabel ? 24 : 5);
+                const labelX = labelOverride?.x ?? (focusZoomLabel || activeNode ? nodeX + labelVectorX * labelOffset : nodeX + labelOffset);
+                const labelY = labelOverride?.y ?? (focusZoomLabel || activeNode ? nodeY + labelVectorY * labelOffset + 1 : nodeY + 4);
+                const labelAnchor = labelOverride ? (contextPlacement?.labelAnchor || 'middle') : focusZoomLabel || activeNode
+                  ? labelVectorX < -.22 ? 'end' : labelVectorX > .22 ? 'start' : 'middle'
+                  : 'start';
+                const graphLabel = denseFocusZoomLabels
+                  ? wikiBasename(text(entry.node.path || entry.node.wikiPath || entry.id, entry.label))
+                  : entry.label;
+                const labelLimit = contextPlacement?.labelLimit ?? 28;
+                return <g className="wiki-svg-node" data-active={activeNode} data-connected={connected.has(entry.id)} data-isolated={entry.linkCount === 0 ? 'true' : 'false'} data-hub={entry.linkCount > 3 ? 'true' : 'false'} data-focus={focus} data-muted={muted} data-context={Boolean(contextPlacement)} key={entry.id} onPointerEnter={() => { if (graphInteractive) setHoveredGraphId(entry.id); }} onPointerLeave={() => { if (graphInteractive && !graphNodeDragRef.current) setHoveredGraphId(''); }} onPointerDown={(event) => {
+                  if (!graphInteractive) return;
+                  event.stopPropagation();
+                  const point = graphContentPoint({ currentTarget: event.currentTarget.ownerSVGElement || event.currentTarget, clientX: event.clientX, clientY: event.clientY });
+                  graphNodeDragRef.current = { id: entry.id, x: point.x, y: point.y, nodeX: entry.x, nodeY: entry.y, moved: false };
+                  setHoveredGraphId(entry.id);
+                  event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId);
+                }} onClick={(event) => {
+                  if (suppressGraphClickRef.current) {
+                    event.preventDefault();
+                    suppressGraphClickRef.current = false;
+                    return;
+                  }
+                  setActiveWikiId(entry.id);
+                  if (event.detail >= 2) setReaderOpen(true);
+                }}>
+                  <circle cx={nodeX} cy={nodeY} r={entry.r * graphNodeScale} />
+                  <title>{graphLabel}</title>
+                  {visibleLabel && <text x={labelX} y={labelY} textAnchor={labelAnchor} dominantBaseline="middle">{graphLabel.slice(0, labelLimit)}</text>}
                 </g>;
               })}
             </g>
           </svg>
-          {readerOpen && active && <div className="wiki-reader"><header><div><strong>{itemTitle(active, 'Wiki 문서')}</strong><small>{text(active.folder || active.kind, '📄 문서')} · {text(active.updatedAt || active.date || active.tag || active.path, '위키 문서')}</small></div><button onClick={() => setReaderOpen(false)}>✕</button></header>{loadingPath === activePath && <div className="wiki-loading">본문 불러오는 중...</div>}<WikiArticle content={wikiBody(active) || '선택한 위키 문서의 본문입니다. 관련 작업과 런 결과가 이곳에 누적됩니다.'} /></div>}
+          <div className="wiki-graph-side-actions" aria-label="Obsidian graph controls">
+            <button type="button" aria-label={graphFocusMode ? '문서 트리 같이 보기' : '그래프 집중 보기'} data-active={graphFocusMode} data-obsidian-control="fullscreen" onClick={() => setGraphFocusMode((value) => !value)}>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4" /><path d="M9 9 4.8 4.8M15 9l4.2-4.2M9 15l-4.2 4.2M15 15l4.2 4.2" /></svg>
+            </button>
+            <button type="button" aria-label={graphLocalMode ? '전체 그래프 보기' : '로컬 그래프 보기'} data-active={graphLocalMode} data-obsidian-control="local-graph" onClick={() => updateGraphLocalMode(!graphLocalMode)}>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" /><path d="M12 4v3M12 17v3M4 12h3M17 12h3M6.6 6.6l2.1 2.1M15.3 15.3l2.1 2.1M17.4 6.6l-2.1 2.1M8.7 15.3l-2.1 2.1" /></svg>
+            </button>
+            <button type="button" aria-label="그래프 설정 열기" data-active={graphSettingsOpen} data-obsidian-control="settings" onClick={() => setGraphSettingsOpen((value) => !value)}>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M4.8 7.2l2.1 2.1M17.1 14.7l2.1 2.1M3 12h3M18 12h3M4.8 16.8l2.1-2.1M17.1 9.3l2.1-2.1" /></svg>
+            </button>
+            <button type="button" aria-label="타임랩스 애니메이션 시작" data-active={graphTimelapseActive} data-obsidian-control="timelapse" onClick={() => setGraphTimelapseActive((value) => !value)}>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12c2.4-4.8 5.6-4.8 8 0s5.6 4.8 8 0" /><path d="M4 17c2.4-4.8 5.6-4.8 8 0s5.6 4.8 8 0" /></svg>
+            </button>
+          </div>
+          {graphSettingsOpen && <aside className="wiki-graph-settings" aria-label="그래프 설정">
+            <header><strong>그래프 설정</strong><button type="button" aria-label="그래프 설정 닫기" onClick={() => setGraphSettingsOpen(false)}>×</button></header>
+            <section>
+              <h4>필터</h4>
+              <label className="wiki-graph-search"><span>⌕</span><input aria-label="그래프 필터" value={graphFilterQuery} onChange={(event) => setGraphFilterQuery(event.target.value)} placeholder="파일 검색" /></label>
+              <label className="wiki-graph-toggle"><input aria-label="선택 노트 로컬 그래프" type="checkbox" checked={graphLocalMode} onChange={(event) => updateGraphLocalMode(event.target.checked)} /> 선택 노트 로컬 그래프</label>
+              <label className="wiki-graph-toggle"><input aria-label="고립 노드 표시" type="checkbox" checked={graphShowOrphans} onChange={(event) => setGraphShowOrphans(event.target.checked)} /> 고립 노드 표시</label>
+            </section>
+            <section>
+              <h4>그룹</h4>
+              <div className="wiki-graph-groups">
+                {graphGroups.slice(0, 6).map((tag) => <span key={tag}><b style={{ background: colors[tag] || colors.기타 }} />{tag}<em>{graphNodes.filter((node) => node.group === tag).length}</em></span>)}
+              </div>
+            </section>
+            <section>
+              <h4>표시</h4>
+              <label className="wiki-graph-toggle"><input type="checkbox" checked={graphShowLabels} onChange={(event) => setGraphShowLabels(event.target.checked)} /> 이름 표시</label>
+              <label><span>노드 크기</span><input type="range" min=".7" max="1.7" step=".05" value={graphNodeScale} onChange={(event) => setGraphNodeScale(Number(event.target.value))} /></label>
+              <label><span>링크 두께</span><input type="range" min=".6" max="1.9" step=".05" value={graphLinkScale} onChange={(event) => setGraphLinkScale(Number(event.target.value))} /></label>
+              <label><span>링크 밝기</span><input type="range" min=".18" max=".9" step=".04" value={graphLinkOpacity} onChange={(event) => setGraphLinkOpacity(Number(event.target.value))} /></label>
+            </section>
+            <section>
+              <h4>동작</h4>
+              <label><span>중심 힘</span><input aria-label="중심 힘" type="range" min=".4" max="1.8" step=".05" value={graphCenterForce} onChange={(event) => { setGraphCenterForce(Number(event.target.value)); setDraggedGraphPositions({}); }} /></label>
+              <label><span>반발 힘</span><input aria-label="반발 힘" type="range" min=".65" max="1.55" step=".05" value={graphRepelForce} onChange={(event) => { setGraphRepelForce(Number(event.target.value)); setDraggedGraphPositions({}); }} /></label>
+              <label><span>링크 거리</span><input aria-label="링크 거리" type="range" min=".65" max="1.55" step=".05" value={graphLinkDistance} onChange={(event) => { setGraphLinkDistance(Number(event.target.value)); setDraggedGraphPositions({}); }} /></label>
+              <button type="button" onClick={resetGraphView}>화면 맞추기</button>
+              <button type="button" onClick={() => setDraggedGraphPositions({})}>노드 위치 초기화</button>
+            </section>
+          </aside>}
+          {readerOpen && active && <div className="wiki-reader">
+            <button className="wiki-reader-close" type="button" aria-label="위키 문서 팝업 닫기" title="닫기" onClick={() => setReaderOpen(false)}>×</button>
+            <header>
+              <div>
+                <strong>{itemTitle(active, 'Wiki 문서')}</strong>
+                <small>{text(active.folder || active.kind, '📄 문서')} · {text(active.updatedAt || active.date || active.tag || active.path, '위키 문서')}</small>
+              </div>
+            </header>
+            {loadingPath === activePath && <div className="wiki-loading">본문 불러오는 중...</div>}
+            <WikiArticle content={wikiBody(active) || '선택한 위키 문서의 본문입니다. 관련 작업과 런 결과가 이곳에 누적됩니다.'} />
+          </div>}
         </div>
       </section>
       <aside className="wiki-side">
@@ -3667,6 +4496,7 @@ function AgentsScreen({ agents, runs, missionText, setMissionText, selectedAgent
   const examples = ['UniPort 경쟁사 3곳 리서치해서 위키에 정리', '이번 주 트레이딩 회고 문서 작성', '캐러셀 파이프라인 버그 정리 노트'];
   const agentEmoji = (agent: Item, fallback = '🤖') => text(agent.emoji || agent.icon, fallback);
   const selectableAgents = agents.filter(isAgentSelectable);
+  const selectedAgentReady = selectableAgents.some((agent, index) => itemId(agent, `agent-${index}`) === selectedAgentId);
   const currentAgentNames = new Set(agents.flatMap((agent) => [
     agentDisplayName(agent),
     text(agent.hermesProfileName || agentProfileName(agent)),
@@ -3685,7 +4515,7 @@ function AgentsScreen({ agents, runs, missionText, setMissionText, selectedAgent
           return <button className="agent-chip" data-active={selectedAgentId === id} key={id} onClick={() => setSelectedAgentId(id)}>{agentEmoji(agent)} {agentDisplayName(agent)}</button>;
         })}
         <span />
-        <button className="primary" onClick={startPlan}>계획 세우기 →</button>
+        <button className="primary" disabled={!selectedAgentReady} onClick={startPlan}>계획 세우기 →</button>
       </footer>
       <div className="mission-examples">{examples.map((example) => <button key={example} onClick={() => setMissionText(example)}>{example}</button>)}</div>
     </section>
@@ -3728,10 +4558,6 @@ function SettingsScreen({ settings, setSettings, refresh }: { settings: DesktopS
 
 function LoginScreen({ email, setEmail, password, setPassword, loginWithProvider, authBusyProvider, passwordAuthBusy, loginStatus, authenticateWithPassword }: { email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; loginWithProvider: (provider: AuthProvider) => void; authBusyProvider: AuthProvider | null; passwordAuthBusy: boolean; loginStatus: string; authenticateWithPassword: (mode: 'login' | 'signup') => void }) {
   return <AgentCalendarLoginExperience mode="page" email={email} setEmail={setEmail} password={password} setPassword={setPassword} authenticateWithPassword={authenticateWithPassword} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} />;
-}
-
-function LoginOverlay({ email, setEmail, password, setPassword, authenticateWithPassword, loginWithProvider, authBusyProvider, passwordAuthBusy, loginStatus }: { email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; authenticateWithPassword: (mode: 'login' | 'signup') => void; loginWithProvider: (provider: AuthProvider) => void; authBusyProvider: AuthProvider | null; passwordAuthBusy: boolean; loginStatus: string }) {
-  return <AgentCalendarLoginExperience mode="overlay" email={email} setEmail={setEmail} password={password} setPassword={setPassword} authenticateWithPassword={authenticateWithPassword} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} />;
 }
 
 function AgentCalendarLoginExperience({ mode, email, setEmail, password, setPassword, authenticateWithPassword, loginWithProvider, authBusyProvider, passwordAuthBusy, loginStatus }: { mode: 'overlay' | 'page'; email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; authenticateWithPassword: (mode: 'login' | 'signup') => void; loginWithProvider: (provider: AuthProvider) => void; authBusyProvider: AuthProvider | null; passwordAuthBusy: boolean; loginStatus: string }) {

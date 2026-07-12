@@ -4,6 +4,7 @@ let apiBaseUrl = '';
 const API_TIMEOUT_MS = 6500;
 const SCHEDULE_ASK_TIMEOUT_MS = 45_000;
 const WIKI_SEARCH_TIMEOUT_MS = 60_000;
+const WIKI_ASK_TIMEOUT_MS = 150_000;
 
 export function setApiBaseUrl(baseUrl: string) {
   apiBaseUrl = String(baseUrl || '').replace(/\/+$/g, '');
@@ -68,7 +69,7 @@ export const hermesApi = {
     if (options.query) params.set('query', options.query);
     return hermesJson<ApiEnvelope>(`/api/wiki${params.toString() ? `?${params}` : ''}`);
   },
-  askWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/ask', body),
+  askWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/ask', body, WIKI_ASK_TIMEOUT_MS),
   searchWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/search', body, WIKI_SEARCH_TIMEOUT_MS),
   askSchedule: (body: Record<string, unknown>) => jsonPost('/api/assistant/ask', body, SCHEDULE_ASK_TIMEOUT_MS),
   ingestSchedule: (body: FormData) => hermesJson<ApiEnvelope>('/api/assistant/ingest', { method: 'POST', body }, SCHEDULE_ASK_TIMEOUT_MS),
@@ -95,5 +96,6 @@ export const hermesApi = {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(WIKI_ASK_TIMEOUT_MS),
   }),
 };

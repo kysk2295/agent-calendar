@@ -100,6 +100,24 @@ input:focus, textarea:focus, select:focus { outline: none; }
   background: var(--sidebar);
   border-right: 1px solid var(--line-strong);
 }
+.app-root:has(.wiki[data-graph-focus="true"]) .sidebar {
+  display: none;
+}
+html:has(.wiki[data-graph-focus="true"]),
+body:has(.wiki[data-graph-focus="true"]),
+#root:has(.wiki[data-graph-focus="true"]),
+.app-root:has(.wiki[data-graph-focus="true"]),
+.app-root:has(.wiki[data-graph-focus="true"]) .main {
+  background: transparent;
+}
+.app-root:has(.wiki[data-graph-focus="true"]) .topbar {
+  display: none;
+}
+.app-root:has(.wiki[data-graph-focus="true"]) .content {
+  overflow: hidden;
+  padding: 0;
+  background: transparent;
+}
 
 .brand {
   display: flex;
@@ -344,6 +362,9 @@ img.avatar {
 .app-root:has(.task-list-screen) .chat-fab,
 .app-root:has(.detail-modal) .chat-fab {
   bottom: 82px;
+}
+.app-root:has(.wiki[data-graph-focus="true"]) .chat-fab {
+  display: none;
 }
 .chat-fab-icon {
   width: 25px;
@@ -1714,6 +1735,59 @@ textarea { resize: vertical; min-height: 72px; }
   box-shadow: 0 1px 2px rgba(183,73,44,.18);
 }
 .list-quick button:hover { background: var(--accent-dark); }
+.plan-quick {
+  align-items: center;
+  min-height: 38px;
+  gap: 8px;
+  padding: 3px;
+  margin-bottom: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+.plan-quick:focus-within {
+  background: var(--panel);
+  border-color: var(--accent-line);
+  box-shadow: 0 1px 2px rgba(43,38,32,.05);
+}
+.plan-quick > span {
+  width: 28px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding-left: 0;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 500;
+}
+.plan-quick input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 4px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 12.5px;
+}
+.plan-quick input::placeholder {
+  color: var(--muted);
+}
+.plan-quick button {
+  height: 30px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0 12px;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(183,73,44,.18);
+}
+.plan-quick button:hover { background: var(--accent-dark); }
 .quick-spacer { height: 8px; }
 .quick-preview {
   display: flex;
@@ -3114,6 +3188,17 @@ textarea { resize: vertical; min-height: 72px; }
   flex-direction: column;
   padding: 4px 2px 12px;
 }
+.wiki[data-graph-focus="true"] {
+  min-height: 0;
+  width: calc(100% - 68px);
+  height: calc(100% - 68px);
+  margin: 26px 34px 42px;
+  padding: 0;
+  background: #fff;
+  border-radius: 13px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.02), 0 16px 36px rgba(0,0,0,.045);
+  overflow: hidden;
+}
 .askbar {
   display: flex;
   gap: 8px;
@@ -3208,11 +3293,368 @@ textarea { resize: vertical; min-height: 72px; }
   color: #B6AC99;
   font-size: 14px;
 }
+.wiki[data-graph-focus="true"] .askbar,
+.wiki[data-graph-focus="true"] .wiki-suggest,
+.wiki[data-graph-focus="true"] .wiki-scope,
+.wiki[data-graph-focus="true"] .wiki-answer {
+  display: none;
+}
 .wiki-main {
   flex: 1;
   min-height: 0;
   display: flex;
   gap: 14px;
+}
+.wiki-main[data-graph-focus="true"] {
+  display: grid;
+  grid-template-columns: 414px minmax(0, 1fr);
+  gap: 0;
+}
+.wiki-main[data-graph-focus="true"] .wiki-side {
+  display: none;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-panel {
+  flex-basis: 100%;
+  border-color: transparent;
+  border-radius: 0;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-panel > header {
+  display: none;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas {
+  background: #fff;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-bg {
+  fill: #fff;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-controls {
+  display: none;
+}
+.wiki-obsidian-titlebar {
+  height: 48px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  color: #5A5A56;
+  background: #F6F6F6;
+  border-bottom: 1px solid #DADAD6;
+  user-select: none;
+}
+.wiki-obsidian-titlebar-workspace {
+  width: 414px;
+  align-self: stretch;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 15px 0 20px;
+  background: #F6F6F6;
+  border-right: 1px solid #DADAD6;
+}
+.wiki-obsidian-window-dots {
+  width: 70px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wiki-obsidian-window-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #D9D9D5;
+  border: 1px solid #C8C8C4;
+}
+.wiki-obsidian-title-icon {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  color: #60605C;
+  border-radius: 6px;
+}
+.wiki-obsidian-title-icon:first-of-type {
+  margin-left: 5px;
+  background: #E4E4E1;
+  color: #3F3F3B;
+}
+.wiki-obsidian-title-icon:last-of-type {
+  margin-left: auto;
+}
+.wiki-obsidian-title-icon svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wiki-obsidian-tabs {
+  align-self: stretch;
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  padding-left: 20px;
+}
+.wiki-obsidian-tab {
+  height: 40px;
+  min-width: 242px;
+  max-width: 294px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 0 13px;
+  color: #42423E;
+  background: #FFFFFF;
+  border: 1px solid #DADAD6;
+  border-bottom-color: #FFFFFF;
+  border-radius: 7px 7px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.wiki-obsidian-tab span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wiki-obsidian-tab i {
+  color: #8A8A85;
+  font-size: 14px;
+  font-style: normal;
+  line-height: 1;
+}
+.wiki-obsidian-new-tab {
+  width: 30px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 2px;
+  color: #777773;
+  border-radius: 6px;
+  font-size: 18px;
+  font-weight: 300;
+}
+.wiki-obsidian-title-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 22px;
+  min-width: 94px;
+  padding-right: 17px;
+  color: #767672;
+}
+.wiki-obsidian-title-actions span {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+}
+.wiki-obsidian-title-actions svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wiki-obsidian-shell {
+  display: none;
+}
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-shell {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 362px);
+  overflow: hidden;
+  color: #5E5E5A;
+  background: #F6F6F6;
+  border-right: 1px solid #DADAD6;
+}
+.wiki-obsidian-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 0 10px;
+  background: #F6F6F6;
+  border-right: 1px solid #DFDFDB;
+}
+.wiki-obsidian-rail > span {
+  width: 31px;
+  height: 31px;
+  display: grid;
+  place-items: center;
+  color: #777773;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+}
+.wiki-obsidian-rail > span[data-active="true"] {
+  color: #4F4F4B;
+  background: transparent;
+}
+.wiki-obsidian-rail svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wiki-obsidian-tree {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #F6F6F6;
+}
+.wiki-obsidian-tree-toolbar {
+  height: 43px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 0 10px 0 93px;
+  color: #71716D;
+  border-bottom: 1px solid #DEDEDA;
+}
+.wiki-obsidian-tree-toolbar > span {
+  width: 23px;
+  height: 23px;
+  display: grid;
+  place-items: center;
+  color: #74746F;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+}
+.wiki-obsidian-tree-toolbar > span:hover {
+  color: #4F4F4B;
+  background: #E9E9E6;
+}
+.wiki-obsidian-tree-toolbar svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.55;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wiki-obsidian-folders {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 12px 13px;
+}
+.wiki-obsidian-folders button {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 6px;
+  color: #555550;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 500;
+  text-align: left;
+}
+.wiki-obsidian-folders button:hover {
+  background: #ECECEA;
+}
+.wiki-obsidian-folders i {
+  width: 16px;
+  color: #989894;
+  font-size: 22px;
+  font-style: normal;
+  line-height: 1;
+}
+.wiki-obsidian-folders span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wiki-obsidian-folder {
+  display: grid;
+  gap: 1px;
+}
+.wiki-obsidian-folder-child {
+  min-height: 32px !important;
+  padding-left: 51px !important;
+  color: #585853 !important;
+  font-size: 15px !important;
+  font-weight: 450 !important;
+}
+.wiki-obsidian-vault {
+  height: 49px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 14px;
+  color: #3F3F3B;
+  border-top: 1px solid #DEDEDA;
+  font-size: 15px;
+  font-weight: 650;
+}
+.wiki-obsidian-vault strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: inherit;
+  font-weight: inherit;
+}
+.wiki-obsidian-vault i {
+  flex: 1;
+}
+.wiki-obsidian-vault-control {
+  width: 25px;
+  height: 25px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  color: #74746F;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.wiki-obsidian-vault-control:hover,
+.wiki-obsidian-vault-control:focus-visible {
+  background: #ECECEA;
+  color: #3F3F3B;
+}
+.wiki-obsidian-vault-control span {
+  display: block;
+  height: 9px;
+  font-size: 13px;
+  line-height: 8px;
+}
+.wiki-obsidian-vault-control svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .wiki-graph-panel {
   flex: 1;
@@ -3256,13 +3698,106 @@ textarea { resize: vertical; min-height: 72px; }
   min-height: 0;
   position: relative;
   cursor: grab;
-  background:
-    radial-gradient(circle at 1px 1px, rgba(139, 124, 101, .22) 1px, transparent 0),
-    linear-gradient(180deg, #F6F0E4 0%, #EFE6D7 100%);
-  background-size: 20px 20px, 100% 100%;
+  background: #F8F8F6;
+  border: 2px solid transparent;
+  outline: none;
+  transition: border-color .16s ease;
 }
 .wiki-graph-canvas[data-panning="true"] {
   cursor: grabbing;
+}
+.wiki-graph-canvas[data-interactive="true"][data-scope="local"] {
+  border-color: var(--accent);
+}
+.wiki-graph-canvas[data-interactive="false"][data-scope="local"] {
+  cursor: default;
+}
+.wiki-graph-canvas[data-interactive="false"][data-scope="local"] .wiki-graph-svg {
+  pointer-events: none;
+}
+.graph-banner-content:not([data-interactive="true"]) > .wiki-graph-svg {
+  pointer-events: none;
+}
+.graph-banner-content:not([data-interactive="true"]) > .graph-controls,
+.graph-banner-content:not([data-interactive="true"]) > .wiki-graph-controls {
+  display: none;
+}
+.wiki-graph-banner-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.wiki-graph-canvas[data-interactive="true"] > .wiki-graph-banner-overlay {
+  pointer-events: none;
+}
+.wiki-graph-banner-overlay:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 68%, transparent);
+  outline-offset: -4px;
+}
+.wiki-graph-canvas[data-timelapse="true"] .wiki-edge {
+  animation: wikiGraphTrace 2.8s ease-in-out infinite;
+}
+.wiki-graph-canvas[data-timelapse="true"] .wiki-svg-node circle {
+  animation: wikiGraphPulse 2.8s ease-in-out infinite;
+}
+.wiki-graph-timelapse {
+  position: absolute;
+  left: 16px;
+  right: 56px;
+  bottom: 16px;
+  z-index: 4;
+  height: 3px;
+  overflow: hidden;
+  background: rgba(88, 88, 82, .12);
+  border-radius: 999px;
+  pointer-events: none;
+}
+.wiki-graph-timelapse span {
+  display: block;
+  width: 38%;
+  height: 100%;
+  background: rgba(86, 86, 80, .5);
+  border-radius: inherit;
+  animation: wikiGraphTimeline 2.8s ease-in-out infinite;
+}
+.wiki-graph-pane-chrome {
+  position: absolute;
+  top: 9px;
+  left: 18px;
+  right: 18px;
+  z-index: 3;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  color: #5F5F5B;
+  pointer-events: none;
+  user-select: none;
+}
+.wiki-graph-pane-chrome span {
+  color: #72726E;
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1;
+}
+.wiki-graph-pane-chrome strong {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #4A4A47;
+  font-size: 13px;
+  font-weight: 650;
+}
+.wiki-graph-pane-chrome em {
+  margin-left: auto;
+  color: #777773;
+  font-size: 15px;
+  font-style: normal;
+  letter-spacing: 0;
 }
 .wiki-graph-controls {
   position: absolute;
@@ -3273,10 +3808,16 @@ textarea { resize: vertical; min-height: 72px; }
   align-items: center;
   gap: 4px;
   padding: 5px;
-  background: rgba(255, 252, 246, .92);
+  background: rgba(255, 255, 255, .92);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 8px 20px rgba(74, 61, 47, .1);
+  box-shadow: 0 8px 20px rgba(53, 50, 46, .09);
+  opacity: .04;
+  transition: opacity .14s ease, transform .14s ease;
+}
+.wiki-graph-controls:hover,
+.wiki-graph-controls:focus-within {
+  opacity: .86;
 }
 .wiki-graph-controls button {
   width: 26px;
@@ -3301,18 +3842,217 @@ textarea { resize: vertical; min-height: 72px; }
   height: 100%;
   display: block;
 }
+.wiki-graph-side-actions {
+  position: absolute;
+  top: 28px;
+  right: 18px;
+  z-index: 2;
+  display: grid;
+  gap: 14px;
+  opacity: .9;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-side-actions {
+  top: 60px;
+  right: 17px;
+  opacity: .54;
+}
+.wiki-graph-side-actions button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: #8A8A85;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  line-height: 1;
+}
+.wiki-graph-side-actions svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wiki-graph-side-actions button:hover,
+.wiki-graph-side-actions button[data-active="true"] {
+  color: #51514D;
+  background: rgba(88,88,82,.08);
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-side-actions button[data-active="true"] {
+  background: transparent;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-side-actions:hover,
+.wiki-main[data-graph-focus="true"] .wiki-graph-side-actions:focus-within {
+  opacity: .86;
+}
 .wiki-graph-bg {
-  fill: transparent;
+  fill: #F8F8F6;
 }
 .wiki-graph-canvas .wiki-edge {
-  stroke: #B7AA96;
-  stroke-width: .85;
-  stroke-opacity: .55;
+  stroke: #C9C9C5;
+  stroke-width: calc(.72px * var(--wiki-edge-scale, 1));
+  stroke-opacity: var(--wiki-edge-opacity, .62);
+  transition: stroke .12s ease, stroke-opacity .12s ease, stroke-width .12s ease;
 }
 .wiki-graph-canvas .wiki-edge[data-hot="true"] {
-  stroke: var(--accent);
-  stroke-width: 1.5;
-  stroke-opacity: .9;
+  stroke: #6E6D69;
+  stroke-width: 1.25;
+  stroke-opacity: .86;
+}
+.wiki-graph-canvas .wiki-edge[data-focus="true"] {
+  stroke: #5F5F5B;
+  stroke-width: 1.2;
+  stroke-opacity: .92;
+}
+.wiki-graph-canvas .wiki-edge[data-muted="true"] {
+  stroke-opacity: .18;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas .wiki-edge {
+  stroke: #D6D6D2;
+  stroke-width: calc(.5px * var(--wiki-edge-scale, 1));
+  stroke-opacity: .26;
+  transition: none;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas .wiki-edge[data-hot="true"],
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas .wiki-edge[data-focus="true"] {
+  stroke: #C1C1BD;
+  stroke-width: .82px;
+  stroke-opacity: .44;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas .wiki-edge[data-muted="true"] {
+  stroke-opacity: .12;
+}
+.wiki-graph-settings {
+  position: absolute;
+  top: 58px;
+  right: 48px;
+  z-index: 6;
+  width: 248px;
+  max-height: calc(100% - 72px);
+  overflow-y: auto;
+  padding: 12px 12px 14px;
+  color: #34332F;
+  background: rgba(252, 252, 250, .96);
+  border: 1px solid #DDDBD4;
+  border-radius: 8px;
+  box-shadow: 0 18px 38px rgba(42, 40, 36, .16);
+}
+.wiki-graph-settings header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.wiki-graph-settings header strong {
+  font-size: 12px;
+}
+.wiki-graph-settings header button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: #7A766E;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 18px;
+}
+.wiki-graph-settings section {
+  display: grid;
+  gap: 9px;
+  padding: 9px 0;
+  border-top: 1px solid #E7E4DD;
+}
+.wiki-graph-settings h4 {
+  margin: 0;
+  color: #77736B;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.wiki-graph-settings label {
+  display: grid;
+  gap: 5px;
+  color: #4D4941;
+  font-size: 11px;
+  font-weight: 650;
+}
+.wiki-graph-search {
+  grid-template-columns: 18px 1fr;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  background: #F7F6F1;
+  border: 1px solid #E0DDD5;
+  border-radius: 6px;
+}
+.wiki-graph-search span {
+  color: #817C73;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+.wiki-graph-search input {
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: #3B3832;
+  font-size: 11px;
+  font-weight: 650;
+}
+.wiki-graph-search input::placeholder {
+  color: #9C968C;
+}
+.wiki-graph-settings input[type="range"] {
+  width: 100%;
+  accent-color: #6D6A62;
+}
+.wiki-graph-toggle {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+.wiki-graph-groups {
+  display: grid;
+  gap: 6px;
+}
+.wiki-graph-groups span {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 7px;
+  color: #4D4941;
+  font-size: 11px;
+  font-weight: 700;
+}
+.wiki-graph-groups b {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.wiki-graph-groups em {
+  color: #918B80;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 750;
+}
+.wiki-graph-settings section button {
+  height: 28px;
+  padding: 0 9px;
+  color: #403D37;
+  background: #F3F1EB;
+  border: 1px solid #E0DDD5;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 750;
+  text-align: left;
 }
 .wiki-center {
   fill: #5C5346;
@@ -3320,18 +4060,44 @@ textarea { resize: vertical; min-height: 72px; }
   stroke-width: 2;
 }
 .wiki-graph-canvas text {
-  fill: #4F463A;
+  fill: #3F3F3C;
   font-family: Pretendard, sans-serif;
   font-size: 10px;
   font-weight: 700;
   paint-order: stroke;
-  stroke: rgba(248,244,236,.92);
+  stroke: rgba(248,248,246,.94);
   stroke-width: 3px;
   stroke-linejoin: round;
 }
+.wiki-main[data-graph-focus="true"] .wiki-svg-node text {
+  fill: #222222;
+  font-size: 18px;
+  font-weight: 520;
+  stroke: rgba(255,255,255,.9);
+  stroke-width: 2.5px;
+}
+.wiki-main[data-graph-focus="true"] .wiki-svg-node[data-active="true"] text {
+  fill: #242424;
+  font-size: 20px;
+  font-weight: 520;
+  stroke: rgba(255,255,255,.9);
+  stroke-width: 2.5px;
+  transform: translate(42px, -8px);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.wiki-main[data-graph-focus="true"] .wiki-svg-node[data-context="true"] text {
+  fill: #242424;
+  font-size: 20px;
+  font-weight: 520;
+  stroke: rgba(255,255,255,.9);
+  stroke-width: 2.5px;
+}
 .wiki-svg-node {
   cursor: pointer;
-  opacity: .78;
+  opacity: .82;
+  color: #5E5E5B;
+  transition: opacity .12s ease, color .12s ease;
 }
 .wiki-svg-node:hover,
 .wiki-svg-node[data-active="true"] {
@@ -3340,14 +4106,51 @@ textarea { resize: vertical; min-height: 72px; }
 .wiki-svg-node[data-connected="true"] {
   opacity: .96;
 }
+.wiki-svg-node[data-isolated="true"] {
+  color: #595957;
+  opacity: .9;
+}
+.wiki-svg-node[data-hub="true"] {
+  color: #686864;
+}
+.wiki-svg-node[data-focus="true"] {
+  opacity: 1;
+  color: #3F3F3C;
+}
+.wiki-svg-node[data-muted="true"] {
+  opacity: .22;
+}
 .wiki-svg-node circle {
-  stroke: rgba(255,255,255,.92);
-  stroke-width: .85;
-  filter: drop-shadow(0 1px 3px rgba(73,58,40,.24));
+  fill: currentColor;
+  stroke: rgba(255,255,255,.9);
+  stroke-width: .7;
+  filter: none;
+  transition: fill .12s ease, stroke .12s ease, stroke-width .12s ease;
+}
+.wiki-svg-node[data-focus="true"] circle {
+  stroke: rgba(68,68,64,.78);
+  stroke-width: 1.25;
 }
 .wiki-svg-node[data-active="true"] circle {
-  stroke: #FFE3A7;
-  stroke-width: 2.2;
+  fill: #2F2F2D;
+  stroke: #686864;
+  stroke-width: 2;
+}
+.wiki-graph-canvas[data-dense-focus="true"] .wiki-svg-node[data-active="true"] circle {
+  opacity: 0;
+}
+@keyframes wikiGraphTrace {
+  0%, 100% { stroke-opacity: calc(var(--wiki-edge-opacity, .62) * .42); }
+  45%, 60% { stroke-opacity: min(.92, calc(var(--wiki-edge-opacity, .62) * 1.35)); }
+}
+@keyframes wikiGraphPulse {
+  0%, 100% { opacity: .58; }
+  45%, 60% { opacity: 1; }
+}
+@keyframes wikiGraphTimeline {
+  0% { transform: translateX(-105%); }
+  50% { transform: translateX(85%); }
+  100% { transform: translateX(260%); }
 }
 .wiki-reader {
   position: absolute;
@@ -3368,6 +4171,7 @@ textarea { resize: vertical; min-height: 72px; }
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  padding-right: 34px;
   margin-bottom: 14px;
 }
 .wiki-reader header div {
@@ -3386,11 +4190,30 @@ textarea { resize: vertical; min-height: 72px; }
   color: #B6AC99;
   font-size: 10.5px;
 }
-.wiki-reader button {
-  border: 0;
-  background: transparent;
-  color: #B6AC99;
-  font-size: 15px;
+.wiki-reader-close {
+  position: sticky;
+  top: 0;
+  float: right;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  margin: -6px -8px 4px 10px;
+  color: var(--muted-dark);
+  background: rgba(255, 252, 246, .94);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  box-shadow: 0 8px 18px rgba(43,38,32,.12);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+.wiki-reader-close:hover,
+.wiki-reader-close:focus-visible {
+  color: var(--text);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
 }
 .wiki-reader article {
   color: #3B362E;
@@ -3978,11 +4801,20 @@ textarea { resize: vertical; min-height: 72px; }
 }
 
 .login {
-  min-height: calc(100vh - 90px);
+  width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
   display: grid;
-  place-items: center;
-  padding: 18px;
+  place-items: stretch;
+  padding: 0;
   overflow: hidden;
+}
+.login-root {
+  display: block;
+}
+.login-root .login {
+  width: 100%;
+  height: 100%;
 }
 .login-overlay {
   position: fixed;
@@ -4008,6 +4840,14 @@ textarea { resize: vertical; min-height: 72px; }
   border: 1px solid rgba(64, 81, 63, .18);
   border-radius: 0;
   box-shadow: 0 30px 70px rgba(43,38,32,.18);
+}
+.login > .login-card {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  box-shadow: none;
 }
 .login-splash {
   position: relative;

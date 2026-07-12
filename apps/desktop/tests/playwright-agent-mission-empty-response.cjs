@@ -36,6 +36,10 @@ async function main() {
       await route.fulfill({ json: { ok: true } });
       return;
     }
+    if (method === 'DELETE' && path === '/api/tasks/task-before-empty-run') {
+      await route.fulfill({ json: { ok: true, deleted: true } });
+      return;
+    }
 
     await route.fulfill({
       json: {
@@ -71,6 +75,7 @@ async function main() {
   assert.match(await page.locator('.api-banner').textContent(), /미션 실행 응답이 비어 있습니다/);
   assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/tasks'), true);
   assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/missions/launch'), true);
+  assert.equal(calls.some((call) => call.method === 'DELETE' && call.path === '/api/tasks/task-before-empty-run'), true);
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, postCalls: calls.filter((call) => call.method === 'POST').map((call) => call.path) }, null, 2));

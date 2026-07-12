@@ -279,7 +279,7 @@ test('agent run approval is persisted through Railway run action API', () => {
   assert.match(appSource, /className="run-approve"/);
   assert.match(appSource, /onClick=\{\(\) => approveRun\(run\)\}/);
   assert.match(appSource, /approvedRunIdsRef/);
-  assert.match(appSource, /\/404\/\.test\(message\)/);
+  assert.doesNotMatch(appSource, /\/404\/\.test\(message\)/);
   assert.doesNotMatch(appSource, /setApprovedRunIds/);
   assert.doesNotMatch(appSource, /Record<string,\s*true>/);
 });

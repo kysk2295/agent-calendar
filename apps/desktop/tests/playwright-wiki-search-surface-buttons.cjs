@@ -91,7 +91,7 @@ async function main() {
   await page.locator('.search-group', { hasText: '노트 · 위키' }).getByRole('button', { name: /Alpha wiki surface/ }).click();
   await page.waitForSelector('.wiki-reader');
   assert.match(await page.locator('.wiki-reader').textContent() || '', /Alpha wiki reader body/);
-  await page.locator('.wiki-reader header button').click();
+  await page.locator('.wiki-reader-close').click();
   await page.waitForFunction(() => !document.querySelector('.wiki-reader'));
 
   await page.getByRole('button', { name: /위키/ }).click();
@@ -105,6 +105,7 @@ async function main() {
   await page.getByRole('button', { name: '그래프 축소' }).click();
   await page.getByRole('button', { name: '그래프 위치 초기화' }).click();
   await page.waitForFunction(() => document.querySelector('.wiki-graph-viewport')?.getAttribute('transform') === 'translate(0 0) scale(1)');
+  await page.waitForFunction(() => document.querySelector('.wiki-graph-canvas')?.getAttribute('data-interactive') === 'true');
 
   const svg = page.locator('.wiki-graph-svg');
   const box = await svg.boundingBox();
@@ -117,10 +118,10 @@ async function main() {
   const afterPan = await viewport.getAttribute('transform');
   assert.notEqual(afterPan, beforePan);
 
-  await page.locator('.wiki-svg-node').nth(1).click();
+  await page.locator('.wiki-svg-node').nth(1).dblclick();
   await page.waitForSelector('.wiki-reader');
   assert.match(await page.locator('.wiki-reader').textContent() || '', /Beta wiki reader body/);
-  await page.locator('.wiki-reader header button').click();
+  await page.locator('.wiki-reader-close').click();
   await page.waitForFunction(() => !document.querySelector('.wiki-reader'));
 
   await page.locator('.tree-group-toggle', { hasText: '2_wiki' }).click();

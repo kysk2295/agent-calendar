@@ -62,13 +62,15 @@ async function main() {
 
   await page.locator('.run-row', { hasText: 'Stale review run' }).click();
   await page.locator('.run-approve').click();
-  await page.waitForFunction(() => document.querySelectorAll('.run-row').length === 1);
-  assert.equal(await page.locator('.api-banner').count(), 0);
+  await page.waitForSelector('.api-banner');
+  assert.equal(await page.locator('.run-row').count(), 2);
+  assert.match(await page.locator('.run-row', { hasText: 'Stale review run' }).textContent(), /Stale review run/);
   await page.locator('.run-close').click();
 
   await page.locator('.run-row', { hasText: 'Approving review run' }).click();
   await page.locator('.run-approve').click();
-  await page.waitForFunction(() => !document.querySelector('.run-row'));
+  await page.waitForFunction(() => document.querySelectorAll('.run-row').length === 1);
+  assert.match(await page.locator('.run-row').textContent(), /Stale review run/);
 
   assert.equal(calls.some((call) => call.path === '/api/runs/run-stale/approve'), true);
   assert.equal(calls.some((call) => call.path === '/api/runs/run-ok/approve'), true);

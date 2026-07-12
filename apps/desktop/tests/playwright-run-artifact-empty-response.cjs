@@ -33,11 +33,6 @@ async function main() {
     try { body = request.postData() ? JSON.parse(request.postData()) : {}; } catch { body = {}; }
     calls.push({ method, path, body });
 
-    if (method === 'POST' && path === '/api/documents') {
-      await route.fulfill({ json: { ok: true } });
-      return;
-    }
-
     await route.fulfill({
       json: {
         ok: true,
@@ -72,7 +67,8 @@ async function main() {
   assert.equal(await page.locator('.run-report').count(), 1);
   assert.equal(await page.locator('.wiki-reader').count(), 0);
   assert.doesNotMatch(await page.locator('.nav-item[data-active="true"]').textContent(), /위키/);
-  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/documents'), true);
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/documents'), false);
+  assert.match(await page.locator('.api-banner').textContent(), /실행 결과 문서를 찾을 수 없습니다/);
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, postCalls: calls.filter((call) => call.method === 'POST') }, null, 2));
