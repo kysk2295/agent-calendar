@@ -59,11 +59,19 @@ Large / Boundary. Desktop UI, Electron/Vite proxy, Railway gateway, persisted ta
 - [x] 현재 운영 hydration과 콘솔 오류를 기준선으로 기록한다. (`api-banner=0`, `Railway 연결`, console warn/error 0)
 - [x] 일정 생성·수정·완료·삭제 흐름을 실제 UI와 API에서 검증한다. (`QA-CORE-1783891817679`, 최종 잔여 0)
 - [x] 위키 질문·답변·출처 열기 흐름을 검증한다. (UniPort 근거 3건, 출처 리더 본문 확인)
-- [ ] 에이전트 선택·작업 지시·실행·결과 흐름을 검증한다.
-- [ ] `POST /api/missions/launch`를 live Railway relay의 `runtime.request`로 전달하고 Mac mini run 응답을 보존한다.
-- [ ] 새로고침 후 데이터 유지와 부분 실패 표시를 검증한다.
-- [ ] 발견한 결함을 TDD로 수정한다.
-- [ ] 전체 테스트와 빌드를 통과하고 QA 데이터를 정리한다.
+- [x] 에이전트 선택·작업 지시·실행·결과 흐름을 검증한다. (`bizconsultant`, `run-20260712232334-d50cca59`, `done`, `stdout: OK`, `runner completed`)
+- [x] `POST /api/missions/launch`를 live Railway relay의 `runtime.request`로 전달하고 Mac mini run 응답을 보존한다. (Railway snapshot HTTP 200, 5 profiles, `hermes -p bizconsultant`, relay errors empty)
+- [x] 새로고침 후 데이터 유지와 부분 실패 표시를 검증한다. (원격 QA 일정 유지, 완료 run API 재조회, orphaned run은 재시작 후 정직한 `failed` 상태로 복구)
+- [x] 발견한 결함을 TDD로 수정한다. (일정 pill, 위키 출처, mission relay, Hermes profile routing/command, boot-time orphaned run recovery)
+- [x] 전체 테스트와 빌드를 통과하고 QA 데이터를 정리한다. (`npm test`, `npm run build:desktop`; 일정 QA marker 삭제, run 기록은 실행 감사 증거로 보존)
+
+## Verification evidence
+
+- Main repository: commits `5a546f7`, `8ae74af4` pushed to `main`; Railway deployment `a1c0dbfc-4341-4902-80fd-b3bff9533f8c` online.
+- Main repository gates: backend 61/61, desktop 73/73, backend syntax, desktop typecheck/build, agent mission Playwright, wiki answer/source Playwright all passed.
+- Mac mini runtime gates: 10/10 tests passed after explicit profile execution and boot-time interrupted-run recovery changes.
+- Successful remote run: `run-20260712232334-d50cca59` remains `done` with `stdout: OK` and `runner completed`.
+- Restart recovery: `run-20260712231256-dd06cb6b` and `run-20260712231320-d8bd530e` are preserved as `failed` with a runtime restart/interruption explanation instead of remaining falsely `running`.
 
 ## Rollback / fallback
 
@@ -72,5 +80,5 @@ Large / Boundary. Desktop UI, Electron/Vite proxy, Railway gateway, persisted ta
 
 ## Remaining risks
 
+- Mac mini의 운영 설치본 `/Users/goyunseo/.hermes/os-runtime`은 git 저장소가 아니므로, 별도 소스 저장소와 동기화하지 않으면 다음 런타임 설치/업데이트에서 이번 운영 수정이 덮어써질 수 있다.
 - 외부 Hermes runtime이 오프라인이면 실제 실행 완료 대신 정직한 실패 처리가 최종 기대 결과가 된다.
-- Mac mini relay 인증은 복구됐지만 mission launch가 relay 대상에서 누락되어 `503 runtime_unavailable`을 반환한다.
