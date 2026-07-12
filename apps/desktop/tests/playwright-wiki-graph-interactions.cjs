@@ -198,12 +198,12 @@ async function main() {
   const focusedControlsDisplay = await page.evaluate(() => getComputedStyle(document.querySelector('.wiki-graph-controls')).display);
   assert.equal(focusedControlsDisplay, 'none', 'graph focus should hide the app zoom toolbar like Obsidian graph view');
   const focusedCanvasBackground = await page.evaluate(() => getComputedStyle(document.querySelector('.wiki-graph-canvas')).backgroundColor);
-  assert.equal(focusedCanvasBackground, 'rgb(255, 255, 255)', 'graph focus should use Obsidian white canvas background');
+  assert.equal(focusedCanvasBackground, 'rgb(30, 30, 30)', 'graph focus should use the current Obsidian dark canvas background');
   const focusedActiveLabelFontSize = await page.evaluate(() => {
     const activeNode = document.querySelector('.wiki-svg-node[data-active="true"] text');
     return Number.parseFloat(activeNode ? getComputedStyle(activeNode).fontSize : '0');
   });
-  assert.ok(focusedActiveLabelFontSize >= 20, `graph focus should enlarge active node labels like Obsidian, got ${focusedActiveLabelFontSize}`);
+  assert.ok(focusedActiveLabelFontSize <= 11, `graph focus should keep global graph labels compact like Obsidian, got ${focusedActiveLabelFontSize}`);
   await page.getByRole('button', { name: '문서 트리 같이 보기' }).click();
   await page.waitForFunction(() => document.querySelector('.wiki-main')?.getAttribute('data-graph-focus') === 'false');
   await page.getByRole('button', { name: '타임랩스 애니메이션 시작' }).click();

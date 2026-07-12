@@ -218,6 +218,31 @@ async function main() {
   assert.ok(focusWindowFrame.radius.startsWith('12px') || focusWindowFrame.radius.startsWith('13px'), `focused Obsidian window should have macOS rounded corners, got ${focusWindowFrame.radius}`);
   assert.notEqual(focusWindowFrame.shadow, 'none', 'focused Obsidian window should preserve the subtle macOS window shadow in transparent captures');
   assert.equal(focusWindowFrame.overflow, 'hidden', 'focused Obsidian window should clip its rounded corners');
+  const focusPalette = await page.evaluate(() => {
+    const colorOf = (selector, property = 'backgroundColor') => {
+      const element = document.querySelector(selector);
+      return element ? getComputedStyle(element)[property] : '';
+    };
+    return {
+      window: colorOf('.wiki[data-graph-focus="true"]'),
+      titlebar: colorOf('.wiki-obsidian-titlebar'),
+      shell: colorOf('.wiki-obsidian-shell'),
+      tree: colorOf('.wiki-obsidian-tree'),
+      canvas: colorOf('.wiki-graph-canvas'),
+      label: colorOf('.wiki-svg-node text', 'fill'),
+      node: colorOf('.wiki-svg-node circle', 'fill'),
+    };
+  });
+  ['window', 'titlebar', 'shell', 'tree', 'canvas'].forEach((surface) => {
+    const [red, green, blue] = rgbChannels(focusPalette[surface]);
+    assert.ok(Math.max(red, green, blue) <= 48, `${surface} should use Obsidian's dark surface, got ${focusPalette[surface]}`);
+  });
+  ['label'].forEach((foreground) => {
+    const [red, green, blue] = rgbChannels(focusPalette[foreground]);
+    assert.ok(Math.min(red, green, blue) >= 145, `${foreground} should remain visible on the dark graph, got ${focusPalette[foreground]}`);
+  });
+  const nodeChannels = rgbChannels(focusPalette.node);
+  assert.ok(Math.min(...nodeChannels) >= 85, `node should remain visible as Obsidian's muted gray on the dark graph, got ${focusPalette.node}`);
   const focusTitlebar = await page.evaluate(() => {
     const titlebar = document.querySelector('.wiki-obsidian-titlebar');
     const tab = titlebar?.querySelector('.wiki-obsidian-tab[data-active="true"]');
@@ -339,6 +364,8 @@ async function main() {
   assert.equal(focusShell.folderLabels.includes('5_conversation'), false, 'focus shell should not show extra root folders before the reference journal date sequence ends');
   await page.mouse.move(240, 240);
   await page.locator('.wiki-graph-canvas').focus();
+  const defaultFocusLabelSizes = await page.$$eval('.wiki-svg-node text', (labels) => labels.map((label) => Number.parseFloat(getComputedStyle(label).fontSize || '0')));
+  assert.ok(Math.max(...defaultFocusLabelSizes) <= 11, `default focus graph labels should stay small like Obsidian's global graph, got ${Math.max(...defaultFocusLabelSizes)}px`);
   const focusSideActionsStyle = await page.evaluate(() => {
     const sideActions = document.querySelector('.wiki-graph-side-actions');
     const focusExit = document.querySelector('.wiki-graph-side-actions button');
@@ -434,6 +461,12 @@ async function main() {
   await largePage.waitForSelector('.wiki-svg-node');
   await largePage.getByRole('button', { name: '그래프 집중 보기' }).click();
   await largePage.waitForSelector('.wiki-obsidian-titlebar');
+  const largeBoundaryPinnedNodes = await largePage.$$eval('.wiki-svg-node:not([data-isolated="true"]) circle', (circles) => circles.filter((circle) => {
+    const x = Number(circle.getAttribute('cx'));
+    const y = Number(circle.getAttribute('cy'));
+    return Math.abs(x - 58) < .01 || Math.abs(x - 902) < .01 || Math.abs(y - 58) < .01 || Math.abs(y - 562) < .01;
+  }).length);
+  assert.ok(largeBoundaryPinnedNodes <= 1, `large global graph should not pin linked hubs to a rectangular boundary, got ${largeBoundaryPinnedNodes}`);
   await largePage.locator('.wiki-graph-canvas').focus();
   await largePage.keyboard.press('Control+=');
   await largePage.waitForFunction(() => document.querySelector('.wiki-graph-viewport')?.getAttribute('transform')?.includes('scale(1.42)'));
@@ -456,6 +489,7 @@ async function main() {
       .filter(Boolean)
       .sort((left, right) => left.x - right.x);
     return {
+      labels: visibleLabels,
       count: visibleLabels.length,
       activeBasenameLabels: visibleLabels.filter((label) => label === 'active-hub').length,
       activeTitleLabels: visibleLabels.filter((label) => label === 'Active graph title').length,
@@ -508,7 +542,7 @@ async function main() {
   });
   assert.equal(largeFocusZoomLabelStats.activeBasenameLabels, 1, 'large focus graph should show the active node filename like Obsidian');
   assert.equal(largeFocusZoomLabelStats.activeTitleLabels, 0, 'large focus graph should not show frontmatter/title labels in Obsidian crop mode');
-  assert.equal(largeFocusZoomLabelStats.linkedLabels, 0, `large focus graph should not leak arbitrary linked labels into the Obsidian reference crop, got ${largeFocusZoomLabelStats.linkedLabels}`);
+  assert.equal(largeFocusZoomLabelStats.linkedLabels, 0, `large focus graph should not leak arbitrary linked labels into the Obsidian reference crop, got ${largeFocusZoomLabelStats.labels.join(', ')}`);
   assert.ok(largeFocusZoomLabelStats.count <= 3, `large focus graph should keep only active and exact context labels in the Obsidian reference crop, got ${largeFocusZoomLabelStats.count}`);
   assert.equal(largeFocusZoomLabelStats.rawContextLabels, 1, 'large focus graph should select a data-driven raw context label');
   assert.equal(largeFocusZoomLabelStats.outputContextLabels, 1, 'large focus graph should select a data-driven output context label');
@@ -580,6 +614,33 @@ async function main() {
     `large focus graph dense crop should hide the active dot like the Obsidian reference label crop, got opacity ${largeActivePlacement.activeCircleOpacity}`,
   );
   await largePage.close();
+
+  const currentReferencePage = await browser.newPage({ viewport: { width: 1224, height: 768 } });
+  await routeWikiApis(currentReferencePage);
+  await currentReferencePage.goto(target);
+  await currentReferencePage.getByRole('button', { name: /위키/ }).click();
+  await currentReferencePage.waitForSelector('.wiki-svg-node');
+  await currentReferencePage.getByRole('button', { name: '그래프 집중 보기' }).click();
+  const currentReferenceGeometry = await currentReferencePage.evaluate(() => {
+    const wiki = document.querySelector('.wiki[data-graph-focus="true"]')?.getBoundingClientRect();
+    const shell = document.querySelector('.wiki-obsidian-shell')?.getBoundingClientRect();
+    const canvas = document.querySelector('.wiki-graph-canvas')?.getBoundingClientRect();
+    return {
+      wikiLeft: wiki?.left ?? -1,
+      wikiTop: wiki?.top ?? -1,
+      wikiWidth: wiki?.width ?? 0,
+      wikiHeight: wiki?.height ?? 0,
+      shellWidth: shell?.width ?? 0,
+      canvasRatio: canvas ? canvas.width / canvas.height : 0,
+    };
+  });
+  assert.equal(currentReferenceGeometry.wikiLeft, 0, 'current Obsidian app reference should fill the compact capture width');
+  assert.equal(currentReferenceGeometry.wikiTop, 0, 'current Obsidian app reference should fill the compact capture height');
+  assert.equal(currentReferenceGeometry.wikiWidth, 1224, 'current Obsidian app reference should use the full compact viewport width');
+  assert.equal(currentReferenceGeometry.wikiHeight, 768, 'current Obsidian app reference should use the full compact viewport height');
+  assert.ok(currentReferenceGeometry.shellWidth >= 325 && currentReferenceGeometry.shellWidth <= 340, `current Obsidian shell should match the compact reference width, got ${currentReferenceGeometry.shellWidth}`);
+  assert.ok(currentReferenceGeometry.canvasRatio >= 1.18 && currentReferenceGeometry.canvasRatio <= 1.28, `current Obsidian graph pane should match the reference aspect ratio, got ${currentReferenceGeometry.canvasRatio}`);
+  await currentReferencePage.close();
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, linkedAverage, isolatedAverage, isolatedRadiusDeviation, isolatedXDeviation, isolatedYDeviation }, null, 2));

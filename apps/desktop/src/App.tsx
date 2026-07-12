@@ -3505,6 +3505,7 @@ function buildWikiGraphLayout(rawNodes: Item[], fallbackNodes: Item[], rawEdges:
 
   const linkedNodes = nodes.filter((node) => node.linkCount > 0);
   const isolatedNodes = nodes.filter((node) => node.linkCount === 0);
+  const usesOpenGraphBounds = nodes.length > 220;
   const components: typeof nodes[] = [];
   const visited = new Set<string>();
   linkedNodes
@@ -3645,8 +3646,12 @@ function buildWikiGraphLayout(rawNodes: Item[], fallbackNodes: Item[], rawEdges:
       node.vy += (target.y - node.y) * centerPull + (centerY - node.y) * .0008;
       node.vx *= .76;
       node.vy *= .76;
-      node.x = Math.min(width - 58, Math.max(58, node.x + node.vx));
-      node.y = Math.min(height - 58, Math.max(58, node.y + node.vy));
+      node.x = usesOpenGraphBounds
+        ? Math.min(width + 240, Math.max(-240, node.x + node.vx))
+        : Math.min(width - 58, Math.max(58, node.x + node.vx));
+      node.y = usesOpenGraphBounds
+        ? Math.min(height + 155, Math.max(-155, node.y + node.vy))
+        : Math.min(height - 58, Math.max(58, node.y + node.vy));
     });
   }
 
@@ -3929,6 +3934,7 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
       ];
       const selectedIds = new Set<string>();
       return slots.map((slot) => {
+        const preferredGroup = slot.key === 'left-context' ? '1_raw' : '3_output';
         const selected = visibleGraphNodes
           .filter((entry) => entry.id !== activeGraphId && entry.linkCount > 0 && !selectedIds.has(entry.id))
           .map((entry) => {
@@ -3945,7 +3951,7 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
               labelRatio: slot.labelRatio,
               labelLimit: slot.labelLimit,
               labelAnchor: slot.labelAnchor,
-              score: (connected.has(entry.id) ? 100000 : 0) + entry.linkCount * 1000 - distance,
+              score: (entry.group === preferredGroup || entry.id.startsWith(`${preferredGroup}/`) ? 200000 : 0) + (connected.has(entry.id) ? 100000 : 0) + entry.linkCount * 1000 - distance,
             };
           })
           .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label))[0];
@@ -4169,7 +4175,7 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
       </aside>
       <section className="wiki-graph-panel">
         <header><strong>지식 그래프</strong><small>{localGraphScopeActive ? '로컬 그래프 · ' : ''}{visibleGraphNodes.length}개 노트 · {visibleGraphEdges.length}개 링크</small><i />{graphGroups.slice(0, 5).map((tag) => <span className="wiki-legend" key={tag}><b style={{ background: colors[tag] || colors.기타 }} />{tag}</span>)}</header>
-        <div ref={graphCanvasRef} className="wiki-graph-canvas view-content graph-banner-content" data-panning={graphPanning} data-interactive={graphInteractive} data-scope={localGraphScopeActive ? 'local' : 'global'} data-dense-focus={denseFocusZoomLabels} data-timelapse={graphTimelapseActive} style={{ '--wiki-edge-opacity': graphLinkOpacity, '--wiki-edge-scale': graphLinkScale } as CSSProperties} tabIndex={0} onKeyDown={(event) => {
+        <div ref={graphCanvasRef} className="wiki-graph-canvas view-content graph-banner-content" data-panning={graphPanning} data-interactive={graphInteractive} data-scope={localGraphScopeActive ? 'local' : 'global'} data-dense-focus={denseFocusZoomLabels} data-focus-zoom={graphFocusMode && graphZoom >= 1.35} data-timelapse={graphTimelapseActive} style={{ '--wiki-edge-opacity': graphLinkOpacity, '--wiki-edge-scale': graphLinkScale } as CSSProperties} tabIndex={0} onKeyDown={(event) => {
           if (!event.metaKey && !event.ctrlKey) return;
           if (event.key === '+' || event.key === '=') {
             event.preventDefault();

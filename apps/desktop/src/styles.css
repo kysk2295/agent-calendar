@@ -4071,26 +4071,35 @@ textarea { resize: vertical; min-height: 72px; }
 }
 .wiki-main[data-graph-focus="true"] .wiki-svg-node text {
   fill: #222222;
-  font-size: 18px;
+  font-size: 10px;
   font-weight: 520;
   stroke: rgba(255,255,255,.9);
-  stroke-width: 2.5px;
+  stroke-width: 1.5px;
 }
 .wiki-main[data-graph-focus="true"] .wiki-svg-node[data-active="true"] text {
   fill: #242424;
-  font-size: 20px;
+  font-size: 10px;
   font-weight: 520;
   stroke: rgba(255,255,255,.9);
-  stroke-width: 2.5px;
+  stroke-width: 1.5px;
   transform: translate(42px, -8px);
   transform-box: fill-box;
   transform-origin: center;
 }
 .wiki-main[data-graph-focus="true"] .wiki-svg-node[data-context="true"] text {
   fill: #242424;
-  font-size: 20px;
+  font-size: 10px;
   font-weight: 520;
   stroke: rgba(255,255,255,.9);
+  stroke-width: 1.5px;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas[data-focus-zoom="true"] .wiki-svg-node text {
+  font-size: 18px;
+  stroke-width: 2.5px;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas[data-focus-zoom="true"] .wiki-svg-node[data-active="true"] text,
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas[data-focus-zoom="true"] .wiki-svg-node[data-context="true"] text {
+  font-size: 20px;
   stroke-width: 2.5px;
 }
 .wiki-svg-node {
@@ -4138,6 +4147,83 @@ textarea { resize: vertical; min-height: 72px; }
 }
 .wiki-graph-canvas[data-dense-focus="true"] .wiki-svg-node[data-active="true"] circle {
   opacity: 0;
+}
+
+.wiki[data-graph-focus="true"],
+.wiki[data-graph-focus="true"] .wiki-obsidian-titlebar,
+.wiki[data-graph-focus="true"] .wiki-obsidian-titlebar-workspace,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-shell,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-rail,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-tree,
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas {
+  background: #1e1e1e;
+}
+.wiki[data-graph-focus="true"] .wiki-obsidian-titlebar,
+.wiki[data-graph-focus="true"] .wiki-obsidian-titlebar-workspace,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-shell,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-rail,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-tree-toolbar,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-vault {
+  border-color: #343434;
+}
+.wiki[data-graph-focus="true"] .wiki-obsidian-tab {
+  color: #d4d4d4;
+  background: #262626;
+  border-color: #383838;
+  border-bottom-color: #262626;
+}
+.wiki[data-graph-focus="true"] .wiki-obsidian-title-icon,
+.wiki[data-graph-focus="true"] .wiki-obsidian-new-tab,
+.wiki[data-graph-focus="true"] .wiki-obsidian-title-actions,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-rail > span,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-tree-toolbar,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-tree-toolbar > span,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-vault-control,
+.wiki-main[data-graph-focus="true"] .wiki-graph-pane-chrome,
+.wiki-main[data-graph-focus="true"] .wiki-graph-pane-chrome span,
+.wiki-main[data-graph-focus="true"] .wiki-graph-pane-chrome em,
+.wiki-main[data-graph-focus="true"] .wiki-graph-side-actions button {
+  color: #a5a5a5;
+}
+.wiki[data-graph-focus="true"] .wiki-obsidian-title-icon:first-of-type,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-tree-toolbar > span:hover,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-folders button:hover,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-vault-control:hover,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-vault-control:focus-visible {
+  color: #dadada;
+  background: #363636;
+}
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-folders button,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-folder-child,
+.wiki-main[data-graph-focus="true"] .wiki-obsidian-vault,
+.wiki-main[data-graph-focus="true"] .wiki-graph-pane-chrome strong {
+  color: #c7c7c7 !important;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-bg {
+  fill: #1e1e1e;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas .wiki-edge {
+  stroke: #747474;
+  stroke-opacity: .24;
+}
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas .wiki-edge[data-hot="true"],
+.wiki-main[data-graph-focus="true"] .wiki-graph-canvas .wiki-edge[data-focus="true"] {
+  stroke: #9a9a9a;
+  stroke-opacity: .42;
+}
+.wiki-main[data-graph-focus="true"] .wiki-svg-node {
+  color: #a9a9a9;
+}
+.wiki-main[data-graph-focus="true"] .wiki-svg-node circle,
+.wiki-main[data-graph-focus="true"] .wiki-svg-node[data-active="true"] circle {
+  fill: #a9a9a9;
+  stroke: rgba(225,225,225,.42);
+}
+.wiki-main[data-graph-focus="true"] .wiki-svg-node text,
+.wiki-main[data-graph-focus="true"] .wiki-svg-node[data-active="true"] text,
+.wiki-main[data-graph-focus="true"] .wiki-svg-node[data-context="true"] text {
+  fill: #d6d6d6;
+  stroke: rgba(30,30,30,.92);
 }
 @keyframes wikiGraphTrace {
   0%, 100% { stroke-opacity: calc(var(--wiki-edge-opacity, .62) * .42); }
@@ -7336,6 +7422,25 @@ textarea { resize: vertical; min-height: 72px; }
   .login-mode-toggle { margin-top: 9px; }
   .login-divider { margin: 14px 0; }
   .login-card .social-row button { height: 46px; }
+}
+
+@media (min-width: 761px) and (max-width: 1250px) {
+  .wiki[data-graph-focus="true"] {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .wiki-main[data-graph-focus="true"] {
+    grid-template-columns: 334px minmax(0, 1fr);
+  }
+  .wiki[data-graph-focus="true"] .wiki-obsidian-titlebar-workspace {
+    width: 334px;
+  }
+  .wiki-main[data-graph-focus="true"] .wiki-obsidian-shell {
+    grid-template-columns: 42px minmax(0, 292px);
+  }
 }
 
 @media (max-width: 760px) {
