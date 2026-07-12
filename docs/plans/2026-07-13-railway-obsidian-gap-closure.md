@@ -68,7 +68,7 @@ Large / Boundary. Railway gateway, Mac mini relay contract, Electron proxy, Reac
 - [x] 앱 그래프에 focus 전용 dark 상태와 1224x768 current-vault 프레임을 구현한다.
 - [x] 노드 경계 고정, 라벨 크기, 프레임 차이를 A/B 반복한다.
 - [x] 전체 자동 검증, graph Playwright, build와 운영 API QA를 통과한다.
-- [ ] main 커밋/푸시 후 운영과 시각 diff를 최종 확인한다.
+- [x] main 커밋/푸시 후 운영과 시각 diff를 최종 확인한다.
 
 ## Rollback / fallback
 
