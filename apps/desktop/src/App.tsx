@@ -4803,6 +4803,8 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
   };
   const shiftPickerMonth = (amount: number) => setPickerMonth((current) => new Date(current.getFullYear(), current.getMonth() + amount, 1));
   const openDateEditor = () => {
+    setToolPanel(null);
+    setListOpen(false);
     setDateMode(hasDuration ? 'duration' : 'date');
     setDateOpen((open) => !open);
   };
@@ -4856,6 +4858,10 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
       </main>
       <footer className="detail-bottomline">
         <button className="detail-list-pill" onClick={() => setListOpen((open) => !open)}><span>{activeList.icon || '▣'}</span>{activeList.label}<b>▾</b></button>
+        <button className="detail-tool" data-active={toolPanel === 'format'} title="서식" aria-label="서식" onClick={() => setToolPanel(toolPanel === 'format' ? null : 'format')}><b>B</b></button>
+        <button className="detail-tool" data-active={toolPanel === 'comment'} title="댓글" aria-label="댓글" onClick={() => setToolPanel(toolPanel === 'comment' ? null : 'comment')}>◌</button>
+        {!isEvent && <button className="detail-tool detail-agent" title="위임" aria-label="위임" onClick={delegate}>↗</button>}
+        <button className="detail-tool" data-active={toolPanel === 'more'} title="더보기" aria-label="더보기" onClick={() => setToolPanel(toolPanel === 'more' ? null : 'more')}>•••</button>
         <span />
         <button className="detail-submit" onClick={close} aria-label="닫기">↑</button>
       </footer>

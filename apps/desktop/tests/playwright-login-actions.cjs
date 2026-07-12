@@ -40,7 +40,7 @@ async function main() {
   await page.locator('.profile').click();
   await page.waitForSelector('.settings-overlay');
   await page.getByRole('button', { name: '로그아웃' }).click();
-  await page.waitForSelector('.login-overlay');
+  await page.waitForSelector('.login.screen-in');
 
   await page.getByRole('button', { name: '비밀번호를 잊으셨나요?' }).click();
   await page.waitForSelector('.login-recovery');
@@ -48,18 +48,18 @@ async function main() {
 
   assert.equal(await page.getByRole('button', { name: /Apple로 계속하기/ }).count(), 0);
   await page.getByRole('button', { name: /Google로 계속하기/ }).click();
-  await page.waitForFunction(() => !document.querySelector('.login-overlay'));
+  await page.waitForFunction(() => !document.querySelector('.login.screen-in'));
   assert.match(recoveryText || '', /복구 링크/);
 
   await page.locator('.profile').click();
   await page.waitForSelector('.settings-overlay');
   await page.getByRole('button', { name: '로그아웃' }).click();
-  await page.waitForSelector('.login-overlay');
+  await page.waitForSelector('.login.screen-in');
   await page.getByRole('button', { name: /Google로 계속하기/ }).click();
-  await page.waitForFunction(() => !document.querySelector('.login-overlay'));
+  await page.waitForFunction(() => !document.querySelector('.login.screen-in'));
 
   assert.equal(await page.locator('.api-banner').count(), 0);
-  assert.equal(await page.locator('.login-overlay').count(), 0);
+  assert.equal(await page.locator('.login.screen-in').count(), 0);
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, recoveryText }, null, 2));

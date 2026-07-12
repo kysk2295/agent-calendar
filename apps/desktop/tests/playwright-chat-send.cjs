@@ -23,15 +23,8 @@ async function main() {
     try { body = request.postData() ? JSON.parse(request.postData()) : {}; } catch { body = {}; }
     calls.push({ method, path, body });
 
-    if (method === 'POST' && path === '/api/chat/stream') {
-      await route.fulfill({
-        status: 200,
-        headers: { 'content-type': 'text/event-stream' },
-        body: [
-          'data: {"text":"채팅 응답"}',
-          '',
-        ].join('\n'),
-      });
+    if (method === 'POST' && path === '/api/assistant/ask') {
+      await route.fulfill({ json: { ok: true, answer: '채팅 응답' } });
       return;
     }
 
@@ -72,17 +65,16 @@ async function main() {
     apiBanner: document.querySelector('.api-banner')?.textContent?.trim() || '',
   }));
 
-  const streamCall = calls.find((call) => call.method === 'POST' && call.path === '/api/chat/stream');
-  assert.equal(Boolean(streamCall), true);
-  assert.equal(streamCall.body.message, '채팅 버튼 검증');
-  assert.equal(streamCall.body.agent, 'default');
+  const askCall = calls.find((call) => call.method === 'POST' && call.path === '/api/assistant/ask');
+  assert.equal(Boolean(askCall), true);
+  assert.equal(askCall.body.question, '채팅 버튼 검증');
   assert.match(result.messages, /채팅 버튼 검증/);
   assert.match(result.messages, /채팅 응답/);
   assert.equal(result.input, '');
   assert.equal(result.apiBanner, '');
 
   await browser.close();
-  console.log(JSON.stringify({ ok: true, result, streamCall }, null, 2));
+  console.log(JSON.stringify({ ok: true, result, askCall }, null, 2));
 }
 
 main().catch((error) => {

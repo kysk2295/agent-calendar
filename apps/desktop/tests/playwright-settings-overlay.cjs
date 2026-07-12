@@ -68,11 +68,11 @@ async function main() {
   await page.waitForFunction((before) => document.querySelector('.pref-box .switch')?.getAttribute('data-active') !== before, beforePref);
 
   await page.getByRole('button', { name: '로그아웃' }).click();
-  await page.waitForSelector('.login-overlay');
-  await page.locator('.login-overlay input').first().fill('yunseo@agent.calendar');
-  await page.locator('.login-overlay input[type="password"]').fill('pw');
-  await page.locator('.login-overlay .login-submit').click();
-  await page.waitForFunction(() => !document.querySelector('.login-overlay'));
+  await page.waitForSelector('.login.screen-in');
+  await page.locator('.login.screen-in input[type="email"]').fill('yunseo@agent.calendar');
+  await page.locator('.login.screen-in input[type="password"]').fill('pw');
+  await page.locator('.login.screen-in .login-submit').click();
+  await page.waitForFunction(() => !document.querySelector('.login.screen-in'));
 
   await page.locator('.profile').click();
   await page.waitForSelector('.settings-overlay');

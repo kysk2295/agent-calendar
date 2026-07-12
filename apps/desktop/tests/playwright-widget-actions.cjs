@@ -28,7 +28,7 @@ async function main() {
     ];
     window.__clearedWidgetActionIds = [];
     window.hermesDesktop = {
-      getSettings: async () => ({ apiBaseUrl: '', hasApiToken: false, theme: 'default', uiPreferences: { notify: true, agentShare: true, weekStartMon: true } }),
+      getSettings: async () => ({ apiBaseUrl: '', hasApiToken: false, theme: 'default', authProfile: { email: 'widget@example.com', name: 'Widget QA' }, uiPreferences: { notify: true, agentShare: true, weekStartMon: true } }),
       saveSettings: async (settings) => ({ apiBaseUrl: '', hasApiToken: false, theme: settings.theme || 'default', uiPreferences: settings.uiPreferences || { notify: true, agentShare: true, weekStartMon: true } }),
       getProxyBaseUrl: async () => '',
       saveWidgetSnapshot: async () => ({ ok: true, path: '/tmp/widget.json', changed: true }),
