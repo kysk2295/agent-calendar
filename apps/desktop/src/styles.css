@@ -3287,7 +3287,26 @@ textarea { resize: vertical; min-height: 72px; }
   font-size: 11px;
   font-weight: 700;
 }
-.wiki-answer button {
+.wiki-answer .wiki-answer-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.wiki-answer .wiki-answer-sources button {
+  max-width: 100%;
+  min-height: 25px;
+  padding: 3px 8px;
+  overflow: hidden;
+  color: var(--accent-dark);
+  background: var(--panel);
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wiki-answer .wiki-answer-dismiss {
   border: 0;
   background: transparent;
   color: #B6AC99;
@@ -7451,7 +7470,13 @@ textarea { resize: vertical; min-height: 72px; }
   .screen-heading span { display: none; }
   .content { padding: 10px; }
   .month-grid { grid-template-columns: repeat(7, minmax(42px, 1fr)); }
-  .event-pill { display: none; }
+  .event-pill {
+    min-height: 14px;
+    padding: 1px 2px;
+    font-size: 8px;
+    line-height: 1.15;
+  }
+  .event-pill b { display: none; }
   .kpis { grid-template-columns: repeat(2, 1fr); }
   .login { min-height: auto; padding: 0; overflow: auto; }
   .login-overlay { place-items: start center; padding: 14px; overflow: auto; }

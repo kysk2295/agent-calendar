@@ -18,6 +18,18 @@ test('calendar renders only Railway tasks/events for a date, never fallback fill
   assert.equal(appSource.includes('matched.length ? matched : calendarItems.slice'), false);
 });
 
+test('narrow calendar keeps persisted event pills visible for inspection and editing', () => {
+  assert.doesNotMatch(styleSource, /@media\s*\(max-width:\s*760px\)[\s\S]*?\.event-pill\s*\{\s*display:\s*none/);
+  assert.match(styleSource, /@media\s*\(max-width:\s*760px\)[\s\S]*?\.event-pill\s*\{[\s\S]*?font-size:/);
+});
+
+test('wiki answers expose each cited source as an openable document control', () => {
+  assert.match(appSource, /className="wiki-answer-sources"/);
+  assert.match(appSource, /aria-label=\{`출처 열기: \$\{sourceTitle\}`\}/);
+  assert.match(appSource, /source\.excerpt/);
+  assert.match(appSource, /setActiveWikiId\(sourceId\);\s*setReaderOpen\(true\)/);
+});
+
 test('hydrate does not mask failed backend endpoints with dashboard fallback data', () => {
   assert.doesNotMatch(appSource, /Promise\.allSettled/);
   assert.doesNotMatch(appSource, /result\.status === 'fulfilled' \? result\.value : \{\}/);
@@ -115,12 +127,16 @@ test('task surfaces exclude calendar-only event records', () => {
 });
 
 test('wiki graph is interactive and wiki ask uses Railway LLM endpoint', () => {
+  const wikiAskSource = appSource.slice(
+    appSource.indexOf('async function askWiki()'),
+    appSource.indexOf('function dismissWikiAnswer()'),
+  );
   assert.match(apiSource, /askWiki:/);
   assert.match(apiSource, /\/api\/wiki\/ask/);
   assert.match(apiSource, /const WIKI_SEARCH_TIMEOUT_MS = 60_000/);
   assert.match(apiSource, /searchWiki: \(body: Record<string, unknown>\) => jsonPost\('\/api\/wiki\/search', body, WIKI_SEARCH_TIMEOUT_MS\)/);
   assert.match(appSource, /function askWiki\(/);
-  assert.doesNotMatch(appSource, /path:\s*activeWikiId/);
+  assert.doesNotMatch(wikiAskSource, /path:\s*activeWikiId/);
   assert.doesNotMatch(appSource, /wikiRag/);
   assert.doesNotMatch(appSource, /answerWikiQuestion/);
   assert.doesNotMatch(appSource, /buildWikiRagContext/);

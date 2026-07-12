@@ -215,7 +215,7 @@ function wikiStreamCommand(question: string, sources: Item[]) {
   const context = sources.slice(0, 2).map((source, index) => {
     const title = text(source.title || source.path, '위키 문서');
     const heading = text(source.heading || source.headingPath, '근거');
-    const snippet = compactWikiSnippet(source.snippet || source.text);
+    const snippet = compactWikiSnippet(source.snippet || source.text || source.excerpt);
     return `[${index + 1}] ${title} / ${heading}: ${snippet}`;
   }).join('\n');
   return [
@@ -3749,7 +3749,10 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
   const wikiNotes = arr(wiki, 'notes').length ? arr(wiki, 'notes') : (arr(wiki, 'documents').length ? arr(wiki, 'documents') : docs);
   const list = wikiNotes;
   const selectedFromApi = wikiDetail(wiki);
-  const activeBase = list.find((node, index) => itemId(node, `wiki-${index}`) === activeWikiId || text(node.path) === activeWikiId) || (Object.keys(selectedFromApi).length ? selectedFromApi : list[0]);
+  const activeMatch = list.find((node, index) => itemId(node, `wiki-${index}`) === activeWikiId || text(node.path) === activeWikiId);
+  const activeBase = activeMatch || (activeWikiId
+    ? { id: activeWikiId, path: activeWikiId, title: wikiBasename(activeWikiId) }
+    : (Object.keys(selectedFromApi).length ? selectedFromApi : list[0]));
   const activePath = text(activeBase?.path || activeBase?.id || activeWikiId);
   const active = activePath && details[activePath] ? { ...activeBase, ...details[activePath] } : activeBase;
 
@@ -4081,7 +4084,15 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
       <label><input type="checkbox" checked={includeJournal} onChange={(event) => setIncludeJournal(event.target.checked)} /> 일기 포함</label>
       <label><input type="checkbox" checked={includeRaw} onChange={(event) => setIncludeRaw(event.target.checked)} /> raw 포함</label>
     </div>
-    {answer && <div className="wiki-answer"><span>H</span><p>{answer}{sources.length > 0 && <small>{sources.slice(0, 3).map((source) => text(source.title || source.path, '참조 문서')).join(' · ')}</small>}{(engineLabel || fallbackLabel) && <small>{[engineLabel, fallbackLabel].filter(Boolean).join(' · ')}</small>}</p><button onClick={dismissAnswer}>✕</button></div>}
+    {answer && <div className="wiki-answer"><span>H</span><p>{answer}{sources.length > 0 && <small className="wiki-answer-sources">{sources.slice(0, 3).map((source, index) => {
+      const sourceTitle = text(source.title || source.path, '참조 문서');
+      const sourceId = text(source.path || source.wikiPath || source.documentPath || source.documentId || source.id, `wiki-source-${index}`);
+      const sourceContent = text(source.content || source.text || source.snippet || source.excerpt || source.extract, '검색된 근거 요약이 없습니다.');
+      return <button type="button" aria-label={`출처 열기: ${sourceTitle}`} key={`${sourceId}-${index}`} onClick={() => {
+        setDetails((current) => ({ ...current, [sourceId]: { ...source, id: sourceId, path: sourceId, title: sourceTitle, content: sourceContent } }));
+        setActiveWikiId(sourceId); setReaderOpen(true);
+      }}>{sourceTitle}</button>;
+    })}</small>}{(engineLabel || fallbackLabel) && <small>{[engineLabel, fallbackLabel].filter(Boolean).join(' · ')}</small>}</p><button className="wiki-answer-dismiss" aria-label="위키 답변 닫기" onClick={dismissAnswer}>✕</button></div>}
     {graphFocusMode && <div className="wiki-obsidian-titlebar" aria-hidden="true">
       <div className="wiki-obsidian-titlebar-workspace">
         <div className="wiki-obsidian-window-dots">
