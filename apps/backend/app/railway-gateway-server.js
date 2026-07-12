@@ -103,6 +103,10 @@ function isRelayApiPath(pathname = '') {
   return pathname === '/api/relay' || pathname.startsWith('/api/relay/');
 }
 
+function isPublicHealthApiPath(pathname = '') {
+  return pathname === '/api/gateway-status' || pathname === '/api/health';
+}
+
 function sendDatabaseRequired(res, resource = 'desktop data') {
   sendJson(res, 409, {
     ok: false,
@@ -1680,11 +1684,11 @@ function searchGatewayTools(gatewayState, query = '', filters = {}) {
 function fallbackToolsList({ res, gatewayState, gatewayStore = null, query = {} }) {
   const state = gatewaySnapshot(gatewayState, gatewayStore);
   sendJson(res, 200, {
+    ok: true,
     tools: filterActualGatewayTools(searchGatewayTools(state, query.query || '', {
       type: query.type || '',
       status: query.status || '',
     })),
-    state,
     gatewayFallback: true,
   });
 }
@@ -1813,7 +1817,6 @@ function fallbackDocumentsList({ res, gatewayState, gatewayStore = null, query =
   sendJson(res, 200, {
     ok: true,
     documents,
-    state: gatewayStore ? gatewaySnapshot(gatewayState, gatewayStore) : { ...gatewayState, documents },
     gatewayFallback: true,
   });
 }
@@ -1995,7 +1998,6 @@ function fallbackCommandInboxList({ res, gatewayState, gatewayStore = null, quer
     : null;
   sendJson(res, 200, {
     items: storeItems || listGatewayCommandInbox(gatewayState, { limit, source }),
-    state: gatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -3173,7 +3175,6 @@ function fallbackUsage({ res, gatewayState, gatewayStore = null, env = process.e
   sendJson(res, 200, {
     ok: true,
     usage,
-    state,
     gatewayFallback: true,
     runtimeReachable: false,
     fallbackReason: snapshot?.usage ? 'usage-snapshot' : 'railway-gateway-usage',
@@ -4075,7 +4076,6 @@ function buildGatewayChannelRoutingStatus({ env = process.env, gatewayState, gat
         allowedChatCount: allowedChatIds.length,
       },
     },
-    state: gatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   };
 }
@@ -4593,8 +4593,7 @@ function fallbackTasksList({ res, query = {}, gatewayState, gatewayStore = null 
       date: query.date || '',
     };
     const tasks = gatewayStore.searchTasks(query.query || '', filters);
-    const state = gatewaySnapshot(gatewayState, gatewayStore);
-    sendJson(res, 200, { ok: true, data: { tasks, state }, tasks, state, gatewayFallback: true });
+    sendJson(res, 200, { ok: true, tasks, gatewayFallback: true });
     return;
   }
   const search = String(query.query || '').toLowerCase();
@@ -4621,8 +4620,8 @@ function fallbackTasksList({ res, query = {}, gatewayState, gatewayStore = null 
     ].some((value) => String(value || '').toLowerCase().includes(search));
   });
   sendJson(res, 200, {
+    ok: true,
     tasks,
-    state: gatewayState,
     gatewayFallback: true,
   });
 }
@@ -4736,8 +4735,7 @@ function fallbackCalendarEventsList({ res, query = {}, gatewayState, gatewayStor
       from: query.from || '',
       to: query.to || '',
     });
-    const state = gatewaySnapshot(gatewayState, gatewayStore);
-    sendJson(res, 200, { ok: true, data: { events, state }, events, state, gatewayFallback: true });
+    sendJson(res, 200, { ok: true, events, gatewayFallback: true });
     return;
   }
   const from = String(query.from || '');
@@ -4751,7 +4749,7 @@ function fallbackCalendarEventsList({ res, query = {}, gatewayState, gatewayStor
     return [event.title, event.original, event.date, event.startDate, event.time, event.owner, event.source]
       .some((value) => String(value || '').toLowerCase().includes(search));
   });
-  sendJson(res, 200, { ok: true, data: { events, state: gatewayState }, events, state: gatewayState, gatewayFallback: true });
+  sendJson(res, 200, { ok: true, events, gatewayFallback: true });
 }
 
 function fallbackCalendarEventCreate({ res, body = {}, gatewayState, gatewayStore = null }) {
@@ -5098,11 +5096,9 @@ function fallbackAgentsList({ res, gatewayState, gatewayStore = null }) {
   const profileRequests = Array.isArray(state.agentProfileRequests) ? state.agentProfileRequests : [];
   sendJson(res, 200, {
     ok: true,
-    data: { agents, state, agentSourceStatus, deletedAgentIds: state.deletedAgentIds || [], profileRequests },
     agents,
     deletedAgentIds: state.deletedAgentIds || [],
     profileRequests,
-    state,
     agentSourceStatus,
     gatewayFallback: true,
   });
@@ -5272,7 +5268,7 @@ function fallbackSchedulerJobs({ res, method, body = {}, jobId = '', action = ''
     const jobs = gatewayStore && typeof gatewayStore.getSchedulerJobs === 'function'
       ? gatewayStore.getSchedulerJobs()
       : gatewayState.schedulerJobs;
-    sendJson(res, 200, { jobs, state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { ok: true, jobs, gatewayFallback: true });
     return;
   }
   if (!gatewayStore) {
@@ -5901,7 +5897,7 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
       bodyBuffer,
       bodyText: toolTranslation?.bodyText || schedulerTranslation?.bodyText || (profileCreateBody ? JSON.stringify(profileCreateBody) : ''),
     });
-    if (relayResponse) {
+    if (relayResponse && !(settingsRuntimeRequest && relayResponse.status >= 400)) {
       const body = relayResponse.body || {};
       let responseBody = body && typeof body === 'object' && !Array.isArray(body) && body.state
         ? mergeGatewayResponseBody(body, gatewayState, env, gatewayStore)
@@ -5971,15 +5967,8 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
       }
       sendJson(res, 200, {
         ok: true,
-        data: {
-          agents: state.agents || [],
-          state,
-          agentSourceStatus: state.agentSourceStatus || liveRelaySnapshot.agentSourceStatus || null,
-          profileReadiness: state.profileReadiness || null,
-        },
         agents: state.agents || [],
         profileReadiness: state.profileReadiness || null,
-        state,
         agentSourceStatus: state.agentSourceStatus || liveRelaySnapshot.agentSourceStatus || null,
         gatewayFallback: false,
       });
@@ -6014,7 +6003,7 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
           : Array.isArray(state.automationJobs)
             ? state.automationJobs
             : [];
-      sendJson(res, 200, { ok: true, jobs, state, gatewayFallback: false });
+      sendJson(res, 200, { ok: true, jobs, gatewayFallback: false });
       return;
     }
     if (method === 'GET' && pathSegments[0] === 'tools' && !pathSegments[1]) {
@@ -6028,7 +6017,6 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
         skills: liveRelaySnapshot.skills || state.skills || [],
         toolsets: liveRelaySnapshot.toolsets || state.toolsets || [],
         mcpServers: liveRelaySnapshot.mcpServers || state.mcpServers || [],
-        state,
         gatewayFallback: false,
       });
       return;
@@ -6266,6 +6254,10 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
   }
   if (method === 'GET' && pathSegments[0] === 'health' && runtimeResponse.status >= 500) {
     fallbackHealth(res, runtimeResponse, env);
+    return;
+  }
+  if (method === 'GET' && pathSegments[0] === 'settings' && !runtimeResponse.ok) {
+    fallbackSettings(res, env);
     return;
   }
   if (runtimeResponse.status === 404 || runtimeResponse.status >= 500) {
@@ -6744,10 +6736,10 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
       : body;
     const state = mergeGatewayLiveState(runtimeState, gatewayState, env, gatewayStore);
     sendJson(res, runtimeResponse.status, {
-      ...body,
+      ok: body.ok !== false,
       tasks: gatewayTasksFromState(state),
-      state,
       gatewayMerged: true,
+      gatewayFallback: body.gatewayFallback === true,
     });
     return;
   }
@@ -6793,10 +6785,13 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
       body.usage && Number(body.usage.totalTokens || 0) > 0 ? null : readExternalUsageSources({ env, now }),
     ], { now });
     sendJson(res, runtimeResponse.status, {
-      ...body,
+      ok: body.ok !== false,
       usage,
-      state,
       gatewayMerged: true,
+      gatewayFallback: body.gatewayFallback === true,
+      runtimeReachable: body.runtimeReachable !== false,
+      fallbackReason: body.fallbackReason || '',
+      snapshotSource: body.snapshotSource || '',
     });
     return;
   }
@@ -6809,7 +6804,16 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
       sendJson(res, 502, { error: `Invalid runtime tools JSON: ${error.message}` });
       return;
     }
-    sendJson(res, runtimeResponse.status, mergeGatewayResponseBody(body, gatewayState, env, gatewayStore));
+    const merged = mergeGatewayResponseBody(body, gatewayState, env, gatewayStore);
+    sendJson(res, runtimeResponse.status, {
+      ok: body.ok !== false,
+      tools: filterActualGatewayTools(merged.tools || []),
+      skills: merged.skills || [],
+      toolsets: merged.toolsets || [],
+      mcpServers: merged.mcpServers || [],
+      gatewayMerged: true,
+      gatewayFallback: body.gatewayFallback === true,
+    });
     return;
   }
   if (
@@ -6822,6 +6826,29 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
       body = text ? JSON.parse(text) : {};
     } catch (error) {
       sendJson(res, 502, { error: `Invalid runtime JSON: ${error.message}` });
+      return;
+    }
+    const compactGetCollections = method === 'GET' ? {
+      calendar: pathSegments[1] === 'events' ? 'events' : '',
+      inbox: pathSegments[1] === 'commands' ? 'items' : '',
+      documents: !pathSegments[1] ? 'documents' : '',
+      scheduler: pathSegments[1] === 'jobs' ? 'jobs' : '',
+    }[pathSegments[0]] : '';
+    if (compactGetCollections) {
+      const data = body.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data : {};
+      const state = body.state && typeof body.state === 'object' && !Array.isArray(body.state) ? body.state : {};
+      const collection = Array.isArray(body[compactGetCollections])
+        ? body[compactGetCollections]
+        : Array.isArray(data[compactGetCollections])
+          ? data[compactGetCollections]
+          : Array.isArray(state[compactGetCollections])
+            ? state[compactGetCollections]
+            : [];
+      sendJson(res, runtimeResponse.status, {
+        ok: body.ok !== false,
+        [compactGetCollections]: collection,
+        gatewayFallback: body.gatewayFallback === true,
+      });
       return;
     }
     const shouldMergeGatewayBody = body
@@ -6884,7 +6911,7 @@ function createRailwayGatewayServer({ env = process.env, fetchImpl = fetch, gate
         return;
       }
       if (requestUrl.pathname.startsWith('/api/')) {
-        if (!isRelayApiPath(requestUrl.pathname)) {
+        if (!isRelayApiPath(requestUrl.pathname) && !isPublicHealthApiPath(requestUrl.pathname)) {
           const callerAuth = apiCallerAuth(req, env);
           if (!callerAuth.ok) {
             if (callerAuth.status === 401) res.setHeader('www-authenticate', 'Bearer');

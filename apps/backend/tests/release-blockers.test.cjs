@@ -146,6 +146,35 @@ test('fails closed when a public deployment has no client token configured', asy
   }
 });
 
+test('keeps the Railway gateway health check public while other API routes remain protected', async () => {
+  // Given
+  const runtimeCalls = [];
+  const server = createRailwayGatewayServer({
+    env: {
+      RAILWAY_PUBLIC_DOMAIN: 'calendar.example.test',
+      HERMES_REMOTE_AUTH_TOKEN: 'client-token',
+    },
+    fetchImpl: async (...args) => {
+      runtimeCalls.push(args);
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const healthResponse = await fetch(`${baseUrl}/api/gateway-status`);
+    const protectedResponse = await fetch(`${baseUrl}/api/runtime-only`);
+
+    // Then
+    assert.equal(healthResponse.status, 200);
+    assert.equal(protectedResponse.status, 401);
+    assert.equal(runtimeCalls.length, 0);
+  } finally {
+    await close(server);
+  }
+});
+
 test('preserves relay callback authentication independently of the client token', async () => {
   // Given
   const server = createRailwayGatewayServer({
@@ -344,6 +373,67 @@ test('persists an accepted profileRequest across a local store restart', async (
       && request.status === 'pending'
       && request.displayName === 'Durable Agent'
     )));
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('falls back to public desktop settings when the runtime rejects settings access', async () => {
+  const server = createRailwayGatewayServer({
+    env: {},
+    fetchImpl: async () => new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/settings`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.gatewayFallback, true);
+    assert.ok(body.settings);
+  } finally {
+    await close(server);
+  }
+});
+
+test('keeps hydration resource responses compact instead of repeating the complete state', async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-compact-resources-'));
+  const server = createRailwayGatewayServer({
+    env: {},
+    gatewayStore: new HermesStore({ dataDir }),
+    fetchImpl: async () => {
+      throw new Error('runtime offline');
+    },
+  });
+  const baseUrl = await listen(server);
+  const resources = [
+    ['/api/tasks', 'tasks'],
+    ['/api/calendar/events', 'events'],
+    ['/api/inbox/commands?limit=200', 'items'],
+    ['/api/documents', 'documents'],
+    ['/api/scheduler/jobs', 'jobs'],
+    ['/api/usage', 'usage'],
+    ['/api/tools', 'tools'],
+    ['/api/channels/status', 'channels'],
+  ];
+
+  try {
+    for (const [resourcePath, collectionKey] of resources) {
+      const response = await fetch(`${baseUrl}${resourcePath}`);
+      const responseText = await response.text();
+      const body = JSON.parse(responseText);
+
+      assert.equal(response.status, 200, resourcePath);
+      assert.ok(Object.hasOwn(body, collectionKey), `${resourcePath} must expose ${collectionKey}`);
+      assert.equal(Object.hasOwn(body, 'state'), false, `${resourcePath} must not repeat state`);
+      assert.equal(Object.hasOwn(body, 'data'), false, `${resourcePath} must not duplicate its collection under data`);
+      assert.ok(Buffer.byteLength(responseText) < 100_000, `${resourcePath} response is unexpectedly large`);
+    }
   } finally {
     await close(server);
     await rm(dataDir, { recursive: true, force: true });
