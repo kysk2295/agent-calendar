@@ -5874,6 +5874,7 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
     return;
   }
   const schedulerWriteRequest = pathSegments[0] === 'scheduler' && method !== 'GET';
+  const missionLaunchRequest = method === 'POST' && pathSegments[0] === 'missions' && pathSegments[1] === 'launch';
   const missionScheduleRequest = method === 'POST' && pathSegments[0] === 'missions' && pathSegments[1] === 'schedule';
   const agentProfileCreateRequest = method === 'POST' && pathSegments[0] === 'agents' && !pathSegments[1];
   const runCreateRequest = method === 'POST' && pathSegments[0] === 'runs' && !pathSegments[1];
@@ -5885,7 +5886,7 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
     body: requestBody,
     query: queryObject(requestUrl.searchParams),
   });
-  if (toolTranslation || schedulerTranslation || schedulerWriteRequest || missionScheduleRequest || agentProfileCreateRequest || runCreateRequest || settingsRuntimeRequest) {
+  if (toolTranslation || schedulerTranslation || schedulerWriteRequest || missionLaunchRequest || missionScheduleRequest || agentProfileCreateRequest || runCreateRequest || settingsRuntimeRequest) {
     const profileCreateBody = agentProfileCreateRequest ? buildHermesProfileCreateBody(requestBody) : null;
     const relayResponse = await relayRuntimeJsonRequest({
       relay,

@@ -318,6 +318,79 @@ test('refuses to persist a fake mission run while the runtime and relay are offl
   }
 });
 
+test('routes mission launch through the live Mac mini relay', async () => {
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+    },
+    fetchImpl: async () => {
+      throw new Error('mission launch should use the relay instead of direct runtime fetch');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const missionPromise = fetch(`${baseUrl}/api/missions/launch`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        templateId: 'product-build',
+        goal: 'Verify remote mission execution',
+        agentId: 'bizconsultant',
+        source: 'desktop-mission',
+      }),
+    });
+
+    const polled = await pollPromise;
+    assert.equal(polled.ok, true);
+    assert.equal(polled.job.kind, 'runtime.request');
+    assert.equal(polled.job.payload.method, 'POST');
+    assert.equal(polled.job.payload.path, '/api/missions/launch');
+    assert.deepEqual(JSON.parse(polled.job.payload.body), {
+      templateId: 'product-build',
+      goal: 'Verify remote mission execution',
+      agentId: 'bizconsultant',
+      source: 'desktop-mission',
+    });
+
+    await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({
+        ok: true,
+        status: 201,
+        body: {
+          ok: true,
+          run: {
+            id: 'run-relay-mission',
+            name: 'Verify remote mission execution',
+            status: 'running',
+            agent: 'bizconsultant',
+          },
+        },
+      }),
+    });
+
+    const response = await missionPromise;
+    const body = await response.json();
+    assert.equal(response.status, 201);
+    assert.equal(body.run.id, 'run-relay-mission');
+    assert.equal(body.run.agent, 'bizconsultant');
+    assert.equal(body.relayRuntimeRequest, true);
+    assert.equal(body.gatewayFallback, false);
+  } finally {
+    await close(server);
+  }
+});
+
 test('returns an explicit pending profileRequest when offline profile creation is accepted', async () => {
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-profile-pending-'));
