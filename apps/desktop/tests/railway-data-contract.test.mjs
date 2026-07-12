@@ -5,6 +5,13 @@ import { test } from 'node:test';
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const apiSource = readFileSync(new URL('../src/api/hermesApi.ts', import.meta.url), 'utf8');
 const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+const viteConfigSource = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
+
+test('browser preview proxy authenticates with the local desktop Railway token', () => {
+  assert.match(viteConfigSource, /AGENT_CALENDAR_DEV_API_TOKEN/);
+  assert.match(viteConfigSource, /Application Support['"],\s*['"]Agent Calendar['"],\s*['"]settings\.json/);
+  assert.match(viteConfigSource, /authorization:\s*`Bearer \$\{apiProxyToken\}`/);
+});
 
 test('calendar renders only Railway tasks/events for a date, never fallback filler rows', () => {
   assert.equal(appSource.includes('calendarItems.slice(fallbackIndex'), false);

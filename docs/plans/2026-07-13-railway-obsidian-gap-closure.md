@@ -69,6 +69,7 @@ Large / Boundary. Railway gateway, Mac mini relay contract, Electron proxy, Reac
 - [x] 노드 경계 고정, 라벨 크기, 프레임 차이를 A/B 반복한다.
 - [x] 전체 자동 검증, graph Playwright, build와 운영 API QA를 통과한다.
 - [x] main 커밋/푸시 후 운영과 시각 diff를 최종 확인한다.
+- [x] 브라우저 미리보기 Vite 프록시도 로컬 데스크톱 토큰으로 인증하고 경고 배너가 사라지는지 검증한다.
 
 ## Rollback / fallback
 
@@ -82,3 +83,4 @@ Large / Boundary. Railway gateway, Mac mini relay contract, Electron proxy, Reac
 - 캘린더 응답은 약 2.15MB에서 186KB, inbox 응답은 약 980KB에서 118KB로 줄었지만 실제 항목 자체가 많아 100KB를 조금 넘는다.
 - 현재 Obsidian 직접 zoom은 385,002 픽셀 변화로 동작이 증명됐다.
 - 현재 다크 기준 동일 크기 diff는 33/100이다. 프레임과 그래프 밀도는 개선됐지만 Obsidian의 비결정적 force simulation 및 Electron 네이티브 크롬 차이 때문에 95% 픽셀 동기화는 아직 충족하지 못했다.
+- `http://127.0.0.1:5586/` 실제 hydration에서 모든 API 응답이 성공했고 `.api-banner` 0개, 프로필 상태 `Railway 연결`을 확인했다.
