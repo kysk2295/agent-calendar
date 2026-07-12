@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const http = require('node:http');
 const path = require('node:path');
 const zlib = require('node:zlib');
@@ -19,6 +20,7 @@ const { createReflection, createSkillCandidate, shouldPromoteSkill } = require('
 const { buildMissionRunPayload, buildMissionSchedulePayload, listMissionTemplates } = require('./lib/missions');
 const {
   createOfficialProfileAgent,
+  OFFICIAL_PROFILE_NAMES,
   isOfficialProfileName,
   resolveOfficialProfileName,
   resolveProductAgentName,
@@ -57,6 +59,48 @@ function sendJson(res, status, payload) {
     'cache-control': 'no-store',
   });
   res.end(JSON.stringify(payload, null, 2));
+}
+
+function isLoopbackAddress(address = '') {
+  const normalized = String(address || '').trim().toLowerCase().replace(/^::ffff:/, '');
+  return normalized === '::1' || /^127(?:\.\d{1,3}){3}$/.test(normalized);
+}
+
+function hasPublicGatewayEnvironment(env = process.env) {
+  return Boolean(
+    env.RAILWAY_ENVIRONMENT
+    || env.RAILWAY_PUBLIC_DOMAIN
+    || env.RAILWAY_STATIC_URL
+    || env.HERMES_REMOTE_PUBLIC_BASE_URL
+    || env.HERMES_PUBLIC_BASE_URL
+  );
+}
+
+function tokensMatch(actual = '', expected = '') {
+  const actualBuffer = Buffer.from(String(actual || ''));
+  const expectedBuffer = Buffer.from(String(expected || ''));
+  return actualBuffer.length === expectedBuffer.length
+    && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function apiCallerAuth(req, env = process.env) {
+  const expected = String(env.HERMES_REMOTE_AUTH_TOKEN || '').trim();
+  if (expected) {
+    const authorization = String(req.headers?.authorization || '').trim();
+    const bearer = authorization.match(/^Bearer\s+(.+)$/i);
+    return bearer && tokensMatch(bearer[1].trim(), expected)
+      ? { ok: true, mode: 'bearer' }
+      : { ok: false, status: 401, error: 'caller_unauthorized' };
+  }
+  const loopback = isLoopbackAddress(req.socket?.remoteAddress);
+  if (loopback && !hasPublicGatewayEnvironment(env)) {
+    return { ok: true, mode: 'loopback-development' };
+  }
+  return { ok: false, status: 503, error: 'caller_auth_not_configured' };
+}
+
+function isRelayApiPath(pathname = '') {
+  return pathname === '/api/relay' || pathname.startsWith('/api/relay/');
 }
 
 function sendDatabaseRequired(res, resource = 'desktop data') {
@@ -855,13 +899,25 @@ function filterDeletedGatewayAgents(state = {}, gatewayState = {}, gatewayStore 
 
 function gatewaySnapshot(gatewayState, gatewayStore) {
   const snapshot = readHermesAgentSnapshot();
-  return filterDeletedGatewayAgents(projectStateWithAgents({
+  const profileAgents = snapshot?.agents?.length ? snapshot.agents : fallbackOfficialProfileAgents();
+  const state = projectStateWithAgents({
     ...(gatewayStore ? gatewayStore.getState() : gatewayState),
     gatewayFallback: true,
   }, {
-    profileAgents: snapshot?.agents || [],
-    agentSourceStatus: snapshot?.agentSourceStatus || fallbackAgentSourceStatus(),
-  }), gatewayState, gatewayStore);
+    profileAgents,
+    agentSourceStatus: agentSourceStatusWithFallback(
+      snapshot?.agentSourceStatus || null,
+      snapshot ? 'runtime-unreachable' : 'local-snapshot-missing',
+    ),
+  });
+  return filterDeletedGatewayAgents({
+    ...state,
+    agents: (state.agents || []).map((agent) => (isGatewayProfileAgent(agent) ? {
+      ...agent,
+      status: 'Unavailable',
+      runtimeAvailable: false,
+    } : agent)),
+  }, gatewayState, gatewayStore);
 }
 
 function isGatewayProfileAgent(agent = {}) {
@@ -945,16 +1001,21 @@ function relayStateFromSnapshot(snapshot, gatewayState, env = process.env, gatew
   const runtimeState = snapshot?.state && typeof snapshot.state === 'object' && !Array.isArray(snapshot.state)
     ? snapshot.state
     : {};
+  const snapshotAgents = Array.isArray(snapshot?.agents) ? normalizeLiveAgentSkillOrigins(snapshot.agents) : [];
+  const profileAgents = snapshotAgents.length ? snapshotAgents : fallbackOfficialProfileAgents();
+  const agentSourceStatus = snapshotAgents.length
+    ? snapshot?.agentSourceStatus
+    : agentSourceStatusWithFallback(snapshot?.agentSourceStatus || null, 'relay-snapshot-empty');
   const state = {
     ...runtimeState,
-    ...(Array.isArray(snapshot?.agents) ? { agents: normalizeLiveAgentSkillOrigins(snapshot.agents) } : {}),
+    agents: snapshotAgents,
     ...(Array.isArray(snapshot?.tools) ? { tools: snapshot.tools } : {}),
     ...(Array.isArray(snapshot?.skills) ? { skills: snapshot.skills } : {}),
     ...(Array.isArray(snapshot?.toolsets) ? { toolsets: snapshot.toolsets } : {}),
     ...(Array.isArray(snapshot?.mcpServers) ? { mcpServers: snapshot.mcpServers } : {}),
     ...(Array.isArray(snapshot?.schedulerJobs) ? { schedulerJobs: snapshot.schedulerJobs } : {}),
     ...(Array.isArray(snapshot?.automationJobs) ? { automationJobs: snapshot.automationJobs } : {}),
-    ...(snapshot?.agentSourceStatus ? { agentSourceStatus: snapshot.agentSourceStatus } : {}),
+    ...(agentSourceStatus ? { agentSourceStatus } : {}),
     remoteVerification: {
       ...(runtimeState.remoteVerification || {}),
       runtimeReachable: true,
@@ -963,10 +1024,11 @@ function relayStateFromSnapshot(snapshot, gatewayState, env = process.env, gatew
       checkedAt: snapshot.receivedAt || new Date().toISOString(),
     },
   };
-  const merged = mergeGatewayLiveState(state, gatewayState, env, gatewayStore);
+  const projected = projectStateWithAgents(state, { profileAgents, agentSourceStatus });
+  const merged = mergeGatewayLiveState(projected, gatewayState, env, gatewayStore);
   return filterDeletedGatewayAgents({
     ...merged,
-    agents: normalizeLiveAgentSkillOrigins(merged.agents),
+    agents: projectStateWithAgents({ agents: normalizeLiveAgentSkillOrigins(merged.agents) }, { profileAgents }).agents,
     gatewayFallback: false,
     runtimeReachable: true,
     relaySnapshot: {
@@ -1389,6 +1451,27 @@ function fallbackAgentSourceStatus() {
     ok: false,
     source: 'mac-mini-runtime',
     reason: 'runtime-unreachable',
+    runtimeReachable: false,
+  };
+}
+
+function fallbackOfficialProfileAgents() {
+  return OFFICIAL_PROFILE_NAMES.map((name) => createOfficialProfileAgent(name, {
+    role: name === 'default' ? 'General Hermes operator' : `${name} Hermes profile`,
+    status: 'Unavailable',
+    runtimeAvailable: false,
+    source: 'official-profile-fallback',
+  }));
+}
+
+function agentSourceStatusWithFallback(status = null, reason = 'snapshot-empty') {
+  return {
+    ...(status || fallbackAgentSourceStatus()),
+    ok: false,
+    source: status?.source || 'official-profile-fallback',
+    reason,
+    runtimeReachable: false,
+    profileCount: Math.max(Number(status?.profileCount || 0), OFFICIAL_PROFILE_NAMES.length),
   };
 }
 
@@ -4871,10 +4954,11 @@ function fallbackAgentCreate({
   const profileRequest = gatewayStore.createAgentProfileRequest(body);
   const state = gatewayProfileState(gatewayState, gatewayStore);
   const profileRequests = Array.isArray(state.agentProfileRequests) ? state.agentProfileRequests : [];
-  sendJson(res, 200, {
+  sendJson(res, 202, {
     ok: true,
+    pending: true,
     profileRequest,
-    data: { profileRequest, state, agents: state.agents || [], profileRequests },
+    data: { pending: true, profileRequest, state, agents: state.agents || [], profileRequests },
     agents: state.agents || [],
     profileRequests,
     state,
@@ -5133,34 +5217,21 @@ function sendGatewayAgentDetail({ res, state, rawAgentId, gatewayFallback = true
 }
 
 function fallbackAgentRunCreate({ res, body = {}, gatewayState, gatewayStore = null }) {
-  if (gatewayStore) {
-    const profileState = gatewayProfileState(gatewayState, gatewayStore);
-    const profileAgent = resolveGatewayRunProfile(body, profileState);
-    const run = gatewayStore.createRun({
-      ...body,
-      agentId: profileAgent.id,
-      agent: profileAgent.displayName || profileAgent.name || profileAgent.id,
-      profileAgents: profileState.agents,
-      source: body.source || 'railway-gateway',
-    });
-    const state = gatewayProfileState(gatewayState, gatewayStore);
-    sendJson(res, 200, { ok: true, data: { run, state }, run, state, gatewayFallback: true });
-    return;
-  }
-  sendDatabaseRequired(res, 'runs');
+  sendJson(res, 503, {
+    ok: false,
+    error: 'runtime_unavailable',
+    queued: false,
+    runtimeReachable: false,
+    gatewayFallback: true,
+  });
 }
 
 function fallbackMissionLaunch({ res, body = {}, gatewayState, gatewayStore = null }) {
-  if (!gatewayStore || typeof gatewayStore.saveRun !== 'function') {
-    sendDatabaseRequired(res, 'mission runs');
-    return;
-  }
-  const payload = buildMissionRunPayload(body);
-  const run = gatewayStore.saveRun(createGatewayRun(payload));
-  sendJson(res, 200, {
-    mission: payload.mission,
-    run,
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+  sendJson(res, 503, {
+    ok: false,
+    error: 'runtime_unavailable',
+    queued: false,
+    runtimeReachable: false,
     gatewayFallback: true,
   });
 }
@@ -6813,6 +6884,14 @@ function createRailwayGatewayServer({ env = process.env, fetchImpl = fetch, gate
         return;
       }
       if (requestUrl.pathname.startsWith('/api/')) {
+        if (!isRelayApiPath(requestUrl.pathname)) {
+          const callerAuth = apiCallerAuth(req, env);
+          if (!callerAuth.ok) {
+            if (callerAuth.status === 401) res.setHeader('www-authenticate', 'Bearer');
+            sendJson(res, callerAuth.status, { ok: false, error: callerAuth.error });
+            return;
+          }
+        }
         await waitForStoreReady(gatewayStore);
         await handleApi(req, res, requestUrl, env, fetchImpl, gatewayState, gatewayStore, relay);
         return;

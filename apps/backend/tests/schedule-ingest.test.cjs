@@ -34,7 +34,8 @@ function createStore(state) {
   };
 }
 
-test('assistant ingest extracts text command drafts without writing to DB', async () => {
+test('assistant ingest extracts text command drafts without writing to DB', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-07-07T12:00:00.000Z') });
   const store = createStore({ tasks: [], events: [] });
   const llmCalls = [];
   const server = createRailwayGatewayServer({

@@ -709,7 +709,8 @@ test('assistant ask caches schedule record embeddings between repeated questions
   }
 });
 
-test('assistant ask computes overdue and due-soon items deterministically', async () => {
+test('assistant ask computes overdue and due-soon items deterministically', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-07-07T12:00:00.000Z') });
   const state = {
     tasks: [
       { id: 'task-overdue', title: '세금계산서 발행', date: '2026-07-04', status: 'Planned', done: false },
