@@ -1,7 +1,7 @@
 import http, { type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { pipeline } from 'node:stream/promises';
 import { URL } from 'node:url';
-import { handleLocalWikiRoute, isLocalWikiRoute } from './localWikiAsk.js';
+import { handleLocalWikiRoute, isLocalWikiRoute, LocalWikiPathError } from './localWikiAsk.js';
 import { handleLocalScheduleAskRoute, isLocalScheduleAskRoute } from './scheduleAsk.js';
 
 export type ProxySettings = {
@@ -76,11 +76,23 @@ export async function handleProxyRequest(
 
   if (process.env.WIKI_ASK_LOCAL === '1' && isLocalWikiRoute(req.method, req.url)) {
     const settings = options.getSettings();
-    await handleLocalWikiRoute(req, res, {
-      fetchImpl: options.fetchImpl,
-      railwayBaseUrl: settings.apiBaseUrl,
-      railwayApiToken: settings.apiToken,
-    });
+    try {
+      await handleLocalWikiRoute(req, res, {
+        fetchImpl: options.fetchImpl,
+        railwayBaseUrl: settings.apiBaseUrl,
+        railwayApiToken: settings.apiToken,
+      });
+    } catch (error) {
+      if (res.headersSent) {
+        res.end();
+        return;
+      }
+      res.writeHead(error instanceof LocalWikiPathError ? 400 : 500, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        ok: false,
+        error: error instanceof Error ? error.message : 'Agent Calendar local wiki failed',
+      }));
+    }
     return;
   }
 

@@ -5,6 +5,24 @@ import type { WikiChunk } from './wikiTypes.js';
 
 const IGNORED_DIRS = new Set(['.git', '.obsidian', 'attachments', 'images', 'assets', 'node_modules']);
 
+export type WikiNote = {
+  readonly id: string;
+  readonly path: string;
+  readonly wikiPath: string;
+  readonly folder: string;
+  readonly kind: string;
+  readonly title: string;
+  readonly body: string;
+  readonly excerpt: string;
+  readonly tags: readonly string[];
+  readonly updatedAt: string;
+};
+
+export type WikiVaultIndex = {
+  readonly chunks: WikiChunk[];
+  readonly notes: WikiNote[];
+};
+
 function chunkId(value: string) {
   return crypto.createHash('sha1').update(value).digest('hex').slice(0, 16);
 }
@@ -58,9 +76,10 @@ async function markdownFiles(root: string, dir = ''): Promise<string[]> {
   return files;
 }
 
-export async function scanWikiVault(root: string): Promise<WikiChunk[]> {
+export async function scanWikiVaultIndex(root: string): Promise<WikiVaultIndex> {
   const files = await markdownFiles(root);
   const chunks: WikiChunk[] = [];
+  const notes: WikiNote[] = [];
 
   for (const relativePath of files.sort()) {
     const absolutePath = path.join(root, relativePath);
@@ -72,6 +91,19 @@ export async function scanWikiVault(root: string): Promise<WikiChunk[]> {
     const folder = relativePath.split(path.sep)[0] || '';
     const tags = tagsFor(meta);
     const updatedAt = String(meta.updatedAt || meta.updated || meta.date || fileStat.mtime.toISOString());
+    const wikiPath = relativePath.split(path.sep).join('/');
+    notes.push({
+      id: wikiPath,
+      path: wikiPath,
+      wikiPath,
+      folder,
+      kind: folder,
+      title,
+      body,
+      excerpt: body.replace(/\s+/g, ' ').trim().slice(0, 240),
+      tags,
+      updatedAt,
+    });
     const stack: Array<{ level: number; heading: string }> = [{ level: 1, heading: title }];
     let current = { heading: title, lineStart: 1, lines: [] as string[], path: [title] };
 
@@ -80,7 +112,7 @@ export async function scanWikiVault(root: string): Promise<WikiChunk[]> {
       if (!text) return;
       chunks.push({
         id: chunkId(`${relativePath}#${current.path.join('/')}:${current.lineStart}`),
-        path: relativePath.split(path.sep).join('/'),
+        path: wikiPath,
         folder,
         title,
         heading: current.heading,
@@ -114,5 +146,9 @@ export async function scanWikiVault(root: string): Promise<WikiChunk[]> {
     pushChunk(lines.length);
   }
 
-  return chunks;
+  return { chunks, notes };
+}
+
+export async function scanWikiVault(root: string): Promise<WikiChunk[]> {
+  return (await scanWikiVaultIndex(root)).chunks;
 }

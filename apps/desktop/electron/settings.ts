@@ -54,6 +54,23 @@ const DEFAULT_SETTINGS: DesktopSettings = {
     weekStartMon: true,
   },
 };
+const LEGACY_USER_DATA_FILES = ['settings.json', 'auth-users.json'] as const;
+
+export function migrateLegacyUserDataFiles(legacyDir: string, currentDir: string) {
+  fs.mkdirSync(currentDir, { recursive: true });
+  for (const filename of LEGACY_USER_DATA_FILES) {
+    try {
+      fs.copyFileSync(
+        path.join(legacyDir, filename),
+        path.join(currentDir, filename),
+        fs.constants.COPYFILE_EXCL,
+      );
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'EEXIST')) continue;
+      throw error;
+    }
+  }
+}
 
 function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json');

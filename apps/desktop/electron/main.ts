@@ -6,9 +6,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loginWithPassword, signUpWithPassword, startProviderLogin, type AuthProvider } from './auth.js';
 import { createApiProxyServer } from './proxy.js';
-import { publicSettings, readSettings, saveSettings } from './settings.js';
+import { migrateLegacyUserDataFiles, publicSettings, readSettings, saveSettings } from './settings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const APP_NAME = 'Agent Calendar';
 const WIDGET_APP_GROUP_ID = 'group.com.agents.calendar';
 const WIDGET_SNAPSHOT_FILE = 'HermesWidgetSnapshot.json';
 const WIDGET_ACTIONS_FILE = 'HermesWidgetActions.json';
@@ -17,7 +18,42 @@ let widgetOverlayWindow: BrowserWindow | null = null;
 let proxyBaseUrl = '';
 let widgetActionPoller: NodeJS.Timeout | null = null;
 
-app.setName('agents-calendar-desktop');
+app.setName(APP_NAME);
+app.setPath('userData', path.join(app.getPath('appData'), process.env.AGENT_CALENDAR_USER_DATA_NAME || APP_NAME));
+
+function loadLocalRuntimeEnv() {
+  const loaded = new Set<string>();
+  const candidateDirs = Array.from(new Set([
+    app.getPath('userData'),
+    process.cwd(),
+    path.resolve(__dirname, '..'),
+    path.resolve(__dirname, '../../..'),
+    app.getAppPath(),
+    path.join(app.getAppPath(), 'apps', 'desktop'),
+  ]));
+  for (const dir of candidateDirs) {
+    for (const filename of ['.env.local', '.env']) {
+      try {
+        const raw = fs.readFileSync(path.join(dir, filename), 'utf8');
+        raw.split(/\r?\n/g).forEach((line) => {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) return;
+          const separator = trimmed.indexOf('=');
+          if (separator < 1) return;
+          const key = trimmed.slice(0, separator).trim();
+          const value = trimmed.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '');
+          if (key && value && !process.env[key]) {
+            process.env[key] = value;
+            loaded.add(key);
+          }
+        });
+      } catch {
+        // Local env files are optional runtime configuration.
+      }
+    }
+  }
+  return [...loaded].sort();
+}
 
 function logLifecycle(message: string, details: Record<string, unknown> = {}) {
   try {
@@ -253,7 +289,10 @@ ipcMain.handle('widget:actions-clear', async (_event, ids: unknown) => {
 });
 
 app.whenReady().then(async () => {
+  migrateLegacyUserDataFiles(path.join(app.getPath('appData'), 'agents-calendar-desktop'), app.getPath('userData'));
   logLifecycle('app-ready', { userData: app.getPath('userData') });
+  const loadedEnvKeys = loadLocalRuntimeEnv();
+  if (loadedEnvKeys.length) logLifecycle('runtime-env-loaded', { keys: loadedEnvKeys });
   await startProxy();
   if (process.platform === 'darwin') app.dock?.setIcon(appIconPath());
   createWindow();

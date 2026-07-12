@@ -39,6 +39,7 @@
   "build": {
     "appId": "com.agents.calendar",
     "productName": "Agent Calendar",
+    "electronVersion": "33.4.11",
     "asar": true,
     "files": [
       "dist/**",

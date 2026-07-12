@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -375,6 +375,130 @@ test('proxy marks Railway relay timeout as fallback instead of successful answer
       assert.match(payload.answer, /railway relay bridge timed out/);
       assert.doesNotMatch(payload.answer, /임시 답변/);
       assert.equal(payload.engine.provider, 'railway-hermes');
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('GET /api/wiki inventories every Markdown note and preserves heading text', async () => {
+  // Given
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wiki-vault-'));
+  try {
+    await mkdir(path.join(root, '2_wiki'), { recursive: true });
+    await writeFile(path.join(root, '2_wiki', 'Empty.md'), '');
+    await writeFile(path.join(root, '2_wiki', 'Frontmatter.md'), '---\ntitle: Metadata only\ntags: [meta]\n---\n');
+    await writeFile(path.join(root, '2_wiki', 'Heading only.md'), '# Heading only\n## [[Target]]');
+    await writeFile(path.join(root, '2_wiki', 'Target.md'), '');
+
+    // When
+    await withProxy(undefined, {
+      WIKI_ASK_LOCAL: '1',
+      LLM_WIKI_VAULT: root,
+    }, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/wiki`);
+      const payload = await response.json();
+
+      // Then
+      assert.equal(response.status, 200);
+      assert.deepEqual(payload.notes.map((note) => note.path).sort(), [
+        '2_wiki/Empty.md',
+        '2_wiki/Frontmatter.md',
+        '2_wiki/Heading only.md',
+        '2_wiki/Target.md',
+      ]);
+      const headingOnly = payload.notes.find((note) => note.path === '2_wiki/Heading only.md');
+      assert.equal(headingOnly.body, '# Heading only\n## [[Target]]');
+      assert.equal(payload.graph.nodes.length, 4);
+      assert.deepEqual(payload.graph.edges.map((edge) => `${edge.from}->${edge.to}`), [
+        '2_wiki/Heading only.md->2_wiki/Target.md',
+      ]);
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('GET /api/wiki returns terminating JSON when the local vault cannot be scanned', async () => {
+  // Given
+  const root = await mkdtemp(path.join(os.tmpdir(), 'missing-wiki-vault-'));
+  const missingVault = path.join(root, 'does-not-exist');
+  try {
+    // When
+    await withProxy(undefined, {
+      WIKI_ASK_LOCAL: '1',
+      LLM_WIKI_VAULT: missingVault,
+    }, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/wiki`, { signal: AbortSignal.timeout(1_000) });
+      const payload = await response.json();
+
+      // Then
+      assert.equal(response.status, 500);
+      assert.match(response.headers.get('content-type') || '', /application\/json/);
+      assert.equal(payload.ok, false);
+      assert.match(payload.error, /ENOENT|does-not-exist/);
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('GET /api/wiki rejects an in-vault note symlink that resolves outside the vault', async () => {
+  // Given
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wiki-vault-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'outside-wiki-vault-'));
+  const sentinel = 'OUTSIDE_VAULT_SECRET';
+  try {
+    await mkdir(path.join(root, '2_wiki'), { recursive: true });
+    const secretPath = path.join(outside, 'Secret.md');
+    await writeFile(secretPath, sentinel);
+    await symlink(secretPath, path.join(root, '2_wiki', 'Leak.md'));
+
+    // When
+    await withProxy(undefined, {
+      WIKI_ASK_LOCAL: '1',
+      LLM_WIKI_VAULT: root,
+    }, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/wiki?path=${encodeURIComponent('2_wiki/Leak.md')}`);
+      const responseText = await response.text();
+
+      // Then
+      assert.equal(response.status, 400);
+      assert.match(response.headers.get('content-type') || '', /application\/json/);
+      assert.equal(JSON.parse(responseText).ok, false);
+      assert.doesNotMatch(responseText, new RegExp(sentinel));
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test('GET /api/wiki serializes one note collection and one copy of each full body', async () => {
+  // Given
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wiki-vault-'));
+  const sentinel = 'UNIQUE_FULL_BODY_SENTINEL';
+  try {
+    await mkdir(path.join(root, '2_wiki'), { recursive: true });
+    await writeFile(path.join(root, '2_wiki', 'Payload.md'), `# Payload\n\n${'preview '.repeat(40)}${sentinel}`);
+
+    // When
+    await withProxy(undefined, {
+      WIKI_ASK_LOCAL: '1',
+      LLM_WIKI_VAULT: root,
+    }, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/wiki`);
+      const responseText = await response.text();
+      const payload = JSON.parse(responseText);
+
+      // Then
+      assert.equal(response.status, 200);
+      assert.equal(payload.notes.length, 1);
+      assert.equal(payload.graph.nodes.length, 1);
+      assert.equal(Object.hasOwn(payload, 'documents'), false);
+      assert.equal(Object.hasOwn(payload, 'wikiIndex'), false);
+      assert.equal(payload.selectedNote, null);
+      assert.equal(responseText.split(sentinel).length - 1, 1);
     });
   } finally {
     await rm(root, { recursive: true, force: true });

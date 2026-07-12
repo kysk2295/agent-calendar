@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 export type AuthProvider = 'google' | 'password';
@@ -38,6 +39,7 @@ type AuthUsersStore = { users: AuthUser[] };
 const AUTH_TIMEOUT_MS = 2 * 60 * 1000;
 const GOOGLE_FETCH_TIMEOUT_MS = 15 * 1000;
 const scryptAsync = promisify(scrypt);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function usersPath() {
   return path.join(app.getPath('userData'), 'auth-users.json');
@@ -103,20 +105,30 @@ function env(...keys: string[]) {
 
 function readLocalEnv() {
   const entries: Record<string, string> = {};
-  for (const filename of ['.env.local', '.env']) {
-    try {
-      const raw = readFileSync(path.join(process.cwd(), filename), 'utf8');
-      raw.split(/\r?\n/g).forEach((line) => {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) return;
-        const separator = trimmed.indexOf('=');
-        if (separator < 1) return;
-        const key = trimmed.slice(0, separator).trim();
-        const value = trimmed.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '');
-        if (key && value && !entries[key]) entries[key] = value;
-      });
-    } catch {
-      // Optional local env files are only for desktop OAuth client IDs.
+  const candidateDirs = Array.from(new Set([
+    process.cwd(),
+    app.getPath('userData'),
+    path.resolve(__dirname, '..'),
+    path.resolve(__dirname, '../../..'),
+    app.getAppPath(),
+    path.join(app.getAppPath(), 'apps', 'desktop'),
+  ]));
+  for (const dir of candidateDirs) {
+    for (const filename of ['.env.local', '.env']) {
+      try {
+        const raw = readFileSync(path.join(dir, filename), 'utf8');
+        raw.split(/\r?\n/g).forEach((line) => {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) return;
+          const separator = trimmed.indexOf('=');
+          if (separator < 1) return;
+          const key = trimmed.slice(0, separator).trim();
+          const value = trimmed.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '');
+          if (key && value && !entries[key]) entries[key] = value;
+        });
+      } catch {
+        // Optional local env files are only for desktop OAuth client IDs.
+      }
     }
   }
   return entries;
