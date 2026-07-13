@@ -1218,8 +1218,8 @@ function normalizeHermesProfileAgent(body = {}) {
   if (!name) return null;
   const model = String(body.model || body.profile?.model || 'Recommended').trim();
   const commandTemplate = name === 'default'
-    ? 'hermes --yolo -z "$HERMES_GOAL"'
-    : `hermes profile use ${name} && hermes --yolo -z "$HERMES_GOAL"`;
+    ? 'hermes -z "$HERMES_GOAL"'
+    : `hermes profile use ${name} && hermes -z "$HERMES_GOAL"`;
   const agentIdentity = {
     id: name,
     displayName: name,

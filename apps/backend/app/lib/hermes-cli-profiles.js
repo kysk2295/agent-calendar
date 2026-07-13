@@ -236,9 +236,9 @@ function profileCommandTemplate(profile = {}, options = {}) {
   if (!name || !isSafeProfileId(name)) return '';
   const cli = shellQuote(options.cliPath || 'hermes');
   const alias = normalizeCell(profile.alias);
-  if (alias && isSafeProfileId(alias)) return `${shellQuote(alias)} --yolo -z "$HERMES_GOAL"`;
-  if (name === 'default') return `${cli} --yolo -z "$HERMES_GOAL"`;
-  return `${cli} profile use ${shellQuote(name)} && ${cli} --yolo -z "$HERMES_GOAL"`;
+  if (alias && isSafeProfileId(alias)) return `${shellQuote(alias)} -z "$HERMES_GOAL"`;
+  if (name === 'default') return `${cli} -z "$HERMES_GOAL"`;
+  return `${cli} profile use ${shellQuote(name)} && ${cli} -z "$HERMES_GOAL"`;
 }
 
 function profileRules(profile = {}, metadata = {}) {

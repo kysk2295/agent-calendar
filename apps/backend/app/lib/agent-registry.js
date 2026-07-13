@@ -30,7 +30,7 @@ function normalizeProfileAgent(agent = {}) {
   const model = agent.executionBackend?.model || agent.runtimeBinding?.model || agent.model || 'Recommended';
   const commandTemplate = agent.executionBackend?.commandTemplate
     || agent.runtimeBinding?.commandTemplate
-    || 'hermes --yolo -z "$HERMES_GOAL"';
+    || 'hermes -z "$HERMES_GOAL"';
   const agentIdentity = {
     id: agent.agentIdentity?.id || id,
     displayName: agent.agentIdentity?.displayName || displayName,

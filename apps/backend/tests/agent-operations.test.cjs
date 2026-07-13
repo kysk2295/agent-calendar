@@ -718,6 +718,21 @@ test('mission launch preserves the safe toolset deadline and approval boundary',
   assert.equal(run.deadlineAt, deadlineAt);
 });
 
+test('Hermes profile command templates never bypass runtime approvals', async () => {
+  // Given
+  const files = [
+    '../app/lib/agent-registry.js',
+    '../app/lib/hermes-cli-profiles.js',
+    '../app/railway-gateway-server.js',
+  ];
+
+  // When
+  const sources = await Promise.all(files.map((file) => readFile(path.join(__dirname, file), 'utf8')));
+
+  // Then
+  assert.equal(sources.every((source) => !source.includes('--yolo')), true);
+});
+
 test('planning API creates proposed calendar work and one Task Session per task', async () => {
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-plan-'));
