@@ -36,7 +36,8 @@
 
 ## Local Verification
 
-- `npm test`: 101 backend tests and 74 desktop tests passed.
+- Verified deployment `72ca034a-bf0e-4a78-9b7a-f80c7fd99bc5`: 101 backend tests and 74 desktop tests passed at that historical checkpoint.
+- Current hardened branch: 122 backend tests and 75 desktop tests passed after projection, concurrency, cancellation, and route hardening.
 - `npm run build:desktop`: passed.
 - `playwright-agent-operations-mission.cjs`: passed with seven focused Agent Operations refreshes.
 - `playwright-agent-task-session.cjs`: passed with four persisted session reads.

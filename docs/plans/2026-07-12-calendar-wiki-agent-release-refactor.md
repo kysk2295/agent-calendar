@@ -78,11 +78,12 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - [x] 변경 계약을 행동 기반 테스트로 보호한다.
 - [x] 날짜 의존 backend tests에 명시적 clock을 주입한다.
 - [x] 전체 자동 검증과 실제 UI QA를 통과한다.
-- [x] review-work와 runtime/security gate를 통과한다.
+- [x] 초기 구현 기준 review-work와 runtime/security gate를 통과한다.
 - [x] PostgreSQL의 늦은 stale task upsert가 선점된 Agent Task를 `scheduled`로 되돌리지 못하게 한다.
 - [x] scheduler GET 응답에서도 제거된 Hermes profile을 공식 profile로 정규화한다.
 - [x] Agent Operations action route가 정확히 네 개 segment인 경로만 수락하게 한다.
 - [x] Relay snapshot의 public projection에서 비공식 profile과 unsafe toolset, raw MCP metadata를 제거한다.
+- [x] Public state/snapshot을 top-level allowlist로 제한하고 public agent command template과 wrapped tool 누락을 제거한다.
 - [ ] 위 후속 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
 
 ## Rollback / fallback

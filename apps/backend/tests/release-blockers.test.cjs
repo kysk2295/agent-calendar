@@ -240,6 +240,9 @@ test('projects Relay snapshots to official profiles and safe public capability m
   const baseUrl = await listen(server);
   const unsafeSnapshot = {
     source: 'hostile-test-relay',
+    debugSecret: 'super-secret',
+    privatePath: '/Users/koyunseo/private-top-level',
+    rawCommand: 'hermes --yolo',
     agents: [
       { id: 'marketflow', name: 'marketflow', runtimeBinding: { commandTemplate: 'hermes --yolo' } },
       {
@@ -314,6 +317,7 @@ test('projects Relay snapshots to official profiles and safe public capability m
     }
     assert.equal(Object.hasOwn(tools.tools[0], 'command'), false);
     assert.equal(Object.hasOwn(tools.tools[0], 'raw'), false);
+    assert.doesNotMatch(JSON.stringify({ agents, state, snapshot }), /commandTemplate/);
     assert.doesNotMatch(
       JSON.stringify({ agents, tools, state, snapshot }),
       /marketflow|--yolo|shell-server|super-secret|\/Users\/koyunseo/,
@@ -354,14 +358,19 @@ test('projects direct runtime agent and tool reads through the same public polic
         : pathname === '/api/tools'
           ? {
             ok: true,
-            tools: unsafeTools,
-            skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
-            toolsets: ['safe', 'shell'],
-            mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
+            data: {
+              tools: unsafeTools,
+              skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
+              toolsets: ['safe', 'shell'],
+              mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
+            },
           }
           : {
             ok: true,
             state: {
+              debugSecret: 'super-secret',
+              privatePath: '/Users/koyunseo/private-top-level',
+              rawCommand: 'hermes --yolo',
               agents: unsafeAgents,
               tools: unsafeTools,
               profileReadiness: unsafeReadiness,
@@ -392,9 +401,12 @@ test('projects direct runtime agent and tool reads through the same public polic
     assert.ok(agents.profileReadiness.requiredProfiles.every((entry) => Object.hasOwn(entry, 'setup') === false));
     assert.deepEqual(tools.toolsets, ['safe']);
     assert.deepEqual(tools.mcpServers, []);
+    assert.equal(tools.tools.length, 1);
+    assert.equal(tools.tools[0].id, 'browser');
     assert.ok(state.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
     assert.deepEqual(state.toolsets, ['safe']);
     assert.deepEqual(state.mcpServers, []);
+    assert.doesNotMatch(JSON.stringify({ agents, state }), /commandTemplate/);
     assert.doesNotMatch(
       JSON.stringify({ agents, tools, state }),
       /marketflow|--yolo|shell-server|super-secret|\/Users\/koyunseo/,

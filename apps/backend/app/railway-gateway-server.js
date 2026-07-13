@@ -805,6 +805,16 @@ function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, ga
       data.agents = publicOfficialProfileAgents(agents);
     }
     if (body.data.profileReadiness) data.profileReadiness = publicProfileReadiness(body.data.profileReadiness);
+    if (Array.isArray(body.data.tools)) {
+      data.tools = publicCapabilityMetadataList(filterActualGatewayTools(body.data.tools));
+      if (!Array.isArray(body.tools)) nextBody.tools = data.tools;
+    }
+    if (Array.isArray(body.data.skills)) {
+      data.skills = publicCapabilityMetadataList(body.data.skills);
+      if (!Array.isArray(body.skills)) nextBody.skills = data.skills;
+    }
+    data.toolsets = ['safe'];
+    data.mcpServers = [];
     nextBody.data = data;
   }
   return nextBody;
@@ -1052,14 +1062,16 @@ function publicOfficialProfileAgents(agents = []) {
     if (!agent || typeof agent !== 'object' || Array.isArray(agent)) return null;
     const name = gatewayAgentKeys(agent).find(isOfficialProfileName);
     if (!name) return null;
-    const publicAgent = normalizeHermesProfileAgent({ name });
     const allowedStatuses = new Set(['Idle', 'Running', 'Busy', 'Ready', 'Unavailable', 'Offline', 'Paused']);
     const status = String(agent.status || 'Idle');
-    return {
-      ...publicAgent,
+    return createOfficialProfileAgent(name, {
+      engine: 'hermes',
+      role: `Mac mini Hermes profile ${name}`,
+      persona: `Mac mini Hermes profile ${name}.`,
       status: allowedStatuses.has(status) ? status : 'Idle',
+      tools: ['hermes-cli'],
       skills: publicCapabilityMetadataList(agent.skills),
-    };
+    });
   }).filter(Boolean);
 }
 
@@ -1090,25 +1102,84 @@ function publicProfileReadiness(readiness = {}) {
   };
 }
 
+const PUBLIC_GATEWAY_STATE_ARRAY_KEYS = Object.freeze([
+  'tasks',
+  'agentMissions',
+  'agentSessions',
+  'agentSessionEvents',
+  'agentReports',
+  'ticktickTasks',
+  'events',
+  'externalCalendarEvents',
+  'sessions',
+  'runs',
+  'documents',
+  'chatMessages',
+  'mailMessages',
+  'workboardPages',
+  'commandInboxArchivedIds',
+  'commandInboxStarredIds',
+  'schedulerJobs',
+  'automationJobs',
+  'deletedAgentIds',
+  'telegramChatCandidates',
+  'reflections',
+  'skillCandidates',
+  'reviewerItems',
+  'learningAgents',
+  'agentProfileRequests',
+  'channels',
+]);
+
+function publicAgentSourceStatus(status = {}) {
+  if (!status || typeof status !== 'object' || Array.isArray(status)) return null;
+  return {
+    ok: status.ok === true,
+    source: safeRuntimeError(status.source, ''),
+    profileCount: Math.max(0, Number(status.profileCount) || 0),
+    generatedAt: safeRuntimeError(status.generatedAt, ''),
+    ...(typeof status.runtimeReachable === 'boolean' ? { runtimeReachable: status.runtimeReachable } : {}),
+  };
+}
+
+function publicRemoteVerification(verification = {}) {
+  if (!verification || typeof verification !== 'object' || Array.isArray(verification)) return null;
+  return {
+    runtimeReachable: verification.runtimeReachable === true,
+    gatewayFallback: verification.gatewayFallback === true,
+    source: safeRuntimeError(verification.source, ''),
+    checkedAt: safeRuntimeError(verification.checkedAt, ''),
+  };
+}
+
 function projectPublicGatewayState(state = {}) {
   const source = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
-  return {
-    ...source,
+  const projected = {};
+  for (const key of PUBLIC_GATEWAY_STATE_ARRAY_KEYS) {
+    if (Array.isArray(source[key])) projected[key] = source[key];
+  }
+  Object.assign(projected, {
     agents: publicOfficialProfileAgents(source.agents),
     tools: publicCapabilityMetadataList(filterActualGatewayTools(source.tools)),
     skills: publicCapabilityMetadataList(source.skills),
     toolsets: ['safe'],
     mcpServers: [],
-    ...(source.profileReadiness
-      ? { profileReadiness: publicProfileReadiness(source.profileReadiness) }
-      : {}),
-    ...(Array.isArray(source.schedulerJobs)
-      ? { schedulerJobs: source.schedulerJobs.map(normalizeHermesCronResponseJob) }
-      : {}),
-    ...(Array.isArray(source.automationJobs)
-      ? { automationJobs: source.automationJobs.map(normalizeSchedulerJobProfile) }
-      : {}),
-  };
+  });
+  if (source.profileReadiness) projected.profileReadiness = publicProfileReadiness(source.profileReadiness);
+  const agentSourceStatus = publicAgentSourceStatus(source.agentSourceStatus);
+  if (agentSourceStatus) projected.agentSourceStatus = agentSourceStatus;
+  const remoteVerification = publicRemoteVerification(source.remoteVerification);
+  if (remoteVerification) projected.remoteVerification = remoteVerification;
+  if (Array.isArray(source.schedulerJobs)) {
+    projected.schedulerJobs = source.schedulerJobs.map(normalizeHermesCronResponseJob);
+  }
+  if (Array.isArray(source.automationJobs)) {
+    projected.automationJobs = source.automationJobs.map(normalizeSchedulerJobProfile);
+  }
+  for (const key of ['gatewayMerged', 'gatewayFallback', 'runtimeReachable']) {
+    if (typeof source[key] === 'boolean') projected[key] = source[key];
+  }
+  return projected;
 }
 
 function projectPublicRelaySnapshot(snapshot = {}) {
@@ -1125,8 +1196,13 @@ function projectPublicRelaySnapshot(snapshot = {}) {
     ...(Array.isArray(source.schedulerJobs) ? { schedulerJobs: source.schedulerJobs } : {}),
     ...(Array.isArray(source.automationJobs) ? { automationJobs: source.automationJobs } : {}),
   });
-  return {
-    ...source,
+  const projected = {
+    ok: source.ok !== false,
+    stale: source.stale === true,
+    ageMs: Math.max(0, Number(source.ageMs) || 0),
+    ttlMs: Math.max(0, Number(source.ttlMs) || 0),
+    source: safeRuntimeError(source.source, 'railway-relay-bridge'),
+    receivedAt: safeRuntimeError(source.receivedAt, ''),
     state,
     agents: state.agents,
     tools: state.tools,
@@ -1137,6 +1213,10 @@ function projectPublicRelaySnapshot(snapshot = {}) {
     ...(Array.isArray(state.schedulerJobs) ? { schedulerJobs: state.schedulerJobs } : {}),
     ...(Array.isArray(state.automationJobs) ? { automationJobs: state.automationJobs } : {}),
   };
+  if (state.profileReadiness) projected.profileReadiness = state.profileReadiness;
+  const agentSourceStatus = publicAgentSourceStatus(source.agentSourceStatus);
+  if (agentSourceStatus) projected.agentSourceStatus = agentSourceStatus;
+  return projected;
 }
 
 function relayStateFromSnapshot(snapshot, gatewayState, env = process.env, gatewayStore = null) {
