@@ -88,6 +88,7 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - [x] Direct agent 목록에서 런타임의 임의 최상위 필드를 제거하고 현재 Agent Operations 탭에 맞춰 profile Playwright를 갱신한다.
 - [x] 빈 배열이나 제거 대상 capability가 중첩된 정상 agent/tool/skill을 가리지 않게 envelope 배열을 병합한다.
 - [x] 동일 ID의 축약 레코드가 중첩된 상세 status, description, skill metadata를 지우지 않게 보강 병합한다.
+- [x] Public official agent projection에서도 정제된 표시 name/description을 유지한다.
 - [x] 런타임 상태 병합 시 DB의 인증 사용자 문서, 채팅, 세션, inbox 상태를 유지한다.
 - [x] `/api/agents/:id`만 상세 경로로 취급하고 더 깊은 런타임 하위 경로는 그대로 전달한다.
 - [x] Generic JSON 응답의 `data.state`도 최상위와 동일한 public state projection으로 교체한다.
@@ -125,4 +126,5 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - Envelope precedence HTTP QA: nested official agent/tool/skill data survived empty or filtered top-level arrays; DB tasks/documents/chat/sessions/inbox state survived runtime merge; `/api/agents/bizconsultant/metrics` remained a runtime subroute.
 - Generic response QA: sparse duplicate records retained nested Ready/description/skill metadata, and hostile run `data.state` exposed only the sanitized public state.
 - Diagnostic envelope QA: data-state-only run responses were projected, and caller-visible source/verification diagnostics excluded raw token, path, and command fields.
+- Public agent metadata QA: the official profile id/profile key stayed fixed while rich nested display name, description, Ready status, and skills survived projection.
 - Agent profile Playwright: navigated from the Agent Operations `Missions` default tab to `Agents`, rendered `준비됨`, and hid removed `marketflow` readiness.
