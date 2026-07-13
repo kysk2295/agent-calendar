@@ -104,7 +104,9 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
 - [x] Step 20: Prevent generic task mutation from bypassing Agent Operations state transitions.
 - [x] Step 21: Normalize scheduled profiles and make mission payload builders safe by construction.
 
-## Verification Notes
+## Historical Live Verification Notes
+
+The live commands in this section were captured from earlier verified Railway deployments. They do not claim that the current hardened commit has been deployed; Step 15 remains open until a new deployment and independent review pass.
 
 - Command: live `POST /api/agent-operations/missions/:id/plan`
   - Result: `502 relay_failed`; local Hermes rejected model `bizconsultant`.
@@ -124,14 +126,17 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
   - Result: HTTP 200, no error event, completed `bizconsultant` run, exact response `bizconsultant profile chat ready`.
 - Command: live paused-mission manual tick and repeated Task Session reads
   - Result: zero tasks started; completed attempt remained 2; all 28 event IDs retained strict order and the user message plus completion remained present.
-- Command: `npm test`
-  - Historical result: 117 backend and 75 desktop tests passed after the scheduler, cancellation, idempotency, claim, evidence, profile, and timeout fixes.
-  - Current branch result: 125 backend and 75 desktop tests passed after the follow-up public projection, stale-write, scheduler-read, exact-route, empty-store merge, live-precedence, and metadata value-policy fixes.
 - Command: real report task through the enabled Railway daemon
   - Result: one evidence-backed report reached `ready` with five findings and five evidence rows; its first follow-up decision persisted as `approved` and rendered in the Reports tab.
 - Command: unauthenticated Relay snapshot and synthetic sensitive profile output probes
   - Result: snapshot returned `401`; the profile chat completed without leaking the synthetic token value or private path.
 - Evidence: `docs/evidence/2026-07-13-agent-operations-live-verification.md`
+
+## Current Local Verification
+
+- Command: `npm test`
+  - Historical result: 117 backend and 75 desktop tests passed after the scheduler, cancellation, idempotency, claim, evidence, profile, and timeout fixes.
+  - Current branch result: 126 backend and 75 desktop tests passed after the follow-up public projection, stale-write, scheduler-read, exact-route, empty-store merge, live-precedence, metadata value-policy, and public-run projection fixes.
 
 ## Remaining Risks
 

@@ -501,7 +501,7 @@ At this step, use these exact data paths:
 - `getSession(sessionId)` returns `{ ...session, events }` with events sorted by `sequence`, or throws an error with code `session_not_found`.
 - `recordReportFeedback(reportId, { useful, note })` requires a boolean `useful`, stores the feedback and timestamp, and appends it to the linked Mission Thread context.
 
-At this task, `planMission()`, `addSessionMessage()`, and `tick()` return status `503` through the API when their injected runtime dependencies are absent. They must not create fake tasks, messages, or reports.
+`planMission()` and `tick()` return status `503` through the API when their injected runtime dependencies are absent and must not create fake tasks or reports. `addSessionMessage()` is intentionally runtime-independent: it persists the user's guidance as a `next_run` pending instruction so an offline or between-run message survives reload, without claiming that a running completion already applied it.
 
 - [x] **Step 4: Implement the API router**
 

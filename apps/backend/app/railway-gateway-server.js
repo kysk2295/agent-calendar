@@ -877,6 +877,12 @@ function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, ga
     deletedAgentIds: state.deletedAgentIds || [],
     gatewayMerged: true,
   };
+  if (Array.isArray(runtimeState.runs)) nextBody.runs = state.runs;
+  if (body.run && typeof body.run === 'object' && !Array.isArray(body.run)) {
+    const run = publicRunRecord(body.run);
+    if (run) nextBody.run = run;
+    else delete nextBody.run;
+  }
   if (Array.isArray(runtimeState.tools)) nextBody.tools = state.tools;
   if (Array.isArray(runtimeState.skills)) nextBody.skills = state.skills;
   nextBody.toolsets = ['safe'];
@@ -893,6 +899,12 @@ function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, ga
   if (Array.isArray(runtimeState.agents)) nextBody.agents = state.agents;
   if (body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
     const data = { ...body.data };
+    if (Array.isArray(body.data.runs)) data.runs = publicRunRecords(body.data.runs);
+    if (body.data.run && typeof body.data.run === 'object' && !Array.isArray(body.data.run)) {
+      const run = publicRunRecord(body.data.run);
+      if (run) data.run = run;
+      else delete data.run;
+    }
     if (body.data.state && typeof body.data.state === 'object' && !Array.isArray(body.data.state)) {
       data.state = state;
     }
@@ -1066,6 +1078,10 @@ function gatewaySnapshot(gatewayState, gatewayStore) {
   }, gatewayState, gatewayStore);
 }
 
+function publicGatewaySnapshot(gatewayState, gatewayStore) {
+  return projectPublicGatewayState(gatewaySnapshot(gatewayState, gatewayStore));
+}
+
 function isGatewayProfileAgent(agent = {}) {
   return agent.agentSource === 'hermes-cli'
     || agent.agentIdentity?.source === 'hermes-cli'
@@ -1077,7 +1093,7 @@ function isGatewayProfileAgent(agent = {}) {
 function gatewayProfileState(gatewayState, gatewayStore) {
   const state = gatewaySnapshot(gatewayState, gatewayStore);
   const agents = (Array.isArray(state.agents) ? state.agents : []).filter(isGatewayProfileAgent);
-  return { ...state, agents };
+  return projectPublicGatewayState({ ...state, agents });
 }
 
 function resolveGatewayRunProfile(body = {}, state = {}) {
@@ -1144,6 +1160,10 @@ function normalizeLiveAgentSkillOrigins(agents = []) {
 }
 
 const PUBLIC_RUNTIME_SOURCES = new Map([
+  ['calendar', 'calendar'],
+  ['calendar-quick-add', 'calendar-quick-add'],
+  ['chat', 'chat'],
+  ['env-usage-snapshot', 'env-usage-snapshot'],
   ['gateway-retry', 'gateway-retry'],
   ['gateway-state', 'gateway-state'],
   ['hermes-agent-rule', 'hermes-agent-rule'],
@@ -1153,21 +1173,38 @@ const PUBLIC_RUNTIME_SOURCES = new Map([
   ['hermes-cli-stdout', 'hermes-cli-stdout'],
   ['hermes-profile', 'hermes-profile'],
   ['local-hermes-agent-snapshot', 'local-hermes-agent-snapshot'],
+  ['local-usage-snapshot', 'local-usage-snapshot'],
   ['mac-mini-hermes-api', 'mac-mini-hermes-api'],
   ['mac-mini-runtime', 'mac-mini-runtime'],
   ['official-profile-fallback', 'official-profile-fallback'],
   ['profile-soul:verification', 'profile-soul:Verification'],
+  ['profile-chat', 'profile-chat'],
   ['railway-gateway-runtime-request', 'railway-gateway-runtime-request'],
   ['railway-relay', 'railway-relay'],
   ['railway-relay-bridge', 'railway-relay-bridge'],
   ['railway-relay-snapshot', 'railway-relay-snapshot'],
   ['relay-snapshot-empty', 'relay-snapshot-empty'],
+  ['request-body', 'request-body'],
+  ['runtime', 'runtime'],
   ['runtime-direct', 'runtime-direct'],
+  ['schedule-assistant', 'schedule-assistant'],
+  ['scheduler', 'scheduler'],
+  ['telegram', 'telegram'],
+  ['ticktick', 'ticktick'],
+  ['ticktick-calendar', 'ticktick-calendar'],
+  ['ticktick-completed', 'ticktick-completed'],
+  ['tool-test', 'tool-test'],
   ['unknown', 'unknown'],
+  ['usage-summary', 'usage-summary'],
+  ['web', 'web'],
+  ['web-command', 'web-command'],
+  ['wiki-fallback', 'wiki-fallback'],
+  ['wiki-files', 'wiki-files'],
+  ['workboard', 'workboard'],
 ]);
 
 const PUBLIC_METADATA_ENUMS = Object.freeze({
-  category: new Set(['analysis', 'api', 'automation', 'business', 'communication', 'connector', 'general', 'knowledge', 'productivity', 'research', 'trading']),
+  category: new Set(['analysis', 'api', 'automation', 'business', 'communication', 'connector', 'general', 'knowledge', 'productivity', 'research', 'skill', 'tool', 'trading']),
   riskLevel: new Set(['high', 'low', 'medium', 'safe']),
   status: new Set(['available', 'busy', 'disabled', 'enabled', 'error', 'healthy', 'idle', 'missing', 'offline', 'ok', 'paused', 'ready', 'running', 'unavailable', 'unknown']),
   type: new Set(['api', 'command', 'connector', 'function', 'integration', 'skill', 'tool', 'workflow']),
@@ -1179,7 +1216,7 @@ function publicDisplayText(value, fallback = '') {
   if (
     /do[\s_-]*not[\s_-]*leak|\b(?:credential|debug|hostile|internal|leak|private|rawcommand|yolo)\b|commandtemplate|--[a-z0-9_-]+/i.test(text)
     || /\b[A-Z0-9]{2,}(?:_[A-Z0-9]{2,})+\b/.test(text)
-    || /\b(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|hf_[A-Za-z0-9]{16,}|(?:gh[pousr]_|sk-|xox[baprs]-)[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})\b/i.test(text)
+    || /\b(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|hf_[A-Za-z0-9]{16,}|(?:gh[pousr]_|sk-|xox[baprs]-)[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,})\b/i.test(text)
     || /\b[a-f0-9]{48,}\b/i.test(text)
     || /\bmarket[\s_-]*flow\b/i.test(text)
   ) {
@@ -1209,6 +1246,94 @@ function publicIsoTimestamp(value) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(timestamp)) return '';
   const epoch = Date.parse(timestamp);
   return Number.isFinite(epoch) ? new Date(epoch).toISOString() : '';
+}
+
+const PUBLIC_RUN_STATUSES = new Set([
+  'approved',
+  'blocked',
+  'cancelled',
+  'canceled',
+  'completed',
+  'done',
+  'failed',
+  'needs-review',
+  'paused',
+  'queued',
+  'running',
+  'scheduled',
+  'stopped',
+  'stopping',
+  'unknown',
+]);
+
+function publicRunReference(value) {
+  const reference = publicDisplayText(value, '');
+  if (!reference || reference.startsWith('/') || reference.includes('..') || /^[A-Za-z]:[\\/]/.test(reference)) return '';
+  return reference;
+}
+
+function publicRunStep(step = {}) {
+  if (!step || typeof step !== 'object' || Array.isArray(step)) return null;
+  const projected = {};
+  const id = publicIdentifier(step.id);
+  if (id) projected.id = id;
+  for (const key of ['title', 'name', 'label', 'detail', 'time']) {
+    const value = publicDisplayText(step[key], '');
+    if (value) projected[key] = value;
+  }
+  const status = publicEnumValue(step.status || step.state, PUBLIC_RUN_STATUSES);
+  if (status) projected.status = status;
+  return Object.keys(projected).length ? projected : null;
+}
+
+function publicRunRecord(run = {}) {
+  if (!run || typeof run !== 'object' || Array.isArray(run)) return null;
+  const id = publicIdentifier(run.id);
+  if (!id) return null;
+  const projected = { id };
+  for (const key of ['name', 'title', 'goal', 'model', 'artifact', 'document']) {
+    const value = publicDisplayText(run[key], '');
+    if (value) projected[key] = value;
+  }
+  const agent = resolveRequestedOfficialProfile({
+    agentId: run.agentId || run.profile,
+    agent: run.agent,
+  });
+  projected.agent = agent;
+  if (Object.hasOwn(run, 'agentId')) projected.agentId = agent;
+  if (Object.hasOwn(run, 'profile')) projected.profile = agent;
+  projected.status = publicEnumValue(run.status || run.state, PUBLIC_RUN_STATUSES) || 'unknown';
+  projected.source = publicRuntimeSource(run.source, 'unknown');
+  for (const key of ['progress', 'pct', 'percent']) {
+    if (run[key] === undefined || run[key] === null) continue;
+    projected[key] = Math.min(100, Math.max(0, Number(run[key]) || 0));
+  }
+  for (const key of ['durationMs', 'inputTokens', 'outputTokens', 'totalTokens']) {
+    if (run[key] === undefined || run[key] === null) continue;
+    projected[key] = Math.max(0, Number(run[key]) || 0);
+  }
+  for (const key of ['createdAt', 'updatedAt', 'startedAt', 'completedAt', 'deadlineAt']) {
+    const value = publicIsoTimestamp(run[key]);
+    if (value) projected[key] = value;
+  }
+  for (const key of ['artifactId', 'artifactPath', 'documentId', 'documentPath', 'file', 'wikiWriteBack']) {
+    const value = publicRunReference(run[key]);
+    if (value) projected[key] = value;
+  }
+  if (Array.isArray(run.steps)) projected.steps = run.steps.map(publicRunStep).filter(Boolean).slice(0, 100);
+  if (typeof run.noApproval === 'boolean') projected.noApproval = false;
+  return projected;
+}
+
+function publicRunRecords(runs = []) {
+  return (Array.isArray(runs) ? runs : []).map(publicRunRecord).filter(Boolean);
+}
+
+function publicRunLogs(logs = []) {
+  return (Array.isArray(logs) ? logs : [])
+    .map((line) => publicDisplayText(line, ''))
+    .filter(Boolean)
+    .slice(-200);
 }
 
 function publicCapabilityMetadata(item = {}) {
@@ -1347,6 +1472,7 @@ function projectPublicGatewayState(state = {}) {
     agents: publicOfficialProfileAgents(source.agents),
     tools: publicCapabilityMetadataList(filterActualGatewayTools(source.tools)),
     skills: publicCapabilityMetadataList(source.skills),
+    runs: publicRunRecords(source.runs),
     toolsets: ['safe'],
     mcpServers: [],
   });
@@ -1391,6 +1517,28 @@ function projectPublicRelaySnapshot(snapshot = {}) {
   const agentSourceStatus = state.agentSourceStatus || publicAgentSourceStatus(source.agentSourceStatus);
   if (agentSourceStatus) projected.agentSourceStatus = agentSourceStatus;
   return projected;
+}
+
+function projectPublicRelayHealth(health = {}, snapshot = {}) {
+  const source = health && typeof health === 'object' && !Array.isArray(health) ? health : {};
+  const status = publicEnumValue(
+    source.status || source.state,
+    new Set(['degraded', 'error', 'healthy', 'offline', 'ok', 'ready', 'unavailable', 'unknown']),
+  );
+  return {
+    ok: source.ok !== false,
+    ...(typeof source.ready === 'boolean' ? { ready: source.ready } : {}),
+    ...(status ? { status } : {}),
+    ...(source.uptimeMs !== undefined ? { uptimeMs: Math.max(0, Number(source.uptimeMs) || 0) } : {}),
+    gatewayFallback: false,
+    runtimeReachable: true,
+    relaySnapshot: {
+      source: publicRuntimeSource(snapshot.source, 'unknown'),
+      receivedAt: publicIsoTimestamp(snapshot.receivedAt),
+      ageMs: Math.max(0, Number(snapshot.ageMs) || 0),
+      ttlMs: Math.max(0, Number(snapshot.ttlMs) || 0),
+    },
+  };
 }
 
 function relayStateFromSnapshot(snapshot, gatewayState, env = process.env, gatewayStore = null) {
@@ -2101,12 +2249,13 @@ function searchGatewayTools(gatewayState, query = '', filters = {}) {
 
 function fallbackToolsList({ res, gatewayState, gatewayStore = null, query = {} }) {
   const state = gatewaySnapshot(gatewayState, gatewayStore);
+  const tools = filterActualGatewayTools(searchGatewayTools(state, query.query || '', {
+    type: query.type || '',
+    status: query.status || '',
+  }));
   sendJson(res, 200, {
     ok: true,
-    tools: filterActualGatewayTools(searchGatewayTools(state, query.query || '', {
-      type: query.type || '',
-      status: query.status || '',
-    })),
+    tools: publicCapabilityMetadataList(tools),
     gatewayFallback: true,
   });
 }
@@ -2115,8 +2264,8 @@ function fallbackToolCreate({ res, gatewayState, gatewayStore = null, body = {} 
   if (gatewayStore && typeof gatewayStore.createTool === 'function') {
     const tool = gatewayStore.createTool(body);
     sendJson(res, 200, {
-      tool,
-      state: gatewaySnapshot(gatewayState, gatewayStore),
+      tool: publicCapabilityMetadata(tool),
+      state: publicGatewaySnapshot(gatewayState, gatewayStore),
       gatewayFallback: true,
     });
     return;
@@ -2132,8 +2281,8 @@ function fallbackToolPatch({ res, gatewayState, gatewayStore = null, toolId, bod
       return;
     }
     sendJson(res, 200, {
-      tool,
-      state: gatewaySnapshot(gatewayState, gatewayStore),
+      tool: publicCapabilityMetadata(tool),
+      state: publicGatewaySnapshot(gatewayState, gatewayStore),
       gatewayFallback: true,
     });
     return;
@@ -2191,9 +2340,9 @@ function fallbackToolTest({ res, gatewayState, gatewayStore = null, toolId, body
     updatedTool = gatewayStore.recordToolTest(tool.id, { run, status: lastTest.status }) || tool;
   }
   sendJson(res, 200, {
-    tool: updatedTool,
-    run,
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    tool: publicCapabilityMetadata(updatedTool),
+    run: publicRunRecord(run),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -2252,7 +2401,7 @@ async function fallbackDocumentCreate({ res, gatewayState, gatewayStore = null, 
     ok: true,
     document,
     written: { relativePath: document.wikiPath, gatewayFallback: true },
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -2441,13 +2590,13 @@ function fallbackCommandInboxAction({ res, gatewayState, gatewayStore = null, it
   };
   if (action === 'archive') {
     archiveItem();
-    sendJson(res, 200, { item, archived: true, state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { item, archived: true, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   if (action === 'star' || action === 'unstar') {
     const starred = action === 'star';
     gatewayStore.setCommandInboxItemStarred(item.id, starred);
-    sendJson(res, 200, { item: { ...item, starred, star: starred }, starred, state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { item: { ...item, starred, star: starred }, starred, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   const command = routeWebCommand({
@@ -2469,7 +2618,7 @@ function fallbackCommandInboxAction({ res, gatewayState, gatewayStore = null, it
       ? gatewayStore.saveRun(createGatewayRun(payload))
       : gatewayStore.createRun(payload);
     archiveItem();
-    sendJson(res, 200, { item, command, mission: payload.mission, run, state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { item, command, mission: payload.mission, run: publicRunRecord(run), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   if (action === 'task') {
@@ -2490,7 +2639,7 @@ function fallbackCommandInboxAction({ res, gatewayState, gatewayStore = null, it
       sourceId: item.id,
     });
     archiveItem();
-    sendJson(res, 200, { item, command, task, state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { item, command, task, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   sendJson(res, 405, { error: 'Unsupported command inbox action', gatewayFallback: true });
@@ -2517,7 +2666,7 @@ function fallbackTelegramWebhook({ res, body = {}, env = process.env, gatewaySta
       accepted: false,
       reason: 'chat allowlist not configured',
       parsed,
-      state: gatewaySnapshot(gatewayState, gatewayStore),
+      state: publicGatewaySnapshot(gatewayState, gatewayStore),
       gatewayFallback: true,
     });
     return;
@@ -2533,7 +2682,7 @@ function fallbackTelegramWebhook({ res, body = {}, env = process.env, gatewaySta
       accepted: false,
       reason: 'chat not allowed',
       parsed,
-      state: gatewaySnapshot(gatewayState, gatewayStore),
+      state: publicGatewaySnapshot(gatewayState, gatewayStore),
       gatewayFallback: true,
     });
     return;
@@ -2545,13 +2694,13 @@ function fallbackTelegramWebhook({ res, body = {}, env = process.env, gatewaySta
     reason: parsed.shouldRun ? 'queued from telegram webhook' : 'telegram message captured',
   });
   if (!parsed.shouldRun) {
-    sendJson(res, 200, { accepted: true, parsed, state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { accepted: true, parsed, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   const run = typeof gatewayStore.saveRun === 'function'
     ? gatewayStore.saveRun(createGatewayRun(createRunPayloadFromTelegram(parsed)))
     : gatewayStore.createRun(createRunPayloadFromTelegram(parsed));
-  sendJson(res, 200, { accepted: true, parsed, run, state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+  sendJson(res, 200, { accepted: true, parsed, run: publicRunRecord(run), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
 }
 
 async function fallbackMailSync({
@@ -3541,7 +3690,7 @@ function createGatewayRun(payload) {
 
 async function fallbackState(res, gatewayState, env = process.env, gatewayStore = null, fetchImpl = fetch) {
   await ensureGatewayTickTickSnapshot({ gatewayState, gatewayStore, env, fetchImpl });
-  const state = gatewaySnapshot(gatewayState, gatewayStore);
+  const state = publicGatewaySnapshot(gatewayState, gatewayStore);
   sendJson(res, 200, {
     ...state,
     systemConnections: state.systemConnections || {
@@ -3582,7 +3731,7 @@ async function fallbackState(res, gatewayState, env = process.env, gatewayStore 
 
 function fallbackUsage({ res, gatewayState, gatewayStore = null, env = process.env }) {
   const now = new Date();
-  const state = gatewaySnapshot(gatewayState, gatewayStore);
+  const state = publicGatewaySnapshot(gatewayState, gatewayStore);
   const snapshot = readGatewayUsageSnapshot(env);
   const stateUsage = usageFromState(state, { now });
   const localUsage = snapshot?.usage && usageHasMetrics(snapshot.usage)
@@ -4689,7 +4838,7 @@ async function fallbackTickTickSync({ res, body = {}, env = process.env, fetchIm
       connected: false,
       missing: ['HERMES_TICKTICK_ACCESS_TOKEN'],
       message: 'TickTick OAuth access token is required for live cloud sync.',
-      state: gatewaySnapshot(gatewayState, gatewayStore),
+      state: publicGatewaySnapshot(gatewayState, gatewayStore),
       gatewayFallback: true,
     });
     return;
@@ -4704,7 +4853,7 @@ async function fallbackTickTickSync({ res, body = {}, env = process.env, fetchIm
     completedSync: syncBody.completedSync,
     calendarSync: syncBody.calendarSync,
     connected: Boolean(accessToken),
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -4839,12 +4988,12 @@ async function fallbackCalendarQuickAdd({ res, body, env, fetchImpl, gatewayStat
   };
   const event = gatewayStore.createCalendarEvent(eventInput);
   const task = null;
-  const state = gatewaySnapshot(gatewayState, gatewayStore);
+  const state = publicGatewaySnapshot(gatewayState, gatewayStore);
   sendJson(res, 200, {
     draft,
     event,
     task,
-    run,
+    run: publicRunRecord(run),
     execution: buildExecutionReceipt({ task, run }),
     state,
     gatewayFallback: true,
@@ -4887,9 +5036,9 @@ async function fallbackWorkboardConvert({ res, body, env, fetchImpl, gatewayStat
   sendJson(res, 200, {
     draft,
     task,
-    run,
+    run: publicRunRecord(run),
     execution: buildExecutionReceipt({ task, run }),
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -4936,7 +5085,7 @@ function normalizeGatewayWorkboardPage(input = {}, existing = {}) {
 
 function fallbackWorkboardList({ res, gatewayState, gatewayStore = null }) {
   const pages = gatewayWorkboardPages(gatewayState, gatewayStore);
-  const state = gatewaySnapshot(gatewayState, gatewayStore);
+  const state = publicGatewaySnapshot(gatewayState, gatewayStore);
   sendJson(res, 200, {
     ok: true,
     pages,
@@ -4959,7 +5108,7 @@ function fallbackWorkboardPageCreate({ res, body, gatewayState, gatewayStore = n
     ok: true,
     page,
     pages,
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -4981,7 +5130,7 @@ function fallbackWorkboardPageUpdate({ res, pageId, body, gatewayState, gatewayS
     ok: true,
     page,
     pages: gatewayWorkboardPages(gatewayState, gatewayStore),
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -5003,7 +5152,7 @@ function fallbackWorkboardPageDelete({ res, pageId, gatewayState, gatewayStore =
     ok: true,
     page,
     pages: gatewayWorkboardPages(gatewayState, gatewayStore),
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -5054,7 +5203,7 @@ function fallbackTaskCreate({ res, body = {}, gatewayState, gatewayStore = null 
   if (gatewayStore) {
     const task = gatewayStore.createTask({ ...body, source: body.source || 'railway-gateway' });
     const tasks = gatewayStore.searchTasks('');
-    const state = gatewaySnapshot(gatewayState, gatewayStore);
+    const state = publicGatewaySnapshot(gatewayState, gatewayStore);
     sendJson(res, 200, { ok: true, data: { task, tasks, state }, task, tasks, state, gatewayFallback: true });
     return;
   }
@@ -5088,7 +5237,7 @@ function fallbackTaskShareDraft({ res, body = {}, gatewayState, gatewayStore = n
   sendJson(res, 200, {
     draft,
     tasks,
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -5112,7 +5261,7 @@ function fallbackLearningReflect({ res, body = {}, gatewayState, gatewayStore = 
   gatewayStore.addReflection(reflection);
   sendJson(res, 200, {
     reflection,
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -5130,7 +5279,7 @@ function fallbackLearningPromoteSkill({ res, body = {}, gatewayState, gatewaySto
     candidate,
     promoted,
     file,
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
     wikiWriteBack: promoted ? 'pending Mac mini LLM-Wiki write-back' : 'watch candidate',
   });
@@ -5156,7 +5305,7 @@ function fallbackTaskMutation({ res, method, taskId, body = {}, gatewayState, ga
       return;
     }
     const tasks = gatewayStore.searchTasks('');
-    const state = gatewaySnapshot(gatewayState, gatewayStore);
+    const state = publicGatewaySnapshot(gatewayState, gatewayStore);
     sendJson(res, 200, { ok: true, data: { task, tasks, state }, task, tasks, state, gatewayFallback: true });
     return;
   }
@@ -5190,7 +5339,7 @@ function fallbackCalendarEventCreate({ res, body = {}, gatewayState, gatewayStor
   if (gatewayStore && typeof gatewayStore.createCalendarEvent === 'function') {
     const event = gatewayStore.createCalendarEvent({ ...body, source: body.source || 'desktop-calendar-event' });
     const events = gatewayStore.searchCalendarEvents('');
-    const state = gatewaySnapshot(gatewayState, gatewayStore);
+    const state = publicGatewaySnapshot(gatewayState, gatewayStore);
     sendJson(res, 200, { ok: true, data: { event, events, state }, event, events, state, gatewayFallback: true });
     return;
   }
@@ -5207,7 +5356,7 @@ function fallbackCalendarEventMutation({ res, method, eventId, body = {}, gatewa
       return;
     }
     const events = gatewayStore.searchCalendarEvents('');
-    const state = gatewaySnapshot(gatewayState, gatewayStore);
+    const state = publicGatewaySnapshot(gatewayState, gatewayStore);
     sendJson(res, 200, { ok: true, data: { event, events, state }, event, events, state, gatewayFallback: true });
     return;
   }
@@ -5223,7 +5372,7 @@ function fallbackVisualBrief({ res, runId, action, gatewayState, gatewayStore = 
     return;
   }
   const generatedAt = new Date().toISOString();
-  const brief = buildVisualBrief({ run, generatedAt });
+  const brief = buildVisualBrief({ run: { ...publicRunRecord(run), logs: publicRunLogs(run.logs) }, generatedAt });
   if (!action) {
     sendJson(res, 200, { brief, gatewayFallback: true });
     return;
@@ -5231,7 +5380,7 @@ function fallbackVisualBrief({ res, runId, action, gatewayState, gatewayStore = 
   sendJson(res, 200, {
     brief,
     saved: {
-      markdownPath: run.file,
+      markdownPath: publicRunReference(run.file),
       svgPath: '',
       mode: 'existing-run-wiki-file',
     },
@@ -5245,11 +5394,12 @@ function fallbackRunDetail({ res, runId, gatewayState, gatewayStore = null }) {
     sendJson(res, 404, { ok: false, error: 'Run not found in gateway fallback state' });
     return;
   }
-  const state = gatewaySnapshot(gatewayState, gatewayStore);
+  const publicRun = publicRunRecord(run);
+  const state = publicGatewaySnapshot(gatewayState, gatewayStore);
   sendJson(res, 200, {
     ok: true,
-    data: { run, state },
-    run,
+    data: { run: publicRun, state },
+    run: publicRun,
     state,
     gatewayFallback: true,
   });
@@ -5261,9 +5411,10 @@ function fallbackRunLogs({ res, runId, gatewayState, gatewayStore = null }) {
     sendJson(res, 404, { ok: false, error: 'Run not found in gateway fallback state', gatewayFallback: true });
     return;
   }
-  const logs = Array.isArray(run.logs) ? run.logs : [];
-  const state = gatewaySnapshot(gatewayState, gatewayStore);
-  sendJson(res, 200, { ok: true, data: { run, logs }, run, logs, state, gatewayFallback: true });
+  const publicRun = publicRunRecord(run);
+  const logs = publicRunLogs(run.logs);
+  const state = publicGatewaySnapshot(gatewayState, gatewayStore);
+  sendJson(res, 200, { ok: true, data: { run: publicRun, logs }, run: publicRun, logs, state, gatewayFallback: true });
 }
 
 function fallbackRunAction({ res, action, runId, gatewayState, gatewayStore = null }) {
@@ -5279,15 +5430,17 @@ function fallbackRunAction({ res, action, runId, gatewayState, gatewayStore = nu
   if (action === 'stop') {
     const stopped = gatewayStore ? gatewayStore.updateRunStatus(runId, 'stopped') : Object.assign(run, { status: 'stopped' });
     if (gatewayStore) gatewayStore.appendRunLog(runId, 'gateway stop requested');
-    const state = gatewaySnapshot(gatewayState, gatewayStore);
-    sendJson(res, 200, { ok: true, data: { run: stopped, state }, run: stopped, state, gatewayFallback: true });
+    const publicRun = publicRunRecord(stopped);
+    const state = publicGatewaySnapshot(gatewayState, gatewayStore);
+    sendJson(res, 200, { ok: true, data: { run: publicRun, state }, run: publicRun, state, gatewayFallback: true });
     return;
   }
   if (action === 'approve') {
     const approved = gatewayStore ? gatewayStore.updateRunStatus(runId, 'approved') : Object.assign(run, { status: 'approved' });
     if (gatewayStore) gatewayStore.appendRunLog(runId, 'gateway approval recorded');
-    const state = gatewaySnapshot(gatewayState, gatewayStore);
-    sendJson(res, 200, { ok: true, data: { run: approved, state }, run: approved, state, gatewayFallback: true });
+    const publicRun = publicRunRecord(approved);
+    const state = publicGatewaySnapshot(gatewayState, gatewayStore);
+    sendJson(res, 200, { ok: true, data: { run: publicRun, state }, run: publicRun, state, gatewayFallback: true });
     return;
   }
   const retryPayload = {
@@ -5299,8 +5452,9 @@ function fallbackRunAction({ res, action, runId, gatewayState, gatewayStore = nu
   };
   const retryRun = gatewayStore ? gatewayStore.createRun(retryPayload) : createGatewayRun(retryPayload);
   if (!gatewayStore) gatewayState.runs.unshift(retryRun);
-  const state = gatewaySnapshot(gatewayState, gatewayStore);
-  sendJson(res, 200, { ok: true, data: { run: retryRun, retriedFrom: run.id, state }, run: retryRun, retriedFrom: run.id, state, gatewayFallback: true });
+  const publicRun = publicRunRecord(retryRun);
+  const state = publicGatewaySnapshot(gatewayState, gatewayStore);
+  sendJson(res, 200, { ok: true, data: { run: publicRun, retriedFrom: run.id, state }, run: publicRun, retriedFrom: run.id, state, gatewayFallback: true });
 }
 
 function fallbackMissionTemplates(res) {
@@ -5430,10 +5584,11 @@ function fallbackAgentDelete({
   ].map((value) => String(value || '').trim()).filter(Boolean));
   [...PROTECTED_AGENT_IDS].forEach((id) => deletedIds.delete(id));
   gatewayState.deletedAgentIds = [...deletedIds];
-  const state = gatewaySnapshot(gatewayState, gatewayStore);
+  const state = publicGatewaySnapshot(gatewayState, gatewayStore);
+  const projectedAgent = publicOfficialProfileAgents([agent])[0] || { id: publicIdentifier(rawId) };
   sendJson(res, 200, {
     ok: true,
-    agent,
+    agent: projectedAgent,
     deletedAgentIds: state.deletedAgentIds || [],
     state,
     gatewayFallback: true,
@@ -5457,7 +5612,7 @@ function fallbackAgentRestore({
   }
   gatewayState.deletedAgentIds = (Array.isArray(gatewayState.deletedAgentIds) ? gatewayState.deletedAgentIds : [])
     .filter((id) => String(id || '').trim().toLowerCase() !== normalized);
-  const state = gatewaySnapshot(gatewayState, gatewayStore);
+  const state = publicGatewaySnapshot(gatewayState, gatewayStore);
   sendJson(res, 200, {
     ok: true,
     agentId: rawId,
@@ -5512,8 +5667,11 @@ function fallbackAgentUpdate({
     if (index >= 0) gatewayState.agents[index] = agent;
     else gatewayState.agents.push(agent);
   }
-  const state = gatewaySnapshot(gatewayState, gatewayStore);
-  const projectedAgent = (state.agents || []).find((item) => gatewayAgentKeys(item).includes(rawId)) || agent;
+  const state = publicGatewaySnapshot(gatewayState, gatewayStore);
+  const projectedAgent = (state.agents || []).find((item) => gatewayAgentKeys(item).includes(rawId)) || {
+    id: publicIdentifier(rawId),
+    name: publicDisplayText(agent.name || agent.displayName, rawId),
+  };
   sendJson(res, 200, {
     ok: true,
     agent: projectedAgent,
@@ -5692,7 +5850,7 @@ function fallbackMissionSchedule({ res, body = {}, gatewayState, gatewayStore = 
   sendJson(res, 200, {
     job,
     jobs: gatewayStore.getSchedulerJobs(),
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -5715,7 +5873,7 @@ function fallbackSchedulerJobs({ res, method, body = {}, jobId = '', action = ''
   }
   if (method === 'POST' && !jobId) {
     const job = gatewayStore.createSchedulerJob(body);
-    sendJson(res, 200, { job, jobs: gatewayStore.getSchedulerJobs(), state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { job, jobs: gatewayStore.getSchedulerJobs(), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   const jobs = gatewayStore.getSchedulerJobs();
@@ -5736,14 +5894,14 @@ function fallbackSchedulerJobs({ res, method, body = {}, jobId = '', action = ''
     sendJson(res, 200, {
       job,
       jobs: gatewayStore.getSchedulerJobs(),
-      state: gatewaySnapshot(gatewayState, gatewayStore),
+      state: publicGatewaySnapshot(gatewayState, gatewayStore),
       gatewayFallback: true,
     });
     return;
   }
   if (method === 'DELETE' && !action) {
     const deleted = gatewayStore.deleteSchedulerJob(currentJob.id);
-    sendJson(res, 200, { deleted, jobs: gatewayStore.getSchedulerJobs(), state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { deleted, jobs: gatewayStore.getSchedulerJobs(), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   if (method === 'POST' && action === 'run') {
@@ -5762,7 +5920,7 @@ function fallbackSchedulerJobs({ res, method, body = {}, jobId = '', action = ''
       lastRunAt: new Date().toISOString(),
       lastRunId: savedRun.id,
     });
-    sendJson(res, 200, { run: savedRun, job: updatedJob, jobs: gatewayStore.getSchedulerJobs(), state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { run: publicRunRecord(savedRun), job: updatedJob, jobs: gatewayStore.getSchedulerJobs(), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   sendJson(res, 405, { error: 'Unsupported scheduler fallback action', gatewayFallback: true });
@@ -5784,7 +5942,7 @@ function fallbackSchedulerTick({ res, gatewayState, gatewayStore = null }) {
     daemon,
     createdRuns: [],
     jobs: gatewayStore.getSchedulerJobs(),
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
 }
@@ -5812,7 +5970,7 @@ function fallbackSchedulerDaemon({ res, method, action = '', body = {}, gatewayS
       lastError: null,
     });
   }
-  sendJson(res, 200, { daemon, state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+  sendJson(res, 200, { daemon, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
 }
 
 function fallbackEvents(res) {
@@ -5942,7 +6100,7 @@ async function fallbackScheduleAssistantIngest({ res, body = {}, gatewayState, g
   });
   sendJson(res, result.ok === false ? 400 : 200, {
     ...result,
-    state,
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
   return result;
@@ -6121,7 +6279,7 @@ async function fallbackChatStream({ res, body, env, fetchImpl, gatewayState, gat
       message: command.message,
       command,
       run,
-      state: gatewaySnapshot(gatewayState, gatewayStore),
+      state: publicGatewaySnapshot(gatewayState, gatewayStore),
     }));
     return;
   }
@@ -6150,7 +6308,7 @@ async function fallbackChatStream({ res, body, env, fetchImpl, gatewayState, gat
     message: command.message,
     command,
     run,
-    state: gatewaySnapshot(gatewayState, gatewayStore),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
   }));
 }
 
@@ -6507,18 +6665,7 @@ async function handleApi(
       return;
     }
     if (method === 'GET' && pathSegments[0] === 'health' && liveRelaySnapshot.health) {
-      sendJson(res, 200, {
-        ...liveRelaySnapshot.health,
-        ok: liveRelaySnapshot.health.ok !== false,
-        gatewayFallback: false,
-        runtimeReachable: true,
-        relaySnapshot: {
-          source: liveRelaySnapshot.source || 'railway-relay-bridge',
-          receivedAt: liveRelaySnapshot.receivedAt || '',
-          ageMs: liveRelaySnapshot.ageMs,
-          ttlMs: liveRelaySnapshot.ttlMs,
-        },
-      });
+      sendJson(res, 200, projectPublicRelayHealth(liveRelaySnapshot.health, liveRelaySnapshot));
       return;
     }
   }
@@ -6561,7 +6708,7 @@ async function handleApi(
     const result = importGatewayTickTickTasks({ body, gatewayState, gatewayStore });
     sendJson(res, 200, mergeGatewayResponseBody({
       ...result,
-      state: gatewaySnapshot(gatewayState, gatewayStore),
+      state: publicGatewaySnapshot(gatewayState, gatewayStore),
       gatewayFallback: true,
     }, gatewayState, env, gatewayStore));
     return;
@@ -6891,7 +7038,7 @@ async function handleApi(
     }
     if (method === 'GET' && pathSegments[0] === 'agents' && pathSegments.length <= 2) {
       if (pathSegments[1]) {
-        const state = gatewaySnapshot(gatewayState, gatewayStore);
+        const state = publicGatewaySnapshot(gatewayState, gatewayStore);
         sendGatewayAgentDetail({
           res,
           state,
@@ -7031,7 +7178,7 @@ async function handleApi(
         return;
       }
       const result = importGatewayTickTickTasks({ body, gatewayState, gatewayStore });
-      sendJson(res, 200, { ...result, state: gatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+      sendJson(res, 200, { ...result, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
       return;
     }
     if (method === 'POST' && pathSegments[0] === 'ticktick' && pathSegments[1] === 'sync') {

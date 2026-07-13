@@ -240,6 +240,12 @@ test('projects Relay snapshots to official profiles and safe public capability m
   const baseUrl = await listen(server);
   const unsafeSnapshot = {
     source: 'hostile-test-relay',
+    health: {
+      ok: true,
+      source: 'hostile-health-source',
+      debugSecret: 'super-secret-health',
+      privatePath: '/Users/koyunseo/private-health',
+    },
     debugSecret: 'super-secret',
     privatePath: '/Users/koyunseo/private-top-level',
     rawCommand: 'hermes --yolo',
@@ -261,6 +267,18 @@ test('projects Relay snapshots to official profiles and safe public capability m
       ],
       tools: [{ id: 'browser', name: 'Browser', description: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', command: 'super-secret-command', raw: { token: 'super-secret' } }],
       skills: [{ id: 'research', name: 'Research', description: 'AIza1234567890abcdefghijklmnop', sourcePath: '/Users/koyunseo/private-skill' }],
+      runs: [{
+        id: 'relay-run',
+        name: 'Relay research run',
+        goal: 'Safe relay goal',
+        agent: 'bizconsultant',
+        model: 'Hermes',
+        status: 'completed',
+        progress: 100,
+        logs: ['Bearer relay-run-token', '/Users/koyunseo/private-run', 'hermes --yolo'],
+        output: 'hf_1234567890abcdefghijklmnop',
+        runtimeBinding: { commandTemplate: 'hermes --yolo' },
+      }],
       toolsets: ['safe', 'shell'],
       mcpServers: [{ id: 'shell-server', command: 'super-secret-command', raw: { token: 'super-secret' } }],
     },
@@ -293,17 +311,19 @@ test('projects Relay snapshots to official profiles and safe public capability m
 
     // When
     const callerHeaders = { authorization: 'Bearer client-token' };
-    const [agentsResponse, toolsResponse, stateResponse, snapshotResponse] = await Promise.all([
+    const [agentsResponse, toolsResponse, stateResponse, snapshotResponse, healthResponse] = await Promise.all([
       fetch(`${baseUrl}/api/agents`, { headers: callerHeaders }),
       fetch(`${baseUrl}/api/tools`, { headers: callerHeaders }),
       fetch(`${baseUrl}/api/state`, { headers: callerHeaders }),
       fetch(`${baseUrl}/api/relay/snapshot`, { headers: callerHeaders }),
+      fetch(`${baseUrl}/api/health`, { headers: callerHeaders }),
     ]);
-    const [agents, tools, state, snapshot] = await Promise.all([
+    const [agents, tools, state, snapshot, health] = await Promise.all([
       agentsResponse.json(),
       toolsResponse.json(),
       stateResponse.json(),
       snapshotResponse.json(),
+      healthResponse.json(),
     ]);
 
     // Then
@@ -326,6 +346,11 @@ test('projects Relay snapshots to official profiles and safe public capability m
     assert.equal(tools.skills.length, 1);
     assert.equal(state.skills.length, 1);
     assert.equal(snapshot.skills.length, 1);
+    assert.equal(state.runs[0].id, 'relay-run');
+    assert.equal(state.runs[0].name, 'Relay research run');
+    assert.equal(Object.hasOwn(state.runs[0], 'logs'), false);
+    assert.equal(health.relaySnapshot.source, 'unknown');
+    assert.equal(Object.hasOwn(health, 'debugSecret'), false);
     for (const readiness of [agents.profileReadiness, state.profileReadiness, snapshot.profileReadiness]) {
       assert.ok(readiness.requiredProfiles.every((entry) => OFFICIAL_PROFILE_NAMES.includes(entry.profile)));
       assert.ok(readiness.requiredProfiles.every((entry) => Object.hasOwn(entry, 'setup') === false));
@@ -334,8 +359,8 @@ test('projects Relay snapshots to official profiles and safe public capability m
     assert.equal(Object.hasOwn(tools.tools[0], 'raw'), false);
     assert.doesNotMatch(JSON.stringify({ agents, state, snapshot }), /commandTemplate/);
     assert.doesNotMatch(
-      JSON.stringify({ agents, tools, state, snapshot }),
-      /marketflow|--yolo|shell-server|super-secret|hostile-test-relay|\/Users\/koyunseo/,
+      JSON.stringify({ agents, tools, state, snapshot, health }),
+      /marketflow|--yolo|shell-server|super-secret|hostile-test-relay|hostile-health-source|relay-run-token|hf_1234567890|\/Users\/koyunseo/,
     );
     assert.equal(snapshot.source, 'unknown');
   } finally {
@@ -401,13 +426,13 @@ test('prefers live runtime scalars while retaining stored fields for same-id col
     },
     gatewayStore: {
       getState: () => ({
-        runs: [{ id: 'shared-run', status: 'queued', storedOnly: 'keep-me' }],
+        runs: [{ id: 'shared-run', status: 'queued', documentId: 'stored-document' }],
       }),
     },
     fetchImpl: async () => new Response(JSON.stringify({
       ok: true,
       state: {
-        runs: [{ id: 'shared-run', status: 'completed', runtimeOnly: 'live' }],
+        runs: [{ id: 'shared-run', status: 'completed', progress: 100 }],
       },
     }), {
       status: 200,
@@ -427,8 +452,8 @@ test('prefers live runtime scalars while retaining stored fields for same-id col
     // Then
     assert.equal(response.status, 200);
     assert.equal(run.status, 'completed');
-    assert.equal(run.runtimeOnly, 'live');
-    assert.equal(run.storedOnly, 'keep-me');
+    assert.equal(run.progress, 100);
+    assert.equal(run.documentId, 'stored-document');
   } finally {
     await close(server);
   }
@@ -454,6 +479,7 @@ test('drops hostile public metadata values while preserving trusted display meta
       {
         id: 'browser',
         name: marker,
+        label: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature12345',
         description: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
         source: 'hostile-source',
       },
@@ -461,7 +487,7 @@ test('drops hostile public metadata values while preserving trusted display meta
         id: 'gdrive',
         name: 'Google Drive',
         description: 'Google Drive connector',
-        source: 'hermes-cli',
+        source: 'telegram',
         type: 'connector',
         category: 'connector',
       },
@@ -471,6 +497,13 @@ test('drops hostile public metadata values while preserving trusted display meta
       name: 'hf_1234567890abcdefghijklmnop',
       description: 'AIza1234567890abcdefghijklmnop',
       source: 'hostile-source',
+    }, {
+      id: 'scheduled-research',
+      name: 'Scheduled Research',
+      description: 'Scheduled research skill',
+      source: 'scheduler',
+      type: 'skill',
+      category: 'skill',
     }],
     agentSourceStatus: {
       ok: true,
@@ -522,14 +555,18 @@ test('drops hostile public metadata values while preserving trusted display meta
     assert.equal(state.skills[0].id, 'research');
     const connector = state.tools.find((item) => item.id === 'gdrive');
     assert.equal(connector.description, 'Google Drive connector');
-    assert.equal(connector.source, 'hermes-cli');
+    assert.equal(connector.source, 'telegram');
     assert.equal(connector.type, 'connector');
     assert.equal(connector.category, 'connector');
+    const scheduledSkill = state.skills.find((item) => item.id === 'scheduled-research');
+    assert.equal(scheduledSkill.source, 'scheduler');
+    assert.equal(scheduledSkill.type, 'skill');
+    assert.equal(scheduledSkill.category, 'skill');
     assert.equal(state.agentSourceStatus.source, 'unknown');
     assert.equal(state.remoteVerification.source, 'unknown');
     assert.doesNotMatch(
       JSON.stringify({ state, tools, run }),
-      /DO_NOT_LEAK|hostile-source|marketflow|0123456789abcdef0123456789abcdef|hf_1234567890|AIza1234567890/,
+      /DO_NOT_LEAK|hostile-source|marketflow|0123456789abcdef0123456789abcdef|hf_1234567890|AIza1234567890|eyJhbGci/,
     );
   } finally {
     await close(server);
@@ -562,6 +599,22 @@ test('projects direct runtime agent and tool reads through the same public polic
   ];
   const unsafeTools = [{ id: 'browser', name: 'Browser', description: 'Full nested tool', command: 'super-secret-command', raw: { token: 'super-secret' } }];
   const unsafeSkills = [{ id: 'research', name: 'Research', description: 'Full nested skill', sourcePath: '/Users/koyunseo/private-skill' }];
+  const unsafeRuns = [{
+    id: 'run-sensitive',
+    name: 'Safe public run',
+    goal: 'Safe public goal',
+    agent: 'bizconsultant',
+    model: 'Hermes',
+    status: 'completed',
+    progress: 100,
+    createdAt: '2026-07-13T00:00:00.000Z',
+    documentId: 'document-safe',
+    logs: ['Bearer direct-run-token', '/Users/koyunseo/private-run', 'hermes --danger'],
+    output: 'AIza1234567890abcdefghijklmnop',
+    privatePath: '/Users/koyunseo/private-run',
+    runtimeBinding: { commandTemplate: 'hermes --danger' },
+    steps: [{ title: 'Safe step', detail: 'Bearer nested-step-token', time: '10:00' }],
+  }];
   const storedState = {
     tasks: [{ id: 'stored-task', title: 'Stored task' }],
     documents: [{ id: 'stored-document', title: 'Stored document' }],
@@ -585,13 +638,14 @@ test('projects direct runtime agent and tool reads through the same public polic
           ? {
             ok: true,
             data: {
-              run: { id: 'run-data-state', status: 'completed' },
+              run: { ...unsafeRuns[0], id: 'run-data-state' },
               state: {
                 debugSecret: 'super-secret',
                 privatePath: '/Users/koyunseo/private-top-level',
                 agents: unsafeAgents,
                 tools: unsafeTools,
                 skills: unsafeSkills,
+                runs: unsafeRuns,
                 toolsets: ['safe', 'shell'],
                 mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
               },
@@ -600,8 +654,8 @@ test('projects direct runtime agent and tool reads through the same public polic
         : pathname === '/api/runs/run-1'
           ? {
             ok: true,
-            run: { id: 'run-1', status: 'completed' },
-            state: { agents: unsafeAgents },
+            run: { ...unsafeRuns[0], id: 'run-1' },
+            state: { agents: unsafeAgents, runs: unsafeRuns },
             agentSourceStatus: {
               ok: true,
               source: 'runtime-direct',
@@ -617,13 +671,14 @@ test('projects direct runtime agent and tool reads through the same public polic
               command: 'super-secret-command',
             },
             data: {
-              run: { id: 'run-1', status: 'completed' },
+              run: { ...unsafeRuns[0], id: 'run-1' },
               state: {
                 debugSecret: 'super-secret',
                 privatePath: '/Users/koyunseo/private-top-level',
                 agents: unsafeAgents,
                 tools: unsafeTools,
                 skills: unsafeSkills,
+                runs: unsafeRuns,
                 toolsets: ['safe', 'shell'],
                 mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
               },
@@ -659,6 +714,7 @@ test('projects direct runtime agent and tool reads through the same public polic
               skills: unsafeSkills,
               state: {
                 agents: unsafeAgents,
+                runs: unsafeRuns,
                 profileReadiness: unsafeReadiness,
               },
             }
@@ -672,6 +728,7 @@ test('projects direct runtime agent and tool reads through the same public polic
                 agents: unsafeAgents,
                 tools: unsafeTools,
                 skills: unsafeSkills,
+                runs: unsafeRuns,
                 profileReadiness: unsafeReadiness,
                 toolsets: ['safe', 'shell'],
                 mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
@@ -688,6 +745,7 @@ test('projects direct runtime agent and tool reads through the same public polic
                     agents: unsafeAgents,
                     tools: unsafeTools,
                     skills: unsafeSkills,
+                    runs: unsafeRuns,
                     profileReadiness: unsafeReadiness,
                     toolsets: ['safe', 'shell'],
                     mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
@@ -703,6 +761,7 @@ test('projects direct runtime agent and tool reads through the same public polic
                 agents: unsafeAgents,
                 tools: unsafeTools,
                 skills: unsafeSkills,
+                runs: unsafeRuns,
                 profileReadiness: unsafeReadiness,
                 toolsets: ['safe', 'shell'],
                 mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
@@ -746,6 +805,11 @@ test('projects direct runtime agent and tool reads through the same public polic
     assert.equal(agentDetail.body.agent.id, 'bizconsultant');
     assert.equal(agentMetrics.status, 200);
     assert.deepEqual(agentMetrics.body.metrics, { completed: 3 });
+    assert.equal(runDetail.run.id, 'run-1');
+    assert.equal(runDetail.run.name, 'Safe public run');
+    assert.equal(runDetail.data.run.id, 'run-1');
+    assert.equal(Object.hasOwn(runDetail.run, 'logs'), false);
+    assert.equal(Object.hasOwn(runDetail.data.run, 'runtimeBinding'), false);
     assert.deepEqual(tools.toolsets, ['safe']);
     assert.deepEqual(tools.mcpServers, []);
     assert.equal(tools.tools.length, 1);
@@ -789,11 +853,58 @@ test('projects direct runtime agent and tool reads through the same public polic
       assert.deepEqual(publicState.chatMessages, storedState.chatMessages);
       assert.deepEqual(publicState.sessions, storedState.sessions);
       assert.deepEqual(publicState.commandInboxArchivedIds, storedState.commandInboxArchivedIds);
+      assert.equal(publicState.runs[0].id, 'run-sensitive');
+      assert.equal(Object.hasOwn(publicState.runs[0], 'logs'), false);
     }
     assert.doesNotMatch(JSON.stringify({ agents, agentDetail, runDetail, dataOnlyRun, state, dataState, nestedDataState, siblingState }), /commandTemplate/);
     assert.doesNotMatch(
       JSON.stringify({ agents, agentDetail, runDetail, dataOnlyRun, tools, state, dataState, nestedDataState, siblingState }),
-      /marketflow|--yolo|shell-server|super-secret|\/Users\/koyunseo/,
+      /marketflow|--yolo|--danger|shell-server|super-secret|direct-run-token|nested-step-token|AIza1234567890|\/Users\/koyunseo/,
+    );
+  } finally {
+    await close(server);
+  }
+});
+
+test('projects fallback run state detail and logs through the public run policy', async () => {
+  // Given
+  const unsafeRun = {
+    id: 'fallback-run',
+    name: 'Fallback run',
+    goal: 'Safe fallback goal',
+    agent: 'bizconsultant',
+    status: 'completed',
+    documentId: 'fallback-document',
+    logs: ['Bearer fallback-run-token', '/Users/koyunseo/private-fallback', 'hermes --danger'],
+    output: 'hf_1234567890abcdefghijklmnop',
+    runtimeBinding: { commandTemplate: 'hermes --danger' },
+  };
+  const gatewayStore = {
+    getState: () => ({ runs: [unsafeRun] }),
+    getRun: (id) => (id === unsafeRun.id ? unsafeRun : null),
+  };
+  const server = createRailwayGatewayServer({
+    env: { HERMES_REMOTE_AUTH_TOKEN: 'client-token' },
+    gatewayStore,
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const headers = { authorization: 'Bearer client-token' };
+    const [state, detail, logs] = await Promise.all([
+      fetch(`${baseUrl}/api/state`, { headers }).then((response) => response.json()),
+      fetch(`${baseUrl}/api/runs/fallback-run`, { headers }).then((response) => response.json()),
+      fetch(`${baseUrl}/api/runs/fallback-run/logs`, { headers }).then((response) => response.json()),
+    ]);
+
+    // Then
+    assert.equal(state.runs[0].id, 'fallback-run');
+    assert.equal(detail.run.id, 'fallback-run');
+    assert.equal(detail.run.documentId, 'fallback-document');
+    assert.doesNotMatch(
+      JSON.stringify({ state, detail, logs }),
+      /fallback-run-token|\/Users\/koyunseo|--danger|hf_1234567890|commandTemplate/,
     );
   } finally {
     await close(server);

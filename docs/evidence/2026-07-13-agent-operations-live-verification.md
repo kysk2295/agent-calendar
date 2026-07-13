@@ -2,7 +2,8 @@
 
 - Date: 2026-07-13 (Asia/Seoul)
 - Railway service: `hermes-os`
-- Verified deployment: `72ca034a-bf0e-4a78-9b7a-f80c7fd99bc5`
+- Historical verified deployment: `72ca034a-bf0e-4a78-9b7a-f80c7fd99bc5`
+- Current hardened branch: final deployment pending at this checkpoint
 - Scope: personal single-user Agent Operations with the remote Mac mini Hermes Relay
 
 ## Sanitized Runtime Evidence
@@ -37,7 +38,7 @@
 ## Local Verification
 
 - Verified deployment `72ca034a-bf0e-4a78-9b7a-f80c7fd99bc5`: 101 backend tests and 74 desktop tests passed at that historical checkpoint.
-- Current hardened branch: 125 backend tests and 75 desktop tests passed after projection, concurrency, cancellation, route, empty-store, live-precedence, and metadata-policy hardening.
+- Current hardened branch: 126 backend tests and 75 desktop tests passed after projection, concurrency, cancellation, route, empty-store, live-precedence, metadata-policy, and public-run hardening.
 - `npm run build:desktop`: passed.
 - `playwright-agent-operations-mission.cjs`: passed with seven focused Agent Operations refreshes.
 - `playwright-agent-task-session.cjs`: passed with four persisted session reads.

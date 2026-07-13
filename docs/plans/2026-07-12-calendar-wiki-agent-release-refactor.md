@@ -98,6 +98,9 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - [x] 동일 ID의 DB/runtime collection 충돌에서는 최신 runtime scalar를 우선하고 DB 전용 필드는 보존한다.
 - [x] 실제 `api`/`connector` taxonomy는 유지하면서 일반 secret 형태와 제거 profile 표식을 표시 metadata에서 제거한다.
 - [x] 허용되지 않은 provenance는 신뢰 가능한 source로 바꾸지 않고 `unknown`으로 표시한다.
+- [x] public `runs`, `run`, `data.run`을 전용 allowlist projector로 제한한다.
+- [x] 정상 길이 JWT와 public health Relay provenance를 정제한다.
+- [x] first-party capability source와 `skill` taxonomy를 손실 없이 보존한다.
 - [ ] 위 후속 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
 
 ## Rollback / fallback
@@ -116,11 +119,11 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 ## Verification results
 
 - `npm run backend:check`: passed.
-- `npm run test:backend`: 125/125 passed.
+- `npm run test:backend`: 126/126 passed.
 - `npm --workspace apps/desktop run typecheck`: passed.
 - `npm --workspace apps/desktop run test`: 75/75 passed.
 - `npm run build:desktop`: passed.
-- `npm test`: backend 125/125, desktop 75/75 passed.
+- `npm test`: backend 126/126, desktop 75/75 passed.
 - Agent create/mission/approval/artifact, wiki graph/ask/search/tree, calendar CRUD Playwright scenarios: passed.
 - Live gateway QA: unauthenticated caller 401, authenticated offline agents `Unavailable`, offline run 503.
 - Post-push regression QA: task detail format/comment/delegate controls restored; chat, full-page login, and authenticated widget fixtures aligned with the shipped contracts.
