@@ -6,6 +6,8 @@ const zlib = require('node:zlib');
 const { buildCalendarWorkDraft } = require('./lib/calendar-work');
 const { buildHermesChatDeltas, buildHermesChatStreamEvents, compactStateSummary } = require('./lib/chat-runtime');
 const { routeWebCommand } = require('./lib/commands');
+const { routeAgentOperations } = require('./lib/agent-operations-api');
+const { AgentOperationsService } = require('./lib/agent-operations-service');
 const { normalizeMailAccount, syncMailAccounts } = require('./lib/connectors/mail');
 const { createRunPayloadFromTelegram, parseTelegramUpdate, registerTelegramWebhook } = require('./lib/connectors/telegram');
 const {
@@ -5716,7 +5718,17 @@ async function fallbackChatStream({ res, body, env, fetchImpl, gatewayState, gat
   }));
 }
 
-async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fetch, gatewayState = createGatewayState(), gatewayStore = null, relay = null) {
+async function handleApi(
+  req,
+  res,
+  requestUrl,
+  env = process.env,
+  fetchImpl = fetch,
+  gatewayState = createGatewayState(),
+  gatewayStore = null,
+  relay = null,
+  agentOperationsService = null,
+) {
   const pathSegments = requestUrl.pathname
     .replace(/^\/api\/?/, '')
     .split('/')
@@ -5809,6 +5821,16 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
     return;
   }
   const requestBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? parseRequestBuffer(bodyBuffer, req.headers['content-type'] || '') : {};
+  const agentOperationsResponse = await routeAgentOperations({
+    method,
+    pathSegments,
+    body: requestBody,
+    service: agentOperationsService,
+  });
+  if (agentOperationsResponse) {
+    sendJson(res, agentOperationsResponse.status, agentOperationsResponse.body);
+    return;
+  }
   if (
     method === 'POST'
     && pathSegments[0] === 'chat'
@@ -6886,7 +6908,13 @@ async function handleApi(req, res, requestUrl, env = process.env, fetchImpl = fe
   await pipeRuntimeResponse(runtimeResponse, res);
 }
 
-function createRailwayGatewayServer({ env = process.env, fetchImpl = fetch, gatewayStore: injectedGatewayStore = null } = {}) {
+function createRailwayGatewayServer({
+  env = process.env,
+  fetchImpl = fetch,
+  gatewayStore: injectedGatewayStore = null,
+  agentOperationsService: injectedAgentOperationsService = null,
+  agentOperationsClock,
+} = {}) {
   const gatewayState = createGatewayState();
   const relay = new HermesRailwayRelay();
   const gatewayStore = injectedGatewayStore || (env.DATABASE_URL
@@ -6894,6 +6922,9 @@ function createRailwayGatewayServer({ env = process.env, fetchImpl = fetch, gate
       env,
       dataDir: path.join(ROOT_DIR, 'work', 'hermes-gateway-data'),
     })
+    : null);
+  const agentOperationsService = injectedAgentOperationsService || (gatewayStore
+    ? new AgentOperationsService({ store: gatewayStore, clock: agentOperationsClock })
     : null);
   return http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
@@ -6921,7 +6952,17 @@ function createRailwayGatewayServer({ env = process.env, fetchImpl = fetch, gate
           }
         }
         await waitForStoreReady(gatewayStore);
-        await handleApi(req, res, requestUrl, env, fetchImpl, gatewayState, gatewayStore, relay);
+        await handleApi(
+          req,
+          res,
+          requestUrl,
+          env,
+          fetchImpl,
+          gatewayState,
+          gatewayStore,
+          relay,
+          agentOperationsService,
+        );
         return;
       }
       sendJson(res, 404, {

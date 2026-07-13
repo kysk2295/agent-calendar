@@ -14,9 +14,25 @@ const {
 } = require('../app/lib/agent-operations-domain');
 const { HermesStore } = require('../app/lib/store');
 const { PostgresHermesStore } = require('../app/lib/postgres-store');
+const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
 
 const FIXED_NOW = '2026-07-13T09:00:00.000Z';
 const clock = () => new Date(FIXED_NOW);
+
+function listen(server) {
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      resolve(`http://127.0.0.1:${address.port}`);
+    });
+  });
+}
+
+function close(server) {
+  return new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
 
 function createValidPlan() {
   return {
@@ -293,4 +309,86 @@ test('mirrors agent operation relationships to Postgres tables', async () => {
   assert.match(sql, /insert into tasks \(id, title, status, owner, due_at, mission_id, session_id/i);
 
   await rm(dataDir, { recursive: true, force: true });
+});
+
+test('agent operations API creates lists and updates durable work contracts', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-api-'));
+  const store = new HermesStore({ dataDir, clock });
+  const server = createRailwayGatewayServer({
+    env: {},
+    gatewayStore: store,
+    agentOperationsClock: clock,
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const createResponse = await fetch(`${baseUrl}/api/agent-operations/missions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ templateId: 'weekly-opportunity-brief' }),
+    });
+    const created = await createResponse.json();
+
+    // Then
+    assert.equal(createResponse.status, 201);
+    assert.equal(created.ok, true);
+    assert.equal(created.mission.status, 'draft');
+
+    // Given
+    const task = store.createTask({
+      id: 'task-api',
+      title: '경쟁사 변화 수집',
+      owner: 'Agent',
+      status: 'proposed',
+      missionId: created.mission.id,
+      origin: 'agent',
+      createdByAgentId: 'bizconsultant',
+    });
+    const session = store.createAgentSession({
+      id: 'session-api',
+      missionId: created.mission.id,
+      taskId: task.id,
+    });
+    store.appendAgentSessionEvent(session.id, { kind: 'plan', text: '공식 출처 확인' });
+    const report = store.createAgentReport({
+      id: 'report-api',
+      missionId: created.mission.id,
+      sessionId: session.id,
+      findings: ['기회 A'],
+      evidence: ['source-a'],
+      limitations: [],
+      budget: { usedMinutes: 10 },
+      followUps: [],
+    });
+
+    // When
+    const stateResponse = await fetch(`${baseUrl}/api/agent-operations`);
+    const sessionResponse = await fetch(`${baseUrl}/api/agent-operations/sessions/${session.id}`);
+    const actionResponse = await fetch(`${baseUrl}/api/agent-operations/tasks/${task.id}/approve`, {
+      method: 'POST',
+    });
+    const feedbackResponse = await fetch(`${baseUrl}/api/agent-operations/reports/${report.id}/feedback`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ useful: true, note: '의사결정에 사용함' }),
+    });
+    const state = await stateResponse.json();
+    const sessionDetail = await sessionResponse.json();
+    const action = await actionResponse.json();
+    const feedback = await feedbackResponse.json();
+
+    // Then
+    assert.equal(stateResponse.status, 200);
+    assert.equal(state.missions.length, 1);
+    assert.equal(state.tasks.length, 1);
+    assert.equal(sessionDetail.session.events[0].kind, 'plan');
+    assert.equal(action.task.status, 'scheduled');
+    assert.equal(feedback.report.useful, true);
+    assert.equal(store.getAgentReports()[0].feedback.note, '의사결정에 사용함');
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
 });
