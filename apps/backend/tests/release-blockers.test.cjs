@@ -391,6 +391,66 @@ test('routes mission launch through the live Mac mini relay', async () => {
   }
 });
 
+test('routes Hermes chat through a profile mission without inventing an API server model', async () => {
+  // Given
+  const server = createRailwayGatewayServer({
+    env: { HERMES_RELAY_TOKEN: 'relay-token' },
+    fetchImpl: async () => {
+      throw new Error('Hermes chat should use the relay instead of direct runtime fetch');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const chatPromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: 'Confirm the selected profile',
+        agentId: 'bizconsultant',
+        view: 'agent-operations',
+      }),
+    });
+
+    const polled = await pollPromise;
+    const relayJob = polled.job;
+
+    await fetch(`${baseUrl}/api/relay/jobs/${relayJob.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({
+        ok: true,
+        body: {
+          run: {
+            id: 'run-profile-chat',
+            status: 'completed',
+            agent: 'bizconsultant',
+            logs: ['stdout: bizconsultant ready'],
+          },
+        },
+      }),
+    });
+
+    const response = await chatPromise;
+    const body = await response.text();
+    assert.equal(relayJob.kind, 'runtime.request');
+    assert.equal(relayJob.payload.path, '/api/missions/launch');
+    assert.equal(JSON.parse(relayJob.payload.body).agentId, 'bizconsultant');
+    assert.equal(response.status, 200);
+    assert.match(body, /bizconsultant ready/);
+  } finally {
+    await close(server);
+  }
+});
+
 test('returns an explicit pending profileRequest when offline profile creation is accepted', async () => {
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-profile-pending-'));

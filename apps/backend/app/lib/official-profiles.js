@@ -1,4 +1,4 @@
-const OFFICIAL_PROFILE_NAMES = ['default', 'marketflow', 'stockagent', 'uniportpm'];
+const OFFICIAL_PROFILE_NAMES = ['default', 'bizconsultant', 'stockagent', 'uniportpm', 'wikicurator'];
 const DEFAULT_PROFILE_NAME = 'default';
 const FORBIDDEN_PRODUCT_AGENT_NAMES = Object.freeze([
   ['코', '달'].join(''),

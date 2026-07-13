@@ -41,6 +41,10 @@ const { buildRunnerAdapterCatalog } = require('./lib/runner-adapters');
 const { buildGatewayStatus, buildRuntimeProxyRequest, redactGatewayConfig, safeRuntimeError } = require('./lib/runtime-gateway');
 const { HermesRailwayRelay, isRelayAuthorized, relayEnabled } = require('./lib/railway-relay');
 const { runRelayChatCompletion } = require('./lib/relay-chat-completion');
+const {
+  agentOperationsProfileTimeout,
+  runRelayProfileCompletion,
+} = require('./lib/relay-profile-completion');
 const { projectStateWithAgents, resolveHermesAgent } = require('./lib/agent-registry');
 const {
   buildScheduleAssistantAnswer,
@@ -2404,7 +2408,8 @@ function hermesApiServerChatUrl(env = process.env) {
 }
 
 function hermesApiServerPayload({ body = {}, command = {}, env = process.env } = {}) {
-  const model = String(body.model || env.HERMES_API_SERVER_MODEL || 'hermes-agent').trim() || 'hermes-agent';
+  const model = String(body.model || env.HERMES_API_SERVER_MODEL || '').trim();
+  const profile = String(command.agent || body.agentId || body.agent || 'default').trim() || 'default';
   const message = String(command.message || body.message || '').trim();
   const providedMessages = Array.isArray(body.messages)
     ? body.messages
@@ -2426,7 +2431,8 @@ function hermesApiServerPayload({ body = {}, command = {}, env = process.env } =
       { role: 'user', content: message },
     ];
   return {
-    model,
+    ...(model ? { model } : {}),
+    profile,
     stream: true,
     messages,
   };
@@ -2967,20 +2973,9 @@ async function streamRailwayRelayChat({
       source: 'railway-relay',
     },
   };
-  const job = relay.enqueue({
-    kind: 'chat.completions',
-    payload: hermesApiServerPayload({ body, command, env }),
-    meta: {
-      runId: run.id,
-      agent: run.agent,
-      model: run.model,
-      wikiPath: run.file,
-      view: body.view || 'dashboard',
-    },
-  });
+  const profilePayload = hermesApiServerPayload({ body, command, env });
   const stateSummary = compactStateSummary(gatewaySnapshot(gatewayState, gatewayStore));
   const finalTextParts = [];
-  let cursor = 0;
   let done = false;
 
   res.writeHead(200, {
@@ -2993,13 +2988,14 @@ async function streamRailwayRelayChat({
   writeSseEvent(res, 'tool-activity', visualization.toolActivity);
   writeSseEvent(res, 'memory', visualization.memory);
 
-  const finish = ({ error = null } = {}) => {
+  const finish = ({ error = null, jobId = '', profileRunId = '' } = {}) => {
     if (done) return;
     done = true;
     run.status = error ? 'failed' : 'completed';
     run.logs = [
       ...(run.logs || []),
-      `railway-relay job=${job.id}`,
+      ...(jobId ? [`railway-relay job=${jobId}`] : []),
+      ...(profileRunId ? [`hermes-profile run=${profileRunId}`] : []),
       error ? `railway-relay error=${error}` : `assistant_text_chars=${finalTextParts.join('').length}`,
     ];
     const finalText = finalTextParts.join('');
@@ -3042,39 +3038,55 @@ async function streamRailwayRelayChat({
     res.end();
   };
 
-  const forwardRelayEvent = (record) => {
-    if (!record || !record.event) return;
-    if (record.event === 'delta' && record.data && typeof record.data.text === 'string') {
-      finalTextParts.push(record.data.text);
-    }
-    if (record.event === 'error') {
-      const error = safeRuntimeError(record.data?.error || 'Railway relay bridge failed', 'Railway relay bridge failed');
-      writeSseEvent(res, 'error', { error, source: 'railway-relay' });
-      finish({ error });
+  const forwardProfileEvent = async (event) => {
+    if (!event || !event.text) return;
+    if (event.kind === 'agent_message') {
+      finalTextParts.push(event.text);
+      writeSseEvent(res, 'delta', { text: event.text });
       return;
     }
-    if (record.event === 'bridge-complete') {
-      const completionText = extractRelayCompletionText(record.data);
-      if (completionText && !finalTextParts.join('').trim()) {
-        finalTextParts.push(completionText);
-        writeSseEvent(res, 'delta', { text: completionText });
-      }
+    if (event.kind === 'tool_activity') {
+      writeSseEvent(res, 'tool-activity', [{
+        tool: 'Hermes CLI',
+        state: 'running',
+        detail: event.text,
+      }]);
       return;
     }
-    writeSseEvent(res, record.event, record.data === undefined ? {} : record.data);
+    writeSseEvent(res, 'timeline', [{ label: 'Hermes progress', detail: event.text }]);
   };
 
-  const timeoutMs = Number(env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000);
-  const deadline = Date.now() + Math.max(1_000, timeoutMs);
-  while (!done && Date.now() < deadline) {
-    const batch = await relay.waitForEvents(job.id, cursor, Math.min(5_000, Math.max(1, deadline - Date.now())));
-    cursor = batch.cursor;
-    (batch.events || []).forEach(forwardRelayEvent);
-    if (!done && batch.complete) finish();
-  }
-  if (!done) {
-    relay.fail(job.id, new Error('railway relay bridge timed out'));
-    finish({ error: 'railway relay bridge timed out' });
+  try {
+    const completion = await runRelayProfileCompletion({
+      relay,
+      env,
+      payload: profilePayload,
+      meta: {
+        runId: run.id,
+        agent: run.agent,
+        wikiPath: run.file,
+        view: body.view || 'dashboard',
+        source: 'profile-chat',
+      },
+      onEvent: forwardProfileEvent,
+      timeoutMs: agentOperationsProfileTimeout(env),
+    });
+    if (completion.text && !finalTextParts.join('').trim()) {
+      finalTextParts.push(completion.text);
+      writeSseEvent(res, 'delta', { text: completion.text });
+    }
+    finish({ jobId: completion.jobId, profileRunId: completion.runId });
+  } catch (profileError) {
+    const error = safeRuntimeError(
+      profileError.message || 'Railway relay profile chat failed',
+      'Railway relay profile chat failed',
+    );
+    writeSseEvent(res, 'error', { error, source: 'railway-relay' });
+    finish({
+      error,
+      jobId: profileError.jobId || '',
+      profileRunId: profileError.runId || '',
+    });
   }
   return true;
 }
@@ -6913,13 +6925,13 @@ function createRailwayGatewayServer({
     })
     : null);
   const operationClock = agentOperationsClock || (() => new Date());
-  const executeAgentCompletion = ({ payload, meta, onEvent }) => runRelayChatCompletion({
+  const executeAgentCompletion = ({ payload, meta, onEvent }) => runRelayProfileCompletion({
     relay,
     env,
     payload,
     meta,
     onEvent,
-    timeoutMs: Number(env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000),
+    timeoutMs: agentOperationsProfileTimeout(env),
   });
   const agentReportChatId = String(env.HERMES_TELEGRAM_ALLOWED_CHAT_IDS || '')
     .split(',')

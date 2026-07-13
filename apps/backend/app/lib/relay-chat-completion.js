@@ -98,6 +98,7 @@ async function runRelayChatCompletion({
     meta: {
       view: 'agent-operations',
       model: payload?.model || '',
+      profile: payload?.profile || '',
       ...meta,
     },
   });

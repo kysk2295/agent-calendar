@@ -312,6 +312,54 @@ test('mirrors agent operation relationships to Postgres tables', async () => {
   await rm(dataDir, { recursive: true, force: true });
 });
 
+test('keeps the newest task session link when Postgres upserts finish out of order', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-postgres-order-'));
+  const persistedTasks = new Map();
+  const pool = {
+    query: async (sql, values = []) => {
+      if (/insert into tasks/i.test(String(sql))) {
+        const payload = JSON.parse(values[7]);
+        await new Promise((resolve) => setTimeout(resolve, payload.sessionId ? 1 : 30));
+        persistedTasks.set(payload.id, payload);
+      }
+      return { rows: [] };
+    },
+  };
+  const store = new PostgresHermesStore({
+    pool,
+    dataDir,
+    clock,
+    autoMigrate: false,
+  });
+  await store.ready;
+  const mission = store.createAgentMission(
+    createWeeklyOpportunityMission({ id: 'mission-postgres-order', clock }),
+  );
+  const task = store.createTask({
+    id: 'task-postgres-order',
+    title: '세션 링크 순서 검증',
+    owner: 'Agent',
+    status: 'proposed',
+    missionId: mission.id,
+    origin: 'agent',
+    createdByAgentId: 'bizconsultant',
+  });
+
+  // When
+  const session = store.createAgentSession({
+    id: 'session-postgres-order',
+    missionId: mission.id,
+    taskId: task.id,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 60));
+
+  // Then
+  assert.equal(persistedTasks.get(task.id).sessionId, session.id);
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
 test('agent operations API creates lists and updates durable work contracts', async () => {
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-api-'));
@@ -464,14 +512,24 @@ test('Relay planning completion preserves tool activity and structured output', 
   assert.equal(observed.some((event) => event.kind === 'agent_message'), true);
 });
 
+test('Agent Operations profile work has a dedicated six minute timeout', () => {
+  const { agentOperationsProfileTimeout } = require('../app/lib/relay-profile-completion');
+
+  assert.equal(agentOperationsProfileTimeout({}), 360_000);
+  assert.equal(agentOperationsProfileTimeout({ AGENT_OPERATIONS_PROFILE_TIMEOUT_MS: '420000' }), 420_000);
+  assert.equal(agentOperationsProfileTimeout({ AGENT_OPERATIONS_PROFILE_TIMEOUT_MS: 'invalid' }), 360_000);
+});
+
 test('planning API creates proposed calendar work and one Task Session per task', async () => {
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-plan-'));
   const store = new HermesStore({ dataDir, clock });
+  let planningRequest = null;
   const service = new AgentOperationsService({
     store,
     clock,
-    planCompletion: async ({ onEvent }) => {
+    planCompletion: async ({ onEvent, payload, meta }) => {
+      planningRequest = { payload, meta };
       await onEvent({ kind: 'tool_activity', text: '공식 출처 검색', metadata: { tool: 'web' } });
       return { text: JSON.stringify(createValidPlan()), jobId: 'relay-plan-ok', events: [] };
     },
@@ -495,11 +553,83 @@ test('planning API creates proposed calendar work and one Task Session per task'
     assert.equal(response.status, 200);
     assert.equal(body.tasks.length, 3);
     assert.equal(body.tasks.every((task) => task.status === 'proposed'), true);
+    assert.equal(body.tasks.every((task) => task.agent === 'bizconsultant'), true);
     assert.equal(body.tasks.every((task) => task.sessionId), true);
     assert.equal(body.sessions.length, 3);
     assert.equal(store.getState().tasks.filter((task) => task.origin === 'agent').length, 3);
     assert.equal(store.getState().agentSessions.filter((session) => session.type === 'task').length, 3);
     assert.equal(store.getState().agentSessions.some((session) => session.type === 'mission-thread'), true);
+    assert.equal(planningRequest.payload.profile, 'bizconsultant');
+    assert.equal(Object.hasOwn(planningRequest.payload, 'model'), false);
+    assert.equal(planningRequest.meta.agentId, 'bizconsultant');
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('default Agent Operations planning executes the selected Hermes CLI profile', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-profile-plan-'));
+  const store = new HermesStore({ dataDir, clock });
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+      HERMES_RELAY_STREAM_TIMEOUT_MS: '1000',
+    },
+    gatewayStore: store,
+    agentOperationsClock: clock,
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/api/agent-operations/missions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ templateId: 'weekly-opportunity-brief' }),
+    });
+    const created = await createResponse.json();
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const planPromise = fetch(`${baseUrl}/api/agent-operations/missions/${created.mission.id}/plan`, {
+      method: 'POST',
+    });
+    const polled = await pollPromise;
+    const relayJob = polled.job;
+    const runtimeBody = JSON.parse(relayJob.payload.body || '{}');
+
+    await fetch(`${baseUrl}/api/relay/jobs/${relayJob.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({
+        ok: true,
+        status: 200,
+        body: {
+          ok: true,
+          run: {
+            id: 'run-agent-plan',
+            status: 'done',
+            agent: 'bizconsultant',
+            logs: [`stdout: ${JSON.stringify(createValidPlan())}`],
+          },
+        },
+      }),
+    });
+
+    const response = await planPromise;
+    const body = await response.json();
+    assert.equal(relayJob.kind, 'runtime.request');
+    assert.equal(relayJob.payload.path, '/api/missions/launch');
+    assert.equal(runtimeBody.agentId, 'bizconsultant');
+    assert.match(runtimeBody.goal, /Return JSON only/);
+    assert.equal(response.status, 200);
+    assert.equal(body.tasks.length, 3);
   } finally {
     await close(server);
     await rm(dataDir, { recursive: true, force: true });
@@ -542,6 +672,52 @@ test('planning API rejects invalid JSON without creating Agent Tasks', async () 
   }
 });
 
+test('planning retries one invalid budget proposal with the validation reason', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-plan-retry-'));
+  const store = new HermesStore({ dataDir, clock });
+  const invalidPlan = createValidPlan();
+  invalidPlan.tasks[0].estimatedMinutes = 80;
+  const planningRequests = [];
+  const service = new AgentOperationsService({
+    store,
+    clock,
+    planCompletion: async ({ payload }) => {
+      planningRequests.push(payload);
+      return {
+        text: JSON.stringify(planningRequests.length === 1 ? invalidPlan : createValidPlan()),
+        jobId: `relay-plan-${planningRequests.length}`,
+        events: [],
+      };
+    },
+  });
+  const mission = service.createMission({ templateId: 'weekly-opportunity-brief' });
+  const server = createRailwayGatewayServer({
+    env: {},
+    gatewayStore: store,
+    agentOperationsService: service,
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/agent-operations/missions/${mission.id}/plan`, {
+      method: 'POST',
+    });
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.equal(body.tasks.length, 3);
+    assert.equal(planningRequests.length, 2);
+    assert.match(planningRequests[1].messages.at(-1).content, /runtime budget/i);
+    assert.match(planningRequests[1].messages.at(-1).content, /120/);
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('scheduler executes a due task once and records ordered session evidence', async () => {
   // Given
   const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
@@ -576,11 +752,13 @@ test('scheduler executes a due task once and records ordered session evidence', 
   });
   store.appendAgentSessionEvent(session.id, { kind: 'plan', text: '공식 출처 확인' });
   let completionCalls = 0;
+  let executionRequest = null;
   const scheduler = new AgentOperationsScheduler({
     store,
     clock,
-    executeCompletion: async ({ onEvent }) => {
+    executeCompletion: async ({ onEvent, payload, meta }) => {
       completionCalls += 1;
+      executionRequest = { payload, meta };
       await onEvent({ kind: 'tool_activity', text: '공식 가격 페이지 조회' });
       return { text: '공식 가격 페이지를 비교한 결과 기회 A가 확인됐다.', jobId: 'relay-task' };
     },
@@ -595,6 +773,9 @@ test('scheduler executes a due task once and records ordered session evidence', 
   assert.deepEqual(first.completedTaskIds, [task.id]);
   assert.deepEqual(second.startedTaskIds, []);
   assert.equal(completionCalls, 1);
+  assert.equal(executionRequest.payload.profile, 'bizconsultant');
+  assert.equal(Object.hasOwn(executionRequest.payload, 'model'), false);
+  assert.equal(executionRequest.meta.agentId, 'bizconsultant');
   assert.equal(store.getState().tasks.find((item) => item.id === task.id).status, 'completed');
   assert.deepEqual(
     store.getAgentSession(session.id).events.map((event) => event.kind),

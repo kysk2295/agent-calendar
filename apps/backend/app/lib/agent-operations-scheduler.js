@@ -91,9 +91,10 @@ class AgentOperationsScheduler {
     result.startedTaskIds.push(task.id);
 
     try {
+      const agentId = task.createdByAgentId || task.agent || mission.agentId;
       const completion = await this.executeCompletion({
         payload: {
-          model: task.createdByAgentId || task.agent || mission.agentId,
+          profile: agentId,
           stream: true,
           messages: taskExecutionMessages(mission, task, this.store.getAgentSession(session.id)),
         },
@@ -102,6 +103,7 @@ class AgentOperationsScheduler {
           taskId: task.id,
           sessionId: session.id,
           idempotencyKey: task.id,
+          agentId,
         },
         onEvent: async (event) => {
           if (event.kind === 'agent_message') return;

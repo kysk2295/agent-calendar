@@ -46,6 +46,7 @@ class PostgresHermesStore extends HermesStore {
     super({ dataDir, clock });
     this.pool = pool || createPool({ env });
     this.persistErrors = [];
+    this.taskPersistChains = new Map();
     const migrationReady = autoMigrate
       ? runMigrations({ pool: this.pool }).catch((error) => {
         this.persistErrors.push(error.message);
@@ -547,7 +548,24 @@ class PostgresHermesStore extends HermesStore {
   }
 
   #upsertTask(task) {
-    this.#query(
+    const snapshot = JSON.parse(JSON.stringify(safeJson(task)));
+    const previous = this.taskPersistChains.get(snapshot.id);
+    const write = () => this.#writeTask(snapshot);
+    const pending = previous
+      ? previous.then(write, write)
+      : Promise.resolve(write());
+    const tracked = pending.catch(() => null);
+    this.taskPersistChains.set(snapshot.id, tracked);
+    tracked.then(() => {
+      if (this.taskPersistChains.get(snapshot.id) === tracked) {
+        this.taskPersistChains.delete(snapshot.id);
+      }
+    });
+    return tracked;
+  }
+
+  #writeTask(task) {
+    return this.#query(
       `insert into tasks (id, title, status, owner, due_at, mission_id, session_id, payload, created_at, updated_at)
        values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, coalesce($9::timestamptz, now()), now())
        on conflict (id) do update set

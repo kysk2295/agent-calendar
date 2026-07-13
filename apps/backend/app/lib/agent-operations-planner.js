@@ -117,25 +117,32 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
   }));
 
   let completion;
+  let planningMessages;
+  const handlePlanningEvent = async (event) => {
+    store.appendAgentSessionEvent(missionThread.id, sanitizeSessionEvent(event));
+  };
   try {
     const prompt = buildMissionPlanPrompt({
       mission,
       priorReports: store.getAgentReports().filter((report) => report.missionId === mission.id),
       userFeedback: Array.isArray(mission.userFeedback) ? mission.userFeedback : [],
     });
+    planningMessages = [
+      { role: 'system', content: 'You plan bounded internal work for Agent Calendar. Return JSON only.' },
+      { role: 'user', content: prompt },
+    ];
     completion = await planCompletion({
       payload: {
-        model: mission.agentId,
+        profile: mission.agentId,
         stream: true,
-        messages: [
-          { role: 'system', content: 'You plan bounded internal work for Agent Calendar. Return JSON only.' },
-          { role: 'user', content: prompt },
-        ],
+        messages: planningMessages,
       },
-      meta: { missionId: mission.id, sessionId: missionThread.id },
-      onEvent: async (event) => {
-        store.appendAgentSessionEvent(missionThread.id, sanitizeSessionEvent(event));
+      meta: {
+        missionId: mission.id,
+        sessionId: missionThread.id,
+        agentId: mission.agentId,
       },
+      onEvent: handlePlanningEvent,
     });
   } catch (error) {
     appendPlanningError(store, missionThread.id, error);
@@ -149,9 +156,48 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
   let plan;
   try {
     plan = parseMissionPlan({ mission, raw: completion?.text });
-  } catch (error) {
-    appendPlanningError(store, missionThread.id, error);
-    throw new AgentOperationsPlanError('plan_invalid', 'Hermes returned an invalid mission plan', 422);
+  } catch (validationError) {
+    store.appendAgentSessionEvent(missionThread.id, sanitizeSessionEvent({
+      kind: 'progress',
+      text: `Hermes 계획을 검증에서 거절했습니다. 한 번 교정합니다: ${validationError.message}`,
+      metadata: { code: 'plan_correction', attempt: 2 },
+    }));
+    const correction = [
+      `The previous JSON plan was rejected: ${validationError.message}.`,
+      `Return a corrected plan with 2-5 tasks and total estimatedMinutes <= ${mission.policy.maxRuntimeMinutesPerWeek}.`,
+      'Include exactly one report task and no forbidden external action. Return corrected JSON only.',
+    ].join(' ');
+    try {
+      completion = await planCompletion({
+        payload: {
+          profile: mission.agentId,
+          stream: true,
+          messages: [
+            ...planningMessages,
+            { role: 'assistant', content: String(completion?.text || '') },
+            { role: 'user', content: correction },
+          ],
+        },
+        meta: {
+          missionId: mission.id,
+          sessionId: missionThread.id,
+          agentId: mission.agentId,
+          planAttempt: 2,
+        },
+        onEvent: handlePlanningEvent,
+      });
+      plan = parseMissionPlan({ mission, raw: completion?.text });
+    } catch (error) {
+      appendPlanningError(store, missionThread.id, error);
+      if (error.code && error.code !== 'plan_invalid') {
+        throw new AgentOperationsPlanError(
+          error.code,
+          error.message || 'Mac mini Hermes planning failed',
+          error.code === 'runtime_unavailable' ? 503 : 502,
+        );
+      }
+      throw new AgentOperationsPlanError('plan_invalid', 'Hermes returned an invalid mission plan', 422);
+    }
   }
 
   const created = plan.tasks.map((taskPlan) => createPlannedTask({
