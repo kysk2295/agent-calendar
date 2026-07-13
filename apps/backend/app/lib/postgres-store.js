@@ -549,16 +549,19 @@ class PostgresHermesStore extends HermesStore {
 
   #upsertTask(task) {
     const snapshot = JSON.parse(JSON.stringify(safeJson(task)));
-    const previous = this.taskPersistChains.get(snapshot.id);
-    const write = () => this.#writeTask(snapshot);
+    return this.#queueTaskPersistence(snapshot.id, () => this.#writeTask(snapshot));
+  }
+
+  #queueTaskPersistence(taskId, operation) {
+    const previous = this.taskPersistChains.get(taskId);
     const pending = previous
-      ? previous.then(write, write)
-      : Promise.resolve(write());
+      ? previous.then(operation, operation)
+      : Promise.resolve(operation());
     const tracked = pending.catch(() => null);
-    this.taskPersistChains.set(snapshot.id, tracked);
+    this.taskPersistChains.set(taskId, tracked);
     tracked.then(() => {
-      if (this.taskPersistChains.get(snapshot.id) === tracked) {
-        this.taskPersistChains.delete(snapshot.id);
+      if (this.taskPersistChains.get(taskId) === tracked) {
+        this.taskPersistChains.delete(taskId);
       }
     });
     return tracked;
@@ -603,7 +606,10 @@ class PostgresHermesStore extends HermesStore {
   }
 
   #deleteTask(taskId) {
-    this.#query('delete from tasks where id = $1', [taskId]);
+    return this.#queueTaskPersistence(
+      taskId,
+      () => this.#query('delete from tasks where id = $1', [taskId]),
+    );
   }
 
   #deleteAgent(agent = {}) {

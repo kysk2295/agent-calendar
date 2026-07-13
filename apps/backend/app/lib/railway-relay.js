@@ -1,3 +1,5 @@
+const crypto = require('node:crypto');
+
 const DEFAULT_POLL_TIMEOUT_MS = 25_000;
 const DEFAULT_EVENT_TIMEOUT_MS = 90_000;
 const DEFAULT_BRIDGE_TTL_MS = 45_000;
@@ -22,15 +24,22 @@ function relayEnabled(env = process.env) {
   return !['0', 'false', 'off', 'no'].includes(value);
 }
 
+function relayTokensMatch(actual = '', expected = '') {
+  const actualBuffer = Buffer.from(String(actual || ''));
+  const expectedBuffer = Buffer.from(String(expected || ''));
+  return actualBuffer.length === expectedBuffer.length
+    && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
 function isRelayAuthorized(req, env = process.env) {
   const expected = relayToken(env);
   if (!expected) return false;
   const headers = req.headers || {};
   const headerToken = String(headers['x-hermes-relay-token'] || headers['x-hermes-bridge-token'] || '').trim();
-  if (headerToken && headerToken === expected) return true;
+  if (headerToken && relayTokensMatch(headerToken, expected)) return true;
   const authorization = String(headers.authorization || '').trim();
   const bearer = authorization.match(/^Bearer\s+(.+)$/i);
-  return Boolean(bearer && bearer[1].trim() === expected);
+  return Boolean(bearer && relayTokensMatch(bearer[1].trim(), expected));
 }
 
 class HermesRailwayRelay {
@@ -239,4 +248,5 @@ module.exports = {
   HermesRailwayRelay,
   isRelayAuthorized,
   relayEnabled,
+  relayTokensMatch,
 };

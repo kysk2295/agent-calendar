@@ -2,12 +2,13 @@ const assert = require('node:assert/strict');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { mkdtemp, rm } = require('node:fs/promises');
+const { mkdtemp, readFile, rm } = require('node:fs/promises');
 
 const {
   buildMissionPlanPrompt,
   createWeeklyOpportunityMission,
   parseMissionPlan,
+  sanitizeAgentReport,
   sanitizeSessionEvent,
   transitionAgentTask,
   validateReport,
@@ -17,6 +18,10 @@ const { PostgresHermesStore } = require('../app/lib/postgres-store');
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
 const { AgentOperationsService } = require('../app/lib/agent-operations-service');
 const { taskExecutionMessages } = require('../app/lib/agent-operations-execution');
+const { COMMAND_ROUTES } = require('../app/lib/commands');
+const { listMissionTemplates } = require('../app/lib/missions');
+const { buildMissionRunPayload } = require('../app/lib/missions');
+const { OFFICIAL_PROFILE_NAMES } = require('../app/lib/official-profiles');
 
 const FIXED_NOW = '2026-07-13T09:00:00.000Z';
 const clock = () => new Date(FIXED_NOW);
@@ -202,6 +207,52 @@ test('redacts secrets private paths and hidden reasoning from session events', (
   const serialized = JSON.stringify(sanitized);
   assert.doesNotMatch(serialized, /secret|\/Users\/koyunseo|hidden reasoning/);
   assert.match(serialized, /redacted|private-path/i);
+});
+
+test('redacts profile direct output before it reaches chat or task persistence', () => {
+  // Given
+  const { runOutput } = require('../app/lib/relay-profile-completion');
+
+  // When
+  const output = runOutput({
+    output: 'token=topsecret /Users/koyunseo/private.md',
+  });
+
+  // Then
+  assert.doesNotMatch(output, /topsecret|\/Users\/koyunseo/);
+  assert.match(output, /redacted|private-path/i);
+});
+
+test('sanitizes report content and rejects local evidence URLs before persistence', () => {
+  // Given
+  const report = {
+    title: 'token=topsecret Weekly report',
+    findings: ['/Users/koyunseo/private.md contains an opportunity'],
+    evidence: [{ label: 'secret=hidden file', url: 'file:///Users/koyunseo/private.md' }],
+    limitations: ['Bearer abc123'],
+    followUps: [{ title: 'Verify', reason: 'password=hunter2' }],
+    budget: { usedRuns: 1, usedMinutes: 30 },
+  };
+
+  // When
+  const sanitized = sanitizeAgentReport(report);
+
+  // Then
+  assert.doesNotMatch(JSON.stringify(sanitized), /topsecret|\/Users\/koyunseo|abc123|hunter2|hidden/);
+  assert.equal(sanitized.evidence[0].url, '');
+});
+
+test('session repair migration matches the mission and chooses one deterministic session', async () => {
+  // Given
+  const migrationPath = path.join(__dirname, '../app/db/migrations/0007_restore_agent_task_sessions.sql');
+
+  // When
+  const sql = await readFile(migrationPath, 'utf8');
+
+  // Then
+  assert.match(sql, /session\.mission_id\s*=\s*task\.mission_id/i);
+  assert.match(sql, /row_number\(\)\s+over/i);
+  assert.match(sql, /session_rank\s*=\s*1/i);
 });
 
 test('accepts only evidence-backed report structures', () => {
@@ -390,6 +441,34 @@ test('keeps the newest task session link when Postgres upserts finish out of ord
   await rm(dataDir, { recursive: true, force: true });
 });
 
+test('serializes a task delete after an in-flight Postgres upsert', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-postgres-delete-'));
+  const persistedTasks = new Map();
+  const pool = {
+    query: async (sql, values = []) => {
+      if (/insert into tasks/i.test(String(sql))) {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        persistedTasks.set(values[0], JSON.parse(values[7]));
+      }
+      if (/delete from tasks/i.test(String(sql))) persistedTasks.delete(values[0]);
+      return { rows: [] };
+    },
+  };
+  const store = new PostgresHermesStore({ pool, dataDir, clock, autoMigrate: false });
+  await store.ready;
+  const task = store.createTask({ id: 'task-delete-order', title: '삭제 순서', status: 'proposed' });
+
+  // When
+  store.deleteTask(task.id);
+  await new Promise((resolve) => setTimeout(resolve, 70));
+
+  // Then
+  assert.equal(persistedTasks.has(task.id), false);
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
 test('agent operations API creates lists and updates durable work contracts', async () => {
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-api-'));
@@ -548,6 +627,95 @@ test('Agent Operations profile work has a dedicated six minute timeout', () => {
   assert.equal(agentOperationsProfileTimeout({}), 360_000);
   assert.equal(agentOperationsProfileTimeout({ AGENT_OPERATIONS_PROFILE_TIMEOUT_MS: '420000' }), 420_000);
   assert.equal(agentOperationsProfileTimeout({ AGENT_OPERATIONS_PROFILE_TIMEOUT_MS: 'invalid' }), 360_000);
+});
+
+test('profile timeout forwards an explicit model and requests remote run cancellation', async () => {
+  // Given
+  const { runRelayProfileCompletion } = require('../app/lib/relay-profile-completion');
+  let nowMs = 0;
+  const jobs = [];
+  const relay = {
+    isBridgeOnline: () => true,
+    enqueue: (input) => {
+      const job = { ...input, id: `job-${jobs.length + 1}` };
+      jobs.push(job);
+      return job;
+    },
+    waitForEvents: async (jobId) => {
+      if (jobId === 'job-1') {
+        return {
+          cursor: 1,
+          complete: true,
+          events: [{ event: 'bridge-complete', data: { body: { run: { id: 'run-long', status: 'running', model: 'gpt-explicit', logs: [] } } } }],
+        };
+      }
+      return {
+        cursor: 1,
+        complete: true,
+        events: [{ event: 'bridge-complete', data: { body: { run: { id: 'run-long', status: 'stopped' } } } }],
+      };
+    },
+    snapshot: () => ({ state: { runs: [{ id: 'run-long', status: 'running', model: 'gpt-explicit', logs: [] }] } }),
+    fail: () => {},
+  };
+
+  // When
+  await assert.rejects(
+    runRelayProfileCompletion({
+      relay,
+      env: { HERMES_RELAY_TOKEN: 'relay-token' },
+      payload: { profile: 'bizconsultant', model: 'gpt-explicit', messages: [{ role: 'user', content: 'bounded task' }] },
+      timeoutMs: 1_000,
+      pollIntervalMs: 1_000,
+      now: () => nowMs,
+      sleep: async (duration) => { nowMs += duration; },
+    }),
+    (error) => error.code === 'relay_timeout' && error.runId === 'run-long',
+  );
+
+  // Then
+  const launchBody = JSON.parse(jobs[0].payload.body);
+  assert.equal(launchBody.model, 'gpt-explicit');
+  assert.equal(launchBody.timeoutMs, 1_000);
+  assert.deepEqual(launchBody.toolsets, ['safe']);
+  assert.equal(launchBody.yolo, false);
+  assert.match(launchBody.deadlineAt, /^1970-01-01T00:00:01\.000Z$/);
+  assert.equal(jobs[1].payload.path, '/api/runs/run-long/stop');
+});
+
+test('built-in command and mission routes only reference live official profiles', () => {
+  // Given / When
+  const referenced = [
+    ...COMMAND_ROUTES.map((route) => route.agent),
+    ...listMissionTemplates().map((template) => template.agent),
+  ];
+
+  // Then
+  assert.equal(referenced.every((profile) => OFFICIAL_PROFILE_NAMES.includes(profile)), true);
+  assert.equal(referenced.includes('marketflow'), false);
+});
+
+test('mission launch preserves the safe toolset deadline and approval boundary', () => {
+  // Given
+  const deadlineAt = '2026-07-13T09:06:00.000Z';
+
+  // When
+  const run = buildMissionRunPayload({
+    templateId: 'product-build',
+    goal: 'Read-only opportunity research',
+    agentId: 'bizconsultant',
+    toolsets: ['safe'],
+    yolo: false,
+    timeoutMs: 360_000,
+    deadlineAt,
+  });
+
+  // Then
+  assert.deepEqual(run.toolsets, ['safe']);
+  assert.equal(run.yolo, false);
+  assert.equal(run.noApproval, false);
+  assert.equal(run.timeoutMs, 360_000);
+  assert.equal(run.deadlineAt, deadlineAt);
 });
 
 test('planning API creates proposed calendar work and one Task Session per task', async () => {
@@ -1263,4 +1431,61 @@ test('Telegram delivery failure never turns a completed Agent Report into failur
   assert.match(events.at(-1).text, /Telegram HTTP 500/);
 
   await rm(dataDir, { recursive: true, force: true });
+});
+
+test('Telegram delivery is marked not configured instead of remaining pending', async () => {
+  // Given
+  const { deliverAgentReport } = require('../app/lib/agent-report-delivery');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-report-telegram-unconfigured-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission(createWeeklyOpportunityMission({ id: 'mission-no-telegram', clock }));
+  const session = store.createAgentSession({ id: 'session-no-telegram', missionId: mission.id, status: 'completed' });
+  const report = store.createAgentReport({
+    id: 'report-no-telegram',
+    missionId: mission.id,
+    sessionId: session.id,
+    status: 'ready',
+    deliveryStatus: 'pending',
+    findings: ['기회 A'],
+    evidence: [{ label: '공식 출처', url: 'https://example.com' }],
+    limitations: [],
+    followUps: [],
+    budget: { usedRuns: 1, usedMinutes: 30 },
+  });
+
+  // When
+  const updated = await deliverAgentReport({ store, sessionId: session.id, report, sendTelegram: null, clock });
+
+  // Then
+  assert.equal(updated.deliveryStatus, 'not_configured');
+  assert.equal(store.getAgentReports()[0].deliveryStatus, 'not_configured');
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('Agent Operations list redacts legacy report content before responding', () => {
+  // Given
+  const dataDir = path.join(os.tmpdir(), `agent-report-list-redaction-${process.pid}-${Date.now()}`);
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission(createWeeklyOpportunityMission({ id: 'mission-report-list', clock }));
+  store.createAgentReport({
+    id: 'report-list-secret',
+    missionId: mission.id,
+    status: 'ready',
+    findings: ['token=topsecret'],
+    evidence: [{ label: '/Users/koyunseo/private.md', url: 'file:///Users/koyunseo/private.md' }],
+    limitations: [],
+    followUps: [],
+    budget: { usedRuns: 1, usedMinutes: 1 },
+  });
+  const service = new AgentOperationsService({ store, clock });
+
+  // When
+  const response = service.listState();
+
+  // Then
+  assert.doesNotMatch(JSON.stringify(response.reports), /topsecret|\/Users\/koyunseo/);
+  assert.equal(response.reports[0].evidence[0].url, '');
+
+  return rm(dataDir, { recursive: true, force: true });
 });

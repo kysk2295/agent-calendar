@@ -7,7 +7,13 @@ async function deliverAgentReport({
   sendTelegram,
   clock = () => new Date(),
 } = {}) {
-  if (!report || typeof sendTelegram !== 'function') return report;
+  if (!report) return report;
+  if (typeof sendTelegram !== 'function') {
+    return store.updateAgentReport(report.id, {
+      deliveryStatus: 'not_configured',
+      deliveryError: 'telegram_not_configured',
+    });
+  }
   try {
     const delivered = await sendTelegram(report);
     return store.updateAgentReport(report.id, {
@@ -17,14 +23,18 @@ async function deliverAgentReport({
       deliveryError: '',
     });
   } catch (error) {
+    const safeError = sanitizeSessionEvent({
+      kind: 'error',
+      text: String(error.message || 'Telegram delivery failed'),
+    }).text;
     const updated = store.updateAgentReport(report.id, {
       deliveryStatus: 'failed',
-      deliveryError: String(error.message || 'Telegram delivery failed'),
+      deliveryError: safeError,
       deliveryFailedAt: clock().toISOString(),
     });
     store.appendAgentSessionEvent(sessionId, sanitizeSessionEvent({
       kind: 'error',
-      text: String(error.message || 'Telegram delivery failed'),
+      text: safeError,
       metadata: {
         code: error.code || 'telegram_delivery_failed',
         reportId: report.id,

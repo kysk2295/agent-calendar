@@ -2766,7 +2766,7 @@ async function streamHermesApiServerChat({
     name: command.message,
     goal: `Hermes API Server chat: ${command.message}`,
     agent: command.agent || body.agentId || body.agent || 'default',
-    model: body.model || env.HERMES_API_SERVER_MODEL || 'hermes-agent',
+    model: body.model || env.HERMES_API_SERVER_MODEL || 'profile-default',
     status: 'completed',
     source: 'mac-mini-hermes-api',
     file: `5_conversation/agent-runs/${dateStamp()}-${slugify(command.message, 'hermes-api-chat')}.md`,
@@ -2780,7 +2780,7 @@ async function streamHermesApiServerChat({
     name: command.message,
     goal: command.message,
     agent: command.agent,
-    model: body.model || env.HERMES_API_SERVER_MODEL || 'hermes-agent',
+    model: body.model || env.HERMES_API_SERVER_MODEL || 'profile-default',
     source: 'mac-mini-hermes-api',
   });
   const visualization = {
@@ -2932,7 +2932,7 @@ async function streamRailwayRelayChat({
     name: command.message,
     goal: `Railway relay chat: ${command.message}`,
     agent: command.agent || body.agentId || body.agent || 'default',
-    model: body.model || env.HERMES_API_SERVER_MODEL || 'hermes-agent',
+    model: body.model || env.HERMES_API_SERVER_MODEL || 'profile-default',
     status: 'running',
     source: 'railway-relay',
     file: `5_conversation/agent-runs/${dateStamp()}-${slugify(command.message, 'railway-relay-chat')}.md`,
@@ -2946,7 +2946,7 @@ async function streamRailwayRelayChat({
     name: command.message,
     goal: command.message,
     agent: command.agent,
-    model: body.model || env.HERMES_API_SERVER_MODEL || 'hermes-agent',
+    model: body.model || env.HERMES_API_SERVER_MODEL || 'profile-default',
     source: 'railway-relay',
   });
   const visualization = {
@@ -2988,9 +2988,13 @@ async function streamRailwayRelayChat({
   writeSseEvent(res, 'tool-activity', visualization.toolActivity);
   writeSseEvent(res, 'memory', visualization.memory);
 
-  const finish = ({ error = null, jobId = '', profileRunId = '' } = {}) => {
+  const finish = ({ error = null, jobId = '', profileRunId = '', actualModel = '' } = {}) => {
     if (done) return;
     done = true;
+    if (actualModel) {
+      run.model = actualModel;
+      visualization.agentState.model = actualModel;
+    }
     run.status = error ? 'failed' : 'completed';
     run.logs = [
       ...(run.logs || []),
@@ -3075,7 +3079,11 @@ async function streamRailwayRelayChat({
       finalTextParts.push(completion.text);
       writeSseEvent(res, 'delta', { text: completion.text });
     }
-    finish({ jobId: completion.jobId, profileRunId: completion.runId });
+    finish({
+      jobId: completion.jobId,
+      profileRunId: completion.runId,
+      actualModel: completion.model,
+    });
   } catch (profileError) {
     const error = safeRuntimeError(
       profileError.message || 'Railway relay profile chat failed',
@@ -3861,7 +3869,7 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
           model: localLlmModel(env),
           used: false,
           transport: 'railway-relay',
-          error: error.message || String(error),
+          error: safeRuntimeError(error.message || String(error), 'Railway Relay wiki synthesis failed'),
         },
       };
     }
@@ -5448,7 +5456,7 @@ async function fallbackScheduleAssistantAsk({ res, body = {}, gatewayState, gate
           model: localLlmModel(env),
           used: false,
           transport: 'railway-relay',
-          error: error.message || String(error),
+          error: safeRuntimeError(error.message || String(error), 'Railway Relay schedule synthesis failed'),
         },
       };
     }
@@ -5775,6 +5783,11 @@ async function handleApi(
       return;
     }
     if (method === 'GET' && pathSegments[1] === 'snapshot') {
+      const callerAuthorized = apiCallerAuth(req, env).ok;
+      if (!callerAuthorized && !isRelayAuthorized(req, env)) {
+        sendJson(res, 401, { ok: false, error: 'relay_snapshot_unauthorized' });
+        return;
+      }
       const snapshot = relay && typeof relay.snapshot === 'function'
         ? relay.snapshot({ env, allowStale: requestUrl.searchParams.get('stale') === '1' })
         : null;

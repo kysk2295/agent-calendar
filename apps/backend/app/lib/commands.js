@@ -17,7 +17,7 @@ const COMMAND_ROUTES = [
   },
   {
     templateId: 'content-pipeline',
-    agent: 'marketflow',
+    agent: 'default',
     model: 'Recommended',
     keywords: ['콘텐츠', 'content', '영상', 'script', '스크립트', 'shorts', 'publish'],
     reason: 'content production keywords matched.',

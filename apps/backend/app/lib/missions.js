@@ -66,7 +66,7 @@ const MISSION_TEMPLATES = [
     id: 'content-pipeline',
     label: 'Content pipeline',
     description: '리서치, 스크립트, 이미지/영상 제작 체크리스트를 연결합니다.',
-    agent: 'marketflow',
+    agent: 'default',
     model: 'Recommended',
     modelReason: 'Recommended routes planning to Claude-style synthesis and implementation to Codex-style execution.',
     durationHours: 6,
@@ -148,6 +148,14 @@ function buildMissionRunPayload(input = {}) {
     fallback: template.agent,
   });
   const model = resolveModel({ requestedModel: input.model, template });
+  const toolsets = Array.isArray(input.toolsets)
+    ? input.toolsets.map(String).filter((toolset) => /^[a-z0-9_-]+$/i.test(toolset)).slice(0, 8)
+    : [];
+  const yolo = input.yolo !== false;
+  const timeoutMs = Number(input.timeoutMs);
+  const deadlineAt = Number.isFinite(new Date(input.deadlineAt).getTime())
+    ? new Date(input.deadlineAt).toISOString()
+    : '';
 
   const expandedGoal = [
     `Mission: ${template.label}`,
@@ -167,7 +175,11 @@ function buildMissionRunPayload(input = {}) {
     agent,
     model,
     source: input.source || 'mission',
-    noApproval: true,
+    noApproval: input.noApproval === undefined ? yolo : Boolean(input.noApproval),
+    yolo,
+    ...(toolsets.length ? { toolsets } : {}),
+    ...(Number.isFinite(timeoutMs) && timeoutMs >= 1_000 ? { timeoutMs: Math.round(timeoutMs) } : {}),
+    ...(deadlineAt ? { deadlineAt } : {}),
     mission: {
       id: template.id,
       label: template.label,

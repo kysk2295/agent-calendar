@@ -6,6 +6,8 @@ const { mkdtemp, rm } = require('node:fs/promises');
 
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
 const { HermesStore } = require('../app/lib/store');
+const { relayTokensMatch } = require('../app/lib/railway-relay');
+const { safeRuntimeError } = require('../app/lib/runtime-gateway');
 
 function listen(server) {
   return new Promise((resolve) => {
@@ -199,6 +201,49 @@ test('preserves relay callback authentication independently of the client token'
   } finally {
     await close(server);
   }
+});
+
+test('protects Relay snapshots with caller or bridge authentication', async () => {
+  // Given
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_REMOTE_AUTH_TOKEN: 'client-token',
+      HERMES_RELAY_TOKEN: 'relay-token',
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const unauthenticated = await fetch(`${baseUrl}/api/relay/snapshot`);
+    const callerAuthenticated = await fetch(`${baseUrl}/api/relay/snapshot`, {
+      headers: { authorization: 'Bearer client-token' },
+    });
+
+    // Then
+    assert.equal(unauthenticated.status, 401);
+    assert.equal(callerAuthenticated.status, 404);
+  } finally {
+    await close(server);
+  }
+});
+
+test('compares Relay tokens without accepting prefixes or unequal lengths', () => {
+  // Given / When / Then
+  assert.equal(relayTokensMatch('relay-token', 'relay-token'), true);
+  assert.equal(relayTokensMatch('relay', 'relay-token'), false);
+  assert.equal(relayTokensMatch('relay-token-extra', 'relay-token'), false);
+});
+
+test('runtime errors never expose private filesystem paths', () => {
+  // Given / When
+  const message = safeRuntimeError(
+    'runner failed at /Users/koyunseo/private/work.md',
+    'Runtime execution failed',
+  );
+
+  // Then
+  assert.equal(message, 'Runtime execution failed');
 });
 
 test('does not let the client token replace relay callback authentication', async () => {
@@ -433,7 +478,8 @@ test('routes Hermes chat through a profile mission without inventing an API serv
             id: 'run-profile-chat',
             status: 'completed',
             agent: 'bizconsultant',
-            logs: ['stdout: bizconsultant ready'],
+            output: 'bizconsultant ready token=topsecret /Users/koyunseo/private.md',
+            logs: [],
           },
         },
       }),
@@ -446,6 +492,8 @@ test('routes Hermes chat through a profile mission without inventing an API serv
     assert.equal(JSON.parse(relayJob.payload.body).agentId, 'bizconsultant');
     assert.equal(response.status, 200);
     assert.match(body, /bizconsultant ready/);
+    assert.doesNotMatch(body, /hermes-agent/);
+    assert.doesNotMatch(body, /topsecret|\/Users\/koyunseo/);
   } finally {
     await close(server);
   }

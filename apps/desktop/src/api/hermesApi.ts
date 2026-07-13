@@ -5,6 +5,7 @@ export type ApiEnvelope = Record<string, unknown>;
 let apiBaseUrl = '';
 const API_TIMEOUT_MS = 6500;
 const SCHEDULE_ASK_TIMEOUT_MS = 45_000;
+const AGENT_OPERATIONS_TIMEOUT_MS = 370_000;
 const WIKI_SEARCH_TIMEOUT_MS = 60_000;
 const WIKI_ASK_TIMEOUT_MS = 150_000;
 
@@ -81,7 +82,7 @@ export const hermesApi = {
     method: 'POST',
     body: JSON.stringify(body),
   }),
-  planAgentMission: (missionId: string) => hermesJson<unknown>(`/api/agent-operations/missions/${encodeURIComponent(missionId)}/plan`, { method: 'POST', body: '{}' }, SCHEDULE_ASK_TIMEOUT_MS),
+  planAgentMission: (missionId: string) => hermesJson<unknown>(`/api/agent-operations/missions/${encodeURIComponent(missionId)}/plan`, { method: 'POST', body: '{}' }, AGENT_OPERATIONS_TIMEOUT_MS),
   activateAgentMission: (missionId: string) => hermesJson<unknown>(`/api/agent-operations/missions/${encodeURIComponent(missionId)}/activate`, { method: 'POST', body: '{}' }),
   transitionAgentMission: (missionId: string, action: 'pause' | 'cancel') => hermesJson<unknown>(`/api/agent-operations/missions/${encodeURIComponent(missionId)}/${action}`, { method: 'POST', body: '{}' }),
   transitionAgentTask: (taskId: string, action: AgentTaskAction) => hermesJson<unknown>(`/api/agent-operations/tasks/${encodeURIComponent(taskId)}/${encodeURIComponent(action)}`, { method: 'POST', body: '{}' }),
@@ -98,7 +99,7 @@ export const hermesApi = {
     method: 'POST',
     body: JSON.stringify({ index, decision }),
   }),
-  tickAgentOperations: () => hermesJson<unknown>('/api/agent-operations/tick', { method: 'POST', body: '{}' }, SCHEDULE_ASK_TIMEOUT_MS),
+  tickAgentOperations: () => hermesJson<unknown>('/api/agent-operations/tick', { method: 'POST', body: '{}' }, AGENT_OPERATIONS_TIMEOUT_MS),
   createAgent: (body: Record<string, unknown>) => jsonPost('/api/agents', body),
   getChannels: () => hermesJson<ApiEnvelope>('/api/channels/status'),
   getAutomation: () => hermesJson<ApiEnvelope>('/api/scheduler/jobs'),

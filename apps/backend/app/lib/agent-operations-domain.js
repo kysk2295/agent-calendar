@@ -183,6 +183,7 @@ function redactSessionValue(value, key = '') {
   if (typeof value === 'string') {
     return value
       .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
+      .replace(/("(?:authorization|token|secret|password)"\s*:\s*)"[^"]*"/gi, '$1"[redacted]"')
       .replace(/(?:token|secret|password)\s*[=:]\s*[^\s]+/gi, '[redacted]')
       .replace(/\/(?:Users|home)\/[^\s"']+/g, '[private-path]');
   }
@@ -199,6 +200,45 @@ function sanitizeSessionEvent(event = {}) {
   const kind = String(event.kind || '');
   if (kind && !SESSION_EVENT_KINDS.includes(kind)) throw new Error(`unsupported session event kind: ${kind}`);
   return redactSessionValue(event);
+}
+
+function sanitizeReportText(value, maximumLength = 2_000) {
+  return String(redactSessionValue(String(value || ''))).trim().slice(0, maximumLength);
+}
+
+function sanitizeEvidenceUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return ['http:', 'https:'].includes(url.protocol) ? url.toString().slice(0, 2_048) : '';
+  } catch {
+    return '';
+  }
+}
+
+function sanitizeAgentReport(report = {}) {
+  const redacted = redactSessionValue(report);
+  return {
+    ...redacted,
+    title: sanitizeReportText(redacted.title, 300),
+    findings: (Array.isArray(redacted.findings) ? redacted.findings : [])
+      .slice(0, 20)
+      .map((finding) => sanitizeReportText(finding)),
+    evidence: (Array.isArray(redacted.evidence) ? redacted.evidence : [])
+      .slice(0, 20)
+      .map((evidence) => ({
+        label: sanitizeReportText(evidence?.label, 300),
+        url: sanitizeEvidenceUrl(evidence?.url),
+      })),
+    limitations: (Array.isArray(redacted.limitations) ? redacted.limitations : [])
+      .slice(0, 20)
+      .map((limitation) => sanitizeReportText(limitation)),
+    followUps: (Array.isArray(redacted.followUps) ? redacted.followUps : [])
+      .slice(0, 20)
+      .map((followUp) => ({
+        title: sanitizeReportText(followUp?.title, 300),
+        reason: sanitizeReportText(followUp?.reason),
+      })),
+  };
 }
 
 function validateReport(report = {}) {
@@ -221,6 +261,7 @@ module.exports = {
   buildMissionPlanPrompt,
   createWeeklyOpportunityMission,
   parseMissionPlan,
+  sanitizeAgentReport,
   sanitizeSessionEvent,
   transitionAgentTask,
   validateReport,

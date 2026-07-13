@@ -14,13 +14,14 @@ function redactPublicText(value) {
     .replace(/"runtimeToken"\s*:\s*"[^"]*"/gi, '"runtimeToken":"[REDACTED]"')
     .replace(/hermes_[A-Za-z0-9._-]+/gi, 'hermes_[REDACTED]')
     .replace(/[A-Za-z0-9._-]*secret[A-Za-z0-9._-]*/gi, '[REDACTED]')
+    .replace(/\/(?:Users|home)\/[^\s"'}]+/g, '[PRIVATE_PATH]')
     .slice(0, 300);
 }
 
 function safeRuntimeError(message, fallback) {
   const redacted = redactPublicText(message);
   if (!redacted) return fallback;
-  if (/\[REDACTED\]|token|authorization|secret/i.test(redacted)) return fallback;
+  if (/\[(?:REDACTED|PRIVATE_PATH)\]|token|authorization|secret/i.test(redacted)) return fallback;
   return redacted.length > 160 ? fallback : redacted;
 }
 

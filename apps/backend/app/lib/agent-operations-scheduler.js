@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
 
-const { sanitizeSessionEvent, validateReport } = require('./agent-operations-domain');
+const { sanitizeAgentReport, sanitizeSessionEvent, validateReport } = require('./agent-operations-domain');
 const { taskExecutionMessages } = require('./agent-operations-execution');
 const { deliverAgentReport } = require('./agent-report-delivery');
 
@@ -178,7 +178,7 @@ class AgentOperationsScheduler {
       if (task.actionClass === 'report') {
         let parsed;
         try {
-          parsed = JSON.parse(text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+          parsed = sanitizeAgentReport(JSON.parse(text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')));
           validateReport(parsed);
         } catch {
           const error = new Error('Hermes returned an invalid evidence-backed report');

@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 
 const {
   createWeeklyOpportunityMission,
+  sanitizeAgentReport,
   sanitizeSessionEvent,
 } = require('./agent-operations-domain');
 const {
@@ -52,7 +53,7 @@ class AgentOperationsService {
       missions: this.store.getAgentMissions(),
       tasks: state.tasks.filter((task) => task.origin === 'agent'),
       sessions: state.agentSessions,
-      reports: this.store.getAgentReports(),
+      reports: this.store.getAgentReports().map((report) => sanitizeAgentReport(report)),
       daemon: this.daemon?.status() || state.agentOperationsDaemon || {
         running: false,
         lastRun: null,
@@ -214,7 +215,7 @@ class AgentOperationsService {
     }
     const feedback = {
       useful: input.useful,
-      note: String(input.note || '').trim(),
+      note: sanitizeSessionEvent({ kind: 'user_message', text: String(input.note || '').trim() }).text,
       recordedAt: this.clock().toISOString(),
     };
     const updated = this.store.updateAgentReport(report.id, {
@@ -226,7 +227,7 @@ class AgentOperationsService {
     this.store.updateAgentMission(mission.id, {
       userFeedback: [...userFeedback, { reportId: report.id, ...feedback }],
     });
-    return updated;
+    return sanitizeAgentReport(updated);
   }
 
   recordReportFollowUpDecision(reportId, input = {}) {
@@ -234,7 +235,8 @@ class AgentOperationsService {
     if (!report) throw new AgentOperationsError('report_not_found', 'Agent report was not found', 404);
     const index = Number(input.index);
     const decision = String(input.decision || '');
-    const followUp = Array.isArray(report.followUps) ? report.followUps[index] : null;
+    const safeReport = sanitizeAgentReport(report);
+    const followUp = Array.isArray(safeReport.followUps) ? safeReport.followUps[index] : null;
     if (!Number.isInteger(index) || index < 0 || !followUp || !['approved', 'rejected'].includes(decision)) {
       throw new AgentOperationsError('follow_up_decision_invalid', 'A valid follow-up and decision are required', 422);
     }
@@ -262,7 +264,7 @@ class AgentOperationsService {
     this.store.updateAgentMission(mission.id, {
       userFeedback: [...userFeedback, { kind: 'follow_up_decision', reportId: report.id, ...record }],
     });
-    return updated;
+    return sanitizeAgentReport(updated);
   }
 
   async tick() {

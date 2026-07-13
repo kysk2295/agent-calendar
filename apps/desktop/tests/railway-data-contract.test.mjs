@@ -13,6 +13,12 @@ test('browser preview proxy authenticates with the local desktop Railway token',
   assert.match(viteConfigSource, /authorization:\s*`Bearer \$\{apiProxyToken\}`/);
 });
 
+test('Agent Operations requests allow the backend profile run to reach its terminal state', () => {
+  assert.match(apiSource, /const AGENT_OPERATIONS_TIMEOUT_MS = 370_000/);
+  assert.match(apiSource, /planAgentMission:[\s\S]*AGENT_OPERATIONS_TIMEOUT_MS/);
+  assert.match(apiSource, /tickAgentOperations:[\s\S]*AGENT_OPERATIONS_TIMEOUT_MS/);
+});
+
 test('calendar renders only Railway tasks/events for a date, never fallback filler rows', () => {
   assert.equal(appSource.includes('calendarItems.slice(fallbackIndex'), false);
   assert.equal(appSource.includes('matched.length ? matched : calendarItems.slice'), false);
