@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 
 const { sanitizeSessionEvent, validateReport } = require('./agent-operations-domain');
+const { taskExecutionMessages } = require('./agent-operations-execution');
 
 function schedulerId(prefix, clock) {
   const stamp = clock().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
@@ -9,41 +10,6 @@ function schedulerId(prefix, clock) {
 
 function isRuntimeFailure(error) {
   return ['runtime_unavailable', 'relay_timeout', 'relay_failed'].includes(error?.code);
-}
-
-function taskMessages(mission, task, session) {
-  const userMessages = session.events
-    .filter((event) => event.kind === 'user_message')
-    .map((event) => event.text)
-    .filter(Boolean);
-  return [
-    {
-      role: 'system',
-      content: JSON.stringify({
-        instruction: 'Complete one bounded internal Agent Calendar task. Do not perform external side effects. Return evidence and limitations.',
-        mission: {
-          title: mission.title,
-          objective: mission.objective,
-          successCriteria: mission.successCriteria,
-          forbiddenActions: mission.policy?.forbiddenActions || [],
-        },
-      }),
-    },
-    {
-      role: 'user',
-      content: JSON.stringify({
-        task: {
-          title: task.title,
-          reason: task.reason,
-          expectedOutput: task.expectedOutput,
-          actionClass: task.actionClass,
-          sourceRefs: task.sourceRefs,
-          dueAt: task.dueAt,
-        },
-        userMessages,
-      }),
-    },
-  ];
 }
 
 class AgentOperationsScheduler {
@@ -71,6 +37,7 @@ class AgentOperationsScheduler {
       completedTaskIds: [],
       blockedTaskIds: [],
       failedTaskIds: [],
+      cancelledTaskIds: [],
       createdReportIds: [],
     };
     const state = this.store.getState();
@@ -109,7 +76,10 @@ class AgentOperationsScheduler {
       startedAt,
       blockedReason: '',
       failureCode: '',
-      attempt: Number(task.attempt || 0) + 1,
+      attempt: task.retryScheduledAt
+        ? Math.max(1, Number(task.attempt || 1))
+        : Number(task.attempt || 0) + 1,
+      retryScheduledAt: '',
     });
     this.store.updateAgentSession(session.id, { status: 'running' });
     this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
@@ -124,7 +94,7 @@ class AgentOperationsScheduler {
         payload: {
           model: task.createdByAgentId || task.agent || mission.agentId,
           stream: true,
-          messages: taskMessages(mission, task, this.store.getAgentSession(session.id)),
+          messages: taskExecutionMessages(mission, task, this.store.getAgentSession(session.id)),
         },
         meta: {
           missionId: mission.id,
@@ -142,6 +112,35 @@ class AgentOperationsScheduler {
         const error = new Error('Hermes returned an empty task result');
         error.code = 'output_invalid';
         throw error;
+      }
+
+      const checkpointTask = this.store.getState().tasks.find((item) => item.id === task.id);
+      if (checkpointTask.pauseRequestedAt || checkpointTask.cancelRequestedAt) {
+        const cancelled = Boolean(checkpointTask.cancelRequestedAt);
+        const status = cancelled ? 'cancelled' : 'blocked';
+        this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
+          kind: 'agent_message',
+          text,
+          metadata: { jobId: completion.jobId || '', applicationMode: 'checkpoint_result' },
+        }));
+        this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
+          kind: 'artifact',
+          text: task.expectedOutput || task.title,
+          metadata: { checkpoint: true },
+        }));
+        this.store.updateTask(task.id, {
+          status,
+          blockedReason: cancelled ? '' : '사용자 일시정지 요청이 체크포인트에 적용됨',
+          finishedAt: this.clock().toISOString(),
+        });
+        this.store.updateAgentSession(session.id, { status });
+        this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
+          kind: 'approval_response',
+          text: `${cancelled ? 'cancel' : 'pause'} 요청을 checkpoint에 적용했습니다. 완료로 표시하지 않았습니다.`,
+          metadata: { action: cancelled ? 'cancel' : 'pause', applicationMode: 'applied_at_checkpoint' },
+        }));
+        (cancelled ? result.cancelledTaskIds : result.blockedTaskIds).push(task.id);
+        return;
       }
 
       let report = null;
@@ -226,5 +225,4 @@ class AgentOperationsScheduler {
 
 module.exports = {
   AgentOperationsScheduler,
-  taskMessages,
 };

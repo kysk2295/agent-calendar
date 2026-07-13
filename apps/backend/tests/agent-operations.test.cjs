@@ -723,3 +723,170 @@ test('manual tick API uses the injected Agent Operations scheduler', async () =>
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+test('Task Session messages persist with truthful next-checkpoint semantics', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-session-message-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-message', clock }),
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-message',
+    title: '기회 조사',
+    owner: 'Agent',
+    status: 'running',
+    missionId: mission.id,
+    origin: 'agent',
+    scheduledAt: FIXED_NOW,
+  });
+  const session = store.createAgentSession({
+    id: 'session-message',
+    missionId: mission.id,
+    taskId: task.id,
+    type: 'task',
+    status: 'running',
+  });
+  const service = new AgentOperationsService({ store, clock });
+
+  // When
+  const result = await service.addSessionMessage(session.id, {
+    text: '가격 근거를 먼저 확인해줘',
+  });
+  const restarted = new HermesStore({ dataDir, clock });
+  const restored = restarted.getAgentSession(session.id);
+
+  // Then
+  assert.equal(result.applicationMode, 'next_checkpoint');
+  assert.equal(restored.events.at(-1).kind, 'user_message');
+  assert.equal(restored.events.at(-1).metadata.applicationMode, 'next_checkpoint');
+  assert.deepEqual(restored.pendingInstructions, ['가격 근거를 먼저 확인해줘']);
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('running pause requests and failed retries keep the existing Task Session', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-session-actions-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-actions', clock }),
+    status: 'active',
+  });
+  const runningTask = store.createTask({
+    id: 'task-running-action',
+    title: '실행 중 조사',
+    owner: 'Agent',
+    status: 'running',
+    missionId: mission.id,
+    origin: 'agent',
+  });
+  const runningSession = store.createAgentSession({
+    id: 'session-running-action',
+    missionId: mission.id,
+    taskId: runningTask.id,
+    type: 'task',
+    status: 'running',
+  });
+  const failedTask = store.createTask({
+    id: 'task-failed-action',
+    title: '실패한 조사',
+    owner: 'Agent',
+    status: 'failed',
+    missionId: mission.id,
+    origin: 'agent',
+    attempt: 1,
+  });
+  const failedSession = store.createAgentSession({
+    id: 'session-failed-action',
+    missionId: mission.id,
+    taskId: failedTask.id,
+    type: 'task',
+    status: 'failed',
+  });
+  const service = new AgentOperationsService({ store, clock });
+
+  // When
+  const pauseRequested = service.transitionTask(runningTask.id, 'pause');
+  const retried = service.transitionTask(failedTask.id, 'retry');
+
+  // Then
+  assert.equal(pauseRequested.status, 'running');
+  assert.equal(pauseRequested.pauseMode, 'next_checkpoint');
+  assert.equal(pauseRequested.pauseRequestedAt, FIXED_NOW);
+  assert.equal(retried.status, 'scheduled');
+  assert.equal(retried.sessionId, failedSession.id);
+  assert.equal(retried.attempt, 2);
+  assert.equal(store.getAgentSession(runningSession.id).events.at(-1).kind, 'approval_response');
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('scheduler applies a running pause request before persisting completion', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-session-checkpoint-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-checkpoint', clock }),
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-checkpoint',
+    title: '중단 가능한 조사',
+    owner: 'Agent',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    scheduledAt: '2026-07-13T08:59:00.000Z',
+    dueAt: '2026-07-13T10:00:00.000Z',
+    estimatedMinutes: 20,
+    actionClass: 'research',
+    sourceRefs: ['web'],
+  });
+  const session = store.createAgentSession({
+    id: 'session-checkpoint',
+    missionId: mission.id,
+    taskId: task.id,
+    type: 'task',
+    status: 'scheduled',
+  });
+  let releaseCompletion;
+  const completionReady = new Promise((resolve) => {
+    releaseCompletion = resolve;
+  });
+  let markStarted;
+  const executionStarted = new Promise((resolve) => {
+    markStarted = resolve;
+  });
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async () => {
+      markStarted();
+      await completionReady;
+      return { text: '중단 요청 전까지 확보한 조사 결과', jobId: 'relay-checkpoint' };
+    },
+  });
+  const service = new AgentOperationsService({ store, clock });
+
+  // When
+  const tickPromise = scheduler.tick();
+  await executionStarted;
+  service.transitionTask(task.id, 'pause');
+  releaseCompletion();
+  const result = await tickPromise;
+
+  // Then
+  const updated = store.getState().tasks.find((item) => item.id === task.id);
+  const events = store.getAgentSession(session.id).events;
+  assert.equal(updated.status, 'blocked');
+  assert.deepEqual(result.completedTaskIds, []);
+  assert.deepEqual(result.blockedTaskIds, [task.id]);
+  assert.equal(events.some((event) => event.kind === 'completion'), false);
+  assert.equal(events.some((event) => event.kind === 'artifact'), true);
+  assert.match(events.at(-1).text, /checkpoint|체크포인트/i);
+
+  await rm(dataDir, { recursive: true, force: true });
+});

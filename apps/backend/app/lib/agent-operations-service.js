@@ -3,8 +3,12 @@ const crypto = require('node:crypto');
 const {
   createWeeklyOpportunityMission,
   sanitizeSessionEvent,
-  transitionAgentTask,
 } = require('./agent-operations-domain');
+const {
+  AgentOperationsInterventionError,
+  addAgentSessionMessage,
+  transitionAgentTaskWithIntervention,
+} = require('./agent-operations-interventions');
 const { AgentOperationsPlanError, planAgentMission } = require('./agent-operations-planner');
 
 class AgentOperationsError extends Error {
@@ -121,22 +125,19 @@ class AgentOperationsService {
   }
 
   transitionTask(taskId, action) {
-    const task = this.#task(taskId);
-    let transitioned;
     try {
-      transitioned = transitionAgentTask(task, action, { clock: this.clock });
+      return transitionAgentTaskWithIntervention({
+        store: this.store,
+        taskId,
+        action,
+        clock: this.clock,
+      });
     } catch (error) {
-      throw new AgentOperationsError('invalid_task_transition', error.message, 409);
+      if (error instanceof AgentOperationsInterventionError) {
+        throw new AgentOperationsError(error.code, error.message, error.status);
+      }
+      throw error;
     }
-    const updated = this.store.updateTask(task.id, transitioned);
-    if (updated.sessionId) {
-      this.store.appendAgentSessionEvent(updated.sessionId, sanitizeSessionEvent({
-        kind: 'approval_response',
-        text: `${action}: ${task.status} -> ${updated.status}`,
-        metadata: { action, previousStatus: task.status, status: updated.status },
-      }));
-    }
-    return updated;
   }
 
   getSession(sessionId) {
@@ -150,12 +151,20 @@ class AgentOperationsService {
     };
   }
 
-  async addSessionMessage() {
-    throw new AgentOperationsError(
-      'runtime_unavailable',
-      'Task Session continuation is unavailable',
-      503,
-    );
+  async addSessionMessage(sessionId, input = {}) {
+    try {
+      return addAgentSessionMessage({
+        store: this.store,
+        sessionId,
+        input,
+        clock: this.clock,
+      });
+    } catch (error) {
+      if (error instanceof AgentOperationsInterventionError) {
+        throw new AgentOperationsError(error.code, error.message, error.status);
+      }
+      throw error;
+    }
   }
 
   recordReportFeedback(reportId, input = {}) {
@@ -199,11 +208,6 @@ class AgentOperationsService {
     return mission;
   }
 
-  #task(taskId) {
-    const task = this.store.getState().tasks.find((item) => item.id === taskId && item.origin === 'agent');
-    if (!task) throw new AgentOperationsError('task_not_found', 'Agent task was not found', 404);
-    return task;
-  }
 }
 
 module.exports = {
