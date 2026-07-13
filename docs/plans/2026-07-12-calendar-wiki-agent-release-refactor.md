@@ -91,6 +91,7 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - [x] 런타임 상태 병합 시 DB의 인증 사용자 문서, 채팅, 세션, inbox 상태를 유지한다.
 - [x] `/api/agents/:id`만 상세 경로로 취급하고 더 깊은 런타임 하위 경로는 그대로 전달한다.
 - [x] Generic JSON 응답의 `data.state`도 최상위와 동일한 public state projection으로 교체한다.
+- [x] `data.state`만 있는 generic 응답도 projection 경로로 보내고 top-level/data 진단 객체를 allowlist로 제한한다.
 - [ ] 위 후속 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
 
 ## Rollback / fallback
@@ -123,4 +124,5 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - Hostile dual-server HTTP QA: direct and Relay public reads retained one sanitized tool/skill plus user tasks, exposed only official profiles and `toolsets: [safe]`, and kept raw diagnostics bridge-only.
 - Envelope precedence HTTP QA: nested official agent/tool/skill data survived empty or filtered top-level arrays; DB tasks/documents/chat/sessions/inbox state survived runtime merge; `/api/agents/bizconsultant/metrics` remained a runtime subroute.
 - Generic response QA: sparse duplicate records retained nested Ready/description/skill metadata, and hostile run `data.state` exposed only the sanitized public state.
+- Diagnostic envelope QA: data-state-only run responses were projected, and caller-visible source/verification diagnostics excluded raw token, path, and command fields.
 - Agent profile Playwright: navigated from the Agent Operations `Missions` default tab to `Agents`, rendered `준비됨`, and hid removed `marketflow` readiness.
