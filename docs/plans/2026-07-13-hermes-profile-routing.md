@@ -3,7 +3,7 @@
 - Date: 2026-07-13
 - Owner: Codex
 - Work size: Boundary
-- Status: Implemented and live-verified; external Telegram and Mac mini safety configuration pending
+- Status: Implemented with historical live-flow evidence; final hardened deployment and independent review pending
 
 ## Goal
 
@@ -126,7 +126,7 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
   - Result: zero tasks started; completed attempt remained 2; all 28 event IDs retained strict order and the user message plus completion remained present.
 - Command: `npm test`
   - Historical result: 117 backend and 75 desktop tests passed after the scheduler, cancellation, idempotency, claim, evidence, profile, and timeout fixes.
-  - Current branch result: 122 backend and 75 desktop tests passed after the follow-up public projection, stale-write, scheduler-read, and exact-route fixes.
+  - Current branch result: 124 backend and 75 desktop tests passed after the follow-up public projection, stale-write, scheduler-read, exact-route, empty-store merge, and metadata value-policy fixes.
 - Command: real report task through the enabled Railway daemon
   - Result: one evidence-backed report reached `ready` with five findings and five evidence rows; its first follow-up decision persisted as `approved` and rendered in the Reports tab.
 - Command: unauthenticated Relay snapshot and synthetic sensitive profile output probes

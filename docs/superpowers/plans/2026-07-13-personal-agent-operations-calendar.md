@@ -1096,7 +1096,7 @@ Expected: deployment is online. Set `AGENT_OPERATIONS_DAEMON_ENABLED=true` and `
 
 Deployment `b74b3247-2fd9-45f3-807b-0181107247df` is online. The daemon reports `running=true`, interval 60000 ms, and the Mac mini Relay reports `bridgeOnline=true`.
 
-- [ ] **Step 5: Execute the real personal harmless flow**
+- [x] **Step 5: Execute the real personal harmless flow**
 
 Through the desktop UI at `http://127.0.0.1:5586/`:
 
@@ -1107,11 +1107,13 @@ Through the desktop UI at `http://127.0.0.1:5586/`:
 5. Trigger one manual tick.
 6. Open its Task Session and observe actual Relay events, non-empty assistant output, and `completion`.
 7. Send one follow-up message and confirm it remains after reload.
-8. Create a report record and verify the Telegram summary reaches the configured personal chat.
+8. Create a report record and verify delivery records an honest terminal outcome without changing the completed report state.
 
 Do not delete the QA mission or its records. Pause it after verification so the full audit trail remains visible without scheduling further work.
 
 Live evidence completed for items 1-7: the real `bizconsultant` profile produced a corrected three-task, 120-minute plan; one research task completed with 28 ordered Task Session events, persisted user guidance, non-empty output, artifact, and completion. The report task also completed through the Railway daemon, created an evidence-backed report, rendered in Reports, and persisted one approved follow-up. The mission remains preserved in `paused`. Telegram delivery remains externally blocked because the Railway bot token and allowed chat ID variables are not configured.
+
+Post-configuration external gate: after both Telegram variables are supplied, execute a new approved report task and verify the minimized summary reaches the allowed personal chat. Missing user credentials do not block code completion; the service must report `not_configured` and must never claim delivery.
 
 - [x] **Step 6: Verify one real failure path**
 
@@ -1142,7 +1144,7 @@ git commit -m "test: verify personal agent operations end to end"
 - The Weekly Opportunity Brief mission creates bounded work through the real `bizconsultant` profile.
 - Agent work is visible on the calendar and opens a persistent Task Session.
 - Session messages, checkpoint actions, artifacts, failures, and reports survive reload.
-- Telegram receives only the minimized report summary and session link.
+- Telegram receives only the minimized report summary and session link when configured; otherwise delivery is truthfully recorded as `not_configured` without failing the completed report.
 - The Mac mini or Relay being unavailable never creates fake work or completion.
 - The full backend, desktop, build, and Playwright gates pass.
 - The worktree contains no unrelated changes and no uncommitted product changes.

@@ -529,11 +529,7 @@ function mergeGatewayLiveState(runtimeState = {}, gatewayState = {}, env = proce
   const speciallyMergedCollections = new Set(['tasks', 'ticktickTasks', 'events', 'externalCalendarEvents']);
   for (const key of PUBLIC_GATEWAY_STATE_ARRAY_KEYS) {
     if (speciallyMergedCollections.has(key)) continue;
-    const collection = Array.isArray(storedState[key])
-      ? storedState[key]
-      : Array.isArray(gatewayState[key]) && gatewayState[key].length
-        ? gatewayState[key]
-        : runtimeState[key];
+    const collection = mergedResponseArray(storedState[key], gatewayState[key], runtimeState[key]);
     if (Array.isArray(collection)) retainedPublicCollections[key] = collection;
   }
   const ticktickReplacement = liveState.ticktickReplacement || runtimeState.ticktickReplacement || null;
@@ -1147,15 +1143,88 @@ function normalizeLiveAgentSkillOrigins(agents = []) {
   });
 }
 
+const PUBLIC_RUNTIME_SOURCES = new Map([
+  ['gateway-retry', 'gateway-retry'],
+  ['gateway-state', 'gateway-state'],
+  ['hermes-agent-rule', 'hermes-agent-rule'],
+  ['hermes-cli', 'hermes-cli'],
+  ['hermes-cli-log', 'hermes-cli-log'],
+  ['hermes-cli-snapshot', 'hermes-cli-snapshot'],
+  ['hermes-cli-stdout', 'hermes-cli-stdout'],
+  ['hermes-profile', 'hermes-profile'],
+  ['local-hermes-agent-snapshot', 'local-hermes-agent-snapshot'],
+  ['mac-mini-hermes-api', 'mac-mini-hermes-api'],
+  ['mac-mini-runtime', 'mac-mini-runtime'],
+  ['official-profile-fallback', 'official-profile-fallback'],
+  ['profile-soul:verification', 'profile-soul:Verification'],
+  ['railway-gateway-runtime-request', 'railway-gateway-runtime-request'],
+  ['railway-relay', 'railway-relay'],
+  ['railway-relay-bridge', 'railway-relay-bridge'],
+  ['railway-relay-snapshot', 'railway-relay-snapshot'],
+  ['relay-snapshot-empty', 'relay-snapshot-empty'],
+  ['runtime-direct', 'runtime-direct'],
+]);
+
+const PUBLIC_METADATA_ENUMS = Object.freeze({
+  category: new Set(['analysis', 'automation', 'business', 'communication', 'general', 'knowledge', 'productivity', 'research', 'trading']),
+  riskLevel: new Set(['high', 'low', 'medium', 'safe']),
+  status: new Set(['available', 'busy', 'disabled', 'enabled', 'error', 'healthy', 'idle', 'missing', 'offline', 'ok', 'paused', 'ready', 'running', 'unavailable', 'unknown']),
+  type: new Set(['command', 'function', 'integration', 'skill', 'tool', 'workflow']),
+});
+
+function publicDisplayText(value, fallback = '') {
+  const text = safeRuntimeError(value, '').trim();
+  if (!text) return fallback;
+  if (
+    /do[\s_-]*not[\s_-]*leak|\b(?:credential|debug|hostile|internal|leak|private|rawcommand|yolo)\b|commandtemplate|--[a-z0-9_-]+/i.test(text)
+    || /\b[A-Z0-9]{2,}(?:_[A-Z0-9]{2,})+\b/.test(text)
+    || /\b(?:gh[pousr]_|sk-|xox[baprs]-)[A-Za-z0-9_-]{12,}\b/i.test(text)
+  ) {
+    return fallback;
+  }
+  return text;
+}
+
+function publicIdentifier(value) {
+  const identifier = String(value || '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,79}$/.test(identifier)) return '';
+  return publicDisplayText(identifier, '');
+}
+
+function publicEnumValue(value, allowed) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return allowed.has(normalized) ? normalized : '';
+}
+
+function publicRuntimeSource(value, fallback = '') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return PUBLIC_RUNTIME_SOURCES.get(normalized) || fallback;
+}
+
+function publicIsoTimestamp(value) {
+  const timestamp = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(timestamp)) return '';
+  const epoch = Date.parse(timestamp);
+  return Number.isFinite(epoch) ? new Date(epoch).toISOString() : '';
+}
+
 function publicCapabilityMetadata(item = {}) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
   const metadata = {};
-  for (const key of ['id', 'name', 'label', 'category', 'status', 'riskLevel', 'source', 'type']) {
-    if (item[key] === undefined || item[key] === null) continue;
-    const value = safeRuntimeError(String(item[key]), '');
+  const id = publicIdentifier(item.id);
+  if (id) metadata.id = id;
+  for (const key of ['name', 'label']) {
+    const value = publicDisplayText(item[key], '');
     if (value) metadata[key] = value;
   }
-  if (item.description) metadata.description = safeRuntimeError(item.description, '');
+  for (const key of ['category', 'status', 'riskLevel', 'type']) {
+    const value = publicEnumValue(item[key], PUBLIC_METADATA_ENUMS[key]);
+    if (value) metadata[key] = value;
+  }
+  const source = publicRuntimeSource(item.source, '');
+  if (source) metadata.source = source;
+  const description = publicDisplayText(item.description, '');
+  if (description) metadata.description = description;
   if (typeof item.enabled === 'boolean') metadata.enabled = item.enabled;
   if (Array.isArray(item.tools)) metadata.tools = publicCapabilityMetadataList(item.tools);
   return Object.keys(metadata).length ? metadata : null;
@@ -1172,8 +1241,8 @@ function publicOfficialProfileAgents(agents = []) {
     if (!name) return null;
     const allowedStatuses = new Set(['Idle', 'Running', 'Busy', 'Ready', 'Unavailable', 'Offline', 'Paused']);
     const status = String(agent.status || 'Idle');
-    const publicName = safeRuntimeError(agent.displayName || agent.name, name) || name;
-    const description = safeRuntimeError(agent.description, '');
+    const publicName = publicDisplayText(agent.displayName || agent.name, name) || name;
+    const description = publicDisplayText(agent.description, '');
     return createOfficialProfileAgent(name, {
       displayName: publicName,
       name: publicName,
@@ -1202,7 +1271,7 @@ function publicProfileReadiness(readiness = {}) {
     return {
       profile,
       present: entry.present === true,
-      status: safeRuntimeError(entry.status || (entry.present ? 'ready' : 'missing'), 'unknown'),
+      status: publicEnumValue(entry.status || (entry.present ? 'ready' : 'unavailable'), PUBLIC_METADATA_ENUMS.status) || 'unavailable',
     };
   }).filter(Boolean);
   const missingProfiles = requiredProfiles.filter((entry) => !entry.present).map((entry) => entry.profile);
@@ -1248,9 +1317,9 @@ function publicAgentSourceStatus(status = {}) {
   if (!status || typeof status !== 'object' || Array.isArray(status)) return null;
   return {
     ok: status.ok === true,
-    source: safeRuntimeError(status.source, ''),
+    source: publicRuntimeSource(status.source, 'mac-mini-runtime'),
     profileCount: Math.max(0, Number(status.profileCount) || 0),
-    generatedAt: safeRuntimeError(status.generatedAt, ''),
+    generatedAt: publicIsoTimestamp(status.generatedAt),
     ...(typeof status.runtimeReachable === 'boolean' ? { runtimeReachable: status.runtimeReachable } : {}),
   };
 }
@@ -1260,8 +1329,8 @@ function publicRemoteVerification(verification = {}) {
   return {
     runtimeReachable: verification.runtimeReachable === true,
     gatewayFallback: verification.gatewayFallback === true,
-    source: safeRuntimeError(verification.source, ''),
-    checkedAt: safeRuntimeError(verification.checkedAt, ''),
+    source: publicRuntimeSource(verification.source, 'mac-mini-runtime'),
+    checkedAt: publicIsoTimestamp(verification.checkedAt),
   };
 }
 
@@ -1303,8 +1372,8 @@ function projectPublicRelaySnapshot(snapshot = {}) {
     stale: source.stale === true,
     ageMs: Math.max(0, Number(source.ageMs) || 0),
     ttlMs: Math.max(0, Number(source.ttlMs) || 0),
-    source: safeRuntimeError(source.source, 'railway-relay-bridge'),
-    receivedAt: safeRuntimeError(source.receivedAt, ''),
+    source: publicRuntimeSource(source.source, 'railway-relay-bridge'),
+    receivedAt: publicIsoTimestamp(source.receivedAt),
     state,
     agents: state.agents,
     tools: state.tools,

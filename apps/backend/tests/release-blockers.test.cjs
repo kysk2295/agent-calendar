@@ -334,8 +334,124 @@ test('projects Relay snapshots to official profiles and safe public capability m
     assert.doesNotMatch(JSON.stringify({ agents, state, snapshot }), /commandTemplate/);
     assert.doesNotMatch(
       JSON.stringify({ agents, tools, state, snapshot }),
-      /marketflow|--yolo|shell-server|super-secret|\/Users\/koyunseo/,
+      /marketflow|--yolo|shell-server|super-secret|hostile-test-relay|\/Users\/koyunseo/,
     );
+    assert.equal(snapshot.source, 'railway-relay-bridge');
+  } finally {
+    await close(server);
+  }
+});
+
+test('does not let empty persisted collections erase live runtime collections', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-empty-store-'));
+  const runtimeCollections = {
+    runs: [{ id: 'runtime-run', status: 'completed' }],
+    documents: [{ id: 'runtime-document', title: 'Runtime document' }],
+    chatMessages: [{ id: 'runtime-chat', text: 'Runtime chat' }],
+    agentMissions: [{ id: 'runtime-mission', title: 'Runtime mission' }],
+    agentSessions: [{ id: 'runtime-session', title: 'Runtime session' }],
+    agentReports: [{ id: 'runtime-report', title: 'Runtime report' }],
+    schedulerJobs: [{ id: 'hermes-cron:runtime-job', name: 'Runtime job', agentId: 'bizconsultant' }],
+    workboardPages: [{ id: 'runtime-page', title: 'Runtime page' }],
+  };
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_REMOTE_AUTH_TOKEN: 'client-token',
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-token',
+    },
+    gatewayStore: new HermesStore({ dataDir }),
+    fetchImpl: async () => new Response(JSON.stringify({
+      ok: true,
+      state: runtimeCollections,
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/state`, {
+      headers: { authorization: 'Bearer client-token' },
+    });
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 200);
+    for (const [key, expected] of Object.entries(runtimeCollections)) {
+      assert.ok(body[key].some((item) => item.id === expected[0].id), `${key} should retain runtime data`);
+    }
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('drops hostile public metadata values while preserving trusted display metadata', async () => {
+  // Given
+  const marker = 'DO_NOT_LEAK_PUBLIC_METADATA';
+  const runtimeState = {
+    agents: [{
+      id: 'bizconsultant',
+      name: 'Biz Consultant',
+      description: 'Approved public description',
+      status: 'Ready',
+      skills: [{ id: 'research', name: marker, description: marker, source: 'hostile-source' }],
+    }],
+    tools: [{ id: 'browser', name: marker, description: marker, source: 'hostile-source' }],
+    skills: [{ id: 'research', name: marker, description: marker, source: 'hostile-source' }],
+    agentSourceStatus: {
+      ok: true,
+      source: 'hostile-source',
+      profileCount: 1,
+      generatedAt: marker,
+    },
+    remoteVerification: {
+      runtimeReachable: true,
+      gatewayFallback: false,
+      source: 'hostile-source',
+      checkedAt: marker,
+    },
+  };
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_REMOTE_AUTH_TOKEN: 'client-token',
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-token',
+    },
+    fetchImpl: async (input) => {
+      const pathname = new URL(String(input)).pathname;
+      const payload = pathname === '/api/tools'
+        ? { ok: true, tools: runtimeState.tools, skills: runtimeState.skills, state: runtimeState }
+        : pathname === '/api/runs/runtime-run'
+          ? { ok: true, run: { id: 'runtime-run' }, data: { state: runtimeState } }
+          : { ok: true, state: runtimeState };
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const headers = { authorization: 'Bearer client-token' };
+    const [state, tools, run] = await Promise.all([
+      fetch(`${baseUrl}/api/state`, { headers }).then((response) => response.json()),
+      fetch(`${baseUrl}/api/tools`, { headers }).then((response) => response.json()),
+      fetch(`${baseUrl}/api/runs/runtime-run`, { headers }).then((response) => response.json()),
+    ]);
+
+    // Then
+    assert.equal(state.agents[0].name, 'Biz Consultant');
+    assert.equal(state.agents[0].description, 'Approved public description');
+    assert.equal(state.tools[0].id, 'browser');
+    assert.equal(state.skills[0].id, 'research');
+    assert.doesNotMatch(JSON.stringify({ state, tools, run }), /DO_NOT_LEAK|hostile-source/);
   } finally {
     await close(server);
   }

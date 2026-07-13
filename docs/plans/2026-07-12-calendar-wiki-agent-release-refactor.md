@@ -93,6 +93,8 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - [x] `/api/agents/:id`만 상세 경로로 취급하고 더 깊은 런타임 하위 경로는 그대로 전달한다.
 - [x] Generic JSON 응답의 `data.state`도 최상위와 동일한 public state projection으로 교체한다.
 - [x] `data.state`만 있는 generic 응답도 projection 경로로 보내고 top-level/data 진단 객체를 allowlist로 제한한다.
+- [x] 빈 DB 기본 배열이 비어 있지 않은 원격 runtime collection을 지우지 않게 병합한다.
+- [x] capability와 진단 metadata의 동적 문자열을 공개 값 정책으로 제한한다.
 - [ ] 위 후속 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
 
 ## Rollback / fallback
@@ -111,11 +113,11 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 ## Verification results
 
 - `npm run backend:check`: passed.
-- `npm run test:backend`: 122/122 passed.
+- `npm run test:backend`: 124/124 passed.
 - `npm --workspace apps/desktop run typecheck`: passed.
 - `npm --workspace apps/desktop run test`: 75/75 passed.
 - `npm run build:desktop`: passed.
-- `npm test`: backend 122/122, desktop 75/75 passed.
+- `npm test`: backend 124/124, desktop 75/75 passed.
 - Agent create/mission/approval/artifact, wiki graph/ask/search/tree, calendar CRUD Playwright scenarios: passed.
 - Live gateway QA: unauthenticated caller 401, authenticated offline agents `Unavailable`, offline run 503.
 - Post-push regression QA: task detail format/comment/delegate controls restored; chat, full-page login, and authenticated widget fixtures aligned with the shipped contracts.
