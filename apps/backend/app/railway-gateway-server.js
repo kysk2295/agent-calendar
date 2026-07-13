@@ -776,10 +776,22 @@ async function ensureGatewayTickTickSnapshot({
   await gatewayState.ticktickAutoSyncPromise;
 }
 
+function runtimeStateFromResponseBody(body = {}) {
+  const source = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  const data = source.data && typeof source.data === 'object' && !Array.isArray(source.data)
+    ? source.data
+    : null;
+  if (source.state && typeof source.state === 'object' && !Array.isArray(source.state)) {
+    return source.state;
+  }
+  if (data?.state && typeof data.state === 'object' && !Array.isArray(data.state)) {
+    return data.state;
+  }
+  return data || source;
+}
+
 function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, gatewayStore = null) {
-  const runtimeState = body.state && typeof body.state === 'object' && !Array.isArray(body.state)
-    ? body.state
-    : {};
+  const runtimeState = runtimeStateFromResponseBody(body);
   const state = projectPublicGatewayState(
     mergeGatewayLiveState(runtimeState, gatewayState, env, gatewayStore),
   );
@@ -1184,17 +1196,39 @@ function projectPublicGatewayState(state = {}) {
 
 function projectPublicRelaySnapshot(snapshot = {}) {
   const source = snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : {};
+  const sourceData = source.data && typeof source.data === 'object' && !Array.isArray(source.data)
+    ? source.data
+    : {};
+  const sourceDataState = sourceData.state && typeof sourceData.state === 'object' && !Array.isArray(sourceData.state)
+    ? sourceData.state
+    : {};
   const sourceState = source.state && typeof source.state === 'object' && !Array.isArray(source.state)
     ? source.state
     : {};
+  const agents = [source.agents, sourceState.agents, sourceData.agents, sourceDataState.agents]
+    .find(Array.isArray);
+  const tools = [source.tools, sourceState.tools, sourceData.tools, sourceDataState.tools]
+    .find(Array.isArray);
+  const skills = [source.skills, sourceState.skills, sourceData.skills, sourceDataState.skills]
+    .find(Array.isArray);
+  const schedulerJobs = [source.schedulerJobs, sourceState.schedulerJobs, sourceData.schedulerJobs, sourceDataState.schedulerJobs]
+    .find(Array.isArray);
+  const automationJobs = [source.automationJobs, sourceState.automationJobs, sourceData.automationJobs, sourceDataState.automationJobs]
+    .find(Array.isArray);
+  const profileReadiness = source.profileReadiness
+    || sourceState.profileReadiness
+    || sourceData.profileReadiness
+    || sourceDataState.profileReadiness;
   const state = projectPublicGatewayState({
+    ...sourceDataState,
+    ...sourceData,
     ...sourceState,
-    ...(Array.isArray(source.agents) ? { agents: source.agents } : {}),
-    ...(Array.isArray(source.tools) ? { tools: source.tools } : {}),
-    ...(Array.isArray(source.skills) ? { skills: source.skills } : {}),
-    ...(source.profileReadiness ? { profileReadiness: source.profileReadiness } : {}),
-    ...(Array.isArray(source.schedulerJobs) ? { schedulerJobs: source.schedulerJobs } : {}),
-    ...(Array.isArray(source.automationJobs) ? { automationJobs: source.automationJobs } : {}),
+    ...(agents ? { agents } : {}),
+    ...(tools ? { tools } : {}),
+    ...(skills ? { skills } : {}),
+    ...(profileReadiness ? { profileReadiness } : {}),
+    ...(schedulerJobs ? { schedulerJobs } : {}),
+    ...(automationJobs ? { automationJobs } : {}),
   });
   const projected = {
     ok: source.ok !== false,
@@ -7021,12 +7055,51 @@ async function handleApi(
       return;
     }
     await ensureGatewayTickTickSnapshot({ gatewayState, gatewayStore, env, fetchImpl });
-    const runtimeState = body.state && typeof body.state === 'object' && !Array.isArray(body.state)
-      ? body.state
-      : body;
+    const runtimeState = runtimeStateFromResponseBody(body);
     sendJson(res, runtimeResponse.status, projectPublicGatewayState(
       mergeGatewayLiveState(runtimeState, gatewayState, env, gatewayStore),
     ));
+    return;
+  }
+  if (method === 'GET' && pathSegments[0] === 'agents' && runtimeResponse.ok) {
+    const text = await runtimeResponse.text();
+    let body = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch (error) {
+      sendJson(res, 502, { error: `Invalid runtime agents JSON: ${error.message}` });
+      return;
+    }
+    await ensureGatewayTickTickSnapshot({ gatewayState, gatewayStore, env, fetchImpl });
+    const data = body.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data : {};
+    const runtimeState = runtimeStateFromResponseBody(body);
+    const agent = body.agent || data.agent || runtimeState.agent;
+    const agents = [body.agents, data.agents, runtimeState.agents].find(Array.isArray)
+      || (agent && typeof agent === 'object' && !Array.isArray(agent) ? [agent] : []);
+    const profileReadiness = body.profileReadiness || data.profileReadiness || runtimeState.profileReadiness;
+    const state = projectPublicGatewayState(mergeGatewayLiveState({
+      ...runtimeState,
+      agents,
+      ...(profileReadiness ? { profileReadiness } : {}),
+    }, gatewayState, env, gatewayStore));
+    if (pathSegments[1]) {
+      sendGatewayAgentDetail({
+        res,
+        state,
+        rawAgentId: pathSegments[1],
+        gatewayFallback: body.gatewayFallback === true,
+        agentSourceStatus: state.agentSourceStatus || null,
+      });
+      return;
+    }
+    sendJson(res, runtimeResponse.status, {
+      ok: body.ok !== false,
+      agents: state.agents,
+      profileReadiness: state.profileReadiness || null,
+      agentSourceStatus: state.agentSourceStatus || null,
+      gatewayMerged: true,
+      gatewayFallback: body.gatewayFallback === true,
+    });
     return;
   }
   if (method === 'GET' && pathSegments[0] === 'tasks' && !pathSegments[1] && runtimeResponse.ok) {

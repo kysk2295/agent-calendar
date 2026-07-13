@@ -254,10 +254,12 @@ test('projects Relay snapshots to official profiles and safe public capability m
         skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
       },
     ],
-    tools: [{ id: 'browser', name: 'Browser', command: 'super-secret-command', raw: { token: 'super-secret' } }],
-    skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
-    toolsets: ['safe', 'shell'],
-    mcpServers: [{ id: 'shell-server', command: 'super-secret-command', raw: { token: 'super-secret' } }],
+    data: {
+      tools: [{ id: 'browser', name: 'Browser', command: 'super-secret-command', raw: { token: 'super-secret' } }],
+      skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
+      toolsets: ['safe', 'shell'],
+      mcpServers: [{ id: 'shell-server', command: 'super-secret-command', raw: { token: 'super-secret' } }],
+    },
     profileReadiness: {
       requiredProfiles: [
         {
@@ -311,6 +313,12 @@ test('projects Relay snapshots to official profiles and safe public capability m
     assert.deepEqual(tools.mcpServers, []);
     assert.deepEqual(state.mcpServers, []);
     assert.deepEqual(snapshot.mcpServers, []);
+    assert.equal(tools.tools.length, 1);
+    assert.equal(state.tools.length, 1);
+    assert.equal(snapshot.tools.length, 1);
+    assert.equal(tools.skills.length, 1);
+    assert.equal(state.skills.length, 1);
+    assert.equal(snapshot.skills.length, 1);
     for (const readiness of [agents.profileReadiness, state.profileReadiness, snapshot.profileReadiness]) {
       assert.ok(readiness.requiredProfiles.every((entry) => OFFICIAL_PROFILE_NAMES.includes(entry.profile)));
       assert.ok(readiness.requiredProfiles.every((entry) => Object.hasOwn(entry, 'setup') === false));
@@ -352,9 +360,20 @@ test('projects direct runtime agent and tool reads through the same public polic
       HERMES_RUNTIME_TOKEN: 'runtime-token',
     },
     fetchImpl: async (input) => {
-      const pathname = new URL(String(input)).pathname;
+      const runtimeUrl = new URL(String(input));
+      const { pathname } = runtimeUrl;
       const payload = pathname === '/api/agents'
-        ? { ok: true, agents: unsafeAgents, profileReadiness: unsafeReadiness }
+        ? {
+          ok: true,
+          debugSecret: 'super-secret',
+          agents: unsafeAgents,
+          profileReadiness: unsafeReadiness,
+          state: {
+            debugSecret: 'super-secret',
+            agents: unsafeAgents,
+            profileReadiness: unsafeReadiness,
+          },
+        }
         : pathname === '/api/tools'
           ? {
             ok: true,
@@ -365,19 +384,52 @@ test('projects direct runtime agent and tool reads through the same public polic
               mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
             },
           }
-          : {
-            ok: true,
-            state: {
+          : runtimeUrl.searchParams.get('shape') === 'data'
+            ? {
+              ok: true,
+              data: {
+                debugSecret: 'super-secret',
+                privatePath: '/Users/koyunseo/private-top-level',
+                rawCommand: 'hermes --yolo',
+                agents: unsafeAgents,
+                tools: unsafeTools,
+                skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
+                profileReadiness: unsafeReadiness,
+                toolsets: ['safe', 'shell'],
+                mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
+              },
+            }
+            : runtimeUrl.searchParams.get('shape') === 'data-state'
+              ? {
+                ok: true,
+                data: {
+                  state: {
+                    debugSecret: 'super-secret',
+                    privatePath: '/Users/koyunseo/private-top-level',
+                    rawCommand: 'hermes --yolo',
+                    agents: unsafeAgents,
+                    tools: unsafeTools,
+                    skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
+                    profileReadiness: unsafeReadiness,
+                    toolsets: ['safe', 'shell'],
+                    mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
+                  },
+                },
+              }
+            : {
+              ok: true,
+              state: {
               debugSecret: 'super-secret',
               privatePath: '/Users/koyunseo/private-top-level',
               rawCommand: 'hermes --yolo',
               agents: unsafeAgents,
               tools: unsafeTools,
+              skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
               profileReadiness: unsafeReadiness,
               toolsets: ['safe', 'shell'],
               mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
             },
-          };
+            };
       return new Response(JSON.stringify(payload), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -389,16 +441,20 @@ test('projects direct runtime agent and tool reads through the same public polic
   try {
     // When
     const headers = { authorization: 'Bearer client-token' };
-    const [agents, tools, state] = await Promise.all([
+    const [agents, tools, state, dataState, nestedDataState] = await Promise.all([
       fetch(`${baseUrl}/api/agents`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/tools`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/state`, { headers }).then((response) => response.json()),
+      fetch(`${baseUrl}/api/state?shape=data`, { headers }).then((response) => response.json()),
+      fetch(`${baseUrl}/api/state?shape=data-state`, { headers }).then((response) => response.json()),
     ]);
 
     // Then
     assert.ok(agents.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
     assert.ok(agents.profileReadiness.requiredProfiles.every((entry) => OFFICIAL_PROFILE_NAMES.includes(entry.profile)));
     assert.ok(agents.profileReadiness.requiredProfiles.every((entry) => Object.hasOwn(entry, 'setup') === false));
+    assert.equal(Object.hasOwn(agents, 'debugSecret'), false);
+    assert.equal(Object.hasOwn(agents, 'state'), false);
     assert.deepEqual(tools.toolsets, ['safe']);
     assert.deepEqual(tools.mcpServers, []);
     assert.equal(tools.tools.length, 1);
@@ -406,9 +462,23 @@ test('projects direct runtime agent and tool reads through the same public polic
     assert.ok(state.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
     assert.deepEqual(state.toolsets, ['safe']);
     assert.deepEqual(state.mcpServers, []);
-    assert.doesNotMatch(JSON.stringify({ agents, state }), /commandTemplate/);
+    assert.equal(state.tools.length, 1);
+    assert.equal(state.skills.length, 1);
+    assert.ok(dataState.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
+    assert.deepEqual(dataState.toolsets, ['safe']);
+    assert.deepEqual(dataState.mcpServers, []);
+    assert.equal(dataState.tools.length, 1);
+    assert.equal(dataState.skills.length, 1);
+    assert.equal(Object.hasOwn(dataState, 'data'), false);
+    assert.ok(nestedDataState.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
+    assert.deepEqual(nestedDataState.toolsets, ['safe']);
+    assert.deepEqual(nestedDataState.mcpServers, []);
+    assert.equal(nestedDataState.tools.length, 1);
+    assert.equal(nestedDataState.skills.length, 1);
+    assert.equal(Object.hasOwn(nestedDataState, 'data'), false);
+    assert.doesNotMatch(JSON.stringify({ agents, state, dataState, nestedDataState }), /commandTemplate/);
     assert.doesNotMatch(
-      JSON.stringify({ agents, tools, state }),
+      JSON.stringify({ agents, tools, state, dataState, nestedDataState }),
       /marketflow|--yolo|shell-server|super-secret|\/Users\/koyunseo/,
     );
   } finally {
