@@ -118,10 +118,49 @@ class AgentOperationsService {
         409,
       );
     }
+    if (mission.status === 'paused') {
+      for (const task of tasks.filter((item) => item.missionPause === true)) {
+        if (task.status === 'blocked') this.transitionTask(task.id, 'resume');
+        this.store.updateTask(task.id, {
+          missionPause: false,
+          pauseRequestedAt: '',
+          pauseMode: '',
+        });
+      }
+    }
     return this.store.updateAgentMission(mission.id, {
       status: 'active',
       activatedAt: this.clock().toISOString(),
     });
+  }
+
+  transitionMission(missionId, action) {
+    const mission = this.#mission(missionId);
+    if (action === 'pause' && mission.status !== 'active') {
+      throw new AgentOperationsError('invalid_mission_state', `Mission cannot pause from ${mission.status}`, 409);
+    }
+    if (action === 'cancel' && !['draft', 'active', 'paused'].includes(mission.status)) {
+      throw new AgentOperationsError('invalid_mission_state', `Mission cannot cancel from ${mission.status}`, 409);
+    }
+    const eligibleStates = action === 'pause'
+      ? new Set(['scheduled', 'running'])
+      : new Set(['proposed', 'scheduled', 'running', 'blocked']);
+    const tasks = this.store.getState().tasks.filter((task) => (
+      task.missionId === mission.id && task.origin === 'agent' && eligibleStates.has(task.status)
+    ));
+    const transitioned = tasks.map((task) => {
+      const updated = this.transitionTask(task.id, action);
+      return action === 'pause'
+        ? this.store.updateTask(updated.id, { missionPause: true })
+        : updated;
+    });
+    const updatedMission = this.store.updateAgentMission(mission.id, {
+      status: action === 'pause' ? 'paused' : 'cancelled',
+      ...(action === 'pause'
+        ? { pausedAt: this.clock().toISOString() }
+        : { cancelledAt: this.clock().toISOString() }),
+    });
+    return { mission: updatedMission, tasks: transitioned };
   }
 
   transitionTask(taskId, action) {

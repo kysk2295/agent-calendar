@@ -185,6 +185,8 @@ Calendar items show the responsible agent, mission, expected output, and report 
 
 Missions define why an agent works. The mission detail shows objective, success criteria, owner agent, autonomy limits, sources, budget usage, current plan, report schedule, and pause/stop controls.
 
+Pausing a mission persists the mission as `paused` and requests pause for scheduled or running work. Stopping a mission persists it as `cancelled` and cancels all remaining work; a running Hermes completion applies that request at its next checkpoint.
+
 ### Agents
 
 Agents remain visible and useful, but are described by user outcomes rather than runtime implementation. Each agent shows:

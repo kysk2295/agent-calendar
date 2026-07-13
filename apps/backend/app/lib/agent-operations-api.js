@@ -1,6 +1,7 @@
 const { AgentOperationsError } = require('./agent-operations-service');
 
 const TASK_ACTIONS = new Set(['approve', 'pause', 'resume', 'cancel', 'retry']);
+const MISSION_ACTIONS = new Set(['pause', 'cancel']);
 
 function success(status, body) {
   return { status, body: { ok: true, ...body } };
@@ -52,6 +53,9 @@ async function routeAgentOperations({ method, pathSegments, body = {}, service }
     }
     if (method === 'POST' && normalized[1] === 'missions' && normalized[2] && normalized[3] === 'activate') {
       return success(200, { mission: service.activateMission(normalized[2]) });
+    }
+    if (method === 'POST' && normalized[1] === 'missions' && normalized[2] && MISSION_ACTIONS.has(normalized[3])) {
+      return success(200, service.transitionMission(normalized[2], normalized[3]));
     }
     if (
       method === 'POST'

@@ -370,6 +370,10 @@ test('agent operations API creates lists and updates durable work contracts', as
     const actionResponse = await fetch(`${baseUrl}/api/agent-operations/tasks/${task.id}/approve`, {
       method: 'POST',
     });
+    const activateResponse = await fetch(`${baseUrl}/api/agent-operations/missions/${created.mission.id}/activate`, { method: 'POST' });
+    const pauseResponse = await fetch(`${baseUrl}/api/agent-operations/missions/${created.mission.id}/pause`, { method: 'POST' });
+    const resumeMissionResponse = await fetch(`${baseUrl}/api/agent-operations/missions/${created.mission.id}/activate`, { method: 'POST' });
+    const cancelMissionResponse = await fetch(`${baseUrl}/api/agent-operations/missions/${created.mission.id}/cancel`, { method: 'POST' });
     const feedbackResponse = await fetch(`${baseUrl}/api/agent-operations/reports/${report.id}/feedback`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -380,11 +384,21 @@ test('agent operations API creates lists and updates durable work contracts', as
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ index: 0, decision: 'approved' }),
     });
+    const rejectFollowUpResponse = await fetch(`${baseUrl}/api/agent-operations/reports/${report.id}/follow-ups`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ index: 0, decision: 'rejected' }),
+    });
     const state = await stateResponse.json();
     const sessionDetail = await sessionResponse.json();
     const action = await actionResponse.json();
+    const activated = await activateResponse.json();
+    const paused = await pauseResponse.json();
+    const resumedMission = await resumeMissionResponse.json();
+    const cancelledMission = await cancelMissionResponse.json();
     const feedback = await feedbackResponse.json();
     const followUp = await followUpResponse.json();
+    const rejectedFollowUp = await rejectFollowUpResponse.json();
 
     // Then
     assert.equal(stateResponse.status, 200);
@@ -392,10 +406,16 @@ test('agent operations API creates lists and updates durable work contracts', as
     assert.equal(state.tasks.length, 1);
     assert.equal(sessionDetail.session.events[0].kind, 'plan');
     assert.equal(action.task.status, 'scheduled');
+    assert.equal(activated.mission.status, 'active');
+    assert.equal(paused.mission.status, 'paused');
+    assert.equal(resumedMission.mission.status, 'active');
+    assert.equal(cancelledMission.mission.status, 'cancelled');
+    assert.equal(store.getState().tasks.find((item) => item.id === task.id).status, 'cancelled');
     assert.equal(feedback.report.useful, true);
     assert.equal(store.getAgentReports()[0].feedback.note, '의사결정에 사용함');
     assert.equal(followUpResponse.status, 200);
     assert.equal(followUp.report.followUpDecisions[0].decision, 'approved');
+    assert.equal(rejectedFollowUp.report.followUpDecisions[0].decision, 'rejected');
     assert.equal(store.getAgentSession(session.id).events.at(-1).kind, 'approval_response');
   } finally {
     await close(server);

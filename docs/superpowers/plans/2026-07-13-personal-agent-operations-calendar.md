@@ -74,6 +74,8 @@
 | `POST` | `/api/agent-operations/missions` | Creates the Weekly Opportunity Brief mission in `draft`. |
 | `POST` | `/api/agent-operations/missions/:id/plan` | Uses `bizconsultant` to generate two to five bounded tasks and one report task. |
 | `POST` | `/api/agent-operations/missions/:id/activate` | Activates an approved mission and its initial scheduled work. |
+| `POST` | `/api/agent-operations/missions/:id/pause` | Pauses the mission and requests pause for its scheduled or running work. |
+| `POST` | `/api/agent-operations/missions/:id/cancel` | Cancels the mission and all remaining proposed, scheduled, running, or blocked work. |
 | `POST` | `/api/agent-operations/tasks/:id/:action` | Supports `approve`, `pause`, `resume`, `cancel`, and `retry`. |
 | `GET` | `/api/agent-operations/sessions/:id` | Returns one Task Session and ordered redacted events. |
 | `POST` | `/api/agent-operations/sessions/:id/messages` | Persists a user instruction and queues or executes a continuation. |
