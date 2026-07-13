@@ -29,6 +29,7 @@ class AgentOperationsService {
     taskCompletion = null,
     sendTelegram = null,
     scheduler = null,
+    daemon = null,
   } = {}) {
     if (!store) throw new AgentOperationsError('store_required', 'Agent operations store is required', 503);
     this.store = store;
@@ -37,6 +38,7 @@ class AgentOperationsService {
     this.taskCompletion = taskCompletion;
     this.sendTelegram = sendTelegram;
     this.scheduler = scheduler;
+    this.daemon = daemon;
   }
 
   listState() {
@@ -47,7 +49,7 @@ class AgentOperationsService {
       tasks: state.tasks.filter((task) => task.origin === 'agent'),
       sessions: state.agentSessions,
       reports: this.store.getAgentReports(),
-      daemon: state.agentOperationsDaemon || {
+      daemon: this.daemon?.status() || state.agentOperationsDaemon || {
         running: false,
         lastRun: null,
         lastError: null,
@@ -180,6 +182,7 @@ class AgentOperationsService {
   }
 
   async tick() {
+    if (this.daemon) return this.daemon.tickNow();
     if (!this.scheduler) {
       throw new AgentOperationsError(
         'scheduler_unavailable',

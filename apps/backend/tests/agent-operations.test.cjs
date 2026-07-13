@@ -511,3 +511,215 @@ test('planning API rejects invalid JSON without creating Agent Tasks', async () 
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+test('scheduler executes a due task once and records ordered session evidence', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-scheduler-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-scheduler', clock }),
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-scheduler',
+    title: '경쟁사 변화 수집',
+    owner: 'Agent',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    createdByAgentId: 'bizconsultant',
+    reason: '가격 변화 근거가 부족하다.',
+    expectedOutput: '공식 출처 비교표',
+    scheduledAt: '2026-07-13T08:59:00.000Z',
+    dueAt: '2026-07-13T10:00:00.000Z',
+    estimatedMinutes: 40,
+    actionClass: 'research',
+    sourceRefs: ['web', 'wiki'],
+  });
+  const session = store.createAgentSession({
+    id: 'session-scheduler',
+    missionId: mission.id,
+    taskId: task.id,
+    type: 'task',
+    status: 'scheduled',
+  });
+  store.appendAgentSessionEvent(session.id, { kind: 'plan', text: '공식 출처 확인' });
+  let completionCalls = 0;
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async ({ onEvent }) => {
+      completionCalls += 1;
+      await onEvent({ kind: 'tool_activity', text: '공식 가격 페이지 조회' });
+      return { text: '공식 가격 페이지를 비교한 결과 기회 A가 확인됐다.', jobId: 'relay-task' };
+    },
+  });
+
+  // When
+  const first = await scheduler.tick();
+  const second = await scheduler.tick();
+
+  // Then
+  assert.deepEqual(first.startedTaskIds, [task.id]);
+  assert.deepEqual(first.completedTaskIds, [task.id]);
+  assert.deepEqual(second.startedTaskIds, []);
+  assert.equal(completionCalls, 1);
+  assert.equal(store.getState().tasks.find((item) => item.id === task.id).status, 'completed');
+  assert.deepEqual(
+    store.getAgentSession(session.id).events.map((event) => event.kind),
+    ['plan', 'progress', 'tool_activity', 'agent_message', 'artifact', 'completion'],
+  );
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('scheduler marks due work blocked while the Mac mini Relay is unavailable', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-blocked-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-blocked', clock }),
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-blocked',
+    title: '기회 근거 확인',
+    owner: 'Agent',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    scheduledAt: '2026-07-13T08:59:00.000Z',
+    dueAt: '2026-07-13T10:00:00.000Z',
+    estimatedMinutes: 20,
+    actionClass: 'research',
+    sourceRefs: ['web'],
+  });
+  const session = store.createAgentSession({
+    id: 'session-blocked',
+    missionId: mission.id,
+    taskId: task.id,
+    type: 'task',
+    status: 'scheduled',
+  });
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async () => {
+      const error = new Error('Mac mini Hermes Relay is offline');
+      error.code = 'runtime_unavailable';
+      throw error;
+    },
+  });
+
+  // When
+  const result = await scheduler.tick();
+
+  // Then
+  assert.deepEqual(result.blockedTaskIds, [task.id]);
+  assert.equal(store.getState().tasks.find((item) => item.id === task.id).status, 'blocked');
+  assert.equal(store.getAgentSession(session.id).events.at(-1).kind, 'error');
+  assert.match(store.getAgentSession(session.id).events.at(-1).text, /offline/i);
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('scheduler creates an evidence-backed report from a due report task', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-report-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-report', clock }),
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-report',
+    title: '주간 기회 보고',
+    owner: 'Agent',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    scheduledAt: '2026-07-13T08:59:00.000Z',
+    dueAt: '2026-07-13T10:00:00.000Z',
+    estimatedMinutes: 30,
+    actionClass: 'report',
+    sourceRefs: ['mission', 'prior_reports'],
+  });
+  const session = store.createAgentSession({
+    id: 'session-report',
+    missionId: mission.id,
+    taskId: task.id,
+    type: 'task',
+    status: 'scheduled',
+  });
+  const reportPayload = {
+    title: '주간 기회 보고',
+    findings: ['기회 A'],
+    evidence: [{ label: '공식 가격', url: 'https://example.com/pricing' }],
+    limitations: ['사용자 인터뷰 전'],
+    budget: { usedRuns: 3, usedMinutes: 90 },
+    followUps: [{ title: '사용자 인터뷰', reason: '수요 검증' }],
+  };
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async () => ({
+      text: JSON.stringify(reportPayload),
+      jobId: 'relay-report',
+    }),
+  });
+
+  // When
+  const result = await scheduler.tick();
+
+  // Then
+  assert.equal(result.createdReportIds.length, 1);
+  assert.equal(store.getAgentReports()[0].findings[0], '기회 A');
+  assert.equal(store.getAgentReports()[0].sessionId, session.id);
+  assert.equal(store.getState().tasks.find((item) => item.id === task.id).reportId, result.createdReportIds[0]);
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('manual tick API uses the injected Agent Operations scheduler', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-tick-api-'));
+  const store = new HermesStore({ dataDir, clock });
+  let tickCalls = 0;
+  const scheduler = {
+    tick: async () => {
+      tickCalls += 1;
+      return {
+        checkedAt: FIXED_NOW,
+        startedTaskIds: [],
+        completedTaskIds: [],
+        blockedTaskIds: [],
+        failedTaskIds: [],
+        createdReportIds: [],
+      };
+    },
+  };
+  const server = createRailwayGatewayServer({
+    env: {},
+    gatewayStore: store,
+    agentOperationsScheduler: scheduler,
+    agentOperationsClock: clock,
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/agent-operations/tick`, { method: 'POST' });
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.equal(body.tick.checkedAt, FIXED_NOW);
+    assert.equal(tickCalls, 1);
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});

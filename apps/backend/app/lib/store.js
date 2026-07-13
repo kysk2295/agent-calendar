@@ -1029,6 +1029,7 @@ class HermesStore {
       'missionId', 'sessionId', 'origin', 'createdByAgentId', 'reason', 'expectedOutput',
       'scheduledAt', 'dueAt', 'actionClass', 'approvalMode', 'pauseRequestedAt',
       'cancelRequestedAt', 'blockedReason', 'pauseMode', 'reportId', 'failureCode',
+      'startedAt', 'finishedAt',
       'ticktickId', 'ticktickProjectId', 'ticktickSyncStatus', 'ticktickSyncedAt',
       'ticktickSyncError',
     ];

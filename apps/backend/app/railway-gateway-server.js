@@ -7,7 +7,9 @@ const { buildCalendarWorkDraft } = require('./lib/calendar-work');
 const { buildHermesChatDeltas, buildHermesChatStreamEvents, compactStateSummary } = require('./lib/chat-runtime');
 const { routeWebCommand } = require('./lib/commands');
 const { routeAgentOperations } = require('./lib/agent-operations-api');
+const { AgentOperationsScheduler } = require('./lib/agent-operations-scheduler');
 const { AgentOperationsService } = require('./lib/agent-operations-service');
+const { SchedulerDaemon } = require('./lib/daemon');
 const { normalizeMailAccount, syncMailAccounts } = require('./lib/connectors/mail');
 const { createRunPayloadFromTelegram, parseTelegramUpdate, registerTelegramWebhook } = require('./lib/connectors/telegram');
 const {
@@ -55,6 +57,10 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 const SNAPSHOT_DIR = path.join(ROOT_DIR, 'snapshots');
 const PORT = Number(process.env.PORT || 3000);
 const PROTECTED_AGENT_IDS = new Set(['default']);
+
+function envFlag(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
 
 function sendJson(res, status, payload) {
   res.writeHead(status, {
@@ -6889,6 +6895,7 @@ function createRailwayGatewayServer({
   fetchImpl = fetch,
   gatewayStore: injectedGatewayStore = null,
   agentOperationsService: injectedAgentOperationsService = null,
+  agentOperationsScheduler: injectedAgentOperationsScheduler = null,
   agentOperationsClock,
 } = {}) {
   const gatewayState = createGatewayState();
@@ -6899,21 +6906,42 @@ function createRailwayGatewayServer({
       dataDir: path.join(ROOT_DIR, 'work', 'hermes-gateway-data'),
     })
     : null);
+  const operationClock = agentOperationsClock || (() => new Date());
+  const executeAgentCompletion = ({ payload, meta, onEvent }) => runRelayChatCompletion({
+    relay,
+    env,
+    payload,
+    meta,
+    onEvent,
+    timeoutMs: Number(env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000),
+  });
+  const agentOperationsScheduler = injectedAgentOperationsService
+    ? injectedAgentOperationsScheduler
+    : injectedAgentOperationsScheduler || (gatewayStore
+      ? new AgentOperationsScheduler({
+        store: gatewayStore,
+        clock: operationClock,
+        executeCompletion: executeAgentCompletion,
+      })
+      : null);
+  const agentOperationsDaemon = agentOperationsScheduler
+    ? new SchedulerDaemon({
+      intervalMs: Number(env.AGENT_OPERATIONS_TICK_MS || 60_000),
+      tick: () => agentOperationsScheduler.tick(),
+      clock: operationClock,
+    })
+    : null;
   const agentOperationsService = injectedAgentOperationsService || (gatewayStore
     ? new AgentOperationsService({
       store: gatewayStore,
-      clock: agentOperationsClock,
-      planCompletion: ({ payload, meta, onEvent }) => runRelayChatCompletion({
-        relay,
-        env,
-        payload,
-        meta,
-        onEvent,
-        timeoutMs: Number(env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000),
-      }),
+      clock: operationClock,
+      planCompletion: executeAgentCompletion,
+      taskCompletion: executeAgentCompletion,
+      scheduler: agentOperationsScheduler,
+      daemon: agentOperationsDaemon,
     })
     : null);
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     try {
       if (req.method === 'GET' && requestUrl.pathname === '/ticktick/callback') {
@@ -6963,6 +6991,16 @@ function createRailwayGatewayServer({
       });
     }
   });
+  server.on('listening', () => {
+    if (!agentOperationsDaemon || !envFlag(env.AGENT_OPERATIONS_DAEMON_ENABLED)) return;
+    waitForStoreReady(gatewayStore)
+      .then(() => agentOperationsDaemon.start())
+      .catch(() => agentOperationsDaemon.stop());
+  });
+  server.on('close', () => {
+    if (agentOperationsDaemon) agentOperationsDaemon.stop();
+  });
+  return server;
 }
 
 if (require.main === module) {
