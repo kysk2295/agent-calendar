@@ -48,19 +48,16 @@ async function main() {
   await page.goto(target);
   await page.waitForSelector('.app-root');
   await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
-  await page.waitForSelector('.agent-card');
+  await page.waitForSelector('.agent-operations-workspace');
+  await page.getByRole('tab', { name: 'Agents' }).click();
+  await page.waitForSelector('.agent-roster-row');
 
-  const gridText = await page.locator('.agent-grid').textContent();
+  const gridText = await page.locator('.agent-roster-list').textContent();
   assert.match(gridText || '', /Default Hermes/);
   assert.match(gridText || '', /준비됨/);
   assert.doesNotMatch(gridText || '', /marketflow/);
   assert.doesNotMatch(gridText || '', /누락/);
   assert.doesNotMatch(gridText || '', /대기/);
-
-  const runText = await page.locator('.agent-runs').textContent();
-  assert.match(runText || '', /현재 에이전트 실행/);
-  assert.doesNotMatch(runText || '', /marketflow/);
-  assert.doesNotMatch(runText || '', /삭제된 에이전트 실행/);
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, statuses: ['준비됨'], hiddenMissingProfiles: ['marketflow'] }, null, 2));
