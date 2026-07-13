@@ -125,9 +125,25 @@ Every agent-generated task must include:
 - estimated runtime and run cost;
 - approval state;
 - execution state;
+- linked task session ID;
 - linked run IDs and report ID.
 
 Task states are `proposed`, `approved`, `scheduled`, `running`, `blocked`, `completed`, `failed`, and `cancelled`.
+
+### Agent Session
+
+A persistent, user-visible conversation and event stream for understanding and steering agent work.
+
+The session hierarchy has two levels:
+
+- a Mission Thread retains the mission objective, policy, report history, user feedback, and long-running conversation context;
+- each Agent Task owns a Task Session beneath that Mission Thread, with the task plan, execution runs, tool activity, interventions, artifacts, errors, and completion result.
+
+Task Session event types are `agent_message`, `user_message`, `plan`, `tool_activity`, `progress`, `approval_request`, `approval_response`, `artifact`, `error`, and `completion`.
+
+The user can send a message, answer a question, adjust direction, attach approved context, approve an action, pause, resume, cancel, or retry from the Task Session. User interventions are persisted and become part of the task's execution context.
+
+Sessions expose structured task rationale and summarized tool activity. They do not expose model chain-of-thought, secrets, raw authentication material, private absolute paths, or unredacted low-level logs.
 
 ### Report
 
@@ -182,6 +198,19 @@ Agents remain visible and useful, but are described by user outcomes rather than
 
 Hermes profile names are available in the personal advanced details, but mission creation does not require writing a raw Hermes command or prompt.
 
+### Sessions
+
+Sessions provide the detailed operational view comparable to a Codex task conversation. A Task Session opens from its calendar item, mission plan, report evidence, or Telegram deep link.
+
+The default layout contains:
+
+- a left session list grouped under the active mission;
+- a central chronological conversation and execution transcript;
+- a right task-contract panel showing mission, expected output, calendar time, budget, sources, artifacts, and current state;
+- controls for approval, pause, resume, cancel, retry, and user messages.
+
+Tool activity is summarized into user-meaningful checkpoints with expandable sanitized details. The transcript must be derived from persisted execution events and must never fabricate progress messages.
+
 ### Reports
 
 Reports provide an inbox ordered by due time and unread state. A report opens with the result first, followed by evidence, execution details, limitations, and proposed follow-up work.
@@ -201,14 +230,16 @@ Mission and report screens link to relevant wiki evidence. Approved final report
 3. The `bizconsultant` agent generates a structured weekly plan with two to five tasks.
 4. The system validates every task against the autonomy policy and budget.
 5. Proposed tasks appear as amber dashed calendar items with creation reasons.
-6. The user approves the first weekly plan.
-7. Approved tasks become scheduled calendar items and launch through the Mac mini relay at their scheduled time.
-8. Run progress and logs update the calendar without claiming false completion.
-9. Completed task artifacts and evidence are accumulated under the mission.
-10. At the report deadline, the reporting step produces the structured weekly report.
-11. The report appears on the calendar, in Reports, and as a Telegram summary with a link to the full result.
-12. The user marks the report useful or not useful and approves, edits, or rejects follow-up tasks.
-13. The next weekly plan uses the previous report and user feedback as context while remaining within the same autonomy contract.
+6. Each proposed task receives a Task Session under the mission's persistent Mission Thread.
+7. The user approves the first weekly plan.
+8. Approved tasks become scheduled calendar items and launch through the Mac mini relay at their scheduled time.
+9. Run progress, summarized tool activity, questions, user interventions, artifacts, and errors append to the Task Session and update the calendar without claiming false completion.
+10. The user can open the Task Session from the calendar to observe or steer the work while it is active.
+11. Completed task artifacts and evidence are accumulated under the mission.
+12. At the report deadline, the reporting step produces the structured weekly report.
+13. The report appears on the calendar, in Reports, and as a Telegram summary with a link to the full result and relevant Task Sessions.
+14. The user marks the report useful or not useful and approves, edits, or rejects follow-up tasks.
+15. The next weekly plan uses the previous report, session interventions, and user feedback as context while remaining within the same autonomy contract.
 
 ## 9. Meaningful Self-Generated Work Rules
 
@@ -236,7 +267,7 @@ Required runtime flow:
 2. The gateway creates an idempotent execution request tied to mission and task IDs.
 3. The Railway relay forwards the request to the registered Mac mini runtime.
 4. The runtime selects the task's Hermes profile and executes it with the allowed context.
-5. Progress events update the linked Agent Task and calendar event.
+5. Progress events append to the linked Task Session and update the Agent Task and calendar event.
 6. Completion stores the structured result and evidence references.
 7. Failure stores an explicit reason and leaves enough state for safe retry.
 
@@ -252,6 +283,7 @@ Private data rules remain:
 - safe path validation protects wiki reads and writes;
 - Railway stores mission, task, status, report metadata, and the report content needed by the app;
 - raw local paths, model credentials, runtime tokens, and unrelated wiki content are never exposed in client responses;
+- session transcripts contain sanitized user-facing events rather than hidden model reasoning or unredacted process output;
 - Telegram receives the report summary and app link, not the full private evidence bundle;
 - secrets remain redacted in settings and logs.
 
@@ -300,6 +332,7 @@ The personal MVP includes:
 - progressive task approval;
 - agent-generated tasks on the calendar;
 - scheduled execution and truthful runtime states;
+- persistent Mission Threads and Task Sessions with user-visible execution details and intervention controls;
 - structured reports with evidence and follow-up proposals;
 - Telegram summary reporting;
 - usefulness feedback and mission pause/stop controls.
@@ -346,7 +379,9 @@ Required verification layers:
 - unit tests for mission policy validation, budget checks, task state transitions, and report shape;
 - backend contract tests for mission, task, report, scheduler, and relay routes;
 - Electron/preload contract tests for any new desktop boundary;
+- session ordering, persistence, redaction, and intervention contract tests;
 - Playwright workflow for mission creation, plan approval, calendar visualization, report opening, follow-up approval, pause, and failure display;
+- Playwright workflow that opens a calendar task session, observes persisted execution events, sends a user instruction, pauses or resumes work, and returns after reload to the same transcript;
 - a real Mac mini harmless mission run that creates a task, appears on the calendar, completes, and produces a report;
 - a real offline/restart scenario that shows blocked or failed state without false completion;
 - full backend tests, desktop tests, typecheck, build, and relevant Playwright gates.
@@ -360,12 +395,15 @@ The personal MVP is complete only when:
 3. Proposed work is visibly distinct on the calendar.
 4. First-week tasks require approval and trusted task classes can later auto-schedule.
 5. Approved tasks execute through the correct Mac mini Hermes profile.
-6. Calendar states match persisted task and run states after reload.
-7. The Friday report includes findings, evidence, limitations, budget usage, and follow-up proposals.
-8. Telegram receives a concise report summary.
-9. The user can mark the report useful and approve or reject follow-up work.
-10. Offline, restart, budget, and insufficient-evidence states are visible and recoverable.
-11. No task can exceed its mission policy or perform a forbidden external action.
+6. Every Agent Task has a persistent Task Session that opens from the calendar and shows ordered plan, progress, tool activity, questions, artifacts, errors, and completion events.
+7. The user can message, approve, pause, resume, cancel, and retry through the Task Session, and the resulting intervention survives reload.
+8. Session responses redact secrets, private paths, hidden model reasoning, and unapproved raw logs.
+9. Calendar states match persisted task, session, and run states after reload.
+10. The Friday report includes findings, evidence, limitations, budget usage, follow-up proposals, and links to relevant Task Sessions.
+11. Telegram receives a concise report summary and session deep link.
+12. The user can mark the report useful and approve or reject follow-up work.
+13. Offline, restart, budget, and insufficient-evidence states are visible and recoverable.
+14. No task can exceed its mission policy or perform a forbidden external action.
 
 ## 18. Rollout And Future Extension
 
@@ -385,4 +423,5 @@ Future multi-user work must preserve the domain contracts in this design while a
 - The `bizconsultant` agent may create plausible but low-value work unless task reasons, expected outputs, evidence, and feedback are enforced structurally.
 - Long-running local execution can miss report deadlines when the Mac mini or network is unavailable.
 - Calendar density can become noisy unless proposed work, active work, and reports remain visually distinct and filterable.
+- Long session transcripts can become noisy or leak sensitive tool output unless events are summarized, redacted, and grouped by checkpoint.
 - Telegram reports can leak sensitive context if summaries are not deliberately minimized.
