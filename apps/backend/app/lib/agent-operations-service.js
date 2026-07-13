@@ -5,6 +5,7 @@ const {
   sanitizeSessionEvent,
   transitionAgentTask,
 } = require('./agent-operations-domain');
+const { AgentOperationsPlanError, planAgentMission } = require('./agent-operations-planner');
 
 class AgentOperationsError extends Error {
   constructor(code, message, status = 400) {
@@ -70,7 +71,7 @@ class AgentOperationsService {
     });
   }
 
-  async planMission() {
+  async planMission(missionId) {
     if (!this.planCompletion) {
       throw new AgentOperationsError(
         'runtime_unavailable',
@@ -78,7 +79,20 @@ class AgentOperationsService {
         503,
       );
     }
-    throw new AgentOperationsError('planning_not_configured', 'Mission planning is not configured', 503);
+    const mission = this.#mission(missionId);
+    try {
+      return await planAgentMission({
+        store: this.store,
+        mission,
+        planCompletion: this.planCompletion,
+        clock: this.clock,
+      });
+    } catch (error) {
+      if (error instanceof AgentOperationsPlanError) {
+        throw new AgentOperationsError(error.code, error.message, error.status);
+      }
+      throw error;
+    }
   }
 
   activateMission(missionId) {

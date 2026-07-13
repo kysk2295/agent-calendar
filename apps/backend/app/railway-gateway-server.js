@@ -32,6 +32,7 @@ const { buildProductStatus } = require('./lib/product-status');
 const { buildRunnerAdapterCatalog } = require('./lib/runner-adapters');
 const { buildGatewayStatus, buildRuntimeProxyRequest, redactGatewayConfig, safeRuntimeError } = require('./lib/runtime-gateway');
 const { HermesRailwayRelay, isRelayAuthorized, relayEnabled } = require('./lib/railway-relay');
+const { runRelayChatCompletion } = require('./lib/relay-chat-completion');
 const { projectStateWithAgents, resolveHermesAgent } = require('./lib/agent-registry');
 const {
   buildScheduleAssistantAnswer,
@@ -2511,42 +2512,17 @@ function extractRelayRecordText(record) {
 
 async function runRailwayRelayChatCompletion({ relay, env = process.env, payload, meta = {} } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) return null;
-  const job = relay.enqueue({
-    kind: 'chat.completions',
+  return runRelayChatCompletion({
+    relay,
+    env,
     payload,
-    meta: {
-      view: 'calendar-ai',
-      model: payload?.model || '',
-      ...meta,
-    },
+    meta: { view: 'calendar-ai', ...meta },
+    timeoutMs: Number(
+      env.HERMES_RELAY_SCHEDULE_LLM_TIMEOUT_MS
+      || env.HERMES_RELAY_STREAM_TIMEOUT_MS
+      || 90_000,
+    ),
   });
-  const timeoutMs = Number(env.HERMES_RELAY_SCHEDULE_LLM_TIMEOUT_MS || env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000);
-  const deadline = Date.now() + Math.max(1_000, timeoutMs);
-  const finalTextParts = [];
-  let cursor = 0;
-  while (Date.now() < deadline) {
-    const batch = await relay.waitForEvents(job.id, cursor, Math.min(5_000, Math.max(1, deadline - Date.now())));
-    cursor = batch.cursor;
-    for (const record of batch.events || []) {
-      const recordText = record.event === 'bridge-complete' ? '' : extractRelayRecordText(record);
-      if (recordText) finalTextParts.push(recordText);
-      if (record.event === 'error') {
-        const error = new Error(record.data?.error || 'railway relay bridge failed');
-        error.jobId = job.id;
-        throw error;
-      }
-    }
-    if (batch.complete) {
-      return {
-        text: finalTextParts.join('').trim(),
-        jobId: job.id,
-      };
-    }
-  }
-  relay.fail(job.id, new Error('railway relay bridge timed out'));
-  const error = new Error('railway relay bridge timed out');
-  error.jobId = job.id;
-  throw error;
 }
 
 async function runRailwayRelayWikiSearch({ relay, env = process.env, question, path = '', limit = 6 } = {}) {
@@ -6924,7 +6900,18 @@ function createRailwayGatewayServer({
     })
     : null);
   const agentOperationsService = injectedAgentOperationsService || (gatewayStore
-    ? new AgentOperationsService({ store: gatewayStore, clock: agentOperationsClock })
+    ? new AgentOperationsService({
+      store: gatewayStore,
+      clock: agentOperationsClock,
+      planCompletion: ({ payload, meta, onEvent }) => runRelayChatCompletion({
+        relay,
+        env,
+        payload,
+        meta,
+        onEvent,
+        timeoutMs: Number(env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000),
+      }),
+    })
     : null);
   return http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);

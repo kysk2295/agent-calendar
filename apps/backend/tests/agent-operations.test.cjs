@@ -15,6 +15,7 @@ const {
 const { HermesStore } = require('../app/lib/store');
 const { PostgresHermesStore } = require('../app/lib/postgres-store');
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
+const { AgentOperationsService } = require('../app/lib/agent-operations-service');
 
 const FIXED_NOW = '2026-07-13T09:00:00.000Z';
 const clock = () => new Date(FIXED_NOW);
@@ -387,6 +388,124 @@ test('agent operations API creates lists and updates durable work contracts', as
     assert.equal(action.task.status, 'scheduled');
     assert.equal(feedback.report.useful, true);
     assert.equal(store.getAgentReports()[0].feedback.note, '의사결정에 사용함');
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('Relay planning completion preserves tool activity and structured output', async () => {
+  // Given
+  const { runRelayChatCompletion } = require('../app/lib/relay-chat-completion');
+  const observed = [];
+  const relay = {
+    isBridgeOnline: () => true,
+    enqueue: ({ kind, payload, meta }) => ({ id: 'relay-job-plan', kind, payload, meta }),
+    waitForEvents: async () => ({
+      cursor: 2,
+      complete: true,
+      events: [
+        { event: 'tool-activity', data: { tool: 'web-search', text: '공식 출처 검색' } },
+        { event: 'message', data: { text: JSON.stringify(createValidPlan()) } },
+      ],
+    }),
+    fail: () => {
+      throw new Error('Relay fail must not run on a successful completion');
+    },
+  };
+
+  // When
+  const completion = await runRelayChatCompletion({
+    relay,
+    env: { HERMES_RELAY_ENABLED: '1', HERMES_RELAY_TOKEN: 'token' },
+    payload: {
+      model: 'bizconsultant',
+      stream: true,
+      messages: [{ role: 'user', content: 'plan' }],
+    },
+    meta: { missionId: 'mission-weekly', sessionId: 'session-plan' },
+    onEvent: (event) => observed.push(event),
+  });
+
+  // Then
+  assert.match(completion.text, /"tasks"/);
+  assert.equal(completion.jobId, 'relay-job-plan');
+  assert.equal(observed.some((event) => event.kind === 'tool_activity'), true);
+  assert.equal(observed.some((event) => event.kind === 'agent_message'), true);
+});
+
+test('planning API creates proposed calendar work and one Task Session per task', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-plan-'));
+  const store = new HermesStore({ dataDir, clock });
+  const service = new AgentOperationsService({
+    store,
+    clock,
+    planCompletion: async ({ onEvent }) => {
+      await onEvent({ kind: 'tool_activity', text: '공식 출처 검색', metadata: { tool: 'web' } });
+      return { text: JSON.stringify(createValidPlan()), jobId: 'relay-plan-ok', events: [] };
+    },
+  });
+  const mission = service.createMission({ templateId: 'weekly-opportunity-brief' });
+  const server = createRailwayGatewayServer({
+    env: {},
+    gatewayStore: store,
+    agentOperationsService: service,
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/agent-operations/missions/${mission.id}/plan`, {
+      method: 'POST',
+    });
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.equal(body.tasks.length, 3);
+    assert.equal(body.tasks.every((task) => task.status === 'proposed'), true);
+    assert.equal(body.tasks.every((task) => task.sessionId), true);
+    assert.equal(body.sessions.length, 3);
+    assert.equal(store.getState().tasks.filter((task) => task.origin === 'agent').length, 3);
+    assert.equal(store.getState().agentSessions.filter((session) => session.type === 'task').length, 3);
+    assert.equal(store.getState().agentSessions.some((session) => session.type === 'mission-thread'), true);
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('planning API rejects invalid JSON without creating Agent Tasks', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-plan-invalid-'));
+  const store = new HermesStore({ dataDir, clock });
+  const service = new AgentOperationsService({
+    store,
+    clock,
+    planCompletion: async () => ({ text: 'not-json', jobId: 'relay-plan-invalid', events: [] }),
+  });
+  const mission = service.createMission({ templateId: 'weekly-opportunity-brief' });
+  const server = createRailwayGatewayServer({
+    env: {},
+    gatewayStore: store,
+    agentOperationsService: service,
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/agent-operations/missions/${mission.id}/plan`, {
+      method: 'POST',
+    });
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 422);
+    assert.equal(body.error, 'plan_invalid');
+    assert.equal(store.getState().tasks.filter((task) => task.origin === 'agent').length, 0);
+    const missionThread = store.getState().agentSessions.find((session) => session.type === 'mission-thread');
+    assert.equal(store.getAgentSession(missionThread.id).events.at(-1).kind, 'error');
   } finally {
     await close(server);
     await rm(dataDir, { recursive: true, force: true });
