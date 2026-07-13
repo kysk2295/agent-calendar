@@ -78,6 +78,7 @@
 | `GET` | `/api/agent-operations/sessions/:id` | Returns one Task Session and ordered redacted events. |
 | `POST` | `/api/agent-operations/sessions/:id/messages` | Persists a user instruction and queues or executes a continuation. |
 | `POST` | `/api/agent-operations/reports/:id/feedback` | Stores `useful` and optional feedback, then records follow-up decisions. |
+| `POST` | `/api/agent-operations/reports/:id/follow-ups` | Persists one approved or rejected follow-up decision and appends it to the linked Task Session for the next planning cycle. |
 | `POST` | `/api/agent-operations/tick` | Runs one deterministic scheduling/reconciliation tick for tests and manual recovery. |
 
 ## Task 1: Domain Contracts And Weekly Mission Template

@@ -215,6 +215,8 @@ Tool activity is summarized into user-meaningful checkpoints with expandable san
 
 Reports provide an inbox ordered by due time and unread state. A report opens with the result first, followed by evidence, execution details, limitations, and proposed follow-up work.
 
+The user can approve or reject each follow-up proposal. The decision is persisted on the report, appended to the linked Task Session, and supplied to the next mission-planning cycle. Approval does not fabricate an immediately scheduled task when the proposal lacks a reviewed schedule or output contract.
+
 For the first implementation, Missions, Agents, and Reports may be tabs within the existing Agent workspace rather than three new global navigation items.
 
 ### Wiki

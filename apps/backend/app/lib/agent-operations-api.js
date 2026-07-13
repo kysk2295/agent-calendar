@@ -70,6 +70,9 @@ async function routeAgentOperations({ method, pathSegments, body = {}, service }
     if (method === 'POST' && normalized[1] === 'reports' && normalized[2] && normalized[3] === 'feedback') {
       return success(200, { report: service.recordReportFeedback(normalized[2], body) });
     }
+    if (method === 'POST' && normalized[1] === 'reports' && normalized[2] && normalized[3] === 'follow-ups') {
+      return success(200, { report: service.recordReportFollowUpDecision(normalized[2], body) });
+    }
     if (method === 'POST' && normalized[1] === 'tick' && normalized.length === 2) {
       return success(200, { tick: await service.tick() });
     }

@@ -190,6 +190,42 @@ class AgentOperationsService {
     return updated;
   }
 
+  recordReportFollowUpDecision(reportId, input = {}) {
+    const report = this.store.getAgentReports().find((item) => item.id === reportId);
+    if (!report) throw new AgentOperationsError('report_not_found', 'Agent report was not found', 404);
+    const index = Number(input.index);
+    const decision = String(input.decision || '');
+    const followUp = Array.isArray(report.followUps) ? report.followUps[index] : null;
+    if (!Number.isInteger(index) || index < 0 || !followUp || !['approved', 'rejected'].includes(decision)) {
+      throw new AgentOperationsError('follow_up_decision_invalid', 'A valid follow-up and decision are required', 422);
+    }
+    const recordedAt = this.clock().toISOString();
+    const record = {
+      index,
+      title: String(followUp.title || ''),
+      reason: String(followUp.reason || ''),
+      decision,
+      recordedAt,
+    };
+    const existing = Array.isArray(report.followUpDecisions) ? report.followUpDecisions : [];
+    const updated = this.store.updateAgentReport(report.id, {
+      followUpDecisions: [...existing.filter((item) => Number(item?.index) !== index), record],
+    });
+    if (report.sessionId && this.store.getAgentSession(report.sessionId)) {
+      this.store.appendAgentSessionEvent(report.sessionId, sanitizeSessionEvent({
+        kind: 'approval_response',
+        text: `후속 제안 ${decision === 'approved' ? '승인' : '보류'}: ${record.title}`,
+        metadata: { reportId: report.id, followUpIndex: index, decision, recordedAt },
+      }));
+    }
+    const mission = this.#mission(report.missionId);
+    const userFeedback = Array.isArray(mission.userFeedback) ? mission.userFeedback : [];
+    this.store.updateAgentMission(mission.id, {
+      userFeedback: [...userFeedback, { kind: 'follow_up_decision', reportId: report.id, ...record }],
+    });
+    return updated;
+  }
+
   async tick() {
     if (this.daemon) return this.daemon.tickNow();
     if (!this.scheduler) {

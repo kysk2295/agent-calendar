@@ -361,7 +361,7 @@ test('agent operations API creates lists and updates durable work contracts', as
       evidence: ['source-a'],
       limitations: [],
       budget: { usedMinutes: 10 },
-      followUps: [],
+      followUps: [{ title: '사용자 인터뷰', reason: '수요를 검증한다.' }],
     });
 
     // When
@@ -375,10 +375,16 @@ test('agent operations API creates lists and updates durable work contracts', as
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ useful: true, note: '의사결정에 사용함' }),
     });
+    const followUpResponse = await fetch(`${baseUrl}/api/agent-operations/reports/${report.id}/follow-ups`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ index: 0, decision: 'approved' }),
+    });
     const state = await stateResponse.json();
     const sessionDetail = await sessionResponse.json();
     const action = await actionResponse.json();
     const feedback = await feedbackResponse.json();
+    const followUp = await followUpResponse.json();
 
     // Then
     assert.equal(stateResponse.status, 200);
@@ -388,6 +394,9 @@ test('agent operations API creates lists and updates durable work contracts', as
     assert.equal(action.task.status, 'scheduled');
     assert.equal(feedback.report.useful, true);
     assert.equal(store.getAgentReports()[0].feedback.note, '의사결정에 사용함');
+    assert.equal(followUpResponse.status, 200);
+    assert.equal(followUp.report.followUpDecisions[0].decision, 'approved');
+    assert.equal(store.getAgentSession(session.id).events.at(-1).kind, 'approval_response');
   } finally {
     await close(server);
     await rm(dataDir, { recursive: true, force: true });
