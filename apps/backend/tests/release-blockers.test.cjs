@@ -323,6 +323,87 @@ test('projects Relay snapshots to official profiles and safe public capability m
   }
 });
 
+test('projects direct runtime agent and tool reads through the same public policy', async () => {
+  // Given
+  const unsafeReadiness = {
+    requiredProfiles: [
+      {
+        profile: 'bizconsultant',
+        present: true,
+        status: 'ready',
+        setup: { profileRoot: '/Users/koyunseo/private-profile', dashboard: { command: 'hermes --yolo' } },
+      },
+      { profile: 'marketflow', present: true, status: 'ready' },
+    ],
+  };
+  const unsafeAgents = [
+    { id: 'marketflow', name: 'marketflow', runtimeBinding: { commandTemplate: 'hermes --yolo' } },
+    { id: 'bizconsultant', name: 'bizconsultant', profile: { name: 'bizconsultant' } },
+  ];
+  const unsafeTools = [{ id: 'browser', name: 'Browser', command: 'super-secret-command', raw: { token: 'super-secret' } }];
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_REMOTE_AUTH_TOKEN: 'client-token',
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-token',
+    },
+    fetchImpl: async (input) => {
+      const pathname = new URL(String(input)).pathname;
+      const payload = pathname === '/api/agents'
+        ? { ok: true, agents: unsafeAgents, profileReadiness: unsafeReadiness }
+        : pathname === '/api/tools'
+          ? {
+            ok: true,
+            tools: unsafeTools,
+            skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
+            toolsets: ['safe', 'shell'],
+            mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
+          }
+          : {
+            ok: true,
+            state: {
+              agents: unsafeAgents,
+              tools: unsafeTools,
+              profileReadiness: unsafeReadiness,
+              toolsets: ['safe', 'shell'],
+              mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
+            },
+          };
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const headers = { authorization: 'Bearer client-token' };
+    const [agents, tools, state] = await Promise.all([
+      fetch(`${baseUrl}/api/agents`, { headers }).then((response) => response.json()),
+      fetch(`${baseUrl}/api/tools`, { headers }).then((response) => response.json()),
+      fetch(`${baseUrl}/api/state`, { headers }).then((response) => response.json()),
+    ]);
+
+    // Then
+    assert.ok(agents.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
+    assert.ok(agents.profileReadiness.requiredProfiles.every((entry) => OFFICIAL_PROFILE_NAMES.includes(entry.profile)));
+    assert.ok(agents.profileReadiness.requiredProfiles.every((entry) => Object.hasOwn(entry, 'setup') === false));
+    assert.deepEqual(tools.toolsets, ['safe']);
+    assert.deepEqual(tools.mcpServers, []);
+    assert.ok(state.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
+    assert.deepEqual(state.toolsets, ['safe']);
+    assert.deepEqual(state.mcpServers, []);
+    assert.doesNotMatch(
+      JSON.stringify({ agents, tools, state }),
+      /marketflow|--yolo|shell-server|super-secret|\/Users\/koyunseo/,
+    );
+  } finally {
+    await close(server);
+  }
+});
+
 test('compares Relay tokens without accepting prefixes or unequal lengths', () => {
   // Given / When / Then
   assert.equal(relayTokensMatch('relay-token', 'relay-token'), true);

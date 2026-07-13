@@ -793,16 +793,19 @@ function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, ga
   if (Array.isArray(body.skills)) nextBody.skills = publicCapabilityMetadataList(body.skills);
   nextBody.toolsets = ['safe'];
   nextBody.mcpServers = [];
+  if (body.profileReadiness) nextBody.profileReadiness = publicProfileReadiness(body.profileReadiness);
   if (Array.isArray(body.agents)) {
     const agents = filterDeletedGatewayAgents({ agents: body.agents }, gatewayState, gatewayStore).agents || [];
     nextBody.agents = publicOfficialProfileAgents(agents);
   }
-  if (body.data && typeof body.data === 'object' && !Array.isArray(body.data) && Array.isArray(body.data.agents)) {
-    const agents = filterDeletedGatewayAgents({ agents: body.data.agents }, gatewayState, gatewayStore).agents || [];
-    nextBody.data = {
-      ...body.data,
-      agents: publicOfficialProfileAgents(agents),
-    };
+  if (body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
+    const data = { ...body.data };
+    if (Array.isArray(body.data.agents)) {
+      const agents = filterDeletedGatewayAgents({ agents: body.data.agents }, gatewayState, gatewayStore).agents || [];
+      data.agents = publicOfficialProfileAgents(agents);
+    }
+    if (body.data.profileReadiness) data.profileReadiness = publicProfileReadiness(body.data.profileReadiness);
+    nextBody.data = data;
   }
   return nextBody;
 }
@@ -6938,7 +6941,12 @@ async function handleApi(
       return;
     }
     await ensureGatewayTickTickSnapshot({ gatewayState, gatewayStore, env, fetchImpl });
-    sendJson(res, runtimeResponse.status, mergeGatewayLiveState(body, gatewayState, env, gatewayStore));
+    const runtimeState = body.state && typeof body.state === 'object' && !Array.isArray(body.state)
+      ? body.state
+      : body;
+    sendJson(res, runtimeResponse.status, projectPublicGatewayState(
+      mergeGatewayLiveState(runtimeState, gatewayState, env, gatewayStore),
+    ));
     return;
   }
   if (method === 'GET' && pathSegments[0] === 'tasks' && !pathSegments[1] && runtimeResponse.ok) {

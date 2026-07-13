@@ -101,13 +101,14 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 ## Verification results
 
 - `npm run backend:check`: passed.
-- `npm run test:backend`: 121/121 passed.
+- `npm run test:backend`: 122/122 passed.
 - `npm --workspace apps/desktop run typecheck`: passed.
 - `npm --workspace apps/desktop run test`: 75/75 passed.
 - `npm run build:desktop`: passed.
-- `npm test`: backend 121/121, desktop 75/75 passed.
+- `npm test`: backend 122/122, desktop 75/75 passed.
 - Agent create/mission/approval/artifact, wiki graph/ask/search/tree, calendar CRUD Playwright scenarios: passed.
 - Live gateway QA: unauthenticated caller 401, authenticated offline agents `Unavailable`, offline run 503.
 - Post-push regression QA: task detail format/comment/delegate controls restored; chat, full-page login, and authenticated widget fixtures aligned with the shipped contracts.
 - Post-review HTTP QA: legacy scheduler profile normalized to `default`, trailing action route returned 404, exact action route returned 200, unauthenticated scheduler read returned 401.
 - Relay projection HTTP QA: app-token reads exposed only official profiles, `toolsets: [safe]`, no MCP command/raw/path metadata; bridge-token diagnostics retained the original snapshot.
+- Direct runtime projection QA: wrapped and flat `/api/state` responses share the same flat sanitized contract; top-level profile readiness does not expose setup commands.
