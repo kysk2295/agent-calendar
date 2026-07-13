@@ -417,6 +417,7 @@ test('agent operations API creates lists and updates durable work contracts', as
     assert.equal(followUp.report.followUpDecisions[0].decision, 'approved');
     assert.equal(rejectedFollowUp.report.followUpDecisions[0].decision, 'rejected');
     assert.equal(store.getAgentSession(session.id).events.at(-1).kind, 'approval_response');
+    assert.match(store.getAgentSession(session.id).events.at(-1).text, /후속 제안 거절/);
   } finally {
     await close(server);
     await rm(dataDir, { recursive: true, force: true });

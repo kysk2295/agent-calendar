@@ -253,7 +253,7 @@ class AgentOperationsService {
     if (report.sessionId && this.store.getAgentSession(report.sessionId)) {
       this.store.appendAgentSessionEvent(report.sessionId, sanitizeSessionEvent({
         kind: 'approval_response',
-        text: `후속 제안 ${decision === 'approved' ? '승인' : '보류'}: ${record.title}`,
+        text: `후속 제안 ${decision === 'approved' ? '승인' : '거절'}: ${record.title}`,
         metadata: { reportId: report.id, followUpIndex: index, decision, recordedAt },
       }));
     }
