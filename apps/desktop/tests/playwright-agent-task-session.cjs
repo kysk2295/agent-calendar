@@ -73,7 +73,7 @@ const events = [
   { id: 'event-plan', sessionId: session.id, sequence: 1, kind: 'plan', text: '공식 출처 세 곳을 비교합니다.', metadata: {}, createdAt: '2026-07-13T09:01:00.000Z' },
   { id: 'event-secret', sessionId: session.id, sequence: 2, kind: 'progress', text: 'token=topsecret /Users/koyunseo/private.md', metadata: {}, createdAt: '2026-07-13T09:02:00.000Z' },
   { id: 'event-artifact', sessionId: session.id, sequence: 4, kind: 'artifact', text: '가격 비교표 초안', metadata: { label: '비교표', url: 'https://example.com/evidence' }, createdAt: '2026-07-13T09:04:00.000Z' },
-  { id: 'event-result', sessionId: session.id, sequence: 5, kind: 'agent_message', text: `\`\`\`json\n${JSON.stringify({ title: '경쟁사 가격 변화 결과', findings: ['두 경쟁사가 팀 요금제를 인상했습니다.'], evidence: [{ label: '공식 가격 페이지', url: 'https://example.com/evidence' }], limitations: ['지역별 가격은 추가 확인이 필요합니다.'], followUps: [{ title: '사용자 인터뷰', reason: '가격 민감도를 검증합니다.' }] })}\n\`\`\``, metadata: {}, createdAt: '2026-07-13T09:05:00.000Z' },
+  { id: 'event-result', sessionId: session.id, sequence: 5, kind: 'agent_message', text: `\`\`\`json\n${JSON.stringify({ findings: ['두 경쟁사가 팀 요금제를 인상했습니다.'], evidence: [{ label: '공식 가격 페이지', url: 'https://example.com/evidence' }], limitations: ['지역별 가격은 추가 확인이 필요합니다.'], followUps: [{ title: '사용자 인터뷰', reason: '가격 민감도를 검증합니다.' }] })}\n\`\`\``, metadata: {}, createdAt: '2026-07-13T09:05:00.000Z' },
 ];
 const report = {
   id: 'report-scan',
@@ -162,7 +162,7 @@ async function main() {
   assert.match(await page.locator('.task-session-contract').textContent() || '', /가격 비교표 초안/);
   assert.equal(await page.locator('.task-session-list > button').count(), 4);
   assert.equal(await page.locator('.task-session-result').count(), 1);
-  assert.match(await page.locator('.task-session-result').textContent() || '', /경쟁사 가격 변화 결과/);
+  assert.match(await page.locator('.task-session-result').textContent() || '', /에이전트 작업 결과/);
   assert.match(await page.locator('.task-session-result').textContent() || '', /핵심 결과.*두 경쟁사가 팀 요금제를 인상했습니다/);
   assert.match(await page.locator('.task-session-result').textContent() || '', /근거.*공식 가격 페이지/);
   assert.match(await page.locator('.task-session-result').textContent() || '', /한계.*지역별 가격은 추가 확인이 필요합니다/);

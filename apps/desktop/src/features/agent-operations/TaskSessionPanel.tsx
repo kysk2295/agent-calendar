@@ -97,7 +97,9 @@ function parseAgentResult(event: AgentSessionEvent): AgentResult | null {
   if (!payload.startsWith('{')) return null;
   try {
     const value: unknown = JSON.parse(payload);
-    if (!isRecord(value) || typeof value.title !== 'string') return null;
+    if (!isRecord(value)) return null;
+    const findings = stringList(value.findings);
+    const limitations = stringList(value.limitations);
     const evidence = Array.isArray(value.evidence)
       ? value.evidence.flatMap((item) => isRecord(item) && typeof item.label === 'string' && typeof item.url === 'string' && /^https?:\/\//.test(item.url)
         ? [{ label: item.label, url: item.url }]
@@ -108,11 +110,12 @@ function parseAgentResult(event: AgentSessionEvent): AgentResult | null {
         ? [{ title: item.title, reason: typeof item.reason === 'string' ? item.reason : '' }]
         : [])
       : [];
+    if (!findings.length && !evidence.length && !limitations.length && !followUps.length) return null;
     return {
-      title: value.title,
-      findings: stringList(value.findings),
+      title: typeof value.title === 'string' && value.title.trim() ? value.title : '에이전트 작업 결과',
+      findings,
       evidence,
-      limitations: stringList(value.limitations),
+      limitations,
       followUps,
     };
   } catch {
@@ -124,10 +127,10 @@ function AgentResultView({ result }: Readonly<{ result: AgentResult }>) {
   return (
     <div className="task-session-result">
       <h3>{result.title}</h3>
-      {!!result.findings.length && <section><strong>핵심 결과</strong><ul>{result.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul></section>}
-      {!!result.evidence.length && <section><strong>근거</strong><div className="task-session-result-links">{result.evidence.map((evidence) => <a href={evidence.url} target="_blank" rel="noreferrer" key={`${evidence.label}-${evidence.url}`}>{evidence.label}</a>)}</div></section>}
-      {!!result.limitations.length && <section><strong>한계</strong><ul>{result.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul></section>}
-      {!!result.followUps.length && <section><strong>다음 작업</strong><div className="task-session-result-followups">{result.followUps.map((followUp) => <div key={`${followUp.title}-${followUp.reason}`}><b>{followUp.title}</b>{followUp.reason && <span>{followUp.reason}</span>}</div>)}</div></section>}
+      {!!result.findings.length && <section><strong>핵심 결과</strong><ul>{result.findings.map((finding, index) => <li key={`${index}-${finding}`}>{finding}</li>)}</ul></section>}
+      {!!result.evidence.length && <section><strong>근거</strong><div className="task-session-result-links">{result.evidence.map((evidence, index) => <a href={evidence.url} target="_blank" rel="noreferrer" key={`${index}-${evidence.label}-${evidence.url}`}>{evidence.label}</a>)}</div></section>}
+      {!!result.limitations.length && <section><strong>한계</strong><ul>{result.limitations.map((limitation, index) => <li key={`${index}-${limitation}`}>{limitation}</li>)}</ul></section>}
+      {!!result.followUps.length && <section><strong>다음 작업</strong><div className="task-session-result-followups">{result.followUps.map((followUp, index) => <div key={`${index}-${followUp.title}-${followUp.reason}`}><b>{followUp.title}</b>{followUp.reason && <span>{followUp.reason}</span>}</div>)}</div></section>}
     </div>
   );
 }

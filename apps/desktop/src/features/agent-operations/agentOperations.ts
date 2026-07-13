@@ -18,6 +18,17 @@ export const EMPTY_AGENT_OPERATIONS_STATE: AgentOperationsState = {
   reports: [],
   daemon: { running: false, lastRun: null, lastError: null },
 };
+
+function taskScheduleTimestamp(task: AgentTask): number {
+  const value = task.scheduledAt || `${task.date || ''}T${task.time || '00:00'}:00`;
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? Number.MAX_SAFE_INTEGER : timestamp;
+}
+
+export function compareAgentTasksBySchedule(left: AgentTask, right: AgentTask): number {
+  return taskScheduleTimestamp(left) - taskScheduleTimestamp(right) || left.id.localeCompare(right.id);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

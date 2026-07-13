@@ -49,7 +49,7 @@ async function main() {
   await page.waitForSelector('.app-root');
   await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
   await page.waitForSelector('.agent-operations-workspace');
-  await page.getByRole('tab', { name: 'Agents' }).click();
+  await page.getByRole('tab', { name: '에이전트' }).click();
   await page.waitForSelector('.agent-roster-row');
 
   const gridText = await page.locator('.agent-roster-list').textContent();

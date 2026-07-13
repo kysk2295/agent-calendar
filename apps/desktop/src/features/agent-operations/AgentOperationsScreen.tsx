@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 
+import { compareAgentTasksBySchedule } from './agentOperations';
 import { MissionDetail, ReportsView, missionStatusLabel } from './AgentOperationViews';
 import type {
   AgentOperationsState,
@@ -38,7 +39,7 @@ export function AgentOperationsScreen(props: AgentOperationsScreenProps) {
   const selectedMission = props.state.missions.find((mission) => mission.id === selectedMissionId)
     || props.state.missions[0];
   const missionTasks = useMemo(
-    () => selectedMission ? props.state.tasks.filter((task) => task.missionId === selectedMission.id) : [],
+    () => selectedMission ? props.state.tasks.filter((task) => task.missionId === selectedMission.id).sort(compareAgentTasksBySchedule) : [],
     [props.state.tasks, selectedMission],
   );
 
@@ -59,7 +60,7 @@ export function AgentOperationsScreen(props: AgentOperationsScreenProps) {
           <aside className="agent-mission-list">
             <header><strong>미션</strong><button disabled={props.busy === 'create'} onClick={() => void props.onCreateMission()}>새 미션</button></header>
             {props.state.missions.map((mission) => {
-              const tasks = props.state.tasks.filter((task) => task.missionId === mission.id);
+              const tasks = props.state.tasks.filter((task) => task.missionId === mission.id).sort(compareAgentTasksBySchedule);
               const completed = tasks.filter((task) => task.status === 'completed').length;
               const nextTask = tasks.find((task) => task.status === 'running')
                 || tasks.find((task) => ['scheduled', 'proposed', 'blocked', 'failed'].includes(task.status));
@@ -67,7 +68,7 @@ export function AgentOperationsScreen(props: AgentOperationsScreenProps) {
                 <button className="agent-mission-item" data-active={selectedMission?.id === mission.id} key={mission.id} onClick={() => setSelectedMissionId(mission.id)}>
                   <span className="agent-mission-item-head"><strong>{mission.title}</strong><b>{missionStatusLabel(mission.status)}</b></span>
                   <span>{mission.agentId} · {tasks.length ? `${completed}/${tasks.length} 완료` : '계획 전'}</span>
-                  {nextTask && <small>{nextTask.status === 'running' ? '실행 중' : '다음'} · {nextTask.title}</small>}
+                  {nextTask && <small>{nextTask.status === 'running' ? '실행 중' : nextTask.status === 'blocked' ? '확인 필요' : nextTask.status === 'failed' ? '재시도 필요' : '다음'} · {nextTask.title}</small>}
                 </button>
               );
             })}

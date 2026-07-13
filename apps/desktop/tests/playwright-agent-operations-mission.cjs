@@ -20,7 +20,7 @@ const weeklyMission = {
   successCriteria: ['근거가 있는 기회 3개', '이번 주 추천 행동 1개'],
   agentId: 'bizconsultant',
   status: 'draft',
-  timezone: 'Asia/Seoul',
+  timezone: 'America/New_York',
   sources: ['wiki', 'web', 'prior_reports'],
   reportSchedule: { weekday: 5, hour: 16, minute: 0 },
   policy: {
@@ -85,6 +85,7 @@ const plannedTasks = [{
     actionClass: 'report',
     sourceRefs: ['mission'],
   }];
+const apiOrderedTasks = [plannedTasks[2], plannedTasks[0], plannedTasks[1]];
 
 let operationState = {
   ok: true,
@@ -96,7 +97,7 @@ let operationState = {
 };
 
 function plannedSessions() {
-  return plannedTasks.map((task) => ({
+  return apiOrderedTasks.map((task) => ({
     id: task.sessionId,
     missionId: task.missionId,
     taskId: task.id,
@@ -137,10 +138,10 @@ async function main() {
       operationState = {
         ...operationState,
         missions: [{ ...weeklyMission, plannedAt: '2026-07-13T09:00:00.000Z' }],
-        tasks: plannedTasks,
+        tasks: apiOrderedTasks,
         sessions: plannedSessions(),
       };
-      await route.fulfill({ json: { ok: true, mission: operationState.missions[0], tasks: plannedTasks, sessions: operationState.sessions } });
+      await route.fulfill({ json: { ok: true, mission: operationState.missions[0], tasks: apiOrderedTasks, sessions: operationState.sessions } });
       return;
     }
     if (request.method() === 'POST' && path === '/api/agent-operations/tasks/task-scan/run-now') {
@@ -181,7 +182,7 @@ async function main() {
       return;
     }
     if (request.method() === 'POST' && path === '/api/agent-operations/missions/mission-weekly/cancel') {
-      operationState = { ...operationState, missions: operationState.missions.map((mission) => ({ ...mission, status: 'cancelled' })), tasks: operationState.tasks.map((task) => ({ ...task, status: 'cancelled' })) };
+      operationState = { ...operationState, missions: operationState.missions.map((mission) => ({ ...mission, status: 'cancelled' })), tasks: operationState.tasks.map((task) => task.status === 'completed' ? task : { ...task, status: 'cancelled' }) };
       await route.fulfill({ json: { ok: true, mission: operationState.missions[0], tasks: operationState.tasks } });
       return;
     }
@@ -249,7 +250,11 @@ async function main() {
   assert.match(await page.locator('.mission-live-summary').textContent() || '', /다음 작업.*경쟁사 변화 수집/);
   assert.equal(await page.locator('.mission-task-timeline').count(), 1);
   assert.deepEqual(await page.locator('.agent-operation-task-index').allTextContents(), ['1', '2', '3']);
-  assert.equal(await page.getByRole('button', { name: '세션 열기' }).count(), 3);
+  assert.deepEqual(await page.locator('.agent-operation-task-main > header strong').allTextContents(), ['경쟁사 변화 수집', '기회 가설 검증', '주간 기회 보고']);
+  assert.match(await page.locator('.agent-operation-task').first().textContent() || '', /7\. 13\. 05:00/);
+  assert.equal(await page.getByRole('button', { name: /세션 열기$/ }).count(), 3);
+  assert.deepEqual(await page.getByRole('button', { name: /세션 열기$/ }).evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label'))), ['경쟁사 변화 수집 세션 열기', '기회 가설 검증 세션 열기', '주간 기회 보고 세션 열기']);
+  assert.equal(await page.locator('.agent-operation-task-rail').first().getAttribute('aria-hidden'), null);
   assert.match(await page.locator('.agent-mission-item[data-active="true"]').textContent() || '', /0\/3 완료/);
   assert.match(await page.locator('.mission-task-list').textContent() || '', /가격 변화 근거가 부족하다/);
   await page.setViewportSize({ width: 768, height: 900 });
@@ -288,8 +293,11 @@ async function main() {
   await page.getByRole('tab', { name: '미션' }).click();
   await page.getByRole('button', { name: '미션 일시정지' }).click();
   await page.locator('.mission-state', { hasText: '일시정지' }).waitFor();
+  assert.match(await page.locator('.mission-live-summary').textContent() || '', /확인 필요/);
   await page.getByRole('button', { name: '미션 중단' }).click();
   await page.locator('.mission-state', { hasText: '중단됨' }).waitFor();
+  assert.match(await page.locator('.mission-live-summary').textContent() || '', /1개 완료 · 2개 취소/);
+  assert.doesNotMatch(await page.locator('.mission-live-summary').textContent() || '', /모든 작업 완료/);
   assert.equal(calls.filter((call) => call.path.includes('/tasks/') && call.path.endsWith('/approve')).length, 3);
   assert.equal(calls.some((call) => call.path.endsWith('/activate')), true);
   assert.equal(calls.some((call) => call.path.endsWith('/pause')), true);
