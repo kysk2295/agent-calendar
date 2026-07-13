@@ -780,24 +780,30 @@ function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, ga
   const runtimeState = body.state && typeof body.state === 'object' && !Array.isArray(body.state)
     ? body.state
     : {};
-  const state = mergeGatewayLiveState(runtimeState, gatewayState, env, gatewayStore);
+  const state = projectPublicGatewayState(
+    mergeGatewayLiveState(runtimeState, gatewayState, env, gatewayStore),
+  );
   const nextBody = {
     ...body,
     state,
     deletedAgentIds: state.deletedAgentIds || [],
     gatewayMerged: true,
   };
-  if (Array.isArray(body.tools)) nextBody.tools = filterActualGatewayTools(body.tools);
+  if (Array.isArray(body.tools)) nextBody.tools = publicCapabilityMetadataList(filterActualGatewayTools(body.tools));
+  if (Array.isArray(body.skills)) nextBody.skills = publicCapabilityMetadataList(body.skills);
+  nextBody.toolsets = ['safe'];
+  nextBody.mcpServers = [];
   if (Array.isArray(body.agents)) {
-    nextBody.agents = filterDeletedGatewayAgents({ agents: body.agents }, gatewayState, gatewayStore).agents || [];
+    const agents = filterDeletedGatewayAgents({ agents: body.agents }, gatewayState, gatewayStore).agents || [];
+    nextBody.agents = publicOfficialProfileAgents(agents);
   }
   if (body.data && typeof body.data === 'object' && !Array.isArray(body.data) && Array.isArray(body.data.agents)) {
+    const agents = filterDeletedGatewayAgents({ agents: body.data.agents }, gatewayState, gatewayStore).agents || [];
     nextBody.data = {
       ...body.data,
-      agents: filterDeletedGatewayAgents({ agents: body.data.agents }, gatewayState, gatewayStore).agents || [],
+      agents: publicOfficialProfileAgents(agents),
     };
   }
-  if (Array.isArray(state.tools)) nextBody.state = { ...state, tools: filterActualGatewayTools(state.tools) };
   return nextBody;
 }
 
@@ -1020,45 +1026,160 @@ function normalizeLiveAgentSkillOrigins(agents = []) {
   });
 }
 
-function relayStateFromSnapshot(snapshot, gatewayState, env = process.env, gatewayStore = null) {
-  const runtimeState = snapshot?.state && typeof snapshot.state === 'object' && !Array.isArray(snapshot.state)
-    ? snapshot.state
+function publicCapabilityMetadata(item = {}) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+  const metadata = {};
+  for (const key of ['id', 'name', 'label', 'category', 'status', 'riskLevel', 'source', 'type']) {
+    if (item[key] === undefined || item[key] === null) continue;
+    const value = safeRuntimeError(String(item[key]), '');
+    if (value) metadata[key] = value;
+  }
+  if (item.description) metadata.description = safeRuntimeError(item.description, '');
+  if (typeof item.enabled === 'boolean') metadata.enabled = item.enabled;
+  if (Array.isArray(item.tools)) metadata.tools = publicCapabilityMetadataList(item.tools);
+  return Object.keys(metadata).length ? metadata : null;
+}
+
+function publicCapabilityMetadataList(items = []) {
+  return (Array.isArray(items) ? items : []).map(publicCapabilityMetadata).filter(Boolean);
+}
+
+function publicOfficialProfileAgents(agents = []) {
+  return (Array.isArray(agents) ? agents : []).map((agent) => {
+    if (!agent || typeof agent !== 'object' || Array.isArray(agent)) return null;
+    const name = gatewayAgentKeys(agent).find(isOfficialProfileName);
+    if (!name) return null;
+    const publicAgent = normalizeHermesProfileAgent({ name });
+    const allowedStatuses = new Set(['Idle', 'Running', 'Busy', 'Ready', 'Unavailable', 'Offline', 'Paused']);
+    const status = String(agent.status || 'Idle');
+    return {
+      ...publicAgent,
+      status: allowedStatuses.has(status) ? status : 'Idle',
+      skills: publicCapabilityMetadataList(agent.skills),
+    };
+  }).filter(Boolean);
+}
+
+function publicProfileReadiness(readiness = {}) {
+  const source = readiness && typeof readiness === 'object' && !Array.isArray(readiness) ? readiness : {};
+  const candidates = Array.isArray(source.requiredProfiles)
+    ? source.requiredProfiles
+    : Array.isArray(source.profiles)
+      ? source.profiles
+      : [];
+  const requiredProfiles = candidates.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+    const profile = String(entry.profile || entry.name || entry.id || '').trim();
+    if (!isOfficialProfileName(profile)) return null;
+    return {
+      profile,
+      present: entry.present === true,
+      status: safeRuntimeError(entry.status || (entry.present ? 'ready' : 'missing'), 'unknown'),
+    };
+  }).filter(Boolean);
+  const missingProfiles = requiredProfiles.filter((entry) => !entry.present).map((entry) => entry.profile);
+  return {
+    allReady: requiredProfiles.length > 0 && missingProfiles.length === 0,
+    requiredProfileCount: requiredProfiles.length,
+    discoveredProfileCount: requiredProfiles.length - missingProfiles.length,
+    missingProfiles,
+    requiredProfiles,
+  };
+}
+
+function projectPublicGatewayState(state = {}) {
+  const source = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
+  return {
+    ...source,
+    agents: publicOfficialProfileAgents(source.agents),
+    tools: publicCapabilityMetadataList(filterActualGatewayTools(source.tools)),
+    skills: publicCapabilityMetadataList(source.skills),
+    toolsets: ['safe'],
+    mcpServers: [],
+    ...(source.profileReadiness
+      ? { profileReadiness: publicProfileReadiness(source.profileReadiness) }
+      : {}),
+    ...(Array.isArray(source.schedulerJobs)
+      ? { schedulerJobs: source.schedulerJobs.map(normalizeHermesCronResponseJob) }
+      : {}),
+    ...(Array.isArray(source.automationJobs)
+      ? { automationJobs: source.automationJobs.map(normalizeSchedulerJobProfile) }
+      : {}),
+  };
+}
+
+function projectPublicRelaySnapshot(snapshot = {}) {
+  const source = snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : {};
+  const sourceState = source.state && typeof source.state === 'object' && !Array.isArray(source.state)
+    ? source.state
     : {};
-  const snapshotAgents = Array.isArray(snapshot?.agents) ? normalizeLiveAgentSkillOrigins(snapshot.agents) : [];
+  const state = projectPublicGatewayState({
+    ...sourceState,
+    ...(Array.isArray(source.agents) ? { agents: source.agents } : {}),
+    ...(Array.isArray(source.tools) ? { tools: source.tools } : {}),
+    ...(Array.isArray(source.skills) ? { skills: source.skills } : {}),
+    ...(source.profileReadiness ? { profileReadiness: source.profileReadiness } : {}),
+    ...(Array.isArray(source.schedulerJobs) ? { schedulerJobs: source.schedulerJobs } : {}),
+    ...(Array.isArray(source.automationJobs) ? { automationJobs: source.automationJobs } : {}),
+  });
+  return {
+    ...source,
+    state,
+    agents: state.agents,
+    tools: state.tools,
+    skills: state.skills,
+    toolsets: state.toolsets,
+    mcpServers: state.mcpServers,
+    ...(state.profileReadiness ? { profileReadiness: state.profileReadiness } : {}),
+    ...(Array.isArray(state.schedulerJobs) ? { schedulerJobs: state.schedulerJobs } : {}),
+    ...(Array.isArray(state.automationJobs) ? { automationJobs: state.automationJobs } : {}),
+  };
+}
+
+function relayStateFromSnapshot(snapshot, gatewayState, env = process.env, gatewayStore = null) {
+  const publicSnapshot = projectPublicRelaySnapshot(snapshot);
+  const runtimeState = publicSnapshot.state && typeof publicSnapshot.state === 'object' && !Array.isArray(publicSnapshot.state)
+    ? publicSnapshot.state
+    : {};
+  const snapshotAgents = Array.isArray(publicSnapshot.agents)
+    ? normalizeLiveAgentSkillOrigins(publicSnapshot.agents)
+    : [];
   const profileAgents = snapshotAgents.length ? snapshotAgents : fallbackOfficialProfileAgents();
   const agentSourceStatus = snapshotAgents.length
-    ? snapshot?.agentSourceStatus
-    : agentSourceStatusWithFallback(snapshot?.agentSourceStatus || null, 'relay-snapshot-empty');
+    ? publicSnapshot.agentSourceStatus
+    : agentSourceStatusWithFallback(publicSnapshot.agentSourceStatus || null, 'relay-snapshot-empty');
   const state = {
     ...runtimeState,
     agents: snapshotAgents,
-    ...(Array.isArray(snapshot?.tools) ? { tools: snapshot.tools } : {}),
-    ...(Array.isArray(snapshot?.skills) ? { skills: snapshot.skills } : {}),
-    ...(Array.isArray(snapshot?.toolsets) ? { toolsets: snapshot.toolsets } : {}),
-    ...(Array.isArray(snapshot?.mcpServers) ? { mcpServers: snapshot.mcpServers } : {}),
-    ...(Array.isArray(snapshot?.schedulerJobs) ? { schedulerJobs: snapshot.schedulerJobs } : {}),
-    ...(Array.isArray(snapshot?.automationJobs) ? { automationJobs: snapshot.automationJobs } : {}),
+    tools: publicSnapshot.tools,
+    skills: publicSnapshot.skills,
+    toolsets: publicSnapshot.toolsets,
+    mcpServers: publicSnapshot.mcpServers,
+    ...(Array.isArray(publicSnapshot.schedulerJobs) ? { schedulerJobs: publicSnapshot.schedulerJobs } : {}),
+    ...(Array.isArray(publicSnapshot.automationJobs) ? { automationJobs: publicSnapshot.automationJobs } : {}),
     ...(agentSourceStatus ? { agentSourceStatus } : {}),
     remoteVerification: {
       ...(runtimeState.remoteVerification || {}),
       runtimeReachable: true,
       gatewayFallback: false,
       source: 'railway-relay-snapshot',
-      checkedAt: snapshot.receivedAt || new Date().toISOString(),
+      checkedAt: publicSnapshot.receivedAt || new Date().toISOString(),
     },
   };
   const projected = projectStateWithAgents(state, { profileAgents, agentSourceStatus });
-  const merged = mergeGatewayLiveState(projected, gatewayState, env, gatewayStore);
+  const merged = projectPublicGatewayState(
+    mergeGatewayLiveState(projected, gatewayState, env, gatewayStore),
+  );
   return filterDeletedGatewayAgents({
     ...merged,
-    agents: projectStateWithAgents({ agents: normalizeLiveAgentSkillOrigins(merged.agents) }, { profileAgents }).agents,
+    agents: publicOfficialProfileAgents(merged.agents),
     gatewayFallback: false,
     runtimeReachable: true,
     relaySnapshot: {
-      source: snapshot.source || 'railway-relay-bridge',
-      receivedAt: snapshot.receivedAt || '',
-      ageMs: snapshot.ageMs,
-      ttlMs: snapshot.ttlMs,
+      source: publicSnapshot.source || 'railway-relay-bridge',
+      receivedAt: publicSnapshot.receivedAt || '',
+      ageMs: publicSnapshot.ageMs,
+      ttlMs: publicSnapshot.ttlMs,
     },
   }, gatewayState, gatewayStore);
 }
@@ -5834,14 +5955,18 @@ async function handleApi(
     }
     if (method === 'GET' && pathSegments[1] === 'snapshot') {
       const callerAuthorized = apiCallerAuth(req, env).ok;
-      if (!callerAuthorized && !isRelayAuthorized(req, env)) {
+      const bridgeAuthorized = isRelayAuthorized(req, env);
+      if (!callerAuthorized && !bridgeAuthorized) {
         sendJson(res, 401, { ok: false, error: 'relay_snapshot_unauthorized' });
         return;
       }
       const snapshot = relay && typeof relay.snapshot === 'function'
         ? relay.snapshot({ env, allowStale: requestUrl.searchParams.get('stale') === '1' })
         : null;
-      sendJson(res, snapshot ? 200 : 404, snapshot || { ok: false, error: 'relay_snapshot_not_found' });
+      const responseSnapshot = snapshot && callerAuthorized && !bridgeAuthorized
+        ? projectPublicRelaySnapshot(snapshot)
+        : snapshot;
+      sendJson(res, responseSnapshot ? 200 : 404, responseSnapshot || { ok: false, error: 'relay_snapshot_not_found' });
       return;
     }
     if (!isRelayAuthorized(req, env)) {
@@ -6104,15 +6229,12 @@ async function handleApi(
     }
     if (method === 'GET' && pathSegments[0] === 'tools' && !pathSegments[1]) {
       const state = relayStateFromSnapshot(liveRelaySnapshot, gatewayState, env, gatewayStore);
-      const tools = Array.isArray(liveRelaySnapshot.tools)
-        ? filterActualGatewayTools(liveRelaySnapshot.tools)
-        : filterActualGatewayTools(state.tools);
       sendJson(res, 200, {
         ok: true,
-        tools,
-        skills: liveRelaySnapshot.skills || state.skills || [],
-        toolsets: liveRelaySnapshot.toolsets || state.toolsets || [],
-        mcpServers: liveRelaySnapshot.mcpServers || state.mcpServers || [],
+        tools: state.tools || [],
+        skills: state.skills || [],
+        toolsets: state.toolsets || ['safe'],
+        mcpServers: state.mcpServers || [],
         gatewayFallback: false,
       });
       return;
@@ -6905,10 +7027,10 @@ async function handleApi(
     const merged = mergeGatewayResponseBody(body, gatewayState, env, gatewayStore);
     sendJson(res, runtimeResponse.status, {
       ok: body.ok !== false,
-      tools: filterActualGatewayTools(merged.tools || []),
-      skills: merged.skills || [],
-      toolsets: merged.toolsets || [],
-      mcpServers: merged.mcpServers || [],
+      tools: publicCapabilityMetadataList(filterActualGatewayTools(merged.tools || [])),
+      skills: publicCapabilityMetadataList(merged.skills || []),
+      toolsets: ['safe'],
+      mcpServers: [],
       gatewayMerged: true,
       gatewayFallback: body.gatewayFallback === true,
     });

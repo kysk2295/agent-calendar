@@ -6,6 +6,7 @@ const { mkdtemp, rm } = require('node:fs/promises');
 
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
 const { HermesStore } = require('../app/lib/store');
+const { OFFICIAL_PROFILE_NAMES } = require('../app/lib/official-profiles');
 const { relayTokensMatch } = require('../app/lib/railway-relay');
 const { safeRuntimeError } = require('../app/lib/runtime-gateway');
 
@@ -223,6 +224,100 @@ test('protects Relay snapshots with caller or bridge authentication', async () =
     // Then
     assert.equal(unauthenticated.status, 401);
     assert.equal(callerAuthenticated.status, 404);
+  } finally {
+    await close(server);
+  }
+});
+
+test('projects Relay snapshots to official profiles and safe public capability metadata', async () => {
+  // Given
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_REMOTE_AUTH_TOKEN: 'client-token',
+      HERMES_RELAY_TOKEN: 'relay-token',
+    },
+  });
+  const baseUrl = await listen(server);
+  const unsafeSnapshot = {
+    source: 'hostile-test-relay',
+    agents: [
+      { id: 'marketflow', name: 'marketflow', runtimeBinding: { commandTemplate: 'hermes --yolo' } },
+      {
+        id: 'bizconsultant',
+        name: 'bizconsultant',
+        status: 'Idle',
+        profile: { name: 'bizconsultant', path: '/Users/koyunseo/private-profile' },
+        runtimeBinding: { commandTemplate: 'hermes --yolo' },
+        skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
+      },
+    ],
+    tools: [{ id: 'browser', name: 'Browser', command: 'super-secret-command', raw: { token: 'super-secret' } }],
+    skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
+    toolsets: ['safe', 'shell'],
+    mcpServers: [{ id: 'shell-server', command: 'super-secret-command', raw: { token: 'super-secret' } }],
+    profileReadiness: {
+      requiredProfiles: [
+        {
+          profile: 'bizconsultant',
+          present: true,
+          status: 'ready',
+          setup: {
+            profileRoot: '/Users/koyunseo/private-profile',
+            dashboard: { command: 'hermes --yolo' },
+          },
+        },
+        { profile: 'marketflow', present: true, status: 'ready' },
+      ],
+    },
+  };
+  unsafeSnapshot.state = { profileReadiness: unsafeSnapshot.profileReadiness };
+
+  try {
+    const publishResponse = await fetch(`${baseUrl}/api/relay/snapshot`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify(unsafeSnapshot),
+    });
+
+    // When
+    const callerHeaders = { authorization: 'Bearer client-token' };
+    const [agentsResponse, toolsResponse, stateResponse, snapshotResponse] = await Promise.all([
+      fetch(`${baseUrl}/api/agents`, { headers: callerHeaders }),
+      fetch(`${baseUrl}/api/tools`, { headers: callerHeaders }),
+      fetch(`${baseUrl}/api/state`, { headers: callerHeaders }),
+      fetch(`${baseUrl}/api/relay/snapshot`, { headers: callerHeaders }),
+    ]);
+    const [agents, tools, state, snapshot] = await Promise.all([
+      agentsResponse.json(),
+      toolsResponse.json(),
+      stateResponse.json(),
+      snapshotResponse.json(),
+    ]);
+
+    // Then
+    assert.equal(publishResponse.status, 200);
+    assert.ok(agents.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
+    assert.ok(state.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
+    assert.ok(snapshot.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
+    assert.deepEqual(tools.toolsets, ['safe']);
+    assert.deepEqual(state.toolsets, ['safe']);
+    assert.deepEqual(snapshot.toolsets, ['safe']);
+    assert.deepEqual(tools.mcpServers, []);
+    assert.deepEqual(state.mcpServers, []);
+    assert.deepEqual(snapshot.mcpServers, []);
+    for (const readiness of [agents.profileReadiness, state.profileReadiness, snapshot.profileReadiness]) {
+      assert.ok(readiness.requiredProfiles.every((entry) => OFFICIAL_PROFILE_NAMES.includes(entry.profile)));
+      assert.ok(readiness.requiredProfiles.every((entry) => Object.hasOwn(entry, 'setup') === false));
+    }
+    assert.equal(Object.hasOwn(tools.tools[0], 'command'), false);
+    assert.equal(Object.hasOwn(tools.tools[0], 'raw'), false);
+    assert.doesNotMatch(
+      JSON.stringify({ agents, tools, state, snapshot }),
+      /marketflow|--yolo|shell-server|super-secret|\/Users\/koyunseo/,
+    );
   } finally {
     await close(server);
   }

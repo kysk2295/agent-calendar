@@ -82,7 +82,8 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - [x] PostgreSQL의 늦은 stale task upsert가 선점된 Agent Task를 `scheduled`로 되돌리지 못하게 한다.
 - [x] scheduler GET 응답에서도 제거된 Hermes profile을 공식 profile로 정규화한다.
 - [x] Agent Operations action route가 정확히 네 개 segment인 경로만 수락하게 한다.
-- [ ] 위 세 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
+- [x] Relay snapshot의 public projection에서 비공식 profile과 unsafe toolset, raw MCP metadata를 제거한다.
+- [ ] 위 후속 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
 
 ## Rollback / fallback
 
@@ -100,12 +101,13 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 ## Verification results
 
 - `npm run backend:check`: passed.
-- `npm run test:backend`: 120/120 passed.
+- `npm run test:backend`: 121/121 passed.
 - `npm --workspace apps/desktop run typecheck`: passed.
 - `npm --workspace apps/desktop run test`: 75/75 passed.
 - `npm run build:desktop`: passed.
-- `npm test`: backend 120/120, desktop 75/75 passed.
+- `npm test`: backend 121/121, desktop 75/75 passed.
 - Agent create/mission/approval/artifact, wiki graph/ask/search/tree, calendar CRUD Playwright scenarios: passed.
 - Live gateway QA: unauthenticated caller 401, authenticated offline agents `Unavailable`, offline run 503.
 - Post-push regression QA: task detail format/comment/delegate controls restored; chat, full-page login, and authenticated widget fixtures aligned with the shipped contracts.
 - Post-review HTTP QA: legacy scheduler profile normalized to `default`, trailing action route returned 404, exact action route returned 200, unauthenticated scheduler read returned 401.
+- Relay projection HTTP QA: app-token reads exposed only official profiles, `toolsets: [safe]`, no MCP command/raw/path metadata; bridge-token diagnostics retained the original snapshot.
