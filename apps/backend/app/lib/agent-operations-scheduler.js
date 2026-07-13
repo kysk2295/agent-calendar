@@ -13,6 +13,29 @@ function isRuntimeFailure(error) {
   return ['runtime_unavailable', 'relay_timeout', 'relay_failed'].includes(error?.code);
 }
 
+function completedMissionEvidence(store, missionId, excludedSessionId) {
+  const state = store.getState();
+  const taskTitles = new Map(state.tasks.map((task) => [task.id, task.title]));
+  return state.agentSessions
+    .filter((session) => (
+      session.missionId === missionId
+      && session.id !== excludedSessionId
+      && session.status === 'completed'
+    ))
+    .flatMap((session) => {
+      const detail = store.getAgentSession(session.id);
+      return (detail?.events || [])
+        .filter((event) => ['agent_message', 'artifact'].includes(event.kind))
+        .map((event) => ({
+          taskTitle: taskTitles.get(session.taskId) || session.title,
+          kind: event.kind,
+          text: String(event.text || '').slice(0, 6_000),
+        }));
+    })
+    .filter((event) => event.text)
+    .slice(-12);
+}
+
 class AgentOperationsScheduler {
   constructor({
     store,
@@ -96,7 +119,12 @@ class AgentOperationsScheduler {
         payload: {
           profile: agentId,
           stream: true,
-          messages: taskExecutionMessages(mission, task, this.store.getAgentSession(session.id)),
+          messages: taskExecutionMessages(
+            mission,
+            task,
+            this.store.getAgentSession(session.id),
+            completedMissionEvidence(this.store, mission.id, session.id),
+          ),
         },
         meta: {
           missionId: mission.id,

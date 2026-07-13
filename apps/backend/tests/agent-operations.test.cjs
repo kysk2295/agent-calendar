@@ -16,6 +16,7 @@ const { HermesStore } = require('../app/lib/store');
 const { PostgresHermesStore } = require('../app/lib/postgres-store');
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
 const { AgentOperationsService } = require('../app/lib/agent-operations-service');
+const { taskExecutionMessages } = require('../app/lib/agent-operations-execution');
 
 const FIXED_NOW = '2026-07-13T09:00:00.000Z';
 const clock = () => new Date(FIXED_NOW);
@@ -110,6 +111,35 @@ test('builds a planning contract without hidden autonomous side effects', () => 
   assert.match(prompt.instruction, /2-5 bounded tasks/i);
   assert.match(prompt.instruction, /exactly one report task/i);
   assert.match(prompt.instruction, /external side effects/i);
+});
+
+test('report execution receives prior mission evidence and an explicit JSON contract', () => {
+  // Given
+  const mission = createWeeklyOpportunityMission({ id: 'mission-weekly', clock });
+  const reportTask = createValidPlan().tasks.find((task) => task.actionClass === 'report');
+  const session = { events: [] };
+  const priorMissionEvidence = [{
+    taskTitle: '경쟁사 변화 수집',
+    kind: 'agent_message',
+    text: '공식 가격 페이지에서 두 경쟁사의 팀 요금 인상을 확인했다.',
+  }];
+
+  // When
+  const messages = taskExecutionMessages(mission, reportTask, session, priorMissionEvidence);
+  const systemContract = JSON.parse(messages[0].content);
+  const userContract = JSON.parse(messages[1].content);
+
+  // Then
+  assert.equal(systemContract.instruction.includes('Return JSON only'), true);
+  assert.deepEqual(Object.keys(systemContract.reportSchema), [
+    'title',
+    'findings',
+    'evidence',
+    'limitations',
+    'followUps',
+    'budget',
+  ]);
+  assert.deepEqual(userContract.priorMissionEvidence, priorMissionEvidence);
 });
 
 test('parses a bounded plan with exactly one report task', () => {
@@ -865,6 +895,27 @@ test('scheduler creates an evidence-backed report from a due report task', async
     type: 'task',
     status: 'scheduled',
   });
+  const priorTask = store.createTask({
+    id: 'task-prior-research',
+    title: '기회 근거 수집',
+    owner: 'Agent',
+    status: 'completed',
+    missionId: mission.id,
+    origin: 'agent',
+    scheduledAt: '2026-07-12T08:00:00.000Z',
+    actionClass: 'research',
+  });
+  const priorSession = store.createAgentSession({
+    id: 'session-prior-research',
+    missionId: mission.id,
+    taskId: priorTask.id,
+    type: 'task',
+    status: 'completed',
+  });
+  store.appendAgentSessionEvent(priorSession.id, {
+    kind: 'agent_message',
+    text: '공식 가격 페이지에서 기회 A의 근거를 확인했다.',
+  });
   const reportPayload = {
     title: '주간 기회 보고',
     findings: ['기회 A'],
@@ -873,13 +924,17 @@ test('scheduler creates an evidence-backed report from a due report task', async
     budget: { usedRuns: 3, usedMinutes: 90 },
     followUps: [{ title: '사용자 인터뷰', reason: '수요 검증' }],
   };
+  let executionPayload;
   const scheduler = new AgentOperationsScheduler({
     store,
     clock,
-    executeCompletion: async () => ({
-      text: JSON.stringify(reportPayload),
-      jobId: 'relay-report',
-    }),
+    executeCompletion: async ({ payload }) => {
+      executionPayload = payload;
+      return {
+        text: JSON.stringify(reportPayload),
+        jobId: 'relay-report',
+      };
+    },
   });
 
   // When
@@ -890,6 +945,7 @@ test('scheduler creates an evidence-backed report from a due report task', async
   assert.equal(store.getAgentReports()[0].findings[0], '기회 A');
   assert.equal(store.getAgentReports()[0].sessionId, session.id);
   assert.equal(store.getState().tasks.find((item) => item.id === task.id).reportId, result.createdReportIds[0]);
+  assert.match(executionPayload.messages[1].content, /공식 가격 페이지에서 기회 A의 근거/);
 
   await rm(dataDir, { recursive: true, force: true });
 });

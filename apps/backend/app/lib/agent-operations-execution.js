@@ -1,4 +1,13 @@
-function taskExecutionMessages(mission, task, session) {
+const REPORT_SCHEMA = {
+  title: 'string',
+  findings: ['string'],
+  evidence: [{ label: 'string', url: 'https://...' }],
+  limitations: ['string'],
+  followUps: [{ title: 'string', reason: 'string' }],
+  budget: { usedRuns: 'number', usedMinutes: 'number' },
+};
+
+function taskExecutionMessages(mission, task, session, priorMissionEvidence = []) {
   const userMessages = session.events
     .filter((event) => event.kind === 'user_message')
     .map((event) => event.text)
@@ -7,13 +16,16 @@ function taskExecutionMessages(mission, task, session) {
     {
       role: 'system',
       content: JSON.stringify({
-        instruction: 'Complete one bounded internal Agent Calendar task. Do not perform external side effects. Return evidence and limitations.',
+        instruction: task.actionClass === 'report'
+          ? 'Complete one bounded internal Agent Calendar report. Do not perform external side effects. Return JSON only using reportSchema, grounded in priorMissionEvidence, with evidence and limitations.'
+          : 'Complete one bounded internal Agent Calendar task. Do not perform external side effects. Return evidence and limitations.',
         mission: {
           title: mission.title,
           objective: mission.objective,
           successCriteria: mission.successCriteria,
           forbiddenActions: mission.policy?.forbiddenActions || [],
         },
+        ...(task.actionClass === 'report' ? { reportSchema: REPORT_SCHEMA } : {}),
       }),
     },
     {
@@ -28,6 +40,7 @@ function taskExecutionMessages(mission, task, session) {
           dueAt: task.dueAt,
         },
         userMessages,
+        priorMissionEvidence,
       }),
     },
   ];
