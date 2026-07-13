@@ -25,6 +25,10 @@ Agent Calendar is a calm productivity desktop app. The interface should feel lik
 - Semantic green: `--green #3E9B72`
 - Semantic blue: `--blue #5C77AD`
 - Semantic lavender: `--lavender #7A66A7`
+- Semantic amber: `--amber #9A6A20`
+- Semantic amber soft: `--amber-soft #F5E9CF`
+- Semantic red: `--red #B55245`
+- Semantic red soft: `--red-soft #F6E3DF`
 
 Theme variants may override these custom properties at `.app-root[data-theme]`. New UI should prefer the tokens above before adding fixed colors.
 
@@ -51,6 +55,10 @@ Theme variants may override these custom properties at `.app-root[data-theme]`. 
 - Popover/settings panel: near-white warm surface, compact sections, subtle shadow, scrollable when content overflows.
 - Icon button: square, stable dimensions, clear hover/active state. Use SVG icon shapes where available; text glyphs are acceptable only for existing legacy controls until the icon system is introduced.
 - Graph canvas: light warm background, small neutral nodes, subdued links, active node with warm accent ring, settings/actions as overlaid controls.
+- Agent Operations tabs: compact three-option tab row with a 1px structural divider and accent underline on the active view.
+- Mission contract: unframed two-column operational layout. The mission list is a compact selectable list; objective, budget, cadence, sources, policy, and work plan occupy a structured detail region without nested cards.
+- Agent work row: fixed-height task row with agent, reason, expected output, schedule, and status. `proposed` uses amber plus a dashed line; `scheduled` and `running` use blue; `completed` uses green; `blocked` and `failed` use red.
+- Task Session: full-height three-column workspace with sibling sessions, ordered transcript, and task contract. At narrow widths it becomes one column in the order session list, transcript, contract. The message composer remains visible without covering transcript content.
 
 ## 6. Motion
 
@@ -65,6 +73,8 @@ Theme variants may override these custom properties at `.app-root[data-theme]`. 
 - Fixed-format controls such as graph buttons, sliders, and node targets need stable dimensions.
 - Focus states must remain visible through native or app-specific focus outlines.
 - Graph controls must remain keyboard-operable for zoom reset and view navigation.
+- Agent status must never rely on color alone; every calendar item, row, and transcript state includes a visible text label.
+- Task Session messages and actions use live-region feedback, visible focus states, and explicit `next checkpoint` wording for non-interruptible running work.
 
 ## 8. Accepted Debt
 

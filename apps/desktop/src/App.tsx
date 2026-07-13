@@ -1,5 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { hermesApi, setApiBaseUrl, type ApiEnvelope } from './api/hermesApi';
+import { AgentOperationsScreen } from './features/agent-operations/AgentOperationsScreen';
+import {
+  EMPTY_AGENT_OPERATIONS_STATE,
+  parseAgentOperationsEnvelope,
+  parseAgentSessionEnvelope,
+} from './features/agent-operations/agentOperations';
+import { agentTaskCalendarRecord } from './features/agent-operations/agentTaskAppearance';
+import { TaskSessionPanel } from './features/agent-operations/TaskSessionPanel';
+import type {
+  AgentOperationsState,
+  AgentRosterEntry,
+  AgentSessionDetail,
+  AgentTaskAction,
+} from './features/agent-operations/types';
+import './features/agent-operations/agent-operations.css';
 
 type ScreenId = 'calendar' | 'today' | 'next7' | 'tasks' | 'kanban' | 'mail' | 'notes' | 'someday' | 'review' | 'wiki' | 'diary' | 'search' | 'agents' | 'widgets' | 'settings' | 'login';
 type ModalId = 'task' | 'new' | 'delegate' | 'run' | 'agent' | 'settings' | 'taxonomy' | null;
@@ -954,6 +969,13 @@ export function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [state, setState] = useState<AppState>(EMPTY_STATE);
+  const [agentOperations, setAgentOperations] = useState<AgentOperationsState>(EMPTY_AGENT_OPERATIONS_STATE);
+  const [agentOperationsError, setAgentOperationsError] = useState('');
+  const [agentOperationsBusy, setAgentOperationsBusy] = useState('');
+  const [selectedAgentSessionId, setSelectedAgentSessionId] = useState('');
+  const [agentSessionDetail, setAgentSessionDetail] = useState<AgentSessionDetail | null>(null);
+  const [agentSessionLoading, setAgentSessionLoading] = useState(false);
+  const [agentSessionMessageBusy, setAgentSessionMessageBusy] = useState(false);
   const [settings, setSettings] = useState<DesktopSettingsState>({ apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app', hasApiToken: false, theme: 'default', authProfile: null, uiPreferences: DEFAULT_UI_PREFERENCES });
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -1023,12 +1045,35 @@ export function App() {
   const approvedRunIdsRef = useRef<Set<string>>(new Set());
 
   const baseTasks = state.tasks;
-  const tasks = useMemo(() => [...baseTasks], [baseTasks]);
+  const agentCalendarTasks = useMemo(() => {
+    const missionTitles = new Map(agentOperations.missions.map((mission) => [mission.id, mission.title]));
+    return agentOperations.tasks.map((task): Item => ({
+      ...agentTaskCalendarRecord(task),
+      agentMissionTitle: missionTitles.get(task.missionId) || '',
+    }));
+  }, [agentOperations.missions, agentOperations.tasks]);
+  const tasks = useMemo(() => {
+    const agentTaskIds = new Set(agentCalendarTasks.map((task) => text(task.id)));
+    return [
+      ...baseTasks.filter((task) => !agentTaskIds.has(text(task.id))),
+      ...agentCalendarTasks,
+    ];
+  }, [agentCalendarTasks, baseTasks]);
   const events = useMemo(() => [
     ...state.events
       .map((event) => ({ ...event, kind: 'calendar-event' })),
   ], [state.events]);
   const agents = useMemo(() => mergeAgentsWithProfileReadiness(state.agents, state.profileReadiness), [state.agents, state.profileReadiness]);
+  const agentRoster = useMemo<AgentRosterEntry[]>(() => agents.map((agent, index) => ({
+    id: itemId(agent, `agent-${index}`),
+    displayName: agentDisplayName(agent),
+    status: agentStatusLabel(agent),
+    model: text(agent.model, 'Recommended'),
+    role: text(agent.role || agent.persona),
+    provider: text(agent.provider || agent.runtime || agent.source, '연결 정보 없음'),
+    trustLevel: text(agent.trustLevel || agent.trust, '확인 필요'),
+    allowedTaskClasses: stringList(agent, 'allowedTaskClasses'),
+  })), [agents]);
   const runs = state.runs;
   const selectedRun = runs.find((run, index) => itemId(run, `run-${index}`) === selectedRunId) || runs[0];
   const accountName = settings.authProfile?.name || 'Yunseo';
@@ -1139,6 +1184,7 @@ export function App() {
     const blocking = options.blocking ?? !hasHydratedRef.current;
     if (blocking) setLoading(true);
     setApiError('');
+    setAgentOperationsError('');
     try {
       const optionalRequest = (label: string, request: Promise<ApiEnvelope>, fallback: ApiEnvelope = {}, options: { quiet?: boolean } = {}) => request.catch((error) => {
         if (!options.quiet) setApiError(error instanceof Error ? error.message : `${label} 불러오기 실패`);
@@ -1157,7 +1203,13 @@ export function App() {
       const toolsRequest = optionalRequest('도구', hermesApi.getTools());
       const channelsRequest = optionalRequest('채널', hermesApi.getChannels());
       const chatRequest = optionalRequest('채팅', hermesApi.getChatMessages());
-      const [dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, usage, tools, settingsPayload, channels, documentsPayload, chatPayload] = await Promise.all([
+      const agentOperationsRequest = hermesApi.getAgentOperations()
+        .then(parseAgentOperationsEnvelope)
+        .catch((error) => {
+          setAgentOperationsError(error instanceof Error ? error.message : 'Agent Operations 불러오기 실패');
+          return agentOperations;
+        });
+      const [dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, usage, tools, settingsPayload, channels, documentsPayload, chatPayload, nextAgentOperations] = await Promise.all([
         dashboardRequest,
         tasksRequest,
         eventsRequest,
@@ -1171,6 +1223,7 @@ export function App() {
         channelsRequest,
         documentsRequest,
         chatRequest,
+        agentOperationsRequest,
       ]);
       const rawTasks = arr(tasksPayload, 'tasks');
       const taxonomyRecords = rawTasks.filter(isTaxonomyRecord);
@@ -1211,6 +1264,7 @@ export function App() {
         profileReadiness: obj(dashboard, 'profileReadiness'),
         agentSourceStatus: obj(dashboard, 'agentSourceStatus'),
       });
+      setAgentOperations(nextAgentOperations);
       setPrefs(settingsPreferences(settingsPayload));
       setSettings((current) => ({ ...current, uiPreferences: settingsPreferences(settingsPayload) }));
       if (remoteChat.length) {
@@ -1647,6 +1701,11 @@ export function App() {
   }
 
   function openTask(task: Item) {
+    const sessionId = text(task.sessionId);
+    if (text(task.origin) === 'agent' && sessionId) {
+      void openAgentSession(sessionId);
+      return;
+    }
     setSelectedTaskId(itemId(task, ''));
     setModal('task');
   }
@@ -1706,6 +1765,100 @@ export function App() {
       }
       setApiError(error instanceof Error ? error.message : '미션 실행 실패');
     }
+  }
+
+  async function runAgentOperation(busyKey: string, operation: () => Promise<unknown>) {
+    setAgentOperationsBusy(busyKey);
+    setAgentOperationsError('');
+    try {
+      await operation();
+      await hydrate({ blocking: false });
+    } catch (error) {
+      setAgentOperationsError(error instanceof Error ? error.message : 'Agent Operations 요청 실패');
+    } finally {
+      setAgentOperationsBusy('');
+    }
+  }
+
+  async function openAgentSession(sessionId: string) {
+    if (!sessionId) return;
+    setSelectedAgentSessionId(sessionId);
+    setAgentSessionDetail((current) => current?.id === sessionId ? current : null);
+    setAgentSessionLoading(true);
+    setAgentOperationsError('');
+    try {
+      const detail = parseAgentSessionEnvelope(await hermesApi.getAgentSession(sessionId));
+      if (!detail) throw new Error('Task Session 응답이 비어 있습니다.');
+      setAgentSessionDetail(detail);
+    } catch (error) {
+      setAgentOperationsError(error instanceof Error ? error.message : 'Task Session 불러오기 실패');
+    } finally {
+      setAgentSessionLoading(false);
+    }
+  }
+
+  async function sendAgentSessionMessage(message: string) {
+    if (!selectedAgentSessionId) return false;
+    setAgentSessionMessageBusy(true);
+    setAgentOperationsError('');
+    try {
+      await hermesApi.sendAgentSessionMessage(selectedAgentSessionId, message);
+      await Promise.all([
+        hydrate({ blocking: false }),
+        openAgentSession(selectedAgentSessionId),
+      ]);
+      return true;
+    } catch (error) {
+      setAgentOperationsError(error instanceof Error ? error.message : 'Task Session 메시지 전송 실패');
+      return false;
+    } finally {
+      setAgentSessionMessageBusy(false);
+    }
+  }
+
+  function closeAgentSession() {
+    setSelectedAgentSessionId('');
+    setAgentSessionDetail(null);
+  }
+
+  async function createAgentMission() {
+    await runAgentOperation('create', () => hermesApi.createAgentMission({
+      templateId: 'weekly-opportunity-brief',
+    }));
+  }
+
+  async function planAgentMission(missionId: string) {
+    await runAgentOperation(missionId, () => hermesApi.planAgentMission(missionId));
+  }
+
+  async function approveAgentMissionPlan(missionId: string) {
+    await runAgentOperation(missionId, async () => {
+      const proposedTasks = agentOperations.tasks.filter((task) => (
+        task.missionId === missionId && task.status === 'proposed'
+      ));
+      await Promise.all(proposedTasks.map((task) => hermesApi.transitionAgentTask(task.id, 'approve')));
+      return hermesApi.activateAgentMission(missionId);
+    });
+  }
+
+  async function transitionAgentOperationTask(taskId: string, action: AgentTaskAction) {
+    await runAgentOperation(taskId, () => hermesApi.transitionAgentTask(taskId, action));
+    const selectedTask = agentOperations.tasks.find((task) => task.id === taskId);
+    if (selectedTask?.sessionId === selectedAgentSessionId) {
+      await openAgentSession(selectedAgentSessionId);
+    }
+  }
+
+  async function transitionAgentMissionWork(missionId: string, action: 'pause' | 'cancel') {
+    await runAgentOperation(missionId, () => hermesApi.transitionAgentMission(missionId, action));
+  }
+
+  async function recordAgentReportFeedback(reportId: string, useful: boolean) {
+    await runAgentOperation(reportId, () => hermesApi.recordAgentReportFeedback(reportId, useful));
+  }
+
+  async function recordAgentFollowUpDecision(reportId: string, index: number, decision: 'approved' | 'rejected') {
+    await runAgentOperation(reportId, () => hermesApi.recordAgentFollowUpDecision(reportId, index, decision));
   }
 
   async function createAgent() {
@@ -2376,6 +2529,12 @@ export function App() {
   }, [activeNavKey, query, screen, tasks, taxonomy]);
   const scheduledTaskItems = filteredTasks.filter((task) => text(task.date || task.startDate || task.day));
   const selectedTask = [...tasks, ...events].find((task, index) => itemId(task, `task-${index}`) === selectedTaskId);
+  const selectedAgentSessionTask = agentSessionDetail
+    ? agentOperations.tasks.find((task) => task.id === agentSessionDetail.taskId)
+    : undefined;
+  const selectedAgentSessionMission = agentSessionDetail
+    ? agentOperations.missions.find((mission) => mission.id === agentSessionDetail.missionId)
+    : undefined;
   const countForNav = (item: NavItem) => {
     const key = item.navKey || item.id;
     const end = addDaysKey(todayKey(), 7);
@@ -2537,7 +2696,7 @@ export function App() {
             {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} />}
             {screen === 'diary' && <DiaryScreen docs={diaryDocs} diaryText={diaryText} setDiaryText={setDiaryText} diaryMood={diaryMood} setDiaryMood={setDiaryMood} saveDiary={saveDiary} />}
             {screen === 'search' && <SearchScreen query={query} setQuery={setQuery} tasks={tasks} docs={docs} openTask={openTask} openDoc={openDoc} />}
-            {screen === 'agents' && <AgentsScreen agents={agents} runs={runs} missionText={missionText} setMissionText={setMissionText} selectedAgentId={selectedAgentId} setSelectedAgentId={setSelectedAgentId} startPlan={() => startPlan(missionText)} openModal={setModal} openRun={openRun} />}
+            {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} error={agentOperationsError} busy={agentOperationsBusy} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
             {screen === 'widgets' && <WidgetsScreen tasks={tasks} events={events} runs={runs} />}
             {screen === 'settings' && <SettingsScreen settings={settings} setSettings={setSettings} refresh={hydrate} />}
             {screen === 'login' && <LoginScreen email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} authenticateWithPassword={authenticateWithPassword} />}
@@ -2549,6 +2708,32 @@ export function App() {
         <ChatIcon />
       </button>
       {completionNotice && <CompletionToast title={completionNotice.title} undo={undoCompletion} close={() => setCompletionNotice(null)} />}
+      {selectedAgentSessionId && !agentSessionDetail && (
+        <div className="task-session-backdrop">
+          <section className="task-session-status" role="dialog" aria-modal="true" aria-label="Task Session 상태">
+            <strong>{agentSessionLoading ? 'Task Session을 불러오는 중' : 'Task Session을 열지 못했습니다.'}</strong>
+            {!agentSessionLoading && <p>{agentOperationsError}</p>}
+            <div>
+              {!agentSessionLoading && <button onClick={() => void openAgentSession(selectedAgentSessionId)}>다시 시도</button>}
+              <button onClick={closeAgentSession}>닫기</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {agentSessionDetail && (
+        <TaskSessionPanel
+          detail={agentSessionDetail}
+          sessions={agentOperations.sessions}
+          task={selectedAgentSessionTask}
+          mission={selectedAgentSessionMission}
+          busy={agentOperationsBusy}
+          sending={agentSessionMessageBusy || agentSessionLoading}
+          onClose={closeAgentSession}
+          onOpenSession={(sessionId) => void openAgentSession(sessionId)}
+          onSendMessage={sendAgentSessionMessage}
+          onTaskAction={transitionAgentOperationTask}
+        />
+      )}
       {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} attachment={chatAttachment} setAttachment={setChatAttachment} send={sendChat} runs={runs} setChip={setChatInput} close={() => setChatOpen(false)} openRun={openRun} registerDrafts={registerScheduleDrafts} />}
       {modal === 'taxonomy' && taxonomyForm && <TaxonomyModal form={taxonomyForm} name={taxonomyName} setName={setTaxonomyName} groupName={taxonomyGroupName} setGroupName={setTaxonomyGroupName} icon={taxonomyIcon} setIcon={setTaxonomyIcon} close={() => { setTaxonomyForm(null); setModal(null); }} submit={() => void createTaxonomy()} />}
       <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} approveRun={approveRun} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
@@ -2709,10 +2894,16 @@ function WidgetsScreen({ tasks, events, runs }: { tasks: Item[]; events: Item[];
 function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patchTask, patchCalendarEvent, calView, setCalView, calDate, setCalDate, placingTaskId, setPlacingTaskId }: { tasks: Item[]; events: Item[]; openNewTask: (date?: string, time?: string) => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; patchTask: (task: Item, patch: Item) => void; patchCalendarEvent: (task: Item, patch: Item) => void; calView: 'month' | 'week' | 'day'; setCalView: (view: 'month' | 'week' | 'day') => void; calDate: string; setCalDate: (date: string) => void; placingTaskId: string; setPlacingTaskId: (id: string) => void }) {
   const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
   const [draggingItem, setDraggingItem] = useState<Item | null>(null);
-  const calendarItems: Item[] = [
+  const [ownerView, setOwnerView] = useState<'me' | 'agents' | 'combined'>('combined');
+  const allCalendarItems: Item[] = [
     ...events.map((event) => ({ ...event, kind: 'calendar-event', type: 'calendar-event' })),
     ...tasks.map((task) => ({ ...task, kind: text(task.kind || 'scheduled-task') })),
   ];
+  const calendarItems = allCalendarItems.filter((item) => {
+    if (ownerView === 'combined') return true;
+    const isAgentTask = text(item.origin) === 'agent';
+    return ownerView === 'agents' ? isAgentTask : !isAgentTask;
+  });
   const itemStartDate = (item: Item) => text(item.date || item.startDate || item.day);
   const itemEndDate = (item: Item, start: string) => {
     const raw = text(item.endDate || item.until || item.end);
@@ -2742,6 +2933,8 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     isRangePill(item) ? 'range-pill' : '',
     isRangePill(item) && text(item._calendarDate) === text(item._rangeStart) ? 'range-start' : '',
     isRangePill(item) && text(item._calendarDate) === text(item._rangeEnd) ? 'range-end' : '',
+    text(item.origin) === 'agent' ? 'agent-task-pill' : '',
+    text(item.origin) === 'agent' && text(item.agentTaskState) ? `agent-task-${text(item.agentTaskState)}` : '',
   ].filter(Boolean).join(' ');
   const calendarPillContent = (item: Item, fallback: string) => {
     const range = isRangePill(item);
@@ -2751,8 +2944,19 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     const timeValue = range && rangeEnd ? text(endTime || item.time || item.t) : text(item.time || item.t);
     const showTitle = !range || rangeStart;
     const showTime = !!timeValue && (!range || rangeEnd);
-    return <><span>{showTitle ? itemTitle(item, fallback) : '\u00A0'}</span>{showTime && <b>{formatTime(timeValue)}</b>}</>;
+    const agentLabel = text(item.agentTaskLabel);
+    const visibleAgentLabel = [agentLabel, text(item.agent)].filter(Boolean).join(' · ');
+    return <><span>{showTitle ? itemTitle(item, fallback) : '\u00A0'}</span>{showTitle && visibleAgentLabel && <i>{visibleAgentLabel}</i>}{showTime && <b>{formatTime(timeValue)}</b>}</>;
   };
+  const calendarItemDescription = (item: Item) => [
+    itemTitle(item, '에이전트 작업'),
+    text(item.agentTaskLabel),
+    text(item.agent) && `담당 ${text(item.agent)}`,
+    text(item.agentMissionTitle) && `미션 ${text(item.agentMissionTitle)}`,
+    text(item.expectedOutput) && `기대 결과 ${text(item.expectedOutput)}`,
+    text(item.dueAt) && `마감 ${text(item.dueAt)}`,
+    text(item.blockedReason) && `차단 원인 ${text(item.blockedReason)}`,
+  ].filter(Boolean).join(' · ');
   const patchDraggedItem = (item: Item, targetDate: string, targetTime?: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return;
     const originalStart = itemStartDate(item) || targetDate;
@@ -2825,19 +3029,19 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
   });
   const allDayItems = dayItems.filter((item) => !text(item.time));
   return <div className="calendar screen-in" data-dragging={!!draggingItem}>
-    <div className="screen-toolbar"><h2>{label}</h2><Legend /><Segment items={['월', '주', '일']} active={calView} setActive={(value) => setCalView(value as 'month' | 'week' | 'day')} values={['month', 'week', 'day']} /><button onClick={() => { setCalDate(todayKey()); setPlacingTaskId(''); }}>오늘</button><button onClick={() => shiftCalendar(-1)}>‹</button><button onClick={() => shiftCalendar(1)}>›</button></div>
+    <div className="screen-toolbar"><h2>{label}</h2><Legend /><div className="agent-calendar-filter" aria-label="캘린더 담당자 필터"><Segment items={['나', '에이전트', '전체']} active={ownerView} setActive={(value) => setOwnerView(value as 'me' | 'agents' | 'combined')} values={['me', 'agents', 'combined']} /></div><Segment items={['월', '주', '일']} active={calView} setActive={(value) => setCalView(value as 'month' | 'week' | 'day')} values={['month', 'week', 'day']} /><button onClick={() => { setCalDate(todayKey()); setPlacingTaskId(''); }}>오늘</button><button onClick={() => shiftCalendar(-1)}>‹</button><button onClick={() => shiftCalendar(1)}>›</button></div>
     {calView === 'month' && <div className="month-grid">
       {weekdays.map((day) => <div className="weekday" key={day}>{day}</div>)}
       {cells.map((cell) => <button className="day-cell" data-date={cell.date} data-muted={!cell.inMonth} data-today={cell.today} data-selected={cell.selected} key={cell.date} onDragOver={allowCalendarDrop} onDrop={(event) => dropOnCalendar(event, cell.date)} onClick={() => openNewTask(cell.date)}>
         <strong onClick={(event) => { event.stopPropagation(); setCalDate(cell.date); setCalView('day'); }}>{cell.day}</strong>
-        {cell.items.map((item, index) => <span className={`event-pill ${calendarItemClass(item)}`} draggable key={`${cell.day}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}>{calendarPillContent(item, isCalendarEventRecord(item) ? '일정' : '작업')}</span>)}
+        {cell.items.map((item, index) => <span className={`event-pill ${calendarItemClass(item)}`} draggable={text(item.origin) !== 'agent'} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${cell.day}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}>{calendarPillContent(item, isCalendarEventRecord(item) ? '일정' : '작업')}</span>)}
       </button>)}
     </div>}
     {calView === 'week' && <div className="week-grid">
       {weekCells.map((cell) => <section className="week-col" data-today={cell.today} data-selected={cell.selected} key={cell.date}>
         <button className="week-head" onClick={() => { setCalDate(cell.date); setCalView('day'); }}><span>{cell.weekday}</span><strong>{cell.day}</strong></button>
         <div className="week-events" onDragOver={allowCalendarDrop} onDrop={(event) => dropOnCalendar(event, cell.date)} onClick={() => openNewTask(cell.date)}>
-          {cell.items.map((item, index) => <button className={`week-event ${calendarItemClass(item)}`} draggable key={`${cell.date}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><small>{text(item.time || item.t, index % 2 ? '오후 2:00' : '오전 9:00')}</small>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</button>)}
+          {cell.items.map((item, index) => <button className={`week-event ${calendarItemClass(item)}`} draggable={text(item.origin) !== 'agent'} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${cell.date}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><small>{[text(item.agentTaskLabel), text(item.agent), text(item.time || item.t, index % 2 ? '오후 2:00' : '오전 9:00')].filter(Boolean).join(' · ')}</small>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</button>)}
         </div>
       </section>)}
     </div>}
@@ -2852,7 +3056,7 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
           }
         }}>
           <span>{formatTime(row.time).replace(':00', '시')}</span>
-          <div>{row.items.map((item, index) => <em className={calendarItemClass(item)} draggable key={`${row.time}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><b>{formatTime(text(item.time || item.t, row.time))}</b> {itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</em>)}</div>
+          <div>{row.items.map((item, index) => <em className={calendarItemClass(item)} draggable={text(item.origin) !== 'agent'} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${row.time}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><b>{formatTime(text(item.time || item.t, row.time))}</b> {itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}{text(item.agentTaskLabel) && <small> · {text(item.agentTaskLabel)} · {text(item.agent)}</small>}</em>)}</div>
         </button>)}
       </div>
       <aside className="day-side">

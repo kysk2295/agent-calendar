@@ -37,7 +37,11 @@
 - `apps/backend/app/lib/agent-operations-domain.js`: mission template, autonomy validation, plan parsing, state transitions, session-event redaction, report validation.
 - `apps/backend/app/lib/agent-operations-service.js`: use cases for mission creation, planning, task approval, session messaging, report feedback, and task execution.
 - `apps/backend/app/lib/agent-operations-api.js`: maps `/api/agent-operations/**` requests to service methods and returns `{ status, body }` responses.
+- `apps/backend/app/lib/agent-operations-planner.js`: invokes the bounded Hermes planner and creates proposed Agent Tasks and sessions.
 - `apps/backend/app/lib/agent-operations-scheduler.js`: due-task selection, Relay dispatch, task/session/report reconciliation, daemon tick.
+- `apps/backend/app/lib/agent-operations-execution.js`: validates structured task execution and evidence-backed report completions.
+- `apps/backend/app/lib/agent-operations-interventions.js`: persists session messages and truthful task pause/cancel/retry semantics.
+- `apps/backend/app/lib/agent-report-delivery.js`: formats minimized Telegram report summaries and delivery outcomes.
 - `apps/backend/app/lib/relay-chat-completion.js`: reusable non-streaming Relay completion with event callback.
 - `apps/backend/app/db/migrations/0005_agent_operations.sql`: durable mission, session, session-event, and report tables plus task relationship columns.
 - `apps/backend/tests/agent-operations.test.cjs`: domain, store restart, Relay planner, API, scheduler, Telegram, and failure contracts.
@@ -54,7 +58,11 @@
 
 - `apps/desktop/src/features/agent-operations/types.ts`: strict mission, task, session, event, report, and envelope types.
 - `apps/desktop/src/features/agent-operations/agentOperations.ts`: state labels, calendar appearance, grouping, and API-envelope parsing.
+- `apps/desktop/src/features/agent-operations/agentReportParser.ts`: strict evidence, follow-up decision, and report-envelope parsing.
+- `apps/desktop/src/features/agent-operations/agentTaskAppearance.ts`: shared Agent Task status labels and calendar appearance mapping.
+- `apps/desktop/src/features/agent-operations/sessionSanitizer.ts`: renderer defense-in-depth redaction for session text and metadata.
 - `apps/desktop/src/features/agent-operations/AgentOperationsScreen.tsx`: Missions, Agents, and Reports workspace tabs.
+- `apps/desktop/src/features/agent-operations/AgentOperationViews.tsx`: mission contract, task rows, evidence reports, and follow-up controls.
 - `apps/desktop/src/features/agent-operations/TaskSessionPanel.tsx`: Codex-like session list, transcript, contract panel, and intervention controls.
 - `apps/desktop/src/features/agent-operations/agent-operations.css`: feature-scoped visual states and responsive layout.
 - `apps/desktop/tests/playwright-agent-operations-mission.cjs`: mission creation, plan approval, and calendar rendering.
@@ -89,7 +97,7 @@
 - Create: `apps/backend/app/lib/agent-operations-domain.js`
 - Create: `apps/backend/tests/agent-operations.test.cjs`
 
-- [ ] **Step 1: Write failing domain tests**
+- [x] **Step 1: Write failing domain tests**
 
 Add tests with explicit Given/When/Then blocks:
 
@@ -150,7 +158,7 @@ test('redacts secrets and private paths from task session events', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and confirm RED**
+- [x] **Step 2: Run tests and confirm RED**
 
 Run:
 
@@ -160,7 +168,7 @@ node --test apps/backend/tests/agent-operations.test.cjs
 
 Expected: FAIL because `agent-operations-domain.js` does not exist.
 
-- [ ] **Step 3: Implement the pure domain module**
+- [x] **Step 3: Implement the pure domain module**
 
 Export these exact functions and constants:
 
@@ -278,7 +286,7 @@ const TASK_ACTIONS = {
 };
 ```
 
-- [ ] **Step 4: Run domain tests and confirm GREEN**
+- [x] **Step 4: Run domain tests and confirm GREEN**
 
 Run:
 
@@ -288,7 +296,7 @@ node --test apps/backend/tests/agent-operations.test.cjs
 
 Expected: all Task 1 tests PASS.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```bash
 git add apps/backend/app/lib/agent-operations-domain.js apps/backend/tests/agent-operations.test.cjs
@@ -303,7 +311,7 @@ git commit -m "feat: define personal agent operation contracts"
 - Modify: `apps/backend/app/lib/postgres-store.js`
 - Modify: `apps/backend/tests/agent-operations.test.cjs`
 
-- [ ] **Step 1: Add a failing restart-persistence test**
+- [x] **Step 1: Add a failing restart-persistence test**
 
 ```js
 test('persists mission task session events and report across a file store restart', async () => {
@@ -329,7 +337,7 @@ test('persists mission task session events and report across a file store restar
 });
 ```
 
-- [ ] **Step 2: Run the persistence test and confirm RED**
+- [x] **Step 2: Run the persistence test and confirm RED**
 
 Run:
 
@@ -339,7 +347,7 @@ node --test --test-name-pattern='persists mission task session' apps/backend/tes
 
 Expected: FAIL because the new store methods do not exist.
 
-- [ ] **Step 3: Add the migration**
+- [x] **Step 3: Add the migration**
 
 Create `0005_agent_operations.sql` with these tables and indexes:
 
@@ -392,7 +400,7 @@ create index if not exists agent_session_events_session_sequence_idx on agent_se
 create index if not exists agent_reports_mission_id_idx on agent_reports(mission_id);
 ```
 
-- [ ] **Step 4: Extend the file store**
+- [x] **Step 4: Extend the file store**
 
 Add `agentMissions`, `agentSessions`, `agentSessionEvents`, and `agentReports` arrays to `createDefaultState()` and `#normalizeState()`.
 
@@ -413,11 +421,11 @@ getAgentReports()
 
 Extend `createTask()` and `updateTask()` with `missionId`, `sessionId`, `origin`, `createdByAgentId`, `reason`, `expectedOutput`, `scheduledAt`, `dueAt`, `estimatedMinutes`, `actionClass`, `sourceRefs`, `approvalMode`, `pauseRequestedAt`, and `cancelRequestedAt`. Preserve existing task defaults for non-agent tasks.
 
-- [ ] **Step 5: Extend Postgres hydration and persistence**
+- [x] **Step 5: Extend Postgres hydration and persistence**
 
 Hydrate the four new tables in `#hydrateFromPostgres()` and add private upsert/insert methods. `appendAgentSessionEvent()` must insert one event row and use the sequence assigned by the file-store method. Extend `#upsertTask()` to write `mission_id` and `session_id`.
 
-- [ ] **Step 6: Run persistence and full backend tests**
+- [x] **Step 6: Run persistence and full backend tests**
 
 ```bash
 node --test apps/backend/tests/agent-operations.test.cjs
@@ -426,7 +434,7 @@ npm run test:backend
 
 Expected: agent-operation persistence tests PASS and the existing backend suite remains green.
 
-- [ ] **Step 7: Commit Task 2**
+- [x] **Step 7: Commit Task 2**
 
 ```bash
 git add apps/backend/app/db/migrations/0005_agent_operations.sql apps/backend/app/lib/store.js apps/backend/app/lib/postgres-store.js apps/backend/tests/agent-operations.test.cjs
@@ -441,7 +449,7 @@ git commit -m "feat: persist agent missions and task sessions"
 - Modify: `apps/backend/app/railway-gateway-server.js`
 - Modify: `apps/backend/tests/agent-operations.test.cjs`
 
-- [ ] **Step 1: Write failing API tests for list, create, action, session, and feedback**
+- [x] **Step 1: Write failing API tests for list, create, action, session, and feedback**
 
 Use an isolated `HermesStore` and the existing ephemeral server helper. Assert these exact outcomes:
 
@@ -470,7 +478,7 @@ const feedbackResponse = await fetch(`${baseUrl}/api/agent-operations/reports/re
 assert.equal((await feedbackResponse.json()).report.useful, true);
 ```
 
-- [ ] **Step 2: Run the API tests and confirm RED**
+- [x] **Step 2: Run the API tests and confirm RED**
 
 ```bash
 node --test --test-name-pattern='agent operations API' apps/backend/tests/agent-operations.test.cjs
@@ -478,7 +486,7 @@ node --test --test-name-pattern='agent operations API' apps/backend/tests/agent-
 
 Expected: FAIL with HTTP 404.
 
-- [ ] **Step 3: Implement service methods with injected dependencies**
+- [x] **Step 3: Implement service methods with injected dependencies**
 
 Implement `AgentOperationsService` with constructor dependencies `store`, `clock`, `planCompletion`, `taskCompletion`, `sendTelegram`, and later `scheduler`. Its public methods are `listState`, `createMission`, `planMission`, `activateMission`, `transitionTask`, `getSession`, `addSessionMessage`, `recordReportFeedback`, and `tick`.
 
@@ -493,7 +501,7 @@ At this step, use these exact data paths:
 
 At this task, `planMission()`, `addSessionMessage()`, and `tick()` return status `503` through the API when their injected runtime dependencies are absent. They must not create fake tasks, messages, or reports.
 
-- [ ] **Step 4: Implement the API router**
+- [x] **Step 4: Implement the API router**
 
 Export `routeAgentOperations({ method, pathSegments, body, service })`. Normalize a leading `api` segment, return `null` unless the first normalized segment is `agent-operations`, and map every route in the API Contract table to the corresponding service method. Return `201` for mission creation, `200` for successful reads or commands, `404` for missing mission/task/session/report IDs, `409` for invalid state transitions, `422` for invalid plans or payloads, and `503` for absent Relay/scheduler dependencies. Every handled response body includes `ok`; error bodies also include a stable `error` code and user-safe `message`.
 
@@ -509,7 +517,7 @@ if (agentOperationsResponse) {
 
 Extend `createRailwayGatewayServer()` with an optional `agentOperationsService` injection and construct the default service from `gatewayStore`.
 
-- [ ] **Step 5: Run API and release-blocker tests**
+- [x] **Step 5: Run API and release-blocker tests**
 
 ```bash
 node --test apps/backend/tests/agent-operations.test.cjs
@@ -518,7 +526,7 @@ node --test apps/backend/tests/release-blockers.test.cjs
 
 Expected: all tests PASS; existing caller and relay authorization contracts remain unchanged.
 
-- [ ] **Step 6: Commit Task 3**
+- [x] **Step 6: Commit Task 3**
 
 ```bash
 git add apps/backend/app/lib/agent-operations-service.js apps/backend/app/lib/agent-operations-api.js apps/backend/app/railway-gateway-server.js apps/backend/tests/agent-operations.test.cjs
@@ -533,7 +541,7 @@ git commit -m "feat: expose personal agent operation APIs"
 - Modify: `apps/backend/app/railway-gateway-server.js`
 - Modify: `apps/backend/tests/agent-operations.test.cjs`
 
-- [ ] **Step 1: Write failing Relay planner tests**
+- [x] **Step 1: Write failing Relay planner tests**
 
 Create a fake Relay that yields `delta`, `tool-activity`, and `bridge-complete` events. Assert that:
 
@@ -551,7 +559,7 @@ assert.equal(observed.some((event) => event.kind === 'tool_activity'), true);
 
 Add an API test where `POST /api/agent-operations/missions/:id/plan` receives valid plan JSON from the fake completion and persists two to five tasks plus one Task Session per task. Add a failure test where malformed JSON returns `422 plan_invalid`, appends an error event to the planning session, and persists zero Agent Tasks.
 
-- [ ] **Step 2: Run planner tests and confirm RED**
+- [x] **Step 2: Run planner tests and confirm RED**
 
 ```bash
 node --test --test-name-pattern='Relay planner|plans a mission' apps/backend/tests/agent-operations.test.cjs
@@ -559,13 +567,13 @@ node --test --test-name-pattern='Relay planner|plans a mission' apps/backend/tes
 
 Expected: FAIL because `relay-chat-completion.js` does not exist and `planMission()` returns 503.
 
-- [ ] **Step 3: Extract the reusable Relay completion**
+- [x] **Step 3: Extract the reusable Relay completion**
 
 Move the non-streaming logic currently owned by `runRailwayRelayChatCompletion()` into the new module as `runRelayChatCompletion({ relay, env, payload, meta, onEvent, timeoutMs })`. It must reject with `runtime_unavailable` before enqueue when Relay is disabled or the bridge is offline, enqueue exactly one `chat.completions` job, poll from cursor `0`, retain every Relay record, convert records to sanitized `tool_activity`, `progress`, `error`, or `agent_message` events before calling `onEvent`, concatenate streamed text in order, and return `{ text, jobId, events }` only when `batch.complete` is true. On bridge `error` or timeout, throw an error carrying both `code` and `jobId`; call `relay.fail()` exactly once on timeout.
 
 Keep the existing schedule assistant and wiki behavior by importing this helper back into `railway-gateway-server.js`.
 
-- [ ] **Step 4: Implement mission planning**
+- [x] **Step 4: Implement mission planning**
 
 `planMission()` must:
 
@@ -581,7 +589,7 @@ Keep the existing schedule assistant and wiki behavior by importing this helper 
 
 Do not create tasks when Relay is offline, times out, or returns invalid JSON.
 
-- [ ] **Step 5: Run focused and full backend tests**
+- [x] **Step 5: Run focused and full backend tests**
 
 ```bash
 node --test apps/backend/tests/agent-operations.test.cjs
@@ -591,7 +599,7 @@ npm run backend:check
 
 Expected: planner, existing schedule assistant, wiki, relay, and syntax gates PASS.
 
-- [ ] **Step 6: Commit Task 4**
+- [x] **Step 6: Commit Task 4**
 
 ```bash
 git add apps/backend/app/lib/relay-chat-completion.js apps/backend/app/lib/agent-operations-service.js apps/backend/app/railway-gateway-server.js apps/backend/tests/agent-operations.test.cjs
@@ -606,7 +614,7 @@ git commit -m "feat: let Hermes plan bounded mission work"
 - Modify: `apps/backend/app/railway-gateway-server.js`
 - Modify: `apps/backend/tests/agent-operations.test.cjs`
 
-- [ ] **Step 1: Write failing scheduler tests with an injected clock**
+- [x] **Step 1: Write failing scheduler tests with an injected clock**
 
 Cover these deterministic cases:
 
@@ -633,7 +641,7 @@ test('tick marks due work blocked while the relay is offline without creating a 
 
 Also test idempotency: running the same tick twice cannot execute a completed task twice.
 
-- [ ] **Step 2: Run scheduler tests and confirm RED**
+- [x] **Step 2: Run scheduler tests and confirm RED**
 
 ```bash
 node --test --test-name-pattern='tick executes|tick marks|idempot' apps/backend/tests/agent-operations.test.cjs
@@ -641,7 +649,7 @@ node --test --test-name-pattern='tick executes|tick marks|idempot' apps/backend/
 
 Expected: FAIL because `AgentOperationsScheduler` does not exist.
 
-- [ ] **Step 3: Implement the scheduler**
+- [x] **Step 3: Implement the scheduler**
 
 Implement `AgentOperationsScheduler({ store, clock, executeCompletion, sendTelegram })`. `tick()` initializes `{ checkedAt, startedTaskIds: [], completedTaskIds: [], blockedTaskIds: [], createdReportIds: [] }`, selects only `scheduled` tasks whose `scheduledAt <= checkedAt` and whose mission is `active`, processes them in `scheduledAt` then `id` order, and returns those arrays. A task ID is added to `startedTaskIds` only after the persisted reservation succeeds, to `completedTaskIds` only after a non-empty safe completion is persisted, and to `blockedTaskIds` only after the blocked state and error event are persisted. Report IDs are appended after `createAgentReport()` succeeds.
 
@@ -657,13 +665,13 @@ For each due `scheduled` task:
 - when `actionClass === 'report'`, parse `validateReport()` JSON and create an Agent Report;
 - use `task.id` as the idempotency key in Relay meta.
 
-- [ ] **Step 4: Wire manual and automatic ticks**
+- [x] **Step 4: Wire manual and automatic ticks**
 
 `POST /api/agent-operations/tick` calls the same scheduler instance.
 
 Use the existing `SchedulerDaemon` with `AGENT_OPERATIONS_DAEMON_ENABLED=true` and `AGENT_OPERATIONS_TICK_MS=60000`. Start it only after the Postgres store is ready and stop it on server close. Tests leave the env variable unset so they never start timers.
 
-- [ ] **Step 5: Run scheduler, release-blocker, and full backend tests**
+- [x] **Step 5: Run scheduler, release-blocker, and full backend tests**
 
 ```bash
 node --test apps/backend/tests/agent-operations.test.cjs
@@ -673,7 +681,7 @@ npm run test:backend
 
 Expected: all tests PASS, including the existing orphaned-run restart contract.
 
-- [ ] **Step 6: Commit Task 5**
+- [x] **Step 6: Commit Task 5**
 
 ```bash
 git add apps/backend/app/lib/agent-operations-scheduler.js apps/backend/app/lib/agent-operations-service.js apps/backend/app/railway-gateway-server.js apps/backend/tests/agent-operations.test.cjs
@@ -687,7 +695,7 @@ git commit -m "feat: schedule and report autonomous agent work"
 - Modify: `apps/backend/app/lib/agent-operations-api.js`
 - Modify: `apps/backend/tests/agent-operations.test.cjs`
 
-- [ ] **Step 1: Write failing session-intervention tests**
+- [x] **Step 1: Write failing session-intervention tests**
 
 Cover one idle continuation and one in-flight instruction:
 
@@ -709,7 +717,7 @@ assert.equal(paused.task.pauseMode, 'next_checkpoint');
 
 Assert that reload returns the user message, queued instruction, and pause event in the same sequence order. Assert that retry from `failed` creates a new run attempt in the existing Task Session rather than a new session.
 
-- [ ] **Step 2: Run session tests and confirm RED**
+- [x] **Step 2: Run session tests and confirm RED**
 
 ```bash
 node --test --test-name-pattern='session intervention|pause request|retry' apps/backend/tests/agent-operations.test.cjs
@@ -717,7 +725,7 @@ node --test --test-name-pattern='session intervention|pause request|retry' apps/
 
 Expected: FAIL because message and action semantics are not implemented.
 
-- [ ] **Step 3: Implement truthful intervention semantics**
+- [x] **Step 3: Implement truthful intervention semantics**
 
 - A message on `proposed`, `scheduled`, `blocked`, `completed`, or `failed` appends `user_message` and `pendingInstructions`.
 - A message while `running` is labeled `applies_at_next_checkpoint`; it must not claim to alter the already-running process.
@@ -726,7 +734,7 @@ Expected: FAIL because message and action semantics are not implemented.
 - `retry` keeps the same session, clears the terminal error, increments `attempt`, and schedules a new completion.
 - A continuation completion includes the Mission Thread summary, prior user messages, latest assistant result, and pending instructions without including hidden chain-of-thought.
 
-- [ ] **Step 4: Run session and full backend tests**
+- [x] **Step 4: Run session and full backend tests**
 
 ```bash
 node --test apps/backend/tests/agent-operations.test.cjs
@@ -735,7 +743,7 @@ npm run test:backend
 
 Expected: all session events are ordered, persisted, redacted, and honest about checkpoint timing.
 
-- [ ] **Step 5: Commit Task 6**
+- [x] **Step 5: Commit Task 6**
 
 ```bash
 git add apps/backend/app/lib/agent-operations-service.js apps/backend/app/lib/agent-operations-api.js apps/backend/tests/agent-operations.test.cjs
@@ -749,7 +757,7 @@ git commit -m "feat: support persistent agent task conversations"
 - Modify: `apps/backend/app/lib/agent-operations-scheduler.js`
 - Modify: `apps/backend/tests/agent-operations.test.cjs`
 
-- [ ] **Step 1: Write failing Telegram delivery tests**
+- [x] **Step 1: Write failing Telegram delivery tests**
 
 ```js
 test('sends a minimized report summary to the configured personal Telegram chat', async () => {
@@ -770,7 +778,7 @@ test('sends a minimized report summary to the configured personal Telegram chat'
 
 Add failure coverage: Telegram HTTP 500 records `deliveryStatus: failed` and a session error event but does not change a completed report to failed.
 
-- [ ] **Step 2: Run Telegram tests and confirm RED**
+- [x] **Step 2: Run Telegram tests and confirm RED**
 
 ```bash
 node --test --test-name-pattern='Telegram' apps/backend/tests/agent-operations.test.cjs
@@ -778,13 +786,13 @@ node --test --test-name-pattern='Telegram' apps/backend/tests/agent-operations.t
 
 Expected: FAIL because `sendTelegramMessage()` is not exported.
 
-- [ ] **Step 3: Implement outbound delivery**
+- [x] **Step 3: Implement outbound delivery**
 
 Export `sendTelegramMessage({ botToken, chatId, text, fetchImpl = fetch })` and `formatAgentReportTelegram(report, { appUrl = '' })`. The sender validates non-empty credentials and text, posts JSON to `https://api.telegram.org/bot${botToken}/sendMessage`, throws `telegram_delivery_failed` for a non-2xx response or `{ ok: false }`, and returns the Telegram `result`. The formatter includes the report title, at most three findings, at most one limitation, and the app deep link; it never includes the evidence bundle, filesystem paths, model credentials, or Relay metadata.
 
 Use Telegram `sendMessage`, `disable_web_page_preview: true`, and plain text. Select the first configured allowed chat ID for this personal phase. Store only delivery status, Telegram message ID, and sent timestamp on the Agent Report.
 
-- [ ] **Step 4: Run focused and backend tests**
+- [x] **Step 4: Run focused and backend tests**
 
 ```bash
 node --test apps/backend/tests/agent-operations.test.cjs
@@ -793,7 +801,7 @@ npm run test:backend
 
 Expected: success and failure paths PASS without exposing full private evidence.
 
-- [ ] **Step 5: Commit Task 7**
+- [x] **Step 5: Commit Task 7**
 
 ```bash
 git add apps/backend/app/lib/connectors/telegram.js apps/backend/app/lib/agent-operations-scheduler.js apps/backend/tests/agent-operations.test.cjs
@@ -809,7 +817,7 @@ git commit -m "feat: deliver agent reports to Telegram"
 - Modify: `apps/desktop/src/App.tsx`
 - Create: `apps/desktop/tests/playwright-agent-operations-mission.cjs`
 
-- [ ] **Step 1: Write the failing Playwright hydration contract**
+- [x] **Step 1: Write the failing Playwright hydration contract**
 
 Mock `GET /api/agent-operations` with one mission, three agent tasks, sessions, and one report. Navigate to Agents and assert that the page exposes `Missions`, `Agents`, and `Reports` tabs and that the calendar request data does not disappear after hydration.
 
@@ -826,7 +834,7 @@ The mock envelope is:
 }
 ```
 
-- [ ] **Step 2: Run Playwright and confirm RED**
+- [x] **Step 2: Run Playwright and confirm RED**
 
 ```bash
 HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-operations-mission.cjs
@@ -834,7 +842,7 @@ HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-op
 
 Expected: FAIL because the API is not requested and the tabs do not exist.
 
-- [ ] **Step 3: Add strict frontend types and parsers**
+- [x] **Step 3: Add strict frontend types and parsers**
 
 Define discriminated unions for mission, task, and event states. The exported types include:
 
@@ -846,13 +854,13 @@ export type AgentOperationsState = Readonly<{ missions: readonly AgentMission[];
 
 `parseAgentOperationsEnvelope()` must validate arrays and normalize unknown response values without `any`, `as any`, `@ts-ignore`, or `@ts-expect-error`.
 
-- [ ] **Step 4: Add API methods and hydrate state**
+- [x] **Step 4: Add API methods and hydrate state**
 
 Add `getAgentOperations`, `createAgentMission`, `planAgentMission`, `activateAgentMission`, `transitionAgentTask`, `getAgentSession`, `sendAgentSessionMessage`, `recordAgentReportFeedback`, and `tickAgentOperations` to `hermesApi`.
 
 Load `GET /api/agent-operations` as a non-critical hydration source so unrelated calendar/wiki screens remain usable if agent operations fail. Store its error separately and show it only inside the Agent workspace.
 
-- [ ] **Step 5: Run typecheck and the failing Playwright script**
+- [x] **Step 5: Run typecheck and the failing Playwright script**
 
 ```bash
 npm run typecheck
@@ -861,7 +869,7 @@ HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-op
 
 Expected: typecheck PASS; Playwright progresses to the still-unimplemented view assertion.
 
-- [ ] **Step 6: Commit Task 8**
+- [x] **Step 6: Commit Task 8**
 
 ```bash
 git add apps/desktop/src/features/agent-operations/types.ts apps/desktop/src/features/agent-operations/agentOperations.ts apps/desktop/src/api/hermesApi.ts apps/desktop/src/App.tsx apps/desktop/tests/playwright-agent-operations-mission.cjs
@@ -876,7 +884,7 @@ git commit -m "feat: hydrate personal agent operation state"
 - Modify: `apps/desktop/src/App.tsx`
 - Modify: `apps/desktop/tests/playwright-agent-operations-mission.cjs`
 
-- [ ] **Step 1: Extend Playwright with the full mission workflow**
+- [x] **Step 1: Extend Playwright with the full mission workflow**
 
 Assert this sequence:
 
@@ -890,7 +898,7 @@ Assert this sequence:
 8. See the mission status become active.
 9. Open Reports and see the empty first-week state without a fake report.
 
-- [ ] **Step 2: Run Playwright and confirm RED**
+- [x] **Step 2: Run Playwright and confirm RED**
 
 ```bash
 HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-operations-mission.cjs
@@ -898,7 +906,7 @@ HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-op
 
 Expected: FAIL at the missing Missions UI.
 
-- [ ] **Step 3: Build the feature screen**
+- [x] **Step 3: Build the feature screen**
 
 `AgentOperationsScreen` receives only typed data and command callbacks:
 
@@ -918,11 +926,11 @@ type AgentOperationsScreenProps = Readonly<{
 
 Keep cards at 8px radius or less, use tabs for views, icon buttons for pause/stop where appropriate, and show budget as a progress bar with exact values. Replace the current free-form mission launcher with the template and contract flow, but keep the current agent roster inside the Agents tab.
 
-- [ ] **Step 4: Add feature CSS and mount the screen**
+- [x] **Step 4: Add feature CSS and mount the screen**
 
 Import `agent-operations.css` from `App.tsx`. Do not add the feature layout to the already-large global stylesheet. Maintain the existing compact desktop shell and responsive narrow layout.
 
-- [ ] **Step 5: Run Playwright, typecheck, and desktop tests**
+- [x] **Step 5: Run Playwright, typecheck, and desktop tests**
 
 ```bash
 HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-operations-mission.cjs
@@ -932,7 +940,7 @@ npm --workspace apps/desktop run test
 
 Expected: mission workflow PASS; existing desktop contract tests remain green.
 
-- [ ] **Step 6: Commit Task 9**
+- [x] **Step 6: Commit Task 9**
 
 ```bash
 git add apps/desktop/src/features/agent-operations/AgentOperationsScreen.tsx apps/desktop/src/features/agent-operations/agent-operations.css apps/desktop/src/App.tsx apps/desktop/tests/playwright-agent-operations-mission.cjs
@@ -949,7 +957,7 @@ git commit -m "feat: add mission and report workspace"
 - Create: `apps/desktop/tests/playwright-agent-task-session.cjs`
 - Modify: `apps/desktop/tests/playwright-agent-operations-mission.cjs`
 
-- [ ] **Step 1: Write failing calendar and session Playwright scenarios**
+- [x] **Step 1: Write failing calendar and session Playwright scenarios**
 
 Calendar assertions:
 
@@ -969,7 +977,7 @@ Session assertions:
 - pause/resume labels `next checkpoint` while work is running;
 - secrets and `/Users/...` paths never appear.
 
-- [ ] **Step 2: Run both scripts and confirm RED**
+- [x] **Step 2: Run both scripts and confirm RED**
 
 ```bash
 HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-operations-mission.cjs
@@ -978,7 +986,7 @@ HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-ta
 
 Expected: FAIL on missing state styles and Task Session panel.
 
-- [ ] **Step 3: Map agent states to calendar appearance**
+- [x] **Step 3: Map agent states to calendar appearance**
 
 Export an exhaustive function:
 
@@ -999,7 +1007,7 @@ export function agentTaskAppearance(state: AgentTaskState): Readonly<{ label: st
 
 Merge Agent Tasks into the existing calendar item list without converting them to ordinary user tasks. `openTask()` must route records with `sessionId` to `openAgentSession()`.
 
-- [ ] **Step 4: Build the Task Session panel**
+- [x] **Step 4: Build the Task Session panel**
 
 The component contract is:
 
@@ -1018,7 +1026,7 @@ type TaskSessionPanelProps = Readonly<{
 
 Use the three-column desktop layout from the approved visual design, collapse to session list → transcript → details on narrow screens, and keep the input/control row fixed without covering transcript content.
 
-- [ ] **Step 5: Run UI gates and visual QA**
+- [x] **Step 5: Run UI gates and visual QA**
 
 ```bash
 HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-operations-mission.cjs
@@ -1029,7 +1037,7 @@ npm run build:desktop
 
 Then use the `omo:visual-qa` skill to capture desktop and narrow screenshots under `apps/desktop/audit/agent-operations-2026-07-13/`. Verify no overlap, blank panels, hidden transcript rows, clipped buttons, or state-induced layout shifts.
 
-- [ ] **Step 6: Commit Task 10**
+- [x] **Step 6: Commit Task 10**
 
 ```bash
 git add apps/desktop/src/features/agent-operations/TaskSessionPanel.tsx apps/desktop/src/features/agent-operations/agentOperations.ts apps/desktop/src/features/agent-operations/agent-operations.css apps/desktop/src/App.tsx apps/desktop/tests/playwright-agent-operations-mission.cjs apps/desktop/tests/playwright-agent-task-session.cjs apps/desktop/audit/agent-operations-2026-07-13
@@ -1043,7 +1051,7 @@ git commit -m "feat: visualize agent work and task sessions"
 - Modify: `docs/superpowers/plans/2026-07-13-personal-agent-operations-calendar.md` checklist and evidence section only
 - Evidence: `apps/desktop/audit/agent-operations-2026-07-13/**`
 
-- [ ] **Step 1: Expand backend syntax checks**
+- [x] **Step 1: Expand backend syntax checks**
 
 Update the backend `check` script to include:
 
@@ -1051,7 +1059,7 @@ Update the backend `check` script to include:
 "check": "node -c app/railway-gateway-server.js && node -c app/db/migrate.js && node -c app/lib/schedule-assistant.js && node -c app/lib/agent-operations-domain.js && node -c app/lib/agent-operations-service.js && node -c app/lib/agent-operations-api.js && node -c app/lib/agent-operations-scheduler.js && node -c app/lib/relay-chat-completion.js"
 ```
 
-- [ ] **Step 2: Run all local verification gates**
+- [x] **Step 2: Run all local verification gates**
 
 ```bash
 npm run backend:check

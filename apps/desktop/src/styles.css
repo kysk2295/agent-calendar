@@ -20,6 +20,10 @@
   --green: #3E9B72;
   --blue: #5C77AD;
   --lavender: #7A66A7;
+  --amber: #9A6A20;
+  --amber-soft: #F5E9CF;
+  --red: #B55245;
+  --red-soft: #F6E3DF;
   font-family: 'Pretendard', 'Pretendard Variable', -apple-system, system-ui, sans-serif;
   font-feature-settings: 'cv01', 'ss01';
   letter-spacing: 0;
@@ -1122,6 +1126,9 @@ img.avatar {
 .segment { display: inline-flex; gap: 2px; padding: 3px; background: #EAE3D4; border-radius: 8px; margin-left: auto; }
 .segment button { height: 23px; min-width: 34px; border: 0; background: transparent; }
 .segment button[data-active="true"] { background: var(--panel); color: var(--accent-dark); box-shadow: 0 1px 2px rgba(43,38,32,.08); }
+.agent-calendar-filter { margin-left: auto; }
+.agent-calendar-filter .segment,
+.agent-calendar-filter + .segment { margin-left: 0; }
 
 .calendar { height: 100%; min-height: 560px; display: flex; flex-direction: column; }
 .month-grid {
@@ -1217,6 +1224,24 @@ img.avatar {
   font-size: 9.5px;
   font-weight: 600;
 }
+.event-pill.agent-task-pill { cursor: pointer; }
+.event-pill.agent-task-pill i {
+  max-width: 54px;
+  overflow: hidden;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  text-overflow: ellipsis;
+}
+.agent-task-proposed { color: var(--amber); background: var(--amber-soft); border: 1px dashed var(--amber); }
+.agent-task-approved,
+.agent-task-scheduled,
+.agent-task-running { color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--blue) 45%, transparent); }
+.agent-task-completed { color: var(--green); background: color-mix(in srgb, var(--green) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--green) 45%, transparent); }
+.agent-task-blocked,
+.agent-task-failed { color: var(--red); background: var(--red-soft); border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); }
+.agent-task-cancelled { color: var(--muted); background: var(--bar); border: 1px solid var(--line); }
+.hour-row em[class*="agent-task-"] small { color: currentColor; font-size: 9.5px; font-style: normal; font-weight: 800; }
 .event-pill.status-done,
 .week-event.status-done,
 .hour-row em.status-done {

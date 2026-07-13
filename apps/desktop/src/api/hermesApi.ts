@@ -1,3 +1,5 @@
+import type { AgentTaskAction } from '../features/agent-operations/types';
+
 export type ApiEnvelope = Record<string, unknown>;
 
 let apiBaseUrl = '';
@@ -74,6 +76,29 @@ export const hermesApi = {
   askSchedule: (body: Record<string, unknown>) => jsonPost('/api/assistant/ask', body, SCHEDULE_ASK_TIMEOUT_MS),
   ingestSchedule: (body: FormData) => hermesJson<ApiEnvelope>('/api/assistant/ingest', { method: 'POST', body }, SCHEDULE_ASK_TIMEOUT_MS),
   getAgents: () => hermesJson<ApiEnvelope>('/api/agents'),
+  getAgentOperations: () => hermesJson<unknown>('/api/agent-operations'),
+  createAgentMission: (body: Readonly<{ templateId: 'weekly-opportunity-brief'; title?: string }>) => hermesJson<unknown>('/api/agent-operations/missions', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }),
+  planAgentMission: (missionId: string) => hermesJson<unknown>(`/api/agent-operations/missions/${encodeURIComponent(missionId)}/plan`, { method: 'POST', body: '{}' }, SCHEDULE_ASK_TIMEOUT_MS),
+  activateAgentMission: (missionId: string) => hermesJson<unknown>(`/api/agent-operations/missions/${encodeURIComponent(missionId)}/activate`, { method: 'POST', body: '{}' }),
+  transitionAgentMission: (missionId: string, action: 'pause' | 'cancel') => hermesJson<unknown>(`/api/agent-operations/missions/${encodeURIComponent(missionId)}/${action}`, { method: 'POST', body: '{}' }),
+  transitionAgentTask: (taskId: string, action: AgentTaskAction) => hermesJson<unknown>(`/api/agent-operations/tasks/${encodeURIComponent(taskId)}/${encodeURIComponent(action)}`, { method: 'POST', body: '{}' }),
+  getAgentSession: (sessionId: string) => hermesJson<unknown>(`/api/agent-operations/sessions/${encodeURIComponent(sessionId)}`),
+  sendAgentSessionMessage: (sessionId: string, text: string) => hermesJson<unknown>(`/api/agent-operations/sessions/${encodeURIComponent(sessionId)}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  }),
+  recordAgentReportFeedback: (reportId: string, useful: boolean, note = '') => hermesJson<unknown>(`/api/agent-operations/reports/${encodeURIComponent(reportId)}/feedback`, {
+    method: 'POST',
+    body: JSON.stringify({ useful, note }),
+  }),
+  recordAgentFollowUpDecision: (reportId: string, index: number, decision: 'approved' | 'rejected') => hermesJson<unknown>(`/api/agent-operations/reports/${encodeURIComponent(reportId)}/follow-ups`, {
+    method: 'POST',
+    body: JSON.stringify({ index, decision }),
+  }),
+  tickAgentOperations: () => hermesJson<unknown>('/api/agent-operations/tick', { method: 'POST', body: '{}' }, SCHEDULE_ASK_TIMEOUT_MS),
   createAgent: (body: Record<string, unknown>) => jsonPost('/api/agents', body),
   getChannels: () => hermesJson<ApiEnvelope>('/api/channels/status'),
   getAutomation: () => hermesJson<ApiEnvelope>('/api/scheduler/jobs'),
