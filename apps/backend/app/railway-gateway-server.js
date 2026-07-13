@@ -525,6 +525,17 @@ function mergeGatewayLiveState(runtimeState = {}, gatewayState = {}, env = proce
       ...(Array.isArray(storedState.events) ? storedState.events : []),
 	    ],
 	  };
+  const retainedPublicCollections = {};
+  const speciallyMergedCollections = new Set(['tasks', 'ticktickTasks', 'events', 'externalCalendarEvents']);
+  for (const key of PUBLIC_GATEWAY_STATE_ARRAY_KEYS) {
+    if (speciallyMergedCollections.has(key)) continue;
+    const collection = Array.isArray(storedState[key])
+      ? storedState[key]
+      : Array.isArray(gatewayState[key]) && gatewayState[key].length
+        ? gatewayState[key]
+        : runtimeState[key];
+    if (Array.isArray(collection)) retainedPublicCollections[key] = collection;
+  }
   const ticktickReplacement = liveState.ticktickReplacement || runtimeState.ticktickReplacement || null;
   const ticktickReplaced = Boolean(ticktickReplacement && ticktickReplacement.enabled);
   const ticktickById = new Map();
@@ -572,6 +583,7 @@ function mergeGatewayLiveState(runtimeState = {}, gatewayState = {}, env = proce
 
   return filterDeletedGatewayAgents({
     ...runtimeState,
+    ...retainedPublicCollections,
     tools: filterActualGatewayTools(runtimeState.tools),
     tasks: gatewayTasksFromState({
       ...runtimeState,
@@ -776,18 +788,67 @@ async function ensureGatewayTickTickSnapshot({
   await gatewayState.ticktickAutoSyncPromise;
 }
 
+function preferredResponseArray(...values) {
+  const arrays = values.filter(Array.isArray);
+  return arrays.find((value) => value.length > 0) || arrays[0] || null;
+}
+
+function mergedResponseArray(...values) {
+  const arrays = values.filter(Array.isArray);
+  if (!arrays.length) return null;
+  const merged = [];
+  const seen = new Set();
+  for (const item of arrays.flat()) {
+    const identity = item && typeof item === 'object'
+      ? String(item.id || item.name || item.profile?.name || JSON.stringify(item))
+      : JSON.stringify(item);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    merged.push(item);
+  }
+  return merged;
+}
+
+function preferredResponseObject(...values) {
+  const objects = values.filter((value) => value && typeof value === 'object' && !Array.isArray(value));
+  return objects.find((value) => Object.keys(value).length > 0) || objects[0] || null;
+}
+
 function runtimeStateFromResponseBody(body = {}) {
   const source = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
   const data = source.data && typeof source.data === 'object' && !Array.isArray(source.data)
     ? source.data
-    : null;
-  if (source.state && typeof source.state === 'object' && !Array.isArray(source.state)) {
-    return source.state;
+    : {};
+  const sourceState = source.state && typeof source.state === 'object' && !Array.isArray(source.state)
+    ? source.state
+    : {};
+  const dataState = data.state && typeof data.state === 'object' && !Array.isArray(data.state)
+    ? data.state
+    : {};
+  const sourceFields = { ...source };
+  const dataFields = { ...data };
+  delete sourceFields.data;
+  delete sourceFields.state;
+  delete dataFields.state;
+  const state = {
+    ...dataState,
+    ...dataFields,
+    ...sourceState,
+    ...sourceFields,
+  };
+  for (const key of PUBLIC_GATEWAY_STATE_ARRAY_KEYS) {
+    const value = preferredResponseArray(source[key], sourceState[key], data[key], dataState[key]);
+    if (value) state[key] = value;
   }
-  if (data?.state && typeof data.state === 'object' && !Array.isArray(data.state)) {
-    return data.state;
+  for (const key of ['agents', 'tools', 'skills']) {
+    const value = mergedResponseArray(source[key], sourceState[key], data[key], dataState[key]);
+    if (value) state[key] = value;
   }
-  return data || source;
+  for (const key of ['profileReadiness', 'agentSourceStatus', 'remoteVerification']) {
+    const value = preferredResponseObject(source[key], sourceState[key], data[key], dataState[key]);
+    if (value) state[key] = value;
+  }
+  return state;
 }
 
 function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, gatewayStore = null) {
@@ -801,15 +862,12 @@ function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, ga
     deletedAgentIds: state.deletedAgentIds || [],
     gatewayMerged: true,
   };
-  if (Array.isArray(body.tools)) nextBody.tools = publicCapabilityMetadataList(filterActualGatewayTools(body.tools));
-  if (Array.isArray(body.skills)) nextBody.skills = publicCapabilityMetadataList(body.skills);
+  if (Array.isArray(runtimeState.tools)) nextBody.tools = state.tools;
+  if (Array.isArray(runtimeState.skills)) nextBody.skills = state.skills;
   nextBody.toolsets = ['safe'];
   nextBody.mcpServers = [];
-  if (body.profileReadiness) nextBody.profileReadiness = publicProfileReadiness(body.profileReadiness);
-  if (Array.isArray(body.agents)) {
-    const agents = filterDeletedGatewayAgents({ agents: body.agents }, gatewayState, gatewayStore).agents || [];
-    nextBody.agents = publicOfficialProfileAgents(agents);
-  }
+  if (runtimeState.profileReadiness) nextBody.profileReadiness = state.profileReadiness;
+  if (Array.isArray(runtimeState.agents)) nextBody.agents = state.agents;
   if (body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
     const data = { ...body.data };
     if (Array.isArray(body.data.agents)) {
@@ -1196,40 +1254,7 @@ function projectPublicGatewayState(state = {}) {
 
 function projectPublicRelaySnapshot(snapshot = {}) {
   const source = snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : {};
-  const sourceData = source.data && typeof source.data === 'object' && !Array.isArray(source.data)
-    ? source.data
-    : {};
-  const sourceDataState = sourceData.state && typeof sourceData.state === 'object' && !Array.isArray(sourceData.state)
-    ? sourceData.state
-    : {};
-  const sourceState = source.state && typeof source.state === 'object' && !Array.isArray(source.state)
-    ? source.state
-    : {};
-  const agents = [source.agents, sourceState.agents, sourceData.agents, sourceDataState.agents]
-    .find(Array.isArray);
-  const tools = [source.tools, sourceState.tools, sourceData.tools, sourceDataState.tools]
-    .find(Array.isArray);
-  const skills = [source.skills, sourceState.skills, sourceData.skills, sourceDataState.skills]
-    .find(Array.isArray);
-  const schedulerJobs = [source.schedulerJobs, sourceState.schedulerJobs, sourceData.schedulerJobs, sourceDataState.schedulerJobs]
-    .find(Array.isArray);
-  const automationJobs = [source.automationJobs, sourceState.automationJobs, sourceData.automationJobs, sourceDataState.automationJobs]
-    .find(Array.isArray);
-  const profileReadiness = source.profileReadiness
-    || sourceState.profileReadiness
-    || sourceData.profileReadiness
-    || sourceDataState.profileReadiness;
-  const state = projectPublicGatewayState({
-    ...sourceDataState,
-    ...sourceData,
-    ...sourceState,
-    ...(agents ? { agents } : {}),
-    ...(tools ? { tools } : {}),
-    ...(skills ? { skills } : {}),
-    ...(profileReadiness ? { profileReadiness } : {}),
-    ...(schedulerJobs ? { schedulerJobs } : {}),
-    ...(automationJobs ? { automationJobs } : {}),
-  });
+  const state = projectPublicGatewayState(runtimeStateFromResponseBody(source));
   const projected = {
     ok: source.ok !== false,
     stale: source.stale === true,
@@ -1248,7 +1273,7 @@ function projectPublicRelaySnapshot(snapshot = {}) {
     ...(Array.isArray(state.automationJobs) ? { automationJobs: state.automationJobs } : {}),
   };
   if (state.profileReadiness) projected.profileReadiness = state.profileReadiness;
-  const agentSourceStatus = publicAgentSourceStatus(source.agentSourceStatus);
+  const agentSourceStatus = state.agentSourceStatus || publicAgentSourceStatus(source.agentSourceStatus);
   if (agentSourceStatus) projected.agentSourceStatus = agentSourceStatus;
   return projected;
 }
@@ -6287,7 +6312,7 @@ async function handleApi(
       sendJson(res, 200, state);
       return;
     }
-    if (method === 'GET' && pathSegments[0] === 'agents') {
+    if (method === 'GET' && pathSegments[0] === 'agents' && pathSegments.length <= 2) {
       const state = relayStateFromSnapshot(liveRelaySnapshot, gatewayState, env, gatewayStore);
       if (pathSegments[1]) {
         sendGatewayAgentDetail({
@@ -6749,7 +6774,7 @@ async function handleApi(
       fallbackProductStatus(res, gatewayState, env);
       return;
     }
-    if (method === 'GET' && pathSegments[0] === 'agents') {
+    if (method === 'GET' && pathSegments[0] === 'agents' && pathSegments.length <= 2) {
       if (pathSegments[1]) {
         const state = gatewaySnapshot(gatewayState, gatewayStore);
         sendGatewayAgentDetail({
@@ -7061,7 +7086,7 @@ async function handleApi(
     ));
     return;
   }
-  if (method === 'GET' && pathSegments[0] === 'agents' && runtimeResponse.ok) {
+  if (method === 'GET' && pathSegments[0] === 'agents' && pathSegments.length <= 2 && runtimeResponse.ok) {
     const text = await runtimeResponse.text();
     let body = {};
     try {
@@ -7071,12 +7096,17 @@ async function handleApi(
       return;
     }
     await ensureGatewayTickTickSnapshot({ gatewayState, gatewayStore, env, fetchImpl });
-    const data = body.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data : {};
     const runtimeState = runtimeStateFromResponseBody(body);
-    const agent = body.agent || data.agent || runtimeState.agent;
-    const agents = [body.agents, data.agents, runtimeState.agents].find(Array.isArray)
-      || (agent && typeof agent === 'object' && !Array.isArray(agent) ? [agent] : []);
-    const profileReadiness = body.profileReadiness || data.profileReadiness || runtimeState.profileReadiness;
+    const agent = runtimeState.agent;
+    const runtimeAgents = Array.isArray(runtimeState.agents) ? runtimeState.agents : [];
+    const agents = pathSegments[1] && agent && typeof agent === 'object' && !Array.isArray(agent)
+      ? [agent, ...runtimeAgents.filter((item) => !sameGatewayAgentKey(item, pathSegments[1]))]
+      : runtimeAgents.length
+        ? runtimeAgents
+        : agent && typeof agent === 'object' && !Array.isArray(agent)
+          ? [agent]
+          : [];
+    const profileReadiness = runtimeState.profileReadiness;
     const state = projectPublicGatewayState(mergeGatewayLiveState({
       ...runtimeState,
       agents,
