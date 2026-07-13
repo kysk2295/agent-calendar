@@ -178,6 +178,34 @@ test('keeps the Railway gateway health check public while other API routes remai
   }
 });
 
+test('fallback health never exposes runtime recovery commands', async () => {
+  // Given
+  const server = createRailwayGatewayServer({
+    env: {
+      RAILWAY_PUBLIC_DOMAIN: 'calendar.example.test',
+      HERMES_REMOTE_AUTH_TOKEN: 'client-token',
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+    },
+    fetchImpl: async () => {
+      throw new Error('runtime offline');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/health`);
+    const body = await response.text();
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.match(body, /Mac mini runtime is unreachable/);
+    assert.doesNotMatch(body, /recoveryCommand|residentInstallCommand|launchctl bootstrap|hermes\s+daemon/i);
+  } finally {
+    await close(server);
+  }
+});
+
 test('preserves relay callback authentication independently of the client token', async () => {
   // Given
   const server = createRailwayGatewayServer({

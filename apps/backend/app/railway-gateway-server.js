@@ -4157,8 +4157,6 @@ function fallbackHealth(res, runtimeResponse, env = process.env, error = null) {
       error: 'Mac mini runtime unreachable; check runtime health after recovery.',
     },
     ...(error ? { error: safeError } : {}),
-    recoveryCommand: buildRuntimeRecoveryCommand(),
-    residentInstallCommand: buildResidentInstallCommand(),
     message: 'Mac mini runtime is unreachable from the public gateway.',
     time: new Date().toISOString(),
   });
