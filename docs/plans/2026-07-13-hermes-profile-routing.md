@@ -3,7 +3,7 @@
 - Date: 2026-07-13
 - Owner: Codex
 - Work size: Boundary
-- Status: Implemented and live-verified
+- Status: Implemented and live-verified; external Telegram and Mac mini safety configuration pending
 
 ## Goal
 
@@ -107,9 +107,16 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
 - Command: live paused-mission manual tick and repeated Task Session reads
   - Result: zero tasks started; completed attempt remained 2; all 28 event IDs retained strict order and the user message plus completion remained present.
 - Command: `npm test`
-  - Result: 88 backend and 73 desktop tests passed.
+  - Result: 101 backend and 74 desktop tests passed after the security/reliability review fixes.
+- Command: real report task through the enabled Railway daemon
+  - Result: one evidence-backed report reached `ready` with five findings and five evidence rows; its first follow-up decision persisted as `approved` and rendered in the Reports tab.
+- Command: unauthenticated Relay snapshot and synthetic sensitive profile output probes
+  - Result: snapshot returned `401`; the profile chat completed without leaking the synthetic token value or private path.
+- Evidence: `docs/evidence/2026-07-13-agent-operations-live-verification.md`
 
 ## Remaining Risks
 
-- Risk: a full live report and Telegram delivery has not been forced ahead of its scheduled Friday time.
-  - Mitigation: automated report and Telegram success/failure contracts pass; keep the mission paused and run the live report at its intended schedule after explicit approval.
+- Risk: Railway has neither `HERMES_TELEGRAM_BOT_TOKEN` nor `HERMES_TELEGRAM_ALLOWED_CHAT_IDS`, so live Telegram delivery cannot occur yet.
+  - Mitigation: new reports record `not_configured`; configure both values, then execute a new approved report task.
+- Risk: the live Mac mini profile command still includes `--yolo` even though the gateway sends `toolsets: [safe]` and `yolo: false`.
+  - Mitigation: do not accept untrusted users; update the Mac mini runtime/profile to enforce the safe toolset and manual approvals before release.

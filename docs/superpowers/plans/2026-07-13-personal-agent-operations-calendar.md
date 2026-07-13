@@ -1111,7 +1111,7 @@ Through the desktop UI at `http://127.0.0.1:5586/`:
 
 Do not delete the QA mission or its records. Pause it after verification so the full audit trail remains visible without scheduling further work.
 
-Live evidence completed for items 1-7: the real `bizconsultant` profile produced a corrected three-task, 120-minute plan; one research task completed with 28 ordered Task Session events, persisted user guidance, non-empty output, artifact, and completion. The mission remains preserved in `paused`. Item 8 remains scheduled rather than forced: the live Friday report and Telegram delivery were not executed early.
+Live evidence completed for items 1-7: the real `bizconsultant` profile produced a corrected three-task, 120-minute plan; one research task completed with 28 ordered Task Session events, persisted user guidance, non-empty output, artifact, and completion. The report task also completed through the Railway daemon, created an evidence-backed report, rendered in Reports, and persisted one approved follow-up. The mission remains preserved in `paused`. Telegram delivery remains externally blocked because the Railway bot token and allowed chat ID variables are not configured.
 
 - [x] **Step 6: Verify one real failure path**
 
