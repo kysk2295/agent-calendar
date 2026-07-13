@@ -252,14 +252,15 @@ test('projects Relay snapshots to official profiles and safe public capability m
         {
           id: 'bizconsultant',
           name: 'bizconsultant',
+          description: 'marketflow should not escape through an official profile',
           status: 'Idle',
           profile: { name: 'bizconsultant', path: '/Users/koyunseo/private-profile' },
           runtimeBinding: { commandTemplate: 'hermes --yolo' },
-          skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
+          skills: [{ id: 'research', name: 'Research', description: 'hf_1234567890abcdefghijklmnop', sourcePath: '/Users/koyunseo/private-skill' }],
         },
       ],
-      tools: [{ id: 'browser', name: 'Browser', command: 'super-secret-command', raw: { token: 'super-secret' } }],
-      skills: [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }],
+      tools: [{ id: 'browser', name: 'Browser', description: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', command: 'super-secret-command', raw: { token: 'super-secret' } }],
+      skills: [{ id: 'research', name: 'Research', description: 'AIza1234567890abcdefghijklmnop', sourcePath: '/Users/koyunseo/private-skill' }],
       toolsets: ['safe', 'shell'],
       mcpServers: [{ id: 'shell-server', command: 'super-secret-command', raw: { token: 'super-secret' } }],
     },
@@ -336,7 +337,7 @@ test('projects Relay snapshots to official profiles and safe public capability m
       JSON.stringify({ agents, tools, state, snapshot }),
       /marketflow|--yolo|shell-server|super-secret|hostile-test-relay|\/Users\/koyunseo/,
     );
-    assert.equal(snapshot.source, 'railway-relay-bridge');
+    assert.equal(snapshot.source, 'unknown');
   } finally {
     await close(server);
   }
@@ -390,6 +391,49 @@ test('does not let empty persisted collections erase live runtime collections', 
   }
 });
 
+test('prefers live runtime scalars while retaining stored fields for same-id collections', async () => {
+  // Given
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_REMOTE_AUTH_TOKEN: 'client-token',
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-token',
+    },
+    gatewayStore: {
+      getState: () => ({
+        runs: [{ id: 'shared-run', status: 'queued', storedOnly: 'keep-me' }],
+      }),
+    },
+    fetchImpl: async () => new Response(JSON.stringify({
+      ok: true,
+      state: {
+        runs: [{ id: 'shared-run', status: 'completed', runtimeOnly: 'live' }],
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/state`, {
+      headers: { authorization: 'Bearer client-token' },
+    });
+    const body = await response.json();
+    const run = body.runs.find((item) => item.id === 'shared-run');
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.equal(run.status, 'completed');
+    assert.equal(run.runtimeOnly, 'live');
+    assert.equal(run.storedOnly, 'keep-me');
+  } finally {
+    await close(server);
+  }
+});
+
 test('drops hostile public metadata values while preserving trusted display metadata', async () => {
   // Given
   const marker = 'DO_NOT_LEAK_PUBLIC_METADATA';
@@ -400,9 +444,34 @@ test('drops hostile public metadata values while preserving trusted display meta
       description: 'Approved public description',
       status: 'Ready',
       skills: [{ id: 'research', name: marker, description: marker, source: 'hostile-source' }],
+    }, {
+      id: 'default',
+      name: 'Default Hermes',
+      description: 'marketflow should not escape through display metadata',
+      status: 'Ready',
     }],
-    tools: [{ id: 'browser', name: marker, description: marker, source: 'hostile-source' }],
-    skills: [{ id: 'research', name: marker, description: marker, source: 'hostile-source' }],
+    tools: [
+      {
+        id: 'browser',
+        name: marker,
+        description: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        source: 'hostile-source',
+      },
+      {
+        id: 'gdrive',
+        name: 'Google Drive',
+        description: 'Google Drive connector',
+        source: 'hermes-cli',
+        type: 'connector',
+        category: 'connector',
+      },
+    ],
+    skills: [{
+      id: 'research',
+      name: 'hf_1234567890abcdefghijklmnop',
+      description: 'AIza1234567890abcdefghijklmnop',
+      source: 'hostile-source',
+    }],
     agentSourceStatus: {
       ok: true,
       source: 'hostile-source',
@@ -451,7 +520,17 @@ test('drops hostile public metadata values while preserving trusted display meta
     assert.equal(state.agents[0].description, 'Approved public description');
     assert.equal(state.tools[0].id, 'browser');
     assert.equal(state.skills[0].id, 'research');
-    assert.doesNotMatch(JSON.stringify({ state, tools, run }), /DO_NOT_LEAK|hostile-source/);
+    const connector = state.tools.find((item) => item.id === 'gdrive');
+    assert.equal(connector.description, 'Google Drive connector');
+    assert.equal(connector.source, 'hermes-cli');
+    assert.equal(connector.type, 'connector');
+    assert.equal(connector.category, 'connector');
+    assert.equal(state.agentSourceStatus.source, 'unknown');
+    assert.equal(state.remoteVerification.source, 'unknown');
+    assert.doesNotMatch(
+      JSON.stringify({ state, tools, run }),
+      /DO_NOT_LEAK|hostile-source|marketflow|0123456789abcdef0123456789abcdef|hf_1234567890|AIza1234567890/,
+    );
   } finally {
     await close(server);
   }

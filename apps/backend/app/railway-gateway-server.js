@@ -529,7 +529,7 @@ function mergeGatewayLiveState(runtimeState = {}, gatewayState = {}, env = proce
   const speciallyMergedCollections = new Set(['tasks', 'ticktickTasks', 'events', 'externalCalendarEvents']);
   for (const key of PUBLIC_GATEWAY_STATE_ARRAY_KEYS) {
     if (speciallyMergedCollections.has(key)) continue;
-    const collection = mergedResponseArray(storedState[key], gatewayState[key], runtimeState[key]);
+    const collection = mergedResponseArray(runtimeState[key], gatewayState[key], storedState[key]);
     if (Array.isArray(collection)) retainedPublicCollections[key] = collection;
   }
   const ticktickReplacement = liveState.ticktickReplacement || runtimeState.ticktickReplacement || null;
@@ -1163,13 +1163,14 @@ const PUBLIC_RUNTIME_SOURCES = new Map([
   ['railway-relay-snapshot', 'railway-relay-snapshot'],
   ['relay-snapshot-empty', 'relay-snapshot-empty'],
   ['runtime-direct', 'runtime-direct'],
+  ['unknown', 'unknown'],
 ]);
 
 const PUBLIC_METADATA_ENUMS = Object.freeze({
-  category: new Set(['analysis', 'automation', 'business', 'communication', 'general', 'knowledge', 'productivity', 'research', 'trading']),
+  category: new Set(['analysis', 'api', 'automation', 'business', 'communication', 'connector', 'general', 'knowledge', 'productivity', 'research', 'trading']),
   riskLevel: new Set(['high', 'low', 'medium', 'safe']),
   status: new Set(['available', 'busy', 'disabled', 'enabled', 'error', 'healthy', 'idle', 'missing', 'offline', 'ok', 'paused', 'ready', 'running', 'unavailable', 'unknown']),
-  type: new Set(['command', 'function', 'integration', 'skill', 'tool', 'workflow']),
+  type: new Set(['api', 'command', 'connector', 'function', 'integration', 'skill', 'tool', 'workflow']),
 });
 
 function publicDisplayText(value, fallback = '') {
@@ -1178,7 +1179,9 @@ function publicDisplayText(value, fallback = '') {
   if (
     /do[\s_-]*not[\s_-]*leak|\b(?:credential|debug|hostile|internal|leak|private|rawcommand|yolo)\b|commandtemplate|--[a-z0-9_-]+/i.test(text)
     || /\b[A-Z0-9]{2,}(?:_[A-Z0-9]{2,})+\b/.test(text)
-    || /\b(?:gh[pousr]_|sk-|xox[baprs]-)[A-Za-z0-9_-]{12,}\b/i.test(text)
+    || /\b(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|hf_[A-Za-z0-9]{16,}|(?:gh[pousr]_|sk-|xox[baprs]-)[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})\b/i.test(text)
+    || /\b[a-f0-9]{48,}\b/i.test(text)
+    || /\bmarket[\s_-]*flow\b/i.test(text)
   ) {
     return fallback;
   }
@@ -1317,7 +1320,7 @@ function publicAgentSourceStatus(status = {}) {
   if (!status || typeof status !== 'object' || Array.isArray(status)) return null;
   return {
     ok: status.ok === true,
-    source: publicRuntimeSource(status.source, 'mac-mini-runtime'),
+    source: publicRuntimeSource(status.source, 'unknown'),
     profileCount: Math.max(0, Number(status.profileCount) || 0),
     generatedAt: publicIsoTimestamp(status.generatedAt),
     ...(typeof status.runtimeReachable === 'boolean' ? { runtimeReachable: status.runtimeReachable } : {}),
@@ -1329,7 +1332,7 @@ function publicRemoteVerification(verification = {}) {
   return {
     runtimeReachable: verification.runtimeReachable === true,
     gatewayFallback: verification.gatewayFallback === true,
-    source: publicRuntimeSource(verification.source, 'mac-mini-runtime'),
+    source: publicRuntimeSource(verification.source, 'unknown'),
     checkedAt: publicIsoTimestamp(verification.checkedAt),
   };
 }
@@ -1372,7 +1375,7 @@ function projectPublicRelaySnapshot(snapshot = {}) {
     stale: source.stale === true,
     ageMs: Math.max(0, Number(source.ageMs) || 0),
     ttlMs: Math.max(0, Number(source.ttlMs) || 0),
-    source: publicRuntimeSource(source.source, 'railway-relay-bridge'),
+    source: publicRuntimeSource(source.source, 'unknown'),
     receivedAt: publicIsoTimestamp(source.receivedAt),
     state,
     agents: state.agents,

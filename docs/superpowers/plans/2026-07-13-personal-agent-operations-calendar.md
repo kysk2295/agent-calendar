@@ -8,6 +8,8 @@
 
 **Tech Stack:** Node.js CommonJS backend, PostgreSQL JSONB persistence, Railway outbound relay, Hermes OpenAI-compatible chat completions, React 18, TypeScript 5.7, Vite, Playwright, Node test runner.
 
+**Status:** Historical live flow verified; final hardened deployment and post-implementation review pending.
+
 ---
 
 ## Source Specification
@@ -1085,7 +1087,7 @@ Expected JSON contains `0005_agent_operations.sql` in `migrations`.
 
 Railway startup migration applied `0005_agent_operations.sql`, `0006_restore_agent_task_profiles.sql`, and `0007_restore_agent_task_sessions.sql`. Running the private Railway Postgres hostname from the local shell is intentionally unsupported; deployment startup is the verified migration boundary.
 
-- [x] **Step 4: Deploy the Railway gateway**
+- [x] **Historical Step 4: Deploy the Railway gateway**
 
 ```bash
 railway up --detach
@@ -1096,7 +1098,7 @@ Expected: deployment is online. Set `AGENT_OPERATIONS_DAEMON_ENABLED=true` and `
 
 Deployment `b74b3247-2fd9-45f3-807b-0181107247df` is online. The daemon reports `running=true`, interval 60000 ms, and the Mac mini Relay reports `bridgeOnline=true`.
 
-- [x] **Step 5: Execute the real personal harmless flow**
+- [x] **Historical Step 5: Execute the real personal harmless flow**
 
 Through the desktop UI at `http://127.0.0.1:5586/`:
 

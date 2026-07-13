@@ -85,7 +85,7 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
 - [x] Step 1: Lock the profile/model contract with failing tests.
 - [x] Step 2: Correct generic chat, planning, execution, and Relay metadata payloads.
 - [x] Step 3: Run focused and full backend gates.
-- [x] Step 4: Deploy Railway and execute the real harmless plan flow.
+- [x] Historical Step 4: Deploy Railway and execute the real harmless plan flow on the earlier verified build.
 - [x] Step 5: Add one bounded validation retry for an invalid profile plan.
 - [x] Step 6: Align the static profile allowlist with the five live Mac mini profiles.
 - [x] Step 7: Migrate existing Agent Operations task ownership without touching user tasks.
@@ -126,7 +126,7 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
   - Result: zero tasks started; completed attempt remained 2; all 28 event IDs retained strict order and the user message plus completion remained present.
 - Command: `npm test`
   - Historical result: 117 backend and 75 desktop tests passed after the scheduler, cancellation, idempotency, claim, evidence, profile, and timeout fixes.
-  - Current branch result: 124 backend and 75 desktop tests passed after the follow-up public projection, stale-write, scheduler-read, exact-route, empty-store merge, and metadata value-policy fixes.
+  - Current branch result: 125 backend and 75 desktop tests passed after the follow-up public projection, stale-write, scheduler-read, exact-route, empty-store merge, live-precedence, and metadata value-policy fixes.
 - Command: real report task through the enabled Railway daemon
   - Result: one evidence-backed report reached `ready` with five findings and five evidence rows; its first follow-up decision persisted as `approved` and rendered in the Reports tab.
 - Command: unauthenticated Relay snapshot and synthetic sensitive profile output probes
