@@ -58,6 +58,9 @@ Theme variants may override these custom properties at `.app-root[data-theme]`. 
 - Agent Operations tabs: compact three-option tab row with a 1px structural divider and accent underline on the active view.
 - Mission contract: unframed two-column operational layout. The mission list is a compact selectable list; objective, budget, cadence, sources, policy, and work plan occupy a structured detail region without nested cards.
 - Agent work row: fixed-height task row with agent, reason, expected output, schedule, and status. `proposed` uses amber plus a dashed line; `scheduled` and `running` use blue; `completed` uses green; `blocked` and `failed` use red.
+- Mission live summary: an unframed status band above the work area. It shows mission state, completed-task progress, current or next task, and the responsible Hermes profile. It must answer "what is happening now" without opening another view.
+- Work timeline: a vertical ordered list with a stable status marker and connector line. Each row exposes schedule, expected duration, expected output, and explicit commands. `세션 열기` is always visible when a Task Session exists; `지금 실행` is the primary command for scheduled work.
+- Mission context rail: budget, report cadence, allowed context, success criteria, and forbidden actions remain visible as secondary operational context. On narrow screens the work timeline precedes this rail.
 - Task Session: full-height three-column workspace with sibling sessions, ordered transcript, and task contract. At narrow widths it becomes one column in the order session list, transcript, contract. The message composer remains visible without covering transcript content.
 
 ## 6. Motion

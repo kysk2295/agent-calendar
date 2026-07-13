@@ -73,6 +73,7 @@ const events = [
   { id: 'event-plan', sessionId: session.id, sequence: 1, kind: 'plan', text: '공식 출처 세 곳을 비교합니다.', metadata: {}, createdAt: '2026-07-13T09:01:00.000Z' },
   { id: 'event-secret', sessionId: session.id, sequence: 2, kind: 'progress', text: 'token=topsecret /Users/koyunseo/private.md', metadata: {}, createdAt: '2026-07-13T09:02:00.000Z' },
   { id: 'event-artifact', sessionId: session.id, sequence: 4, kind: 'artifact', text: '가격 비교표 초안', metadata: { label: '비교표', url: 'https://example.com/evidence' }, createdAt: '2026-07-13T09:04:00.000Z' },
+  { id: 'event-result', sessionId: session.id, sequence: 5, kind: 'agent_message', text: `\`\`\`json\n${JSON.stringify({ title: '경쟁사 가격 변화 결과', findings: ['두 경쟁사가 팀 요금제를 인상했습니다.'], evidence: [{ label: '공식 가격 페이지', url: 'https://example.com/evidence' }], limitations: ['지역별 가격은 추가 확인이 필요합니다.'], followUps: [{ title: '사용자 인터뷰', reason: '가격 민감도를 검증합니다.' }] })}\n\`\`\``, metadata: {}, createdAt: '2026-07-13T09:05:00.000Z' },
 ];
 const report = {
   id: 'report-scan',
@@ -118,12 +119,12 @@ async function main() {
     }
     if (request.method() === 'POST' && path === '/api/agent-operations/sessions/session-scan/messages') {
       const body = request.postDataJSON();
-      events.push({ id: 'event-user', sessionId: session.id, sequence: 5, kind: 'user_message', text: body.text, metadata: { applicationMode: 'next_checkpoint' }, createdAt: '2026-07-13T09:05:00.000Z' });
+      events.push({ id: 'event-user', sessionId: session.id, sequence: 6, kind: 'user_message', text: body.text, metadata: { applicationMode: 'next_checkpoint' }, createdAt: '2026-07-13T09:06:00.000Z' });
       return route.fulfill({ json: { ok: true, session, message: events.at(-1) } });
     }
     if (request.method() === 'POST' && path === '/api/agent-operations/tasks/task-scan/pause') {
       operationState = { ...operationState, tasks: operationState.tasks.map((item) => item.id === task.id ? { ...item, pauseMode: 'next_checkpoint' } : item) };
-      events.push({ id: 'event-pause', sessionId: session.id, sequence: 6, kind: 'approval_response', text: '일시정지 요청을 받았습니다.', metadata: { applicationMode: 'next_checkpoint' }, createdAt: '2026-07-13T09:06:00.000Z' });
+      events.push({ id: 'event-pause', sessionId: session.id, sequence: 7, kind: 'approval_response', text: '일시정지 요청을 받았습니다.', metadata: { applicationMode: 'next_checkpoint' }, createdAt: '2026-07-13T09:07:00.000Z' });
       return route.fulfill({ json: { ok: true, task: operationState.tasks[0] } });
     }
     if (request.method() === 'POST' && path === '/api/agent-operations/reports/report-scan/follow-ups') {
@@ -160,6 +161,15 @@ async function main() {
   assert.match(await page.locator('.task-session-contract').textContent() || '', /42 \/ 120분/);
   assert.match(await page.locator('.task-session-contract').textContent() || '', /가격 비교표 초안/);
   assert.equal(await page.locator('.task-session-list > button').count(), 4);
+  assert.equal(await page.locator('.task-session-result').count(), 1);
+  assert.match(await page.locator('.task-session-result').textContent() || '', /경쟁사 가격 변화 결과/);
+  assert.match(await page.locator('.task-session-result').textContent() || '', /핵심 결과.*두 경쟁사가 팀 요금제를 인상했습니다/);
+  assert.match(await page.locator('.task-session-result').textContent() || '', /근거.*공식 가격 페이지/);
+  assert.match(await page.locator('.task-session-result').textContent() || '', /한계.*지역별 가격은 추가 확인이 필요합니다/);
+  assert.match(await page.locator('.task-session-result').textContent() || '', /다음 작업.*사용자 인터뷰.*가격 민감도를 검증합니다/);
+  await page.setViewportSize({ width: 768, height: 900 });
+  assert.equal(await page.locator('.task-session-result h3').evaluate((element) => getComputedStyle(element).wordBreak), 'keep-all');
+  await page.setViewportSize({ width: 1440, height: 900 });
   assert.deepEqual(await page.locator('.task-session-event-text').allTextContents(), [
     '공식 출처 세 곳을 비교합니다.',
     '[redacted] [private-path]',
@@ -180,7 +190,7 @@ async function main() {
   await page.getByRole('button', { name: 'Task Session 닫기' }).click();
   await page.locator('.task-session-panel').waitFor({ state: 'detached' });
   await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
-  await page.getByRole('tab', { name: 'Reports' }).click();
+  await page.getByRole('tab', { name: '보고서' }).click();
   assert.match(await page.locator('.agent-report-row').textContent() || '', /경쟁사 두 곳이 팀 요금제를 인상했습니다/);
   assert.match(await page.locator('.agent-report-row').textContent() || '', /공식 가격 페이지/);
   assert.match(await page.locator('.agent-report-row').textContent() || '', /사용자 인터뷰/);
@@ -196,6 +206,11 @@ async function main() {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('.task-session-list').waitFor();
   assert.match(await page.locator('.task-session-list').textContent() || '', /새 시장 신호 제안/);
+  const mobileResultWordBreaks = await page.locator('.task-session-result li').evaluateAll((elements) => elements.map((element) => getComputedStyle(element).wordBreak));
+  assert.equal(mobileResultWordBreaks.every((wordBreak) => wordBreak === 'keep-all'), true);
+  assert.equal(await page.locator('.task-session-result h3').evaluate((element) => getComputedStyle(element).textWrapStyle), 'balance');
+  const mobileComposerBox = await page.locator('.task-session-composer').boundingBox();
+  assert.equal(Boolean(mobileComposerBox && mobileComposerBox.y >= 0 && mobileComposerBox.y + mobileComposerBox.height <= 844), true);
   await capture(page, 'task-session-mobile');
   const mobileMetrics = await page.locator('.task-session-panel').evaluate((element) => ({
     clientWidth: element.clientWidth,

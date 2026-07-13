@@ -26,9 +26,9 @@ type AgentOperationsScreenProps = {
 };
 
 const TAB_LABELS: Readonly<Record<AgentOperationsTab, string>> = {
-  missions: 'Missions',
-  agents: 'Agents',
-  reports: 'Reports',
+  missions: '미션',
+  agents: '에이전트',
+  reports: '보고서',
 };
 const TABS = ['missions', 'agents', 'reports'] as const;
 
@@ -50,20 +50,27 @@ export function AgentOperationsScreen(props: AgentOperationsScreenProps) {
             {TAB_LABELS[tab]}
           </button>
         ))}
-        <span className="agent-daemon" data-running={props.state.daemon.running}>{props.state.daemon.running ? 'Scheduler online' : 'Scheduler paused'}</span>
+        <span className="agent-daemon" data-running={props.state.daemon.running}>{props.state.daemon.running ? '스케줄러 온라인' : '스케줄러 일시정지'}</span>
       </div>
       {props.error && <div className="agent-operations-error" role="status">{props.error}</div>}
 
       {activeTab === 'missions' && (
         <div className="agent-missions-layout">
           <aside className="agent-mission-list">
-            <header><strong>Missions</strong><button disabled={props.busy === 'create'} onClick={() => void props.onCreateMission()}>새 미션</button></header>
-            {props.state.missions.map((mission) => (
-              <button className="agent-mission-item" data-active={selectedMission?.id === mission.id} key={mission.id} onClick={() => setSelectedMissionId(mission.id)}>
-                <strong>{mission.title}</strong>
-                <span>{missionStatusLabel(mission.status)} · {mission.agentId}</span>
-              </button>
-            ))}
+            <header><strong>미션</strong><button disabled={props.busy === 'create'} onClick={() => void props.onCreateMission()}>새 미션</button></header>
+            {props.state.missions.map((mission) => {
+              const tasks = props.state.tasks.filter((task) => task.missionId === mission.id);
+              const completed = tasks.filter((task) => task.status === 'completed').length;
+              const nextTask = tasks.find((task) => task.status === 'running')
+                || tasks.find((task) => ['scheduled', 'proposed', 'blocked', 'failed'].includes(task.status));
+              return (
+                <button className="agent-mission-item" data-active={selectedMission?.id === mission.id} key={mission.id} onClick={() => setSelectedMissionId(mission.id)}>
+                  <span className="agent-mission-item-head"><strong>{mission.title}</strong><b>{missionStatusLabel(mission.status)}</b></span>
+                  <span>{mission.agentId} · {tasks.length ? `${completed}/${tasks.length} 완료` : '계획 전'}</span>
+                  {nextTask && <small>{nextTask.status === 'running' ? '실행 중' : '다음'} · {nextTask.title}</small>}
+                </button>
+              );
+            })}
             {!props.state.missions.length && (
               <div className="agent-mission-template">
                 <strong>Weekly Opportunity Brief</strong>

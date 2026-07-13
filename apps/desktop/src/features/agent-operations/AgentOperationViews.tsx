@@ -64,14 +64,29 @@ function taskActionLabel(action: AgentTaskAction): string {
   }
 }
 
+function taskScheduleLabel(task: AgentTask): string {
+  const value = task.scheduledAt || `${task.date || ''}T${task.time || '00:00'}:00`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '일정 미정';
+  return date.toLocaleString('ko-KR', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+}
+
 function MissionTaskRow({
   task,
+  index,
   busy,
   onAction,
   onRunNow,
   onOpenSession,
 }: {
   readonly task: AgentTask;
+  readonly index: number;
   readonly busy: string;
   readonly onAction: (taskId: string, action: AgentTaskAction) => Promise<void>;
   readonly onRunNow: (taskId: string) => Promise<void>;
@@ -81,28 +96,36 @@ function MissionTaskRow({
   const action = taskAction(task);
   return (
     <article className="agent-operation-task" data-tone={appearance.tone} data-line={appearance.line}>
-      <button className="agent-operation-task-main" onClick={() => onOpenSession(task.sessionId)} disabled={!task.sessionId}>
-        <span className="agent-operation-task-status">{appearance.label}</span>
-        <strong>{task.title}</strong>
-        <small>{task.agent} · {task.estimatedMinutes}분</small>
+      <div className="agent-operation-task-rail" aria-hidden="true">
+        <span className="agent-operation-task-index">{index + 1}</span>
+        <i />
+      </div>
+      <div className="agent-operation-task-main">
+        <header>
+          <span className="agent-operation-task-status">{appearance.label}</span>
+          <strong>{task.title}</strong>
+          <small>{taskScheduleLabel(task)} · {task.estimatedMinutes}분</small>
+        </header>
         <p>{task.reason}</p>
-        <span className="agent-operation-task-output">{task.expectedOutput}</span>
-      </button>
-      <div className="agent-operation-task-actions">
-        {task.pauseMode === 'next_checkpoint' && <span>next checkpoint</span>}
-        {task.status === 'scheduled' && (
-          <button className="run-now" disabled={busy === task.id} onClick={() => void onRunNow(task.id)}>
-            {busy === task.id ? '실행 중' : '지금 실행'}
-          </button>
-        )}
-        {action && (
-          <button disabled={busy === task.id} onClick={() => void onAction(task.id, action)}>
-            {busy === task.id ? '처리 중' : taskActionLabel(action)}
-          </button>
-        )}
-        {['proposed', 'scheduled', 'blocked'].includes(task.status) && (
-          <button className="danger" disabled={busy === task.id} onClick={() => void onAction(task.id, 'cancel')}>취소</button>
-        )}
+        <div className="agent-operation-task-output"><span>기대 결과</span><strong>{task.expectedOutput}</strong></div>
+        <footer className="agent-operation-task-actions">
+          <span className="agent-operation-task-agent">{task.agent}</span>
+          {task.pauseMode === 'next_checkpoint' && <span className="agent-operation-task-checkpoint">다음 체크포인트에서 일시정지</span>}
+          {task.sessionId && <button onClick={() => onOpenSession(task.sessionId)}>세션 열기</button>}
+          {task.status === 'scheduled' && (
+            <button className="run-now" disabled={busy === task.id} onClick={() => void onRunNow(task.id)}>
+              {busy === task.id ? '실행 중' : '지금 실행'}
+            </button>
+          )}
+          {action && (
+            <button disabled={busy === task.id} onClick={() => void onAction(task.id, action)}>
+              {busy === task.id ? '처리 중' : taskActionLabel(action)}
+            </button>
+          )}
+          {['proposed', 'scheduled', 'blocked'].includes(task.status) && (
+            <button className="danger" disabled={busy === task.id} onClick={() => void onAction(task.id, 'cancel')}>취소</button>
+          )}
+        </footer>
       </div>
     </article>
   );
@@ -135,6 +158,10 @@ export function MissionDetail({
   const budgetPercent = mission.policy.maxRuntimeMinutesPerWeek
     ? Math.min(100, Math.round((mission.budget.usedMinutes / mission.policy.maxRuntimeMinutesPerWeek) * 100))
     : 0;
+  const completedCount = tasks.filter((task) => task.status === 'completed').length;
+  const focusTask = tasks.find((task) => task.status === 'running')
+    || tasks.find((task) => ['scheduled', 'proposed', 'blocked', 'failed'].includes(task.status));
+  const progressPercent = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
   return (
     <div className="mission-contract">
       <header className="mission-contract-head">
@@ -151,27 +178,32 @@ export function MissionDetail({
           {!['completed', 'cancelled'].includes(mission.status) && cancellableCount > 0 && <button className="danger" disabled={busy === mission.id} onClick={() => void onMissionWorkAction(mission.id, 'cancel')}>미션 중단</button>}
         </div>
       </header>
-      <div className="mission-contract-grid">
-        <section>
-          <span>주간 예산</span>
-          <strong>{mission.budget.usedMinutes} / {mission.policy.maxRuntimeMinutesPerWeek}분</strong>
-          <div className="mission-budget" role="progressbar" aria-valuemin={0} aria-valuemax={mission.policy.maxRuntimeMinutesPerWeek} aria-valuenow={mission.budget.usedMinutes}>
-            <i style={{ width: `${budgetPercent}%` }} />
-          </div>
-          <small>{mission.budget.usedRuns} / {mission.policy.maxRunsPerWeek}회 실행</small>
-        </section>
-        <section><span>보고</span><strong>{missionReportCadence(mission)}</strong><small>{mission.timezone}</small></section>
-        <section><span>컨텍스트</span><div className="mission-tags">{mission.sources.map((source) => <b key={source}>{source}</b>)}</div></section>
-        <section><span>금지 작업</span><div className="mission-tags danger">{mission.policy.forbiddenActions.map((action) => <b key={action}>{action}</b>)}</div></section>
+      <div className="mission-live-summary">
+        <section><span>작업 진행</span><strong>{completedCount}/{tasks.length || 0} 완료</strong><div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent}><i style={{ width: `${progressPercent}%` }} /></div></section>
+        <section><span>{focusTask?.status === 'running' ? '현재 실행' : '다음 작업'}</span><strong>{focusTask?.title || (tasks.length ? '모든 작업 완료' : '계획을 기다리는 중')}</strong><small>{focusTask ? `${focusTask.agent} · ${taskScheduleLabel(focusTask)}` : mission.agentId}</small></section>
+        <section><span>담당 에이전트</span><strong>{mission.agentId}</strong><small>{missionStatusLabel(mission.status)}</small></section>
       </div>
-      <section className="mission-success-criteria"><span>성공 기준</span><ul>{mission.successCriteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ul></section>
-      <section className="mission-work-plan">
-        <header><strong>작업 계획</strong><span>{tasks.length}개</span></header>
-        <div className="mission-task-list">
-          {tasks.map((task) => <MissionTaskRow key={task.id} task={task} busy={busy} onAction={onTaskAction} onRunNow={onRunTaskNow} onOpenSession={onOpenSession} />)}
-          {!tasks.length && <div className="agent-operation-empty">아직 제안된 작업이 없습니다.</div>}
-        </div>
-      </section>
+      <div className="mission-contract-body">
+        <section className="mission-work-plan">
+          <header><div><strong>작업 타임라인</strong><span>에이전트가 만든 실행 순서</span></div><b>{tasks.length}개</b></header>
+          <div className="mission-task-list mission-task-timeline">
+            {tasks.map((task, index) => <MissionTaskRow key={task.id} task={task} index={index} busy={busy} onAction={onTaskAction} onRunNow={onRunTaskNow} onOpenSession={onOpenSession} />)}
+            {!tasks.length && <div className="agent-operation-empty">아직 제안된 작업이 없습니다.</div>}
+          </div>
+        </section>
+        <aside className="mission-context-rail">
+          <section className="mission-budget-context">
+            <span>주간 예산</span>
+            <strong>{mission.budget.usedMinutes} / {mission.policy.maxRuntimeMinutesPerWeek}분</strong>
+            <div className="mission-budget" role="progressbar" aria-valuemin={0} aria-valuemax={mission.policy.maxRuntimeMinutesPerWeek} aria-valuenow={mission.budget.usedMinutes}><i style={{ width: `${budgetPercent}%` }} /></div>
+            <small>{mission.budget.usedRuns} / {mission.policy.maxRunsPerWeek}회 실행</small>
+          </section>
+          <section><span>보고</span><strong>{missionReportCadence(mission)}</strong><small>{mission.timezone}</small></section>
+          <section><span>컨텍스트</span><div className="mission-tags">{mission.sources.map((source) => <b key={source}>{source}</b>)}</div></section>
+          <section className="mission-success-criteria"><span>성공 기준</span><ul>{mission.successCriteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ul></section>
+          <section><span>금지 작업</span><div className="mission-tags danger">{mission.policy.forbiddenActions.map((forbiddenAction) => <b key={forbiddenAction}>{forbiddenAction}</b>)}</div></section>
+        </aside>
+      </div>
     </div>
   );
 }

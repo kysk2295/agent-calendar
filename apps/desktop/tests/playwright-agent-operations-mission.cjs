@@ -236,7 +236,7 @@ async function main() {
   assert.equal(operationRequests >= 1, true);
   assert.deepEqual(
     await page.locator('.agent-operations-tabs button').allTextContents(),
-    ['Missions', 'Agents', 'Reports'],
+    ['미션', '에이전트', '보고서'],
   );
   assert.match(await page.locator('.agent-operations-workspace').textContent() || '', /Weekly Opportunity Brief/);
   await page.getByRole('button', { name: '미션 만들기', exact: true }).click();
@@ -245,7 +245,22 @@ async function main() {
   await page.getByRole('button', { name: '계획 만들기', exact: true }).click();
   await page.locator('.agent-operation-task').first().waitFor();
   assert.equal(await page.locator('.agent-operation-task').count(), 3);
+  assert.equal(await page.locator('.mission-live-summary').count(), 1);
+  assert.match(await page.locator('.mission-live-summary').textContent() || '', /다음 작업.*경쟁사 변화 수집/);
+  assert.equal(await page.locator('.mission-task-timeline').count(), 1);
+  assert.deepEqual(await page.locator('.agent-operation-task-index').allTextContents(), ['1', '2', '3']);
+  assert.equal(await page.getByRole('button', { name: '세션 열기' }).count(), 3);
+  assert.match(await page.locator('.agent-mission-item[data-active="true"]').textContent() || '', /0\/3 완료/);
   assert.match(await page.locator('.mission-task-list').textContent() || '', /가격 변화 근거가 부족하다/);
+  await page.setViewportSize({ width: 768, height: 900 });
+  const tabletTitleStyles = await page.locator('.agent-operation-task-main > header strong').evaluateAll((elements) => elements.map((element) => {
+    const style = getComputedStyle(element);
+    return { whiteSpace: style.whiteSpace, textOverflow: style.textOverflow, wordBreak: style.wordBreak };
+  }));
+  assert.equal(tabletTitleStyles.every((style) => style.whiteSpace === 'normal' && style.textOverflow === 'clip' && style.wordBreak === 'keep-all'), true);
+  const tabletMissionWidths = await page.locator('.mission-contract, .mission-live-summary').evaluateAll((elements) => elements.map((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })));
+  assert.equal(tabletMissionWidths.every((width) => width.scrollWidth <= width.clientWidth), true);
+  await page.setViewportSize({ width: 1440, height: 900 });
   slowUnrelatedRequests = true;
   const approveStartedAt = Date.now();
   await page.getByRole('button', { name: '계획 승인', exact: true }).click();
@@ -261,16 +276,16 @@ async function main() {
   await page.locator('.agent-operation-task').first().locator('.agent-operation-task-status', { hasText: '완료' }).waitFor();
   assert.equal(calls.some((call) => call.path === '/api/agent-operations/tasks/task-scan/run-now'), true);
   await capture(page, 'mission-active-desktop');
-  await page.getByRole('tab', { name: 'Agents' }).click();
+  await page.getByRole('tab', { name: '에이전트' }).click();
   assert.match(await page.locator('.agent-roster-row').textContent() || '', /Mac mini Hermes/);
   assert.match(await page.locator('.agent-roster-row').textContent() || '', /신뢰 · 개인 승인/);
   assert.match(await page.locator('.agent-roster-row').textContent() || '', /research/);
   assert.match(await page.locator('.agent-roster-row').textContent() || '', /보고 유용성 평가 없음/);
   await page.waitForTimeout(150);
   await capture(page, 'agent-roster-desktop');
-  await page.getByRole('tab', { name: 'Reports' }).click();
+  await page.getByRole('tab', { name: '보고서' }).click();
   assert.match(await page.locator('.agent-operations-workspace').textContent() || '', /첫 보고가 생성되면/);
-  await page.getByRole('tab', { name: 'Missions' }).click();
+  await page.getByRole('tab', { name: '미션' }).click();
   await page.getByRole('button', { name: '미션 일시정지' }).click();
   await page.locator('.mission-state', { hasText: '일시정지' }).waitFor();
   await page.getByRole('button', { name: '미션 중단' }).click();

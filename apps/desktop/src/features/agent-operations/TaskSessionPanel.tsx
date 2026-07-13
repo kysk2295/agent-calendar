@@ -23,6 +23,14 @@ type TaskSessionPanelProps = {
   readonly onTaskAction: (taskId: string, action: AgentTaskAction) => Promise<void>;
 };
 
+type AgentResult = {
+  readonly title: string;
+  readonly findings: readonly string[];
+  readonly evidence: readonly Readonly<{ label: string; url: string }>[];
+  readonly limitations: readonly string[];
+  readonly followUps: readonly Readonly<{ title: string; reason: string }>[];
+};
+
 const EVENT_LABELS: Readonly<Record<AgentSessionEvent['kind'], string>> = {
   agent_message: '에이전트',
   user_message: '나',
@@ -71,6 +79,57 @@ function actionLabel(action: AgentTaskAction): string {
 function eventLink(event: AgentSessionEvent): string {
   const value = event.metadata.url;
   return typeof value === 'string' && /^https?:\/\//.test(value) ? value : '';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringList(value: unknown): readonly string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function parseAgentResult(event: AgentSessionEvent): AgentResult | null {
+  if (event.kind !== 'agent_message') return null;
+  const source = event.text.trim();
+  const fenced = source.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const payload = (fenced?.[1] || source).trim();
+  if (!payload.startsWith('{')) return null;
+  try {
+    const value: unknown = JSON.parse(payload);
+    if (!isRecord(value) || typeof value.title !== 'string') return null;
+    const evidence = Array.isArray(value.evidence)
+      ? value.evidence.flatMap((item) => isRecord(item) && typeof item.label === 'string' && typeof item.url === 'string' && /^https?:\/\//.test(item.url)
+        ? [{ label: item.label, url: item.url }]
+        : [])
+      : [];
+    const followUps = Array.isArray(value.followUps)
+      ? value.followUps.flatMap((item) => isRecord(item) && typeof item.title === 'string'
+        ? [{ title: item.title, reason: typeof item.reason === 'string' ? item.reason : '' }]
+        : [])
+      : [];
+    return {
+      title: value.title,
+      findings: stringList(value.findings),
+      evidence,
+      limitations: stringList(value.limitations),
+      followUps,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function AgentResultView({ result }: Readonly<{ result: AgentResult }>) {
+  return (
+    <div className="task-session-result">
+      <h3>{result.title}</h3>
+      {!!result.findings.length && <section><strong>핵심 결과</strong><ul>{result.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul></section>}
+      {!!result.evidence.length && <section><strong>근거</strong><div className="task-session-result-links">{result.evidence.map((evidence) => <a href={evidence.url} target="_blank" rel="noreferrer" key={`${evidence.label}-${evidence.url}`}>{evidence.label}</a>)}</div></section>}
+      {!!result.limitations.length && <section><strong>한계</strong><ul>{result.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul></section>}
+      {!!result.followUps.length && <section><strong>다음 작업</strong><div className="task-session-result-followups">{result.followUps.map((followUp) => <div key={`${followUp.title}-${followUp.reason}`}><b>{followUp.title}</b>{followUp.reason && <span>{followUp.reason}</span>}</div>)}</div></section>}
+    </div>
+  );
 }
 
 function sessionStatusLabel(status: string): string {
@@ -136,10 +195,11 @@ export function TaskSessionPanel(props: TaskSessionPanelProps) {
           <div className="task-session-events" aria-live="polite">
             {props.detail.events.map((event) => {
               const link = eventLink(event);
+              const result = parseAgentResult(event);
               return (
                 <article className="task-session-event" data-kind={event.kind} key={event.id}>
                   <header><strong>{EVENT_LABELS[event.kind]}</strong><time>{sessionTime(event.createdAt)}</time></header>
-                  <p className="task-session-event-text">{event.text}</p>
+                  {result ? <AgentResultView result={result} /> : <p className="task-session-event-text">{event.text}</p>}
                   {link && <a href={link} target="_blank" rel="noreferrer">근거 열기</a>}
                 </article>
               );
