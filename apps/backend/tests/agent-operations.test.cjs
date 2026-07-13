@@ -716,6 +716,15 @@ test('mission launch preserves the safe toolset deadline and approval boundary',
   assert.equal(run.noApproval, false);
   assert.equal(run.timeoutMs, 360_000);
   assert.equal(run.deadlineAt, deadlineAt);
+
+  const defaultRun = buildMissionRunPayload({
+    templateId: 'product-build',
+    goal: 'Default mission safety',
+    agentId: 'bizconsultant',
+  });
+  assert.deepEqual(defaultRun.toolsets, ['safe']);
+  assert.equal(defaultRun.yolo, false);
+  assert.equal(defaultRun.noApproval, false);
 });
 
 test('Hermes profile command templates never bypass runtime approvals', async () => {

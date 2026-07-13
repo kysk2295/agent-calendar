@@ -148,10 +148,11 @@ function buildMissionRunPayload(input = {}) {
     fallback: template.agent,
   });
   const model = resolveModel({ requestedModel: input.model, template });
-  const toolsets = Array.isArray(input.toolsets)
+  const requestedToolsets = Array.isArray(input.toolsets)
     ? input.toolsets.map(String).filter((toolset) => /^[a-z0-9_-]+$/i.test(toolset)).slice(0, 8)
     : [];
-  const yolo = input.yolo !== false;
+  const toolsets = requestedToolsets.length ? requestedToolsets : ['safe'];
+  const yolo = input.yolo === true;
   const timeoutMs = Number(input.timeoutMs);
   const deadlineAt = Number.isFinite(new Date(input.deadlineAt).getTime())
     ? new Date(input.deadlineAt).toISOString()
@@ -175,9 +176,9 @@ function buildMissionRunPayload(input = {}) {
     agent,
     model,
     source: input.source || 'mission',
-    noApproval: input.noApproval === undefined ? yolo : Boolean(input.noApproval),
+    noApproval: yolo && input.noApproval === true,
     yolo,
-    ...(toolsets.length ? { toolsets } : {}),
+    toolsets,
     ...(Number.isFinite(timeoutMs) && timeoutMs >= 1_000 ? { timeoutMs: Math.round(timeoutMs) } : {}),
     ...(deadlineAt ? { deadlineAt } : {}),
     mission: {

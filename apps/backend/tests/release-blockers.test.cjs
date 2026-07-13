@@ -246,6 +246,36 @@ test('runtime errors never expose private filesystem paths', () => {
   assert.equal(message, 'Runtime execution failed');
 });
 
+test('runtime proxy failures return a safe public error', async () => {
+  // Given
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_REMOTE_AUTH_TOKEN: 'client-token',
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-token',
+    },
+    fetchImpl: async () => {
+      throw new Error('runner failed at /Users/koyunseo/private/secrets.md');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/unknown`, {
+      headers: { authorization: 'Bearer client-token' },
+    });
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 503);
+    assert.equal(body.error, 'Runtime request failed');
+    assert.doesNotMatch(JSON.stringify(body), /\/Users\/koyunseo/);
+  } finally {
+    await close(server);
+  }
+});
+
 test('does not let the client token replace relay callback authentication', async () => {
   // Given
   const server = createRailwayGatewayServer({

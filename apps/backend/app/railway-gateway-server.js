@@ -6262,7 +6262,7 @@ async function handleApi(
     }
     runtimeResponse = new Response(JSON.stringify({
       ok: false,
-      error: error.message || String(error),
+      error: safeRuntimeError(error.message || String(error), 'Runtime request failed'),
     }), {
       status: 503,
       headers: { 'content-type': 'application/json; charset=utf-8' },
@@ -7033,7 +7033,7 @@ function createRailwayGatewayServer({
     } catch (error) {
       sendJson(res, 500, {
         ok: false,
-        error: error.message,
+        error: safeRuntimeError(error.message || String(error), 'Agent Calendar request failed'),
       });
     }
   });
