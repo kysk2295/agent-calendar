@@ -1195,7 +1195,10 @@ function buildHermesCronUpdateBody(body = {}) {
 }
 
 function hermesProfileNameFromAgentBody(body = {}) {
-  return String(body.profile || body.agent || body.agentId || 'default').trim() || 'default';
+  return resolveRequestedOfficialProfile({
+    agentId: body.agentId,
+    agent: body.profile || body.agent,
+  });
 }
 
 function buildHermesProfileCreateBody(body = {}) {

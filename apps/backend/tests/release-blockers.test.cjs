@@ -525,6 +525,54 @@ test('direct run creation strips approval bypasses before the Mac mini relay', a
   }
 });
 
+test('scheduler job creation strips a removed profile before the Mac mini relay', async () => {
+  // Given
+  const server = createRailwayGatewayServer({
+    env: { HERMES_RELAY_TOKEN: 'relay-token' },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // When
+    const schedulePromise = fetch(`${baseUrl}/api/scheduler/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Safe scheduled research',
+        goal: 'Review approved sources',
+        profile: 'marketflow',
+      }),
+    });
+    const polled = await pollPromise;
+
+    await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({
+        ok: true,
+        status: 201,
+        body: { ok: true, job: { id: 'cron-safe', name: 'Safe scheduled research' } },
+      }),
+    });
+    const response = await schedulePromise;
+
+    // Then
+    assert.equal(response.status, 201);
+    assert.equal(polled.job.payload.path, '/api/cron/jobs');
+    assert.equal(polled.job.payload.query.profile, 'default');
+  } finally {
+    await close(server);
+  }
+});
+
 test('routes Hermes chat through a profile mission without inventing an API server model', async () => {
   // Given
   const server = createRailwayGatewayServer({
