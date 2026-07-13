@@ -84,6 +84,8 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - [x] Agent Operations action route가 정확히 네 개 segment인 경로만 수락하게 한다.
 - [x] Relay snapshot의 public projection에서 비공식 profile과 unsafe toolset, raw MCP metadata를 제거한다.
 - [x] Public state/snapshot을 top-level allowlist로 제한하고 public agent command template과 wrapped tool 누락을 제거한다.
+- [x] Relay `data`와 direct `state`/`data`/`data.state` 응답을 같은 공개 상태 계약으로 정규화한다.
+- [x] Direct agent 목록에서 런타임의 임의 최상위 필드를 제거하고 현재 Agent Operations 탭에 맞춰 profile Playwright를 갱신한다.
 - [ ] 위 후속 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
 
 ## Rollback / fallback
@@ -112,4 +114,6 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - Post-push regression QA: task detail format/comment/delegate controls restored; chat, full-page login, and authenticated widget fixtures aligned with the shipped contracts.
 - Post-review HTTP QA: legacy scheduler profile normalized to `default`, trailing action route returned 404, exact action route returned 200, unauthenticated scheduler read returned 401.
 - Relay projection HTTP QA: app-token reads exposed only official profiles, `toolsets: [safe]`, no MCP command/raw/path metadata; bridge-token diagnostics retained the original snapshot.
-- Direct runtime projection QA: wrapped and flat `/api/state` responses share the same flat sanitized contract; top-level profile readiness does not expose setup commands.
+- Direct runtime projection QA: `state`, `data`, and `data.state` `/api/state` responses share the same flat sanitized contract; top-level profile readiness and `/api/agents` do not expose setup commands or arbitrary runtime fields.
+- Hostile dual-server HTTP QA: direct and Relay public reads retained one sanitized tool/skill plus user tasks, exposed only official profiles and `toolsets: [safe]`, and kept raw diagnostics bridge-only.
+- Agent profile Playwright: navigated from the Agent Operations `Missions` default tab to `Agents`, rendered `준비됨`, and hid removed `marketflow` readiness.
