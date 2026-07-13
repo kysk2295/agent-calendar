@@ -112,6 +112,7 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   let operationRequests = 0;
+  let slowUnrelatedRequests = false;
   const calls = [];
 
   await page.route('**/*', async (route) => {
@@ -188,6 +189,9 @@ async function main() {
       });
       return;
     }
+    if (slowUnrelatedRequests && request.method() === 'GET' && path === '/api/wiki') {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
     await route.fulfill({
       json: {
         ok: true,
@@ -227,8 +231,12 @@ async function main() {
   await page.locator('.agent-operation-task').first().waitFor();
   assert.equal(await page.locator('.agent-operation-task').count(), 3);
   assert.match(await page.locator('.mission-task-list').textContent() || '', /가격 변화 근거가 부족하다/);
+  slowUnrelatedRequests = true;
+  const approveStartedAt = Date.now();
   await page.getByRole('button', { name: '계획 승인', exact: true }).click();
-  await page.locator('.mission-state', { hasText: '운영 중' }).waitFor();
+  await page.locator('.mission-state', { hasText: '운영 중' }).waitFor({ timeout: 2000 });
+  assert.equal(Date.now() - approveStartedAt < 2000, true);
+  slowUnrelatedRequests = false;
   assert.match(await page.locator('.mission-contract').textContent() || '', /담당 에이전트.*bizconsultant/);
   assert.match(await page.locator('.mission-contract').textContent() || '', /근거가 있는 기회 3개/);
   assert.equal(await page.getByRole('button', { name: '미션 일시정지' }).count(), 1);

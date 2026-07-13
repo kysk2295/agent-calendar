@@ -1767,12 +1767,18 @@ export function App() {
     }
   }
 
+  async function refreshAgentOperations() {
+    const next = parseAgentOperationsEnvelope(await hermesApi.getAgentOperations());
+    setAgentOperations(next);
+    return next;
+  }
+
   async function runAgentOperation(busyKey: string, operation: () => Promise<unknown>) {
     setAgentOperationsBusy(busyKey);
     setAgentOperationsError('');
     try {
       await operation();
-      await hydrate({ blocking: false });
+      await refreshAgentOperations();
     } catch (error) {
       setAgentOperationsError(error instanceof Error ? error.message : 'Agent Operations 요청 실패');
     } finally {
@@ -1804,7 +1810,7 @@ export function App() {
     try {
       await hermesApi.sendAgentSessionMessage(selectedAgentSessionId, message);
       await Promise.all([
-        hydrate({ blocking: false }),
+        refreshAgentOperations(),
         openAgentSession(selectedAgentSessionId),
       ]);
       return true;
