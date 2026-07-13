@@ -11,7 +11,13 @@ const { AgentOperationsScheduler } = require('./lib/agent-operations-scheduler')
 const { AgentOperationsService } = require('./lib/agent-operations-service');
 const { SchedulerDaemon } = require('./lib/daemon');
 const { normalizeMailAccount, syncMailAccounts } = require('./lib/connectors/mail');
-const { createRunPayloadFromTelegram, parseTelegramUpdate, registerTelegramWebhook } = require('./lib/connectors/telegram');
+const {
+  createRunPayloadFromTelegram,
+  formatAgentReportTelegram,
+  parseTelegramUpdate,
+  registerTelegramWebhook,
+  sendTelegramMessage,
+} = require('./lib/connectors/telegram');
 const {
   createTickTickOAuthUrl,
   createTickTickSyncPlan,
@@ -6915,6 +6921,20 @@ function createRailwayGatewayServer({
     onEvent,
     timeoutMs: Number(env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000),
   });
+  const agentReportChatId = String(env.HERMES_TELEGRAM_ALLOWED_CHAT_IDS || '')
+    .split(',')
+    .map((chatId) => chatId.trim())
+    .find(Boolean);
+  const sendAgentReportTelegram = env.HERMES_TELEGRAM_BOT_TOKEN && agentReportChatId
+    ? (report) => sendTelegramMessage({
+      botToken: env.HERMES_TELEGRAM_BOT_TOKEN,
+      chatId: agentReportChatId,
+      text: formatAgentReportTelegram(report, {
+        appUrl: `agent-calendar://sessions/${encodeURIComponent(report.sessionId || '')}`,
+      }),
+      fetchImpl,
+    })
+    : null;
   const agentOperationsScheduler = injectedAgentOperationsService
     ? injectedAgentOperationsScheduler
     : injectedAgentOperationsScheduler || (gatewayStore
@@ -6922,6 +6942,7 @@ function createRailwayGatewayServer({
         store: gatewayStore,
         clock: operationClock,
         executeCompletion: executeAgentCompletion,
+        sendTelegram: sendAgentReportTelegram,
       })
       : null);
   const agentOperationsDaemon = agentOperationsScheduler

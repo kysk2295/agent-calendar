@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 
 const { sanitizeSessionEvent, validateReport } = require('./agent-operations-domain');
 const { taskExecutionMessages } = require('./agent-operations-execution');
+const { deliverAgentReport } = require('./agent-report-delivery');
 
 function schedulerId(prefix, clock) {
   const stamp = clock().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
@@ -192,6 +193,13 @@ class AgentOperationsScheduler {
       this.store.updateAgentSession(session.id, { status: 'completed' });
       this.#recordBudget(mission, task);
       result.completedTaskIds.push(task.id);
+      await deliverAgentReport({
+        store: this.store,
+        sessionId: session.id,
+        report,
+        sendTelegram: this.sendTelegram,
+        clock: this.clock,
+      });
     } catch (error) {
       const blocked = isRuntimeFailure(error);
       const status = blocked ? 'blocked' : 'failed';

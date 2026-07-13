@@ -890,3 +890,110 @@ test('scheduler applies a running pause request before persisting completion', a
 
   await rm(dataDir, { recursive: true, force: true });
 });
+
+test('Telegram sends only a minimized Agent Report summary', async () => {
+  // Given
+  const {
+    formatAgentReportTelegram,
+    sendTelegramMessage,
+  } = require('../app/lib/connectors/telegram');
+  const calls = [];
+  const report = {
+    id: 'report-telegram',
+    title: '주간 기회 보고',
+    findings: ['기회 A', '기회 B', '기회 C', '기회 D'],
+    evidence: ['/Users/koyunseo/private.md', 'Bearer secret'],
+    limitations: ['가격 검증 필요', '사용자 인터뷰 필요'],
+  };
+
+  // When
+  const text = formatAgentReportTelegram(report, {
+    appUrl: 'agent-calendar://reports/report-telegram',
+  });
+  const result = await sendTelegramMessage({
+    botToken: 'bot-token',
+    chatId: '1234',
+    text,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ ok: true, result: { message_id: 99 } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  // Then
+  const sent = JSON.parse(calls[0].init.body);
+  assert.equal(sent.chat_id, '1234');
+  assert.match(sent.text, /주간 기회 보고/);
+  assert.match(sent.text, /기회 C/);
+  assert.doesNotMatch(sent.text, /기회 D|\/Users\/|Bearer|secret/);
+  assert.equal(result.message_id, 99);
+});
+
+test('Telegram delivery failure never turns a completed Agent Report into failure', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-report-telegram-failure-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-telegram-failure', clock }),
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-telegram-failure',
+    title: '주간 기회 보고',
+    owner: 'Agent',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    scheduledAt: '2026-07-13T08:59:00.000Z',
+    dueAt: '2026-07-13T10:00:00.000Z',
+    estimatedMinutes: 30,
+    actionClass: 'report',
+    sourceRefs: ['mission'],
+  });
+  const session = store.createAgentSession({
+    id: 'session-telegram-failure',
+    missionId: mission.id,
+    taskId: task.id,
+    type: 'task',
+    status: 'scheduled',
+  });
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async () => ({
+      text: JSON.stringify({
+        title: '주간 기회 보고',
+        findings: ['기회 A'],
+        evidence: ['source-a'],
+        limitations: [],
+        budget: { usedRuns: 1, usedMinutes: 30 },
+        followUps: [],
+      }),
+      jobId: 'relay-telegram-failure',
+    }),
+    sendTelegram: async () => {
+      const error = new Error('Telegram HTTP 500');
+      error.code = 'telegram_delivery_failed';
+      throw error;
+    },
+  });
+
+  // When
+  await scheduler.tick();
+
+  // Then
+  const updatedTask = store.getState().tasks.find((item) => item.id === task.id);
+  const report = store.getAgentReports()[0];
+  const events = store.getAgentSession(session.id).events;
+  assert.equal(updatedTask.status, 'completed');
+  assert.equal(report.status, 'ready');
+  assert.equal(report.deliveryStatus, 'failed');
+  assert.equal(events.at(-1).kind, 'error');
+  assert.match(events.at(-1).text, /Telegram HTTP 500/);
+
+  await rm(dataDir, { recursive: true, force: true });
+});

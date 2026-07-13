@@ -175,10 +175,67 @@ async function registerTelegramWebhook({ botToken, webhookUrl, fetchImpl = fetch
   return response.json();
 }
 
+function safeTelegramSummaryLine(value) {
+  return String(value || '')
+    .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
+    .replace(/(?:token|secret|password)\s*[=:]\s*[^\s]+/gi, '[redacted]')
+    .replace(/\/(?:Users|home)\/[^\s"']+/g, '[private-path]')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatAgentReportTelegram(report = {}, { appUrl = '' } = {}) {
+  const title = safeTelegramSummaryLine(report.title || 'Agent Report');
+  const findings = (Array.isArray(report.findings) ? report.findings : [])
+    .slice(0, 3)
+    .map(safeTelegramSummaryLine)
+    .filter(Boolean);
+  const limitation = safeTelegramSummaryLine(
+    (Array.isArray(report.limitations) ? report.limitations : [])[0] || '',
+  );
+  return [
+    title,
+    '',
+    '발견',
+    ...findings.map((finding, index) => `${index + 1}. ${finding}`),
+    ...(limitation ? ['', `한계: ${limitation}`] : []),
+    ...(appUrl ? ['', String(appUrl)] : []),
+  ].join('\n');
+}
+
+async function sendTelegramMessage({ botToken, chatId, text, fetchImpl = fetch } = {}) {
+  if (!String(botToken || '').trim()) throw new Error('Telegram bot token is required');
+  if (!String(chatId || '').trim()) throw new Error('Telegram chat ID is required');
+  if (!String(text || '').trim()) throw new Error('Telegram message text is required');
+  const response = await fetchImpl(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: String(chatId),
+      text: String(text),
+      disable_web_page_preview: true,
+    }),
+  });
+  let payload = {};
+  try {
+    payload = await response.json();
+  } catch {
+    payload = {};
+  }
+  if (!response.ok || payload.ok === false) {
+    const error = new Error(payload.description || `Telegram sendMessage failed: ${response.status}`);
+    error.code = 'telegram_delivery_failed';
+    throw error;
+  }
+  return payload.result || {};
+}
+
 module.exports = {
   createDocumentPayloadFromTelegram,
   createRunPayloadFromTelegram,
   fetchTelegramAttachment,
+  formatAgentReportTelegram,
   parseTelegramUpdate,
   registerTelegramWebhook,
+  sendTelegramMessage,
 };
