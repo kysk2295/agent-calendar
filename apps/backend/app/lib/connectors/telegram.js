@@ -148,7 +148,7 @@ function createRunPayloadFromTelegram(parsed) {
     sourceId: parsed.sourceId,
     agent: 'default',
     model: 'Recommended',
-    noApproval: true,
+    noApproval: false,
     metadata: {
       chatId: parsed.chatId,
       messageId: parsed.messageId,

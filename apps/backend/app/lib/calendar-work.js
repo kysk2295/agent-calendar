@@ -29,7 +29,7 @@ function resolveOwner(text) {
   if (/검토|확인|결정|review|approve|초안/i.test(text) && /에이전트|agent|시켜|맡/i.test(text)) {
     return 'Hybrid';
   }
-  if (/에이전트|agent|시켜|맡|default|marketflow|stockagent|uniportpm|Codex|Claude|Grok/i.test(text)) return 'Agent';
+  if (/에이전트|agent|시켜|맡|default|bizconsultant|stockagent|uniportpm|wikicurator|Codex|Claude|Grok/i.test(text)) return 'Agent';
   return 'Me';
 }
 

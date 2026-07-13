@@ -37,7 +37,7 @@ class Scheduler {
       agent: resolveOfficialProfileName(job.agent),
       model: job.model || 'Recommended',
       source: 'scheduler',
-      noApproval: true,
+      noApproval: false,
     });
     const updatedJob = this.store.updateSchedulerJob(job.id, {
       lastRunAt: now,
@@ -60,7 +60,7 @@ class Scheduler {
         agent: resolveOfficialProfileName(job.agent),
         model: job.model || 'Recommended',
         source: 'scheduler',
-        noApproval: true,
+        noApproval: false,
       });
       createdRuns.push(run);
       this.store.updateSchedulerJob(job.id, {

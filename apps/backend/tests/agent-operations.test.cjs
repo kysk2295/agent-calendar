@@ -22,6 +22,8 @@ const { COMMAND_ROUTES } = require('../app/lib/commands');
 const { listMissionTemplates } = require('../app/lib/missions');
 const { buildMissionRunPayload } = require('../app/lib/missions');
 const { OFFICIAL_PROFILE_NAMES } = require('../app/lib/official-profiles');
+const { buildAgentProfileSetup } = require('../app/lib/agent-profile-setup');
+const { buildWorkboardRunPayload, buildWorkboardTaskDraft } = require('../app/lib/workboard');
 
 const FIXED_NOW = '2026-07-13T09:00:00.000Z';
 const clock = () => new Date(FIXED_NOW);
@@ -740,6 +742,41 @@ test('Hermes profile command templates never bypass runtime approvals', async ()
 
   // Then
   assert.equal(sources.every((source) => !source.includes('--yolo')), true);
+});
+
+test('legacy run payloads use official profiles and require approval', async () => {
+  // Given
+  const draft = buildWorkboardTaskDraft({
+    title: 'Publish weekly content',
+    content: 'Share the final draft after review',
+    selectedDate: '2026-07-13',
+  });
+
+  // When
+  const run = buildWorkboardRunPayload(draft);
+  const setup = buildAgentProfileSetup('marketflow');
+  const safetyFiles = [
+    '../app/lib/workboard.js',
+    '../app/lib/scheduler.js',
+    '../app/lib/connectors/telegram.js',
+    '../app/lib/calendar-work.js',
+    '../app/lib/agent-profile-setup.js',
+    '../app/lib/commands.js',
+    '../app/lib/missions.js',
+    '../app/railway-gateway-server.js',
+  ];
+  const safetySources = await Promise.all(
+    safetyFiles.map((file) => readFile(path.join(__dirname, file), 'utf8')),
+  );
+
+  // Then
+  assert.equal(OFFICIAL_PROFILE_NAMES.includes(draft.agent), true);
+  assert.equal(draft.agent, 'default');
+  assert.equal(run.noApproval, false);
+  assert.doesNotMatch(run.goal, /without asking for human approval/i);
+  assert.equal(setup.profile, 'default');
+  assert.equal(safetySources.every((source) => !source.includes('noApproval: true')), true);
+  assert.equal(safetySources.every((source) => !source.includes('marketflow')), true);
 });
 
 test('planning API creates proposed calendar work and one Task Session per task', async () => {

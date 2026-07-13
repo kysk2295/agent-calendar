@@ -2317,7 +2317,7 @@ function buildCalendarRunPayload(draft) {
     agent: draft.agent,
     model: draft.model,
     source: 'calendar',
-    noApproval: true,
+    noApproval: false,
     successCriteria: draft.successCriteria || [],
     wikiWriteBack: draft.wikiDestination,
     mission: {
@@ -2338,12 +2338,12 @@ function buildChatRunPayload(command) {
       `Agent: ${command.agent}`,
       `Model: ${command.model}`,
       `Exact result file: ${wikiFile}`,
-      'Respond to the user conversationally, execute the work without human approval, and write resumable notes to the exact LLM-Wiki file.',
+      'Respond conversationally, require approval before side effects, and write resumable notes to the exact LLM-Wiki file.',
     ].join('\n'),
     agent: resolveOfficialProfileName(command.agent),
     model: command.model,
     source: 'chat',
-    noApproval: true,
+    noApproval: false,
     file: wikiFile,
     wikiWriteBack: wikiFile,
     mission: {

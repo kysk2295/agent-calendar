@@ -1,29 +1,35 @@
+const { resolveOfficialProfileName } = require('./official-profiles');
+
 const PROFILE_TITLES = {
   default: 'Default Hermes',
-  marketflow: 'MarketFlow Researcher',
+  bizconsultant: 'Business Consultant',
   stockagent: 'Stock Agent',
   uniportpm: 'UniPort PM',
+  wikicurator: 'Wiki Curator',
 };
 
 const PROFILE_MISSIONS = {
   default: 'Route general Hermes work, keep user-level memory clean, and hand off domain-specific work to the right profile.',
-  marketflow: 'Research markets, campaigns, competitive signals, and content opportunities without mixing product memory.',
+  bizconsultant: 'Research markets, business models, competitive signals, and product opportunities with source discipline.',
   stockagent: 'Track market evidence, publishing checks, and finance-oriented summaries with source discipline.',
   uniportpm: 'Manage UniPort product scope, backlog, prioritization, handoff, and final user reports.',
+  wikicurator: 'Maintain the personal wiki, preserve source context, and produce reusable knowledge without inventing facts.',
 };
 
 const PROFILE_OWNS = {
   default: ['general triage', 'profile routing', 'Hermes summary reports'],
-  marketflow: ['market research', 'content strategy', 'campaign evidence'],
+  bizconsultant: ['market research', 'business strategy', 'competitive evidence'],
   stockagent: ['market evidence', 'publishing verification', 'risk notes'],
   uniportpm: ['backlog 생성 및 prioritization', 'scope 관리 및 handoff', '최종 사용자 보고서 작성'],
+  wikicurator: ['wiki retrieval', 'source-linked synthesis', 'knowledge maintenance'],
 };
 
 const PROFILE_AVOIDS = {
   default: ['domain memory mixing', 'inventing unavailable profile capabilities'],
-  marketflow: ['UniPort product memory', 'stockagent finance memory', 'direct code implementation'],
+  bizconsultant: ['stockagent finance memory', 'direct code implementation', 'unsupported external actions'],
   stockagent: ['marketing-only decisions without evidence', 'UniPort PM backlog ownership'],
-  uniportpm: ['직접 코드 구현', 'MarketFlow나 다른 도메인 memory 혼합'],
+  uniportpm: ['직접 코드 구현', '다른 도메인 memory 혼합'],
+  wikicurator: ['unsupported claims', 'source deletion', 'unapproved publishing'],
 };
 
 function soulTemplate(profile) {
@@ -62,7 +68,7 @@ function soulTemplate(profile) {
 }
 
 function buildAgentProfileSetup(profileName) {
-  const profile = String(profileName || 'default').trim() || 'default';
+  const profile = resolveOfficialProfileName(profileName);
   const profileRoot = `~/.hermes/profiles/${profile}`;
   return {
     profile,

@@ -17,14 +17,14 @@ function normalizeMultiline(value) {
 function resolveWorkboardAgent(text, route) {
   if (/논문|paper|research|실험|experiment|hypothesis|rag/i.test(text)) return 'default';
   if (/코딩|개발|구현|버그|테스트|deploy|배포|code|coding|api/i.test(text)) return 'uniportpm';
-  if (/메일|공유|게시|콘텐츠|영상|shorts|blog|email|publish/i.test(text)) return 'marketflow';
+  if (/메일|공유|게시|콘텐츠|영상|shorts|blog|email|publish/i.test(text)) return 'default';
   return resolveOfficialProfileName(route.agent);
 }
 
 function buildSuccessCriteria(text) {
   const criteria = [
     'Workboard source context is converted into clear execution steps',
-    'Run proceeds without human approval unless a stop condition is hit',
+    'Run pauses for approval before any side-effecting action',
     'Result summary, artifacts, and resume notes are written to LLM-Wiki',
   ];
   if (/논문|paper|research|실험|experiment|hypothesis|rag/i.test(text)) {
@@ -81,7 +81,7 @@ function buildWorkboardRunPayload(draft, { now = new Date() } = {}) {
       `Model: ${draft.model}`,
       `LLM-Wiki write-back: ${draft.wikiDestination}`,
       `Exact result file: ${wikiFile}`,
-      'Execute continuously without asking for human approval.',
+      'Do not perform side effects without explicit human approval.',
       'Source context:',
       draft.content || draft.originalText || draft.title,
       'Success criteria:',
@@ -91,7 +91,7 @@ function buildWorkboardRunPayload(draft, { now = new Date() } = {}) {
     agent: draft.agent,
     model: draft.model || 'Codex',
     source: 'workboard',
-    noApproval: true,
+    noApproval: false,
     successCriteria: draft.successCriteria || [],
     wikiWriteBack: wikiFile,
     mission: {
