@@ -2,7 +2,7 @@
 
 - Date: 2026-07-13 (Asia/Seoul)
 - Railway service: `hermes-os`
-- Verified deployment: `0e486d74-d6f7-4329-9a3c-61f7e314035e`
+- Verified deployment: `72ca034a-bf0e-4a78-9b7a-f80c7fd99bc5`
 - Scope: personal single-user Agent Operations with the remote Mac mini Hermes Relay
 
 ## Sanitized Runtime Evidence
