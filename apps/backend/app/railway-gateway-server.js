@@ -886,6 +886,14 @@ function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, ga
   nextBody.toolsets = ['safe'];
   nextBody.mcpServers = [];
   if (runtimeState.profileReadiness) nextBody.profileReadiness = state.profileReadiness;
+  if (runtimeState.agentSourceStatus) {
+    if (state.agentSourceStatus) nextBody.agentSourceStatus = state.agentSourceStatus;
+    else delete nextBody.agentSourceStatus;
+  }
+  if (runtimeState.remoteVerification) {
+    if (state.remoteVerification) nextBody.remoteVerification = state.remoteVerification;
+    else delete nextBody.remoteVerification;
+  }
   if (Array.isArray(runtimeState.agents)) nextBody.agents = state.agents;
   if (body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
     const data = { ...body.data };
@@ -897,6 +905,14 @@ function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, ga
       data.agents = publicOfficialProfileAgents(agents);
     }
     if (body.data.profileReadiness) data.profileReadiness = publicProfileReadiness(body.data.profileReadiness);
+    if (body.data.agentSourceStatus) {
+      if (state.agentSourceStatus) data.agentSourceStatus = state.agentSourceStatus;
+      else delete data.agentSourceStatus;
+    }
+    if (body.data.remoteVerification) {
+      if (state.remoteVerification) data.remoteVerification = state.remoteVerification;
+      else delete data.remoteVerification;
+    }
     if (Array.isArray(body.data.tools)) {
       data.tools = publicCapabilityMetadataList(filterActualGatewayTools(body.data.tools));
       if (!Array.isArray(body.tools)) nextBody.tools = data.tools;
@@ -7287,13 +7303,21 @@ async function handleApi(
       });
       return;
     }
+    const wrappedData = body.data && typeof body.data === 'object' && !Array.isArray(body.data)
+      ? body.data
+      : {};
     const shouldMergeGatewayBody = body
       && typeof body === 'object'
       && !Array.isArray(body)
       && (
         (body.state && typeof body.state === 'object' && !Array.isArray(body.state))
         || Array.isArray(body.agents)
-        || (body.data && typeof body.data === 'object' && !Array.isArray(body.data) && Array.isArray(body.data.agents))
+        || (body.agentSourceStatus && typeof body.agentSourceStatus === 'object' && !Array.isArray(body.agentSourceStatus))
+        || (body.remoteVerification && typeof body.remoteVerification === 'object' && !Array.isArray(body.remoteVerification))
+        || Array.isArray(wrappedData.agents)
+        || (wrappedData.state && typeof wrappedData.state === 'object' && !Array.isArray(wrappedData.state))
+        || (wrappedData.agentSourceStatus && typeof wrappedData.agentSourceStatus === 'object' && !Array.isArray(wrappedData.agentSourceStatus))
+        || (wrappedData.remoteVerification && typeof wrappedData.remoteVerification === 'object' && !Array.isArray(wrappedData.remoteVerification))
       );
     if (shouldMergeGatewayBody) {
       await ensureGatewayTickTickSnapshot({ gatewayState, gatewayStore, env, fetchImpl });

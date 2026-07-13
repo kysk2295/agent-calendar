@@ -385,11 +385,41 @@ test('projects direct runtime agent and tool reads through the same public polic
       const { pathname } = runtimeUrl;
       const payload = pathname === '/api/agents/bizconsultant/metrics'
         ? { ok: true, metrics: { completed: 3 } }
+        : pathname === '/api/runs/run-data-state'
+          ? {
+            ok: true,
+            data: {
+              run: { id: 'run-data-state', status: 'completed' },
+              state: {
+                debugSecret: 'super-secret',
+                privatePath: '/Users/koyunseo/private-top-level',
+                agents: unsafeAgents,
+                tools: unsafeTools,
+                skills: unsafeSkills,
+                toolsets: ['safe', 'shell'],
+                mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
+              },
+            },
+          }
         : pathname === '/api/runs/run-1'
           ? {
             ok: true,
             run: { id: 'run-1', status: 'completed' },
             state: { agents: unsafeAgents },
+            agentSourceStatus: {
+              ok: true,
+              source: 'runtime-direct',
+              profileCount: 2,
+              rawToken: 'super-secret',
+              privatePath: '/Users/koyunseo/private-top-level',
+            },
+            remoteVerification: {
+              runtimeReachable: true,
+              gatewayFallback: false,
+              source: 'runtime-direct',
+              checkedAt: '2026-07-13T00:00:00.000Z',
+              command: 'super-secret-command',
+            },
             data: {
               run: { id: 'run-1', status: 'completed' },
               state: {
@@ -493,11 +523,12 @@ test('projects direct runtime agent and tool reads through the same public polic
   try {
     // When
     const headers = { authorization: 'Bearer client-token' };
-    const [agents, agentDetail, agentMetrics, runDetail, tools, state, dataState, nestedDataState, siblingState] = await Promise.all([
+    const [agents, agentDetail, agentMetrics, runDetail, dataOnlyRun, tools, state, dataState, nestedDataState, siblingState] = await Promise.all([
       fetch(`${baseUrl}/api/agents`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/agents/bizconsultant`, { headers }).then(async (response) => ({ status: response.status, body: await response.json() })),
       fetch(`${baseUrl}/api/agents/bizconsultant/metrics`, { headers }).then(async (response) => ({ status: response.status, body: await response.json() })),
       fetch(`${baseUrl}/api/runs/run-1`, { headers }).then((response) => response.json()),
+      fetch(`${baseUrl}/api/runs/run-data-state`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/tools`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/state`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/state?shape=data`, { headers }).then((response) => response.json()),
@@ -526,6 +557,15 @@ test('projects direct runtime agent and tool reads through the same public polic
     assert.ok(runDetail.data.state.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
     assert.deepEqual(runDetail.data.state.toolsets, ['safe']);
     assert.deepEqual(runDetail.data.state.mcpServers, []);
+    assert.deepEqual(Object.keys(runDetail.agentSourceStatus).sort(), ['generatedAt', 'ok', 'profileCount', 'source']);
+    assert.deepEqual(
+      Object.keys(runDetail.remoteVerification).sort(),
+      ['checkedAt', 'gatewayFallback', 'runtimeReachable', 'source'],
+    );
+    assert.ok(dataOnlyRun.data.state.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
+    assert.deepEqual(dataOnlyRun.data.state.toolsets, ['safe']);
+    assert.deepEqual(dataOnlyRun.data.state.mcpServers, []);
+    assert.deepEqual(dataOnlyRun.state, dataOnlyRun.data.state);
     assert.ok(state.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
     assert.deepEqual(state.toolsets, ['safe']);
     assert.deepEqual(state.mcpServers, []);
@@ -552,9 +592,9 @@ test('projects direct runtime agent and tool reads through the same public polic
       assert.deepEqual(publicState.sessions, storedState.sessions);
       assert.deepEqual(publicState.commandInboxArchivedIds, storedState.commandInboxArchivedIds);
     }
-    assert.doesNotMatch(JSON.stringify({ agents, agentDetail, runDetail, state, dataState, nestedDataState, siblingState }), /commandTemplate/);
+    assert.doesNotMatch(JSON.stringify({ agents, agentDetail, runDetail, dataOnlyRun, state, dataState, nestedDataState, siblingState }), /commandTemplate/);
     assert.doesNotMatch(
-      JSON.stringify({ agents, agentDetail, runDetail, tools, state, dataState, nestedDataState, siblingState }),
+      JSON.stringify({ agents, agentDetail, runDetail, dataOnlyRun, tools, state, dataState, nestedDataState, siblingState }),
       /marketflow|--yolo|shell-server|super-secret|\/Users\/koyunseo/,
     );
   } finally {
