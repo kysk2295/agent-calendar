@@ -358,7 +358,8 @@ test('projects direct runtime agent and tool reads through the same public polic
     { id: 'marketflow', name: 'marketflow', runtimeBinding: { commandTemplate: 'hermes --yolo' } },
     {
       id: 'bizconsultant',
-      name: 'bizconsultant',
+      name: 'Biz Consultant',
+      description: 'Rich nested duplicate survives',
       status: 'Ready',
       profile: { name: 'bizconsultant' },
       skills: [{ id: 'research', name: 'Research', description: 'Full nested skill' }],
@@ -542,6 +543,8 @@ test('projects direct runtime agent and tool reads through the same public polic
     assert.ok(agents.profileReadiness.requiredProfiles.every((entry) => Object.hasOwn(entry, 'setup') === false));
     assert.equal(Object.hasOwn(agents, 'debugSecret'), false);
     assert.equal(Object.hasOwn(agents, 'state'), false);
+    assert.equal(agents.agents[0].name, 'Biz Consultant');
+    assert.equal(agents.agents[0].description, 'Rich nested duplicate survives');
     assert.equal(agents.agents[0].status, 'Ready');
     assert.equal(agents.agents[0].skills.length, 1);
     assert.equal(agentDetail.status, 200);

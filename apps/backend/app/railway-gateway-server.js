@@ -1172,7 +1172,12 @@ function publicOfficialProfileAgents(agents = []) {
     if (!name) return null;
     const allowedStatuses = new Set(['Idle', 'Running', 'Busy', 'Ready', 'Unavailable', 'Offline', 'Paused']);
     const status = String(agent.status || 'Idle');
+    const publicName = safeRuntimeError(agent.displayName || agent.name, name) || name;
+    const description = safeRuntimeError(agent.description, '');
     return createOfficialProfileAgent(name, {
+      displayName: publicName,
+      name: publicName,
+      ...(description ? { description } : {}),
       engine: 'hermes',
       role: `Mac mini Hermes profile ${name}`,
       persona: `Mac mini Hermes profile ${name}.`,
