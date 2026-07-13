@@ -178,13 +178,50 @@ test('keeps the Railway gateway health check public while other API routes remai
   }
 });
 
+test('public gateway status omits the Mac mini working directory', async () => {
+  // Given
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-token',
+    },
+    fetchImpl: async () => new Response(JSON.stringify({
+      ok: true,
+      runtime: {
+        machineName: 'Hermes Mac mini',
+        hostname: 'hermes-mini.local',
+        cwd: '/Users/koyunseo/Documents/agent-calendar',
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/gateway-status`);
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.equal(body.runtime.machineName, 'Hermes Mac mini');
+    assert.equal(body.runtime.hostname, 'hermes-mini.local');
+    assert.equal(body.runtime.cwd, '');
+    assert.doesNotMatch(JSON.stringify(body), /\/Users\/koyunseo/);
+  } finally {
+    await close(server);
+  }
+});
+
 test('fallback health never exposes runtime recovery commands', async () => {
   // Given
   const server = createRailwayGatewayServer({
     env: {
       RAILWAY_PUBLIC_DOMAIN: 'calendar.example.test',
       HERMES_REMOTE_AUTH_TOKEN: 'client-token',
-      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_URL: 'https://user:password@runtime.test/base?token=top-secret',
     },
     fetchImpl: async () => {
       throw new Error('runtime offline');
@@ -201,6 +238,150 @@ test('fallback health never exposes runtime recovery commands', async () => {
     assert.equal(response.status, 200);
     assert.match(body, /Mac mini runtime is unreachable/);
     assert.doesNotMatch(body, /recoveryCommand|residentInstallCommand|launchctl bootstrap|hermes\s+daemon/i);
+    assert.doesNotMatch(body, /user:password|top-secret/);
+    assert.equal(JSON.parse(body).runtimeUrl, 'https://runtime.test/base');
+  } finally {
+    await close(server);
+  }
+});
+
+test('projects fallback documents command inbox and system connections through public records', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-fallback-records-'));
+  const gatewayStore = new HermesStore({ dataDir });
+  const chatMessage = gatewayStore.addChatMessage({
+    role: 'user',
+    text: 'Create a public task token=top-secret /Users/koyunseo/private.md',
+    wikiPath: '/Users/koyunseo/private-wiki.md',
+    source: 'web',
+  });
+  const commandItemId = `chat:${chatMessage.id}`;
+  gatewayStore.setDaemonStatus({
+    running: true,
+    isTicking: true,
+    intervalMs: 1_000,
+    command: 'hermes --yolo',
+    privatePath: '/Users/koyunseo/private-daemon',
+    raw: { token: 'top-secret-daemon' },
+  });
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_WIKI_ROOT: '/Users/koyunseo/private-vault',
+    },
+    gatewayStore,
+    fetchImpl: async () => {
+      throw new Error('runtime offline');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const createdDocument = await fetch(`${baseUrl}/api/documents`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Public document',
+        extractedText: 'Visible evidence token=top-secret /Users/koyunseo/private.txt',
+        originalFilePath: '/Users/koyunseo/private.pdf',
+        telegramFilePath: '/Volumes/private/file.pdf',
+        sourceUsername: 'private-user',
+      }),
+    }).then((response) => response.json());
+    const documents = await fetch(`${baseUrl}/api/documents`).then((response) => response.json());
+    const inbox = await fetch(`${baseUrl}/api/inbox/commands`).then((response) => response.json());
+    const starred = await fetch(`${baseUrl}/api/inbox/commands/${encodeURIComponent(commandItemId)}/star`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }).then((response) => response.json());
+    const taskAction = await fetch(`${baseUrl}/api/inbox/commands/${encodeURIComponent(commandItemId)}/task`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: 'marketflow' }),
+    }).then((response) => response.json());
+    const connections = await fetch(`${baseUrl}/api/system/connections`).then((response) => response.json());
+    const wiki = await fetch(`${baseUrl}/api/wiki`).then((response) => response.json());
+    const daemon = await fetch(`${baseUrl}/api/scheduler/daemon`).then((response) => response.json());
+    const tick = await fetch(`${baseUrl}/api/scheduler/tick`, { method: 'POST' }).then((response) => response.json());
+
+    // Then
+    const publicBody = JSON.stringify({ createdDocument, documents, inbox, starred, taskAction, connections, daemon, tick });
+    assert.doesNotMatch(publicBody, /top-secret|\/Users\/|\/Volumes\/|originalFilePath|telegramFilePath|sourceUsername|marketflow/i);
+    assert.equal(createdDocument.document.title, 'Public document');
+    assert.equal(documents.documents[0].title, 'Public document');
+    assert.equal(inbox.items[0].id, commandItemId);
+    assert.equal(starred.item.starred, true);
+    assert.equal(taskAction.task.agent, 'default');
+    assert.equal(connections.wikiRoot, '');
+    assert.equal(wiki.wikiRoot, '');
+    assert.equal(wiki.wikiIndex.wikiRoot, '');
+    assert.equal(daemon.daemon.running, true);
+    assert.equal(tick.daemon.running, true);
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('projects non-success runtime JSON and every public state collection', async () => {
+  // Given
+  const unsafeRecord = {
+    id: 'unsafe-1',
+    title: 'Visible record',
+    command: 'hermes --yolo',
+    privatePath: '/Users/koyunseo/private-record',
+    raw: { token: 'top-secret' },
+  };
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_REMOTE_AUTH_TOKEN: 'client-token',
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-token',
+    },
+    fetchImpl: async (requestUrl) => {
+      const pathname = new URL(String(requestUrl)).pathname;
+      if (pathname === '/api/state') {
+        return new Response(JSON.stringify({
+          ok: true,
+          state: {
+            ticktickTasks: [unsafeRecord],
+            events: [{ ...unsafeRecord, id: 'unsafe-event' }],
+            externalCalendarEvents: [{ ...unsafeRecord, id: 'unsafe-calendar' }],
+            mailMessages: [{ ...unsafeRecord, id: 'unsafe-mail' }],
+            deletedAgentIds: ['marketflow'],
+          },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        ok: false,
+        error: 'Visible runtime failure token=top-secret /Users/koyunseo/private-error',
+        command: 'hermes --yolo',
+        privatePath: '/Volumes/private-error',
+        raw: { authorization: 'Bearer top-secret' },
+      }), { status: 500, headers: { 'content-type': 'application/json' } });
+    },
+  });
+  const baseUrl = await listen(server);
+  const headers = { authorization: 'Bearer client-token' };
+
+  try {
+    // When
+    const stateResponse = await fetch(`${baseUrl}/api/state`, { headers });
+    const state = await stateResponse.json();
+    const failedResponse = await fetch(`${baseUrl}/api/failing-runtime-route`, { headers });
+    const failure = await failedResponse.json();
+
+    // Then
+    assert.equal(stateResponse.status, 200);
+    assert.equal(failedResponse.status, 500);
+    assert.equal(state.ticktickTasks[0].title, 'Visible record');
+    assert.equal(state.events[0].title, 'Visible record');
+    assert.equal(state.externalCalendarEvents[0].title, 'Visible record');
+    assert.equal(state.mailMessages[0].title, 'Visible record');
+    assert.deepEqual(state.deletedAgentIds, []);
+    assert.match(failure.error, /Runtime request failed|Visible runtime failure/);
+    assert.doesNotMatch(JSON.stringify({ state, failure }), /top-secret|marketflow|\/Users\/|\/Volumes\/|hermes --yolo|authorization|privatePath|"raw"/i);
   } finally {
     await close(server);
   }
@@ -644,7 +825,15 @@ test('projects direct runtime agent and tool reads through the same public polic
     progress: 100,
     createdAt: '2026-07-13T00:00:00.000Z',
     documentId: 'document-safe',
-    logs: ['runner completed', 'Bearer direct-run-token', '/Users/koyunseo/private-run', 'hermes --danger'],
+    logs: [
+      'runner completed',
+      'Bearer direct-run-token',
+      '/Users/koyunseo/private-run',
+      '/Library/Application Support/Hermes/private-run',
+      'Research complete; hermes --danger',
+      'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-opaque',
+      'hermes --danger',
+    ],
     output: 'AIza1234567890abcdefghijklmnop',
     privatePath: '/Users/koyunseo/private-run',
     runtimeBinding: { commandTemplate: 'hermes --danger' },
@@ -925,7 +1114,7 @@ test('projects direct runtime agent and tool reads through the same public polic
     assert.doesNotMatch(JSON.stringify({ agents, agentDetail, runDetail, dataOnlyRun, state, dataState, nestedDataState, siblingState }), /commandTemplate/);
     assert.doesNotMatch(
       JSON.stringify({ agents, agentDetail, runDetail, runLogs, dataOnlyRun, tools, state, dataState, nestedDataState, siblingState, health }),
-      /marketflow|--yolo|--danger|shell-server|super-secret|run-secret|direct-run-token|nested-step-token|AIza1234567890|\/Users\/koyunseo/,
+      /marketflow|--yolo|--danger|shell-server|super-secret|run-secret|direct-run-token|nested-step-token|AIza1234567890|AbCdEfGhIjKlMnOpQrStUvWxYz|\/Users\/koyunseo|\/Library\/Application Support\/Hermes/,
     );
   } finally {
     await close(server);
@@ -1216,6 +1405,81 @@ test('routes mission launch through the live Mac mini relay', async () => {
     assert.equal(body.run.agent, 'default');
     assert.equal(body.relayRuntimeRequest, true);
     assert.equal(body.gatewayFallback, false);
+  } finally {
+    await close(server);
+  }
+});
+
+test('projects Relay profile creation and tool test responses through public records', async () => {
+  // Given
+  const server = createRailwayGatewayServer({
+    env: { HERMES_RELAY_TOKEN: 'relay-token' },
+  });
+  const baseUrl = await listen(server);
+  const completeRelayRequest = async ({ requestPromise, runtimeBody, status = 200 }) => {
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const responsePromise = requestPromise();
+    const polled = await pollPromise;
+    await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({ ok: true, status, body: runtimeBody }),
+    });
+    return responsePromise.then((response) => response.json());
+  };
+
+  try {
+    // When
+    const profile = await completeRelayRequest({
+      requestPromise: () => fetch(`${baseUrl}/api/agents`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'research_helper', role: 'Public research helper' }),
+      }),
+      runtimeBody: {
+        ok: true,
+        name: 'research_helper',
+        description: 'Public research helper',
+        debugSecret: 'top-secret-profile',
+        path: '/Users/koyunseo/.hermes/profiles/research_helper',
+        rawCommand: 'hermes --yolo',
+      },
+      status: 201,
+    });
+    const toolTest = await completeRelayRequest({
+      requestPromise: () => fetch(`${baseUrl}/api/tools/skill:research/test`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ profile: 'default' }),
+      }),
+      runtimeBody: {
+        ok: true,
+        name: 'research',
+        message: 'Skill is ready',
+        token: 'top-secret-tool-token',
+        sourcePath: '/Library/Application Support/Hermes/research',
+        command: 'hermes --yolo',
+      },
+    });
+
+    // Then
+    assert.equal(profile.ok, true);
+    assert.equal(profile.agent.id, 'research_helper');
+    assert.equal(profile.agent.role, 'Public research helper');
+    assert.equal(toolTest.ok, true);
+    assert.equal(toolTest.tool.id, 'skill:research');
+    assert.equal(toolTest.tool.lastTest.status, 'ok');
+    assert.equal(toolTest.tool.lastTest.result.message, 'Skill is ready');
+    assert.doesNotMatch(
+      JSON.stringify({ profile, toolTest }),
+      /top-secret|\/Users\/koyunseo|\/Library\/Application Support|rawCommand|sourcePath|commandTemplate|--yolo/,
+    );
   } finally {
     await close(server);
   }
@@ -1754,7 +2018,12 @@ test('projects Agent Operations list and mutation records through strict public 
         missionId: 'mission-public',
         taskId: 'task-public',
         status: 'scheduled',
-        events: [{ kind: 'progress', text: '안전한 진행 상황', command: 'curl https://private.test' }],
+        events: [{
+          kind: 'progress',
+          text: '안전한 진행 상황',
+          command: 'curl https://private.test',
+          metadata: { tool: 'web', harmlessInternal: 'must-not-be-public', nested: { command: 'curl private' } },
+        }],
         token: 'session-secret',
       }],
       reports: [],
@@ -1778,6 +2047,8 @@ test('projects Agent Operations list and mutation records through strict public 
     assert.equal(list.missions[0].title, '공개 미션');
     assert.equal(list.tasks[0].title, '공개 작업');
     assert.equal(list.sessions[0].events[0].text, '안전한 진행 상황');
+    assert.equal(list.sessions[0].events[0].metadata.tool, 'web');
+    assert.equal(Object.hasOwn(list.sessions[0].events[0].metadata, 'harmlessInternal'), false);
     assert.equal(mutation.task.status, 'blocked');
     assert.doesNotMatch(
       JSON.stringify({ list, mutation }),

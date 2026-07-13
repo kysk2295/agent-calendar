@@ -114,6 +114,8 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - [x] runtime task 우선 병합과 scheduler ID 안정성, 안전한 장문 표시 텍스트를 회귀 테스트로 보호한다.
 - [x] 위 후속 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
 - [x] Railway에 배포한 뒤 실제 맥미니 Hermes에 새 미션을 보내 `지금 실행`·콜백·세션·보고서·캘린더 E2E를 검증한다.
+- [x] 최종 보안 리뷰에서 확인된 fallback health/daemon, 삭제 profile 실행, non-2xx JSON, Relay create/test, runtime cwd와 opaque identifier 노출 경계를 RED/GREEN으로 닫는다.
+- [x] 교체 전 Agents 화면을 가리키던 Playwright를 현재 `Missions / Agents / Reports` 계약으로 갱신한다.
 
 ## Rollback / fallback
 
@@ -132,11 +134,11 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 ## Verification results
 
 - `npm run backend:check`: passed.
-- `npm run test:backend`: 133/133 passed.
+- `npm run test:backend`: 140/140 passed.
 - `npm --workspace apps/desktop run typecheck`: passed.
 - `npm --workspace apps/desktop run test`: 75/75 passed.
 - `npm run build:desktop`: passed.
-- `npm test`: backend 133/133, desktop 75/75 passed.
+- `npm test`: backend 140/140, desktop 75/75 passed.
 - Agent create/mission/approval/artifact, wiki graph/ask/search/tree, calendar CRUD Playwright scenarios: passed.
 - Live gateway QA: unauthenticated caller 401, authenticated offline agents `Unavailable`, offline run 503.
 - Post-push regression QA: task detail format/comment/delegate controls restored; chat, full-page login, and authenticated widget fixtures aligned with the shipped contracts.
@@ -161,3 +163,5 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - Responsive browser QA: Agent Operations at 768x900 and 375x812 had no horizontal overflow, out-of-viewport mission/task/action elements, or task-action overlap.
 - Runtime latency audit: authenticated Railway and local proxy requests to `/api/documents` and `/api/channels/status` returned HTTP 200. Five local repetitions measured documents at 0.368-1.420 seconds and channels at 0.413-0.726 seconds; the earlier 25-second wait was not reproducible, so no speculative timeout change was made.
 - Debugging hypotheses: (H1) Railway relay wait, (H2) local proxy bottleneck, and (H3) unsupported Mac mini routes were all refuted by the live local-vs-Railway timings. The execution-path hypotheses were also resolved by identical scheduler started/completed task IDs, persisted completion events/reports, and hostile JSON/SSE projection tests.
+- Final boundary RED/GREEN: fallback health credential URL, raw daemon state, deleted `marketflow` scheduler profile, non-2xx JSON/state collections, unknown session metadata, runtime `cwd`, opaque identifiers, embedded commands/system paths, Relay profile-create/tool-test raw body cases all failed before their projector changes and pass afterward.
+- Current Agent Operations Playwright: `playwright-agent-operations-mission.cjs` passed the `지금 실행` request and `Missions / Agents / Reports` flow; `playwright-agent-surface-buttons.cjs` now validates the same current surface, renders only `default` and `bizconsultant` fixtures, and excludes `marketflow`.

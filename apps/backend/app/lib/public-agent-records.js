@@ -12,10 +12,20 @@ const PUBLIC_SCALAR_KEYS = new Set([
   'source', 'start', 'startDate', 'status', 'state', 'taskId', 'text', 'time', 'title', 'type',
   'updatedAt',
 ]);
+const PUBLIC_SESSION_METADATA_KEYS = new Set([
+  'action', 'actionClass', 'agent', 'applicationMode', 'attempt', 'budget', 'checkpoint', 'code',
+  'completedAt', 'decision', 'detail', 'dueAt', 'estimatedMinutes', 'evidenceCount',
+  'externalSideEffectsRequireApproval', 'firstPlanRequiresApproval', 'followUpIndex', 'forbiddenActions',
+  'jobId', 'maxRunsPerWeek', 'maxRuntimeMinutesPerWeek', 'missionId', 'model',
+  'newActionClassRequiresApproval', 'objective', 'previousStatus', 'progress', 'receivedAt', 'recordedAt',
+  'reportId', 'requestedAt', 'runId', 'scheduledAt', 'sessionId', 'sourceRefs', 'startedAt', 'state',
+  'status', 'successCriteria', 'taskId', 'tool',
+]);
 
 function publicIdentifier(value) {
   const id = String(value || '').trim();
-  return /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,159}$/.test(id) ? id : '';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,159}$/.test(id)) return '';
+  return publicText(id, '', 160) === id ? id : '';
 }
 
 function publicText(value, fallback = '', maximumLength = 6_000) {
@@ -42,7 +52,7 @@ function publicMetadata(value, depth = 0) {
   if (typeof value !== 'object') return undefined;
   const projected = {};
   for (const [key, child] of Object.entries(value)) {
-    if (DANGEROUS_KEY.test(key)) continue;
+    if (DANGEROUS_KEY.test(key) || !PUBLIC_SESSION_METADATA_KEYS.has(key)) continue;
     const safe = publicMetadata(child, depth + 1);
     if (safe !== undefined && safe !== '') projected[key] = safe;
   }
@@ -228,6 +238,35 @@ function publicDocumentRecord(document = {}) {
   return projected;
 }
 
+function publicCommandInboxItemRecord(item = {}) {
+  const id = publicIdentifier(item.id);
+  if (!id) return null;
+  const projected = { id };
+  const runId = publicIdentifier(item.runId);
+  if (runId) projected.runId = runId;
+  for (const key of ['source', 'sourceLabel', 'title', 'text', 'status', 'detail', 'wikiPath']) {
+    const value = publicText(item[key], '', 20_000);
+    if (value) projected[key] = value;
+  }
+  const receivedAt = publicTimestamp(item.receivedAt);
+  if (receivedAt) projected.receivedAt = receivedAt;
+  if (item.seenCount !== undefined) projected.seenCount = Math.max(0, Number(item.seenCount) || 0);
+  for (const key of ['starred', 'star']) {
+    if (typeof item[key] === 'boolean') projected[key] = item[key];
+  }
+  return projected;
+}
+
+function publicCommandRouteRecord(command = {}) {
+  const projected = {};
+  for (const key of ['message', 'view', 'templateId', 'model', 'source', 'reason']) {
+    const value = publicText(command[key], '', 20_000);
+    if (value) projected[key] = value;
+  }
+  projected.agent = resolveRequestedOfficialProfile({ agent: command.agent });
+  return projected;
+}
+
 function publicChatMessageRecord(message = {}) {
   const projected = {};
   for (const key of ['id', 'runId']) {
@@ -268,11 +307,21 @@ function publicSchedulerResult(result = {}) {
 }
 
 function publicDaemonRecord(daemon = {}) {
-  return {
+  const projected = {
     running: daemon.running === true,
-    lastRun: publicTimestamp(daemon.lastRun) || null,
+    isTicking: daemon.isTicking === true,
+    intervalMs: Math.max(0, Number(daemon.intervalMs) || 0),
     lastError: publicText(daemon.lastError, '') || null,
   };
+  if (daemon.lastRun && typeof daemon.lastRun === 'object' && !Array.isArray(daemon.lastRun)) {
+    projected.lastRun = {
+      checkedAt: publicTimestamp(daemon.lastRun.checkedAt) || null,
+      createdRuns: Math.max(0, Number(daemon.lastRun.createdRuns) || 0),
+    };
+  } else {
+    projected.lastRun = publicTimestamp(daemon.lastRun) || null;
+  }
+  return projected;
 }
 
 function projectAgentOperationsResponse(body = {}) {
@@ -328,6 +377,8 @@ module.exports = {
   projectUnknownPublicJson,
   publicActivitySessionRecord,
   publicChatMessageRecord,
+  publicCommandInboxItemRecord,
+  publicCommandRouteRecord,
   publicDaemonRecord,
   publicDocumentRecord,
   publicMissionRecord,

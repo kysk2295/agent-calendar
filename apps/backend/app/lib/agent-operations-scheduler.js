@@ -1,6 +1,7 @@
 const { sanitizeAgentReport, sanitizeSessionEvent, validateReport } = require('./agent-operations-domain');
 const { taskExecutionMessages } = require('./agent-operations-execution');
 const { deliverAgentReport } = require('./agent-report-delivery');
+const { resolveRequestedOfficialProfile } = require('./official-profiles');
 const {
   completedMissionEvidence,
   createSchedulerResult,
@@ -150,7 +151,10 @@ class AgentOperationsScheduler {
     result.startedTaskIds.push(task.id);
 
     try {
-      const agentId = task.createdByAgentId || task.agent || mission.agentId;
+      const agentId = resolveRequestedOfficialProfile({
+        agentId: task.createdByAgentId || mission.agentId,
+        agent: task.agent,
+      });
       const completion = await this.executeCompletion({
         payload: {
           profile: agentId,

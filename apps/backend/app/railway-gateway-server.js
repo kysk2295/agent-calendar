@@ -49,6 +49,9 @@ const {
   projectUnknownPublicJson,
   publicActivitySessionRecord,
   publicChatMessageRecord,
+  publicCommandInboxItemRecord,
+  publicCommandRouteRecord,
+  publicDaemonRecord,
   publicDocumentRecord,
   publicMissionRecord,
   publicReportRecord,
@@ -1073,6 +1076,12 @@ async function pipeRuntimeResponse(runtimeResponse, res) {
     return;
   }
 
+  if (!runtimeResponse.ok) {
+    const text = publicDisplayText(await runtimeResponse.text(), 'Runtime request failed');
+    res.end(text);
+    return;
+  }
+
   if (!runtimeResponse.body) {
     res.end(await runtimeResponse.text());
     return;
@@ -1705,7 +1714,14 @@ function projectPublicGatewayState(state = {}) {
   const source = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
   const projected = {};
   for (const key of PUBLIC_GATEWAY_STATE_ARRAY_KEYS) {
-    if (Array.isArray(source[key])) projected[key] = source[key];
+    if (!Array.isArray(source[key])) continue;
+    if (key === 'deletedAgentIds') {
+      projected[key] = [];
+      continue;
+    }
+    projected[key] = source[key]
+      .map((item) => projectUnknownPublicJson(item, key))
+      .filter((item) => item !== undefined && item !== '');
   }
   Object.assign(projected, {
     tasks: publicTaskRecords(source.tasks),
@@ -2068,6 +2084,55 @@ function normalizeHermesProfileAgent(body = {}) {
       path: body.path || '',
       description: body.description || '',
       provider: body.provider || '',
+    },
+  };
+}
+
+function publicHermesProfileAgentRecord(agent = {}) {
+  const id = publicIdentifier(agent.id || agent.name);
+  if (!id) return null;
+  const name = publicDisplayText(agent.name || agent.displayName, id) || id;
+  const model = publicDisplayText(agent.model, 'Recommended') || 'Recommended';
+  const backend = {
+    id: 'hermes-cli',
+    label: 'Hermes CLI',
+    kind: 'hermes-cli',
+    model,
+  };
+  return {
+    id,
+    displayName: publicDisplayText(agent.displayName, name) || name,
+    name,
+    engine: 'hermes',
+    role: publicDisplayText(agent.role, `Mac mini Hermes profile ${id}`),
+    persona: publicDisplayText(agent.persona, `Mac mini Hermes profile ${id}.`),
+    model,
+    status: ['Idle', 'Running', 'Busy', 'Ready', 'Unavailable', 'Offline', 'Paused'].includes(String(agent.status))
+      ? String(agent.status)
+      : 'Idle',
+    tools: ['hermes-cli'],
+    agentSource: 'hermes-cli',
+    agentIdentity: {
+      id,
+      displayName: name,
+      source: 'hermes-cli',
+      resident: true,
+      kind: 'mac-mini-hermes-profile',
+    },
+    executionBackend: backend,
+    runnerAdapter: backend,
+    runtimeBinding: {
+      kind: 'mac-mini-hermes-profile',
+      agentKey: id,
+      resident: true,
+      executionBackendId: backend.id,
+      adapterId: backend.id,
+      model,
+    },
+    profile: {
+      name: id,
+      description: publicDisplayText(agent.profile?.description || agent.role, ''),
+      provider: publicDisplayText(agent.profile?.provider, ''),
     },
   };
 }
@@ -2635,11 +2700,11 @@ function searchGatewayDocuments(gatewayState, query = '', options = {}) {
 }
 
 function fallbackDocumentsList({ res, gatewayState, gatewayStore = null, query = {} }) {
-  const documents = gatewayStore && typeof gatewayStore.searchDocuments === 'function'
+  const documents = (gatewayStore && typeof gatewayStore.searchDocuments === 'function'
     ? gatewayStore.searchDocuments(query.query || '', { includeFixtures: query.includeFixtures === '1' })
     : searchGatewayDocuments(gatewayState, query.query || '', {
       includeFixtures: query.includeFixtures === '1',
-    });
+    })).map(publicDocumentRecord).filter(Boolean);
   sendJson(res, 200, {
     ok: true,
     documents,
@@ -2652,14 +2717,15 @@ async function fallbackDocumentCreate({ res, gatewayState, gatewayStore = null, 
     sendDatabaseRequired(res, 'documents');
     return;
   }
-  const document = gatewayStore.createDocument(body);
+  const storedDocument = gatewayStore.createDocument(body);
   if (gatewayStore && typeof gatewayStore.indexDocumentChunks === 'function') {
-    await gatewayStore.indexDocumentChunks(document);
+    await gatewayStore.indexDocumentChunks(storedDocument);
   }
+  const document = publicDocumentRecord(storedDocument);
   sendJson(res, 200, {
     ok: true,
     document,
-    written: { relativePath: document.wikiPath, gatewayFallback: true },
+    written: { relativePath: document?.wikiPath || '', gatewayFallback: true },
     state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
@@ -2823,7 +2889,9 @@ function fallbackCommandInboxList({ res, gatewayState, gatewayStore = null, quer
     ? gatewayStore.listCommandInbox({ limit, source })
     : null;
   sendJson(res, 200, {
-    items: storeItems || listGatewayCommandInbox(gatewayState, { limit, source }),
+    items: (storeItems || listGatewayCommandInbox(gatewayState, { limit, source }))
+      .map(publicCommandInboxItemRecord)
+      .filter(Boolean),
     gatewayFallback: true,
   });
 }
@@ -2849,13 +2917,13 @@ function fallbackCommandInboxAction({ res, gatewayState, gatewayStore = null, it
   };
   if (action === 'archive') {
     archiveItem();
-    sendJson(res, 200, { item, archived: true, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { item: publicCommandInboxItemRecord(item), archived: true, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   if (action === 'star' || action === 'unstar') {
     const starred = action === 'star';
     gatewayStore.setCommandInboxItemStarred(item.id, starred);
-    sendJson(res, 200, { item: { ...item, starred, star: starred }, starred, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { item: publicCommandInboxItemRecord({ ...item, starred, star: starred }), starred, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   const command = routeWebCommand({
@@ -2877,7 +2945,7 @@ function fallbackCommandInboxAction({ res, gatewayState, gatewayStore = null, it
       ? gatewayStore.saveRun(createGatewayRun(payload))
       : gatewayStore.createRun(payload);
     archiveItem();
-    sendJson(res, 200, { item, command, mission: payload.mission, run: publicRunRecord(run), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { item: publicCommandInboxItemRecord(item), command: publicCommandRouteRecord(command), mission: payload.mission, run: publicRunRecord(run), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   if (action === 'task') {
@@ -2898,7 +2966,7 @@ function fallbackCommandInboxAction({ res, gatewayState, gatewayStore = null, it
       sourceId: item.id,
     });
     archiveItem();
-    sendJson(res, 200, { item, command, task, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { item: publicCommandInboxItemRecord(item), command: publicCommandRouteRecord(command), task: publicTaskRecord(task), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   sendJson(res, 405, { error: 'Unsupported command inbox action', gatewayFallback: true });
@@ -4117,7 +4185,7 @@ function fallbackOperationsOverview({ res, gatewayState, gatewayStore = null, en
 }
 
 function fallbackHealth(res, runtimeResponse, env = process.env, error = null) {
-  const runtimeUrl = (env.HERMES_RUNTIME_URL || '').replace(/\/+$/, '');
+  const runtimeUrl = redactGatewayConfig({ runtimeUrl: env.HERMES_RUNTIME_URL }).runtimeUrl;
   const fallbackError = 'Mac mini runtime unreachable';
   const safeError = error
     ? safeRuntimeError(error.message || String(error), fallbackError)
@@ -4482,6 +4550,13 @@ function fallbackWikiIndex({ gatewayState, gatewayStore = null, env = process.en
   };
 }
 
+function publicFallbackWikiIndex(wikiIndex = {}) {
+  return {
+    ...wikiIndex,
+    wikiRoot: '',
+  };
+}
+
 function fallbackWiki({ res, gatewayState, gatewayStore = null, env = process.env, query = {} }) {
   const wikiIndex = fallbackWikiIndex({
     gatewayState,
@@ -4490,19 +4565,20 @@ function fallbackWiki({ res, gatewayState, gatewayStore = null, env = process.en
     selectedPath: query.path || '',
     query: query.query || '',
   });
+  const publicWikiIndex = publicFallbackWikiIndex(wikiIndex);
   const state = {
     ...gatewaySnapshot(gatewayState, gatewayStore),
-    wikiIndex,
+    wikiIndex: publicWikiIndex,
   };
   sendJson(res, 200, {
     ok: true,
-    wikiRoot: wikiIndex.wikiRoot,
-    wikiIndex,
-    tree: wikiIndex.tree,
-    notes: wikiIndex.notes,
-    selectedNote: wikiIndex.selectedNote,
-    backlinks: wikiIndex.backlinks,
-    graph: wikiIndex.graph,
+    wikiRoot: '',
+    wikiIndex: publicWikiIndex,
+    tree: publicWikiIndex.tree,
+    notes: publicWikiIndex.notes,
+    selectedNote: publicWikiIndex.selectedNote,
+    backlinks: publicWikiIndex.backlinks,
+    graph: publicWikiIndex.graph,
     state,
     gatewayFallback: true,
   });
@@ -4526,12 +4602,13 @@ async function fallbackWikiAsk({ res, body = {}, gatewayState, gatewayStore = nu
     env,
     fetchImpl,
   });
+  const publicWikiIndex = publicFallbackWikiIndex(wikiIndex);
   sendJson(res, 200, {
     ...result,
-    wikiIndex,
+    wikiIndex: publicWikiIndex,
     state: {
       ...gatewaySnapshot(gatewayState, gatewayStore),
-      wikiIndex,
+      wikiIndex: publicWikiIndex,
     },
     gatewayFallback: true,
   });
@@ -4559,7 +4636,7 @@ async function fallbackWikiSearch({ res, body = {}, gatewayState, gatewayStore =
           answerMode,
           retrieval: relaySearch.retrieval,
           llm: { provider: 'none', used: false },
-          wikiIndex: relaySearch.wikiIndex || {},
+          wikiIndex: publicFallbackWikiIndex(relaySearch.wikiIndex || {}),
           gatewayFallback: true,
         });
         return;
@@ -4580,7 +4657,7 @@ async function fallbackWikiSearch({ res, body = {}, gatewayState, gatewayStore =
     path: body.path || '',
     limit: body.limit || 4,
     store: gatewayStore,
-    wikiIndex,
+    wikiIndex: publicFallbackWikiIndex(wikiIndex),
     env,
     fetchImpl,
     synthesize: false,
@@ -4773,7 +4850,7 @@ function fallbackSystemConnections({ res, env = process.env, gatewayState, gatew
       publicBaseUrl,
       authEnabled: Boolean(env.HERMES_RUNTIME_TOKEN),
     },
-    wikiRoot: env.HERMES_WIKI_ROOT || '/Users/goyunseo/Library/Mobile Documents/com~apple~CloudDocs/LLM-Wiki',
+    wikiRoot: '',
   };
   gatewayState.systemConnections = status;
   sendJson(res, 200, status);
@@ -4961,7 +5038,7 @@ async function fallbackSystemConnectionsBootstrap({ res, env = process.env, fetc
       publicBaseUrl,
       authEnabled: Boolean(env.HERMES_RUNTIME_TOKEN),
     },
-    wikiRoot: env.HERMES_WIKI_ROOT || '/Users/goyunseo/Library/Mobile Documents/com~apple~CloudDocs/LLM-Wiki',
+    wikiRoot: '',
   };
 
   if (ticktickAccessToken) {
@@ -5770,7 +5847,7 @@ function fallbackRunnerAdapters({
 function fallbackProductStatus(res, gatewayState, env = process.env) {
   const status = buildProductStatus({
     settings: {
-      wikiRoot: env.HERMES_WIKI_ROOT || '/Users/goyunseo/Library/Mobile Documents/com~apple~CloudDocs/LLM-Wiki',
+      wikiRoot: '',
       runner: {
         mode: 'runtime-unreachable',
         allowShellCommands: false,
@@ -6199,7 +6276,7 @@ function fallbackSchedulerTick({ res, gatewayState, gatewayStore = null }) {
   });
   sendJson(res, 200, {
     checkedAt,
-    daemon,
+    daemon: publicDaemonRecord(daemon),
     createdRuns: [],
     jobs: publicSchedulerJobs(gatewayStore.getSchedulerJobs()),
     state: publicGatewaySnapshot(gatewayState, gatewayStore),
@@ -6230,7 +6307,11 @@ function fallbackSchedulerDaemon({ res, method, action = '', body = {}, gatewayS
       lastError: null,
     });
   }
-  sendJson(res, 200, { daemon, state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+  sendJson(res, 200, {
+    daemon: publicDaemonRecord(daemon),
+    state: publicGatewaySnapshot(gatewayState, gatewayStore),
+    gatewayFallback: true,
+  });
 }
 
 function fallbackEvents(res) {
@@ -6816,26 +6897,30 @@ async function handleApi(
       }
       if (agentProfileCreateRequest) {
         const profileCreateOk = relayResponse.status < 400 && body.ok !== false;
-        const agent = profileCreateOk
+        const runtimeAgent = profileCreateOk
           ? normalizeHermesProfileAgent({ ...profileCreateBody, ...body, name: body.name || profileCreateBody.name })
           : null;
+        const agent = runtimeAgent ? publicHermesProfileAgentRecord(runtimeAgent) : null;
         responseBody = {
-          ok: profileCreateOk,
-          ...body,
+          ...publicResponseEnvelopeFields(body),
           ok: profileCreateOk,
           ...(!profileCreateOk && !body.error ? { error: 'Hermes profile creation failed' } : {}),
           ...(agent ? { agent, data: { agent } } : {}),
         };
       }
       if (toolTranslation) {
+        const result = publicResponseEnvelopeFields(body);
+        const translatedTool = publicCapabilityMetadata({
+          ...toolTranslation.tool,
+          ...(body.name ? { name: body.name } : {}),
+        });
         responseBody = {
+          ...result,
           ok: body.ok !== false,
-          ...body,
           tool: {
-            ...toolTranslation.tool,
-            ...(body.name ? { name: body.name } : {}),
+            ...translatedTool,
             lastTest: toolTranslation.kind.endsWith('-test')
-              ? { status: body.ok === false ? 'failed' : 'ok', checkedAt: new Date().toISOString(), result: body }
+              ? { status: body.ok === false ? 'failed' : 'ok', checkedAt: new Date().toISOString(), result }
               : undefined,
           },
         };
@@ -7753,10 +7838,21 @@ async function handleApi(
     });
     return;
   }
-  if (
-    runtimeResponse.ok
-    && /application\/json/i.test(runtimeResponse.headers.get('content-type') || '')
-  ) {
+  if (!runtimeResponse.ok && /application\/json/i.test(runtimeResponse.headers.get('content-type') || '')) {
+    const text = await runtimeResponse.text();
+    let body = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch (error) {
+      sendJson(res, runtimeResponse.status, { ok: false, error: safeRuntimeError(error.message, 'Runtime request failed') });
+      return;
+    }
+    const projected = projectUnknownPublicJson(body) || {};
+    if (!projected.error) projected.error = safeRuntimeError(body.error || body.message, 'Runtime request failed');
+    sendJson(res, runtimeResponse.status, { ok: false, ...projected });
+    return;
+  }
+  if (/application\/json/i.test(runtimeResponse.headers.get('content-type') || '')) {
     const text = await runtimeResponse.text();
     let body = {};
     try {

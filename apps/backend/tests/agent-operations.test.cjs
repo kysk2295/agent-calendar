@@ -25,6 +25,7 @@ const { buildMissionRunPayload } = require('../app/lib/missions');
 const { OFFICIAL_PROFILE_NAMES } = require('../app/lib/official-profiles');
 const { buildAgentProfileSetup } = require('../app/lib/agent-profile-setup');
 const { projectAgentsForState } = require('../app/lib/agent-registry');
+const { publicSessionEventRecord } = require('../app/lib/public-agent-records');
 const { buildWorkboardRunPayload, buildWorkboardTaskDraft } = require('../app/lib/workboard');
 
 const FIXED_NOW = '2026-07-13T09:00:00.000Z';
@@ -213,6 +214,29 @@ test('redacts secrets private paths and hidden reasoning from session events', (
   const serialized = JSON.stringify(sanitized);
   assert.doesNotMatch(serialized, /secret|\/Users\/koyunseo|\/Volumes\/private|hidden reasoning|marketflow|whoami|apiKey/);
   assert.match(serialized, /redacted|private-path/i);
+});
+
+test('public session events reject opaque identifiers embedded commands and system paths', () => {
+  // Given
+  const opaqueIdentifier = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-opaque';
+
+  // When
+  const event = publicSessionEventRecord({
+    id: opaqueIdentifier,
+    sessionId: 'session-public',
+    kind: 'progress',
+    text: 'Research complete; hermes --yolo',
+    metadata: {
+      detail: '/Library/Application Support/Hermes/private-state.json',
+      status: 'completed',
+    },
+  });
+
+  // Then
+  assert.equal(Object.hasOwn(event, 'id'), false);
+  assert.equal(Object.hasOwn(event, 'text'), false);
+  assert.equal(Object.hasOwn(event.metadata, 'detail'), false);
+  assert.equal(event.metadata.status, 'completed');
 });
 
 test('redacts profile direct output before it reaches chat or task persistence', () => {
@@ -1513,6 +1537,56 @@ test('scheduler serializes overlapping ticks and runs at most one due task per t
   // Then
   assert.equal(overlappingTick.skipped, true);
   assert.deepEqual(executionCalls, ['task-overlap-a', 'task-overlap-b']);
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('scheduler normalizes removed persisted profiles before Hermes execution', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-removed-profile-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-removed-profile', clock }),
+    agentId: 'marketflow',
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-removed-profile',
+    title: '삭제 프로필 정규화',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    createdByAgentId: 'marketflow',
+    agent: 'marketflow',
+    scheduledAt: '2026-07-14T00:30:00.000Z',
+    estimatedMinutes: 10,
+    actionClass: 'research',
+    sourceRefs: ['web'],
+  });
+  store.createAgentSession({
+    id: 'session-removed-profile',
+    missionId: mission.id,
+    taskId: task.id,
+    type: 'task',
+    status: 'scheduled',
+  });
+  let executionRequest = null;
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async (request) => {
+      executionRequest = request;
+      return { text: 'normalized execution', jobId: 'job-removed-profile' };
+    },
+  });
+
+  // When
+  await scheduler.runTaskNow(task.id);
+
+  // Then
+  assert.equal(executionRequest.payload.profile, 'default');
+  assert.equal(executionRequest.meta.agentId, 'default');
 
   await rm(dataDir, { recursive: true, force: true });
 });

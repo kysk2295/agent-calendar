@@ -14,7 +14,7 @@ function redactPublicText(value) {
     .replace(/"runtimeToken"\s*:\s*"[^"]*"/gi, '"runtimeToken":"[REDACTED]"')
     .replace(/hermes_[A-Za-z0-9._-]+/gi, 'hermes_[REDACTED]')
     .replace(/[A-Za-z0-9._-]*secret[A-Za-z0-9._-]*/gi, '[REDACTED]')
-    .replace(/(?:file:\/\/)?\/(?:Users|home|Volumes|private|var\/folders|tmp)\/[^\s"'}]+/g, '[PRIVATE_PATH]')
+    .replace(/(?:file:\/\/)?\/(?:Users|home|Volumes|private|var\/folders|tmp|Library|System|Applications|etc|opt|usr\/local)\/[^\s"'}]+/g, '[PRIVATE_PATH]')
     .replace(/\bmarket[\s_-]*flow\b/gi, '[REDACTED_PROFILE]');
 }
 
@@ -24,7 +24,9 @@ function safePublicText(value, fallback = '', maximumLength = 6_000) {
   if (/\[(?:REDACTED|PRIVATE_PATH|REDACTED_PROFILE)\]/i.test(text)) return fallback;
   if (/\b(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|hf_[A-Za-z0-9]{16,}|(?:gh[pousr]_|sk-|xox[baprs]-)[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,})\b/i.test(text)) return fallback;
   if (/\b[a-f0-9]{48,}\b/i.test(text)) return fallback;
+  if (/\b(?=[A-Za-z0-9_-]{32,}\b)(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b/.test(text)) return fallback;
   if (/^\s*(?:sudo\s+)?(?:bash|sh|zsh|fish|curl|wget|rm|mv|cp|chmod|chown|git|npm|npx|pnpm|yarn|node|python\d*|ruby|hermes|launchctl|tar)(?=\s|$)/i.test(text)) return fallback;
+  if (/(?:^|[;|&`]\s*|\b(?:then|run|execute)\s+)(?:sudo\s+)?(?:bash|sh|zsh|fish|curl|wget|rm|mv|cp|chmod|chown|git|npm|npx|pnpm|yarn|node|python\d*|ruby|hermes|launchctl|tar)(?=\s|$)/i.test(text)) return fallback;
   if (/\b(?:command|commandTemplate|rawCommand|recoveryCommand|residentInstallCommand)\s*[:=]/i.test(text)) return fallback;
   return text.slice(0, Math.max(1, Number(maximumLength) || 6_000));
 }
@@ -130,7 +132,7 @@ function sanitizeRuntimeIdentity(runtime = {}) {
   return {
     machineName: String(runtime.machineName || ''),
     hostname: String(runtime.hostname || ''),
-    cwd: String(runtime.cwd || ''),
+    cwd: '',
   };
 }
 
