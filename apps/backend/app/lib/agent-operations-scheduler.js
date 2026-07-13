@@ -10,7 +10,7 @@ function schedulerId(prefix, clock) {
 }
 
 function isRuntimeFailure(error) {
-  return ['runtime_unavailable', 'relay_timeout', 'relay_failed'].includes(error?.code);
+  return ['runtime_unavailable', 'relay_timeout', 'relay_failed', 'relay_cancel_unconfirmed'].includes(error?.code);
 }
 
 function completedMissionEvidence(store, missionId, excludedSessionId) {
@@ -51,9 +51,32 @@ class AgentOperationsScheduler {
     this.clock = clock;
     this.executeCompletion = executeCompletion;
     this.sendTelegram = sendTelegram;
+    this.tickPromise = null;
   }
 
   async tick() {
+    if (this.tickPromise) {
+      return {
+        checkedAt: this.clock().toISOString(),
+        skipped: true,
+        reason: 'scheduler tick already running',
+        startedTaskIds: [],
+        completedTaskIds: [],
+        blockedTaskIds: [],
+        failedTaskIds: [],
+        cancelledTaskIds: [],
+        createdReportIds: [],
+      };
+    }
+    this.tickPromise = this.#tickOnce();
+    try {
+      return await this.tickPromise;
+    } finally {
+      this.tickPromise = null;
+    }
+  }
+
+  async #tickOnce() {
     const checkedAt = this.clock().toISOString();
     const result = {
       checkedAt,
@@ -83,8 +106,12 @@ class AgentOperationsScheduler {
         || String(left.id).localeCompare(String(right.id))
       ));
 
-    for (const task of dueTasks) {
-      await this.#executeTask(task, result);
+    const task = dueTasks[0];
+    if (task) {
+      const currentTask = this.store.getState().tasks.find((item) => item.id === task.id);
+      if (currentTask?.status === 'scheduled') {
+        await this.#executeTask(currentTask, result);
+      }
     }
     return result;
   }

@@ -14,7 +14,7 @@ test('browser preview proxy authenticates with the local desktop Railway token',
 });
 
 test('Agent Operations requests allow the backend profile run to reach its terminal state', () => {
-  assert.match(apiSource, /const AGENT_OPERATIONS_TIMEOUT_MS = 370_000/);
+  assert.match(apiSource, /const AGENT_OPERATIONS_TIMEOUT_MS = 400_000/);
   assert.match(apiSource, /planAgentMission:[\s\S]*AGENT_OPERATIONS_TIMEOUT_MS/);
   assert.match(apiSource, /tickAgentOperations:[\s\S]*AGENT_OPERATIONS_TIMEOUT_MS/);
 });

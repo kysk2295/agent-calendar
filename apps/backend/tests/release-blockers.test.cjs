@@ -523,6 +523,8 @@ test('routes Hermes chat through a profile mission without inventing an API serv
     assert.equal(response.status, 200);
     assert.match(body, /bizconsultant ready/);
     assert.doesNotMatch(body, /hermes-agent/);
+    assert.doesNotMatch(body, /profile-default/);
+    assert.match(body, /"model":"unknown"/);
     assert.doesNotMatch(body, /topsecret|\/Users\/koyunseo/);
   } finally {
     await close(server);

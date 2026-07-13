@@ -273,6 +273,10 @@ test('accepts only evidence-backed report structures', () => {
   // Then
   assert.deepEqual(validated, report);
   assert.throws(() => validateReport({ ...report, evidence: [] }), /evidence/i);
+  assert.throws(
+    () => validateReport({ ...report, evidence: [{ label: '', url: '' }] }),
+    /usable evidence/i,
+  );
 });
 
 test('persists a mission task session events and report across a store restart', async () => {
@@ -685,6 +689,50 @@ test('profile timeout forwards an explicit model and requests remote run cancell
   assert.equal(jobs[1].payload.path, '/api/runs/run-long/stop');
 });
 
+test('profile timeout blocks retries when remote cancellation is not confirmed', async () => {
+  // Given
+  const { runRelayProfileCompletion } = require('../app/lib/relay-profile-completion');
+  let nowMs = 0;
+  const jobs = [];
+  const relay = {
+    isBridgeOnline: () => true,
+    enqueue: (input) => {
+      const job = { ...input, id: `job-rejected-${jobs.length + 1}` };
+      jobs.push(job);
+      return job;
+    },
+    waitForEvents: async (jobId) => (jobId === 'job-rejected-1'
+      ? {
+        cursor: 1,
+        complete: true,
+        events: [{ event: 'bridge-complete', data: { body: { run: { id: 'run-unresolved', status: 'running', logs: [] } } } }],
+      }
+      : {
+        cursor: 1,
+        complete: true,
+        events: [{ event: 'bridge-complete', data: { ok: false, status: 409, error: 'stop rejected' } }],
+      }),
+    snapshot: () => ({ state: { runs: [{ id: 'run-unresolved', status: 'running', logs: [] }] } }),
+    fail: () => {},
+  };
+
+  // When / Then
+  await assert.rejects(
+    runRelayProfileCompletion({
+      relay,
+      env: { HERMES_RELAY_TOKEN: 'relay-token' },
+      payload: { profile: 'bizconsultant', messages: [{ role: 'user', content: 'bounded task' }] },
+      meta: { idempotencyKey: 'task-idempotent' },
+      timeoutMs: 1_000,
+      pollIntervalMs: 1_000,
+      now: () => nowMs,
+      sleep: async (duration) => { nowMs += duration; },
+    }),
+    (error) => error.code === 'relay_cancel_unconfirmed' && error.runId === 'run-unresolved',
+  );
+  assert.equal(JSON.parse(jobs[0].payload.body).idempotencyKey, 'task-idempotent');
+});
+
 test('built-in command and mission routes only reference live official profiles', () => {
   // Given / When
   const referenced = [
@@ -1044,6 +1092,67 @@ test('scheduler executes a due task once and records ordered session evidence', 
   await rm(dataDir, { recursive: true, force: true });
 });
 
+test('scheduler serializes overlapping ticks and runs at most one due task per tick', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-overlap-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-overlap', clock }),
+    status: 'active',
+  });
+  for (const id of ['a', 'b']) {
+    const task = store.createTask({
+      id: `task-overlap-${id}`,
+      title: `겹침 검증 ${id}`,
+      status: 'scheduled',
+      missionId: mission.id,
+      origin: 'agent',
+      scheduledAt: '2026-07-13T08:59:00.000Z',
+      estimatedMinutes: 10,
+      actionClass: 'research',
+      sourceRefs: ['web'],
+    });
+    store.createAgentSession({
+      id: `session-overlap-${id}`,
+      missionId: mission.id,
+      taskId: task.id,
+      status: 'scheduled',
+    });
+  }
+  let releaseFirst;
+  let markStarted;
+  const firstStarted = new Promise((resolve) => { markStarted = resolve; });
+  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+  const executionCalls = [];
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async ({ meta }) => {
+      executionCalls.push(meta.taskId);
+      if (executionCalls.length === 1) {
+        markStarted();
+        await firstGate;
+      }
+      return { text: 'bounded result', jobId: `job-${meta.taskId}` };
+    },
+  });
+
+  // When
+  const firstTick = scheduler.tick();
+  await firstStarted;
+  const overlappingTick = await scheduler.tick();
+  releaseFirst();
+  await firstTick;
+  await scheduler.tick();
+
+  // Then
+  assert.equal(overlappingTick.skipped, true);
+  assert.deepEqual(executionCalls, ['task-overlap-a', 'task-overlap-b']);
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
 test('scheduler marks due work blocked while the Mac mini Relay is unavailable', async () => {
   // Given
   const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
@@ -1091,6 +1200,52 @@ test('scheduler marks due work blocked while the Mac mini Relay is unavailable',
   assert.equal(store.getState().tasks.find((item) => item.id === task.id).status, 'blocked');
   assert.equal(store.getAgentSession(session.id).events.at(-1).kind, 'error');
   assert.match(store.getAgentSession(session.id).events.at(-1).text, /offline/i);
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('scheduler blocks a task when remote cancellation cannot be confirmed', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-cancel-unconfirmed-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-cancel-unconfirmed', clock }),
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-cancel-unconfirmed',
+    title: '원격 취소 확인',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    scheduledAt: '2026-07-13T08:59:00.000Z',
+    actionClass: 'research',
+  });
+  store.createAgentSession({
+    id: 'session-cancel-unconfirmed',
+    missionId: mission.id,
+    taskId: task.id,
+    status: 'scheduled',
+  });
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async () => {
+      const error = new Error('Remote cancellation was not confirmed');
+      error.code = 'relay_cancel_unconfirmed';
+      throw error;
+    },
+  });
+
+  // When
+  const result = await scheduler.tick();
+
+  // Then
+  const storedTask = store.getState().tasks.find((item) => item.id === task.id);
+  assert.deepEqual(result.blockedTaskIds, [task.id]);
+  assert.equal(storedTask.status, 'blocked');
+  assert.equal(storedTask.failureCode, 'relay_cancel_unconfirmed');
 
   await rm(dataDir, { recursive: true, force: true });
 });
@@ -1319,6 +1474,39 @@ test('running pause requests and failed retries keep the existing Task Session',
   await rm(dataDir, { recursive: true, force: true });
 });
 
+test('a task with unconfirmed remote cancellation cannot resume', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-session-unconfirmed-cancel-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-unconfirmed-cancel', clock }),
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-unconfirmed-cancel',
+    title: '취소 확인 대기',
+    status: 'blocked',
+    missionId: mission.id,
+    origin: 'agent',
+  });
+  store.updateTask(task.id, { failureCode: 'relay_cancel_unconfirmed' });
+  store.createAgentSession({
+    id: 'session-unconfirmed-cancel',
+    missionId: mission.id,
+    taskId: task.id,
+    status: 'blocked',
+  });
+  const service = new AgentOperationsService({ store, clock });
+
+  // When / Then
+  assert.throws(
+    () => service.transitionTask(task.id, 'resume'),
+    (error) => error.code === 'relay_cancel_unconfirmed' && error.status === 409,
+  );
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
 test('scheduler applies a running pause request before persisting completion', async () => {
   // Given
   const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
@@ -1464,7 +1652,7 @@ test('Telegram delivery failure never turns a completed Agent Report into failur
       text: JSON.stringify({
         title: '주간 기회 보고',
         findings: ['기회 A'],
-        evidence: ['source-a'],
+        evidence: [{ label: '공식 출처', url: 'https://example.com/source-a' }],
         limitations: [],
         budget: { usedRuns: 1, usedMinutes: 30 },
         followUps: [],

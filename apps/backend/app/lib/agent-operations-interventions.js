@@ -93,6 +93,13 @@ function transitionAgentTaskWithIntervention({
   if (task.status === 'running' && ['pause', 'cancel'].includes(action)) {
     return transitionRunningTask(store, task, action, clock);
   }
+  if (task.failureCode === 'relay_cancel_unconfirmed' && action === 'resume') {
+    throw new AgentOperationsInterventionError(
+      'relay_cancel_unconfirmed',
+      'Remote Hermes cancellation must be confirmed before this task can resume',
+      409,
+    );
+  }
 
   let transitioned;
   try {

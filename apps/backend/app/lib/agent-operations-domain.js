@@ -247,6 +247,15 @@ function validateReport(report = {}) {
   }
   if (!report.findings.length) throw new Error('report findings are required');
   if (!report.evidence.length) throw new Error('report evidence is required');
+  const hasOnlyUsableEvidence = report.evidence.every((evidence) => (
+    evidence
+    && typeof evidence === 'object'
+    && String(evidence.label || '').trim()
+    && sanitizeEvidenceUrl(evidence.url)
+  ));
+  if (!hasOnlyUsableEvidence) {
+    throw new Error('report must contain only usable evidence with a label and HTTP(S) URL');
+  }
   if (!report.budget || !Number.isFinite(Number(report.budget.usedMinutes))) {
     throw new Error('report budget is required');
   }

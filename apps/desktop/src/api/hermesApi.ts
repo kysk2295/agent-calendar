@@ -5,7 +5,7 @@ export type ApiEnvelope = Record<string, unknown>;
 let apiBaseUrl = '';
 const API_TIMEOUT_MS = 6500;
 const SCHEDULE_ASK_TIMEOUT_MS = 45_000;
-const AGENT_OPERATIONS_TIMEOUT_MS = 370_000;
+const AGENT_OPERATIONS_TIMEOUT_MS = 400_000;
 const WIKI_SEARCH_TIMEOUT_MS = 60_000;
 const WIKI_ASK_TIMEOUT_MS = 150_000;
 

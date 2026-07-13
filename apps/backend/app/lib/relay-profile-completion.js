@@ -82,7 +82,7 @@ async function waitForRelayRun({ relay, job, deadline, now }) {
     const batch = await relay.waitForEvents(
       job.id,
       cursor,
-      Math.min(5_000, Math.max(1, deadline - Date.now())),
+      Math.min(5_000, Math.max(1, deadline - now())),
     );
     cursor = batch.cursor || cursor;
     for (const record of batch.events || []) {
@@ -122,7 +122,14 @@ async function requestRelayRunStop({ relay, runId, now }) {
       Math.min(5_000, Math.max(1, deadline - now())),
     );
     cursor = batch.cursor || cursor;
-    if (batch.complete) return true;
+    for (const record of batch.events || []) {
+      if (record.event !== 'bridge-complete') continue;
+      if (record.data?.ok === false || record.data?.body?.ok === false) return false;
+      const run = runFromRuntimeBody(record.data?.body || {});
+      const status = String(run?.status || '').toLowerCase();
+      if (['done', 'completed', 'failed', 'cancelled', 'stopped'].includes(status)) return true;
+    }
+    if (batch.complete) return false;
   }
   return false;
 }
@@ -145,6 +152,7 @@ async function runRelayProfileCompletion({
   const durationMs = Math.max(1_000, Number(timeoutMs || agentOperationsProfileTimeout(env)));
   const deadline = now() + durationMs;
   const model = String(payload.model || '').trim();
+  const idempotencyKey = String(meta.idempotencyKey || meta.taskId || meta.missionId || '').trim();
   const job = relay.enqueue({
     kind: 'runtime.request',
     payload: {
@@ -161,6 +169,7 @@ async function runRelayProfileCompletion({
         toolsets: ['safe'],
         yolo: false,
         ...(model ? { model } : {}),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
       }),
     },
     meta: {
@@ -189,8 +198,17 @@ async function runRelayProfileCompletion({
 
   const status = String(run.status || '').toLowerCase();
   if (!['done', 'completed'].includes(status)) {
+    let cancellationConfirmed = true;
     if (!['failed', 'cancelled', 'stopped'].includes(status)) {
-      await requestRelayRunStop({ relay, runId: run.id, now }).catch(() => false);
+      cancellationConfirmed = await requestRelayRunStop({ relay, runId: run.id, now }).catch(() => false);
+    }
+    if (!cancellationConfirmed) {
+      throw profileCompletionError(
+        'relay_cancel_unconfirmed',
+        'Mac mini Hermes profile run timed out and remote cancellation was not confirmed',
+        job.id,
+        run.id,
+      );
     }
     const lastError = run.lastError || (run.logs || []).findLast((line) => /error|failed/i.test(String(line)));
     throw profileCompletionError(

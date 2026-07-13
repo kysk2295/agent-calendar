@@ -2766,7 +2766,7 @@ async function streamHermesApiServerChat({
     name: command.message,
     goal: `Hermes API Server chat: ${command.message}`,
     agent: command.agent || body.agentId || body.agent || 'default',
-    model: body.model || env.HERMES_API_SERVER_MODEL || 'profile-default',
+    model: body.model || env.HERMES_API_SERVER_MODEL || 'unknown',
     status: 'completed',
     source: 'mac-mini-hermes-api',
     file: `5_conversation/agent-runs/${dateStamp()}-${slugify(command.message, 'hermes-api-chat')}.md`,
@@ -2780,7 +2780,7 @@ async function streamHermesApiServerChat({
     name: command.message,
     goal: command.message,
     agent: command.agent,
-    model: body.model || env.HERMES_API_SERVER_MODEL || 'profile-default',
+    model: body.model || env.HERMES_API_SERVER_MODEL || 'unknown',
     source: 'mac-mini-hermes-api',
   });
   const visualization = {
@@ -2932,7 +2932,7 @@ async function streamRailwayRelayChat({
     name: command.message,
     goal: `Railway relay chat: ${command.message}`,
     agent: command.agent || body.agentId || body.agent || 'default',
-    model: body.model || env.HERMES_API_SERVER_MODEL || 'profile-default',
+    model: body.model || env.HERMES_API_SERVER_MODEL || 'unknown',
     status: 'running',
     source: 'railway-relay',
     file: `5_conversation/agent-runs/${dateStamp()}-${slugify(command.message, 'railway-relay-chat')}.md`,
@@ -2946,7 +2946,7 @@ async function streamRailwayRelayChat({
     name: command.message,
     goal: command.message,
     agent: command.agent,
-    model: body.model || env.HERMES_API_SERVER_MODEL || 'profile-default',
+    model: body.model || env.HERMES_API_SERVER_MODEL || 'unknown',
     source: 'railway-relay',
   });
   const visualization = {

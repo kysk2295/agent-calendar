@@ -36,6 +36,11 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
 - [x] Task-to-session links survive concurrent Postgres upserts and a Railway restart.
 - [x] Agent Operations buttons clear their pending state without waiting for unrelated wiki/mail hydration.
 - [x] Hermes profile work can run for up to six minutes without being falsely blocked by the 90-second completion timeout.
+- [x] Overlapping daemon ticks cannot execute the same task twice, and one tick starts at most one long-running task.
+- [x] A timed-out profile run is not resumable until the remote run is confirmed terminal.
+- [x] Reports cannot become ready without at least one usable HTTP(S) evidence row.
+- [x] Unknown runtime models are reported as `unknown` instead of an invented model name.
+- [x] Desktop requests allow the six-minute profile deadline plus remote cancellation confirmation.
 
 ## Edge Cases
 
@@ -48,6 +53,9 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
 - Explicit model override: preserve it while also sending the selected profile.
 - Relay error: persist a planning error and create no fake task.
 - Over-budget plan: ask the same profile to correct it once with the validation reason.
+- Overlapping daemon tick: return a skipped result while the active tick owns execution.
+- Unconfirmed timeout cancellation: block the task and reject resume until runtime reconciliation.
+- Blank or invalid report evidence: reject the report instead of persisting it as ready.
 
 ## Test Plan
 
@@ -85,6 +93,10 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
 - [x] Step 9: Make Agent Operations command refresh independent from full app hydration.
 - [x] Step 10: Separate long-running profile timeout from short chat completion timeout.
 - [x] Step 11: Record runtime evidence and remaining risks.
+- [x] Step 12: Serialize daemon ticks and cap each tick to one due task.
+- [x] Step 13: Confirm remote cancellation and prevent unsafe resume when confirmation fails.
+- [x] Step 14: Require usable report evidence and preserve an honest unknown model state.
+- [ ] Step 15: Re-run full backend, desktop, build, deployment, and independent review gates.
 
 ## Verification Notes
 
@@ -107,7 +119,7 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
 - Command: live paused-mission manual tick and repeated Task Session reads
   - Result: zero tasks started; completed attempt remained 2; all 28 event IDs retained strict order and the user message plus completion remained present.
 - Command: `npm test`
-  - Result: 101 backend and 74 desktop tests passed after the security/reliability review fixes.
+  - Result: 108 backend and 74 desktop tests passed after the final scheduler, cancellation, evidence, and timeout fixes.
 - Command: real report task through the enabled Railway daemon
   - Result: one evidence-backed report reached `ready` with five findings and five evidence rows; its first follow-up decision persisted as `approved` and rendered in the Reports tab.
 - Command: unauthenticated Relay snapshot and synthetic sensitive profile output probes
