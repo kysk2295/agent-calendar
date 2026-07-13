@@ -86,6 +86,9 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - [x] Public state/snapshot을 top-level allowlist로 제한하고 public agent command template과 wrapped tool 누락을 제거한다.
 - [x] Relay `data`와 direct `state`/`data`/`data.state` 응답을 같은 공개 상태 계약으로 정규화한다.
 - [x] Direct agent 목록에서 런타임의 임의 최상위 필드를 제거하고 현재 Agent Operations 탭에 맞춰 profile Playwright를 갱신한다.
+- [x] 빈 배열이나 제거 대상 capability가 중첩된 정상 agent/tool/skill을 가리지 않게 envelope 배열을 병합한다.
+- [x] 런타임 상태 병합 시 DB의 인증 사용자 문서, 채팅, 세션, inbox 상태를 유지한다.
+- [x] `/api/agents/:id`만 상세 경로로 취급하고 더 깊은 런타임 하위 경로는 그대로 전달한다.
 - [ ] 위 후속 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
 
 ## Rollback / fallback
@@ -116,4 +119,5 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - Relay projection HTTP QA: app-token reads exposed only official profiles, `toolsets: [safe]`, no MCP command/raw/path metadata; bridge-token diagnostics retained the original snapshot.
 - Direct runtime projection QA: `state`, `data`, and `data.state` `/api/state` responses share the same flat sanitized contract; top-level profile readiness and `/api/agents` do not expose setup commands or arbitrary runtime fields.
 - Hostile dual-server HTTP QA: direct and Relay public reads retained one sanitized tool/skill plus user tasks, exposed only official profiles and `toolsets: [safe]`, and kept raw diagnostics bridge-only.
+- Envelope precedence HTTP QA: nested official agent/tool/skill data survived empty or filtered top-level arrays; DB tasks/documents/chat/sessions/inbox state survived runtime merge; `/api/agents/bizconsultant/metrics` remained a runtime subroute.
 - Agent profile Playwright: navigated from the Agent Operations `Missions` default tab to `Agents`, rendered `준비됨`, and hid removed `marketflow` readiness.

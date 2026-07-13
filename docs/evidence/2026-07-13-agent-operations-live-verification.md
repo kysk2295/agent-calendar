@@ -49,7 +49,7 @@ These are verified facts, not inferred failures:
 
 - Railway `HERMES_TELEGRAM_BOT_TOKEN`: not configured.
 - Railway `HERMES_TELEGRAM_ALLOWED_CHAT_IDS`: not configured.
-- Consequently the already-created live report remains `pending`; new reports on the hardened build are marked `not_configured` instead of remaining ambiguous.
+- Consequently the already-created live report has work `status=ready` while its Telegram `deliveryStatus=pending`; new reports on the hardened build use `deliveryStatus=not_configured` instead of remaining ambiguous.
 - The Mac mini `bizconsultant` command snapshot still includes `--yolo` and exposes broad toolsets. The gateway now requests `toolsets: [safe]`, `yolo: false`, a six-minute deadline, and sends a remote stop request on timeout. The Mac mini runtime must be updated/configured to enforce that contract before accepting untrusted users or web-derived instructions.
 
 No credentials, auth headers, private paths, raw prompts, or Telegram identifiers are included in this evidence.
