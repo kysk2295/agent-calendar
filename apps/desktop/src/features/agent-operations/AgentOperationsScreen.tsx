@@ -19,6 +19,7 @@ type AgentOperationsScreenProps = {
   readonly onApprovePlan: (missionId: string) => Promise<void>;
   readonly onMissionWorkAction: (missionId: string, action: 'pause' | 'cancel') => Promise<void>;
   readonly onTaskAction: (taskId: string, action: AgentTaskAction) => Promise<void>;
+  readonly onRunTaskNow: (taskId: string) => Promise<void>;
   readonly onOpenSession: (sessionId: string) => void;
   readonly onReportFeedback: (reportId: string, useful: boolean) => Promise<void>;
   readonly onFollowUpDecision: (reportId: string, index: number, decision: 'approved' | 'rejected') => Promise<void>;
@@ -72,7 +73,7 @@ export function AgentOperationsScreen(props: AgentOperationsScreenProps) {
             )}
           </aside>
           {selectedMission
-            ? <MissionDetail mission={selectedMission} tasks={missionTasks} busy={props.busy} onPlanMission={props.onPlanMission} onApprovePlan={props.onApprovePlan} onMissionWorkAction={props.onMissionWorkAction} onTaskAction={props.onTaskAction} onOpenSession={props.onOpenSession} />
+            ? <MissionDetail mission={selectedMission} tasks={missionTasks} busy={props.busy} onPlanMission={props.onPlanMission} onApprovePlan={props.onApprovePlan} onMissionWorkAction={props.onMissionWorkAction} onTaskAction={props.onTaskAction} onRunTaskNow={props.onRunTaskNow} onOpenSession={props.onOpenSession} />
             : <div className="agent-operation-empty large">미션을 만들면 자율 작업 계약이 여기에 표시됩니다.</div>}
         </div>
       )}

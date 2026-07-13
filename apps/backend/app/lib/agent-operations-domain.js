@@ -177,15 +177,19 @@ function transitionAgentTask(task, action, { clock = () => new Date() } = {}) {
 }
 
 function redactSessionValue(value, key = '') {
-  if (/authorization|token|secret|password|chain.?of.?thought|reasoning/i.test(key)) {
+  if (/api.?key|authorization|command|credential|cwd|password|path|profile.?root|raw|secret|token|chain.?of.?thought|reasoning/i.test(key)) {
     return '[redacted]';
   }
   if (typeof value === 'string') {
-    return value
+    const redacted = value
       .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
-      .replace(/("(?:authorization|token|secret|password)"\s*:\s*)"[^"]*"/gi, '$1"[redacted]"')
-      .replace(/(?:token|secret|password)\s*[=:]\s*[^\s]+/gi, '[redacted]')
-      .replace(/\/(?:Users|home)\/[^\s"']+/g, '[private-path]');
+      .replace(/("(?:api.?key|authorization|credential|token|secret|password)"\s*:\s*)"[^"]*"/gi, '$1"[redacted]"')
+      .replace(/(?:api.?key|authorization|credential|token|secret|password)\s*[=:]\s*[^\s]+/gi, '[redacted]')
+      .replace(/(?:file:\/\/)?\/(?:Users|home|Volumes|private|var\/folders|tmp)\/[^\s"']+/g, '[private-path]')
+      .replace(/\bmarket[\s_-]*flow\b/gi, '[redacted-profile]');
+    return /^\s*(?:sudo\s+)?(?:bash|sh|zsh|fish|curl|wget|rm|mv|cp|chmod|chown|git|npm|npx|pnpm|yarn|node|python\d*|ruby|hermes|launchctl|tar)(?=\s|$)/i.test(redacted)
+      ? '[redacted-command]'
+      : redacted;
   }
   if (Array.isArray(value)) return value.map((item) => redactSessionValue(item));
   if (value && typeof value === 'object') {

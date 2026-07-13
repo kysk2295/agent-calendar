@@ -279,6 +279,33 @@ class AgentOperationsService {
     return this.scheduler.tick();
   }
 
+  async runTaskNow(taskId) {
+    if (!this.scheduler || typeof this.scheduler.runTaskNow !== 'function') {
+      throw new AgentOperationsError(
+        'scheduler_unavailable',
+        'Agent operations scheduler is unavailable',
+        503,
+      );
+    }
+    try {
+      const run = await this.scheduler.runTaskNow(taskId);
+      const task = this.store.getState().tasks.find((item) => item.id === taskId);
+      const report = task?.reportId
+        ? this.store.getAgentReports().find((item) => item.id === task.reportId)
+        : null;
+      return {
+        run,
+        task,
+        ...(report ? { report: sanitizeAgentReport(report) } : {}),
+      };
+    } catch (error) {
+      if (error?.code && error?.status) {
+        throw new AgentOperationsError(error.code, error.message, error.status);
+      }
+      throw error;
+    }
+  }
+
   #mission(missionId) {
     const mission = this.store.getAgentMissions().find((item) => item.id === missionId);
     if (!mission) throw new AgentOperationsError('mission_not_found', 'Agent mission was not found', 404);

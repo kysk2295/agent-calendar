@@ -308,6 +308,7 @@ test('projects Relay snapshots to official profiles and safe public capability m
       },
       body: JSON.stringify(unsafeSnapshot),
     });
+    const publishBody = await publishResponse.json();
 
     // When
     const callerHeaders = { authorization: 'Bearer client-token' };
@@ -330,6 +331,9 @@ test('projects Relay snapshots to official profiles and safe public capability m
 
     // Then
     assert.equal(publishResponse.status, 200);
+    assert.equal(publishBody.accepted, true);
+    assert.equal(Object.hasOwn(publishBody, 'snapshot'), false);
+    assert.doesNotMatch(JSON.stringify(publishBody), /super-secret|marketflow|\/Users\/koyunseo/);
     assert.equal(agents.agents.length, 1);
     assert.equal(state.agents.length, 1);
     assert.equal(snapshot.agents.length, 1);
@@ -1625,6 +1629,182 @@ test('keeps hydration resource responses compact instead of repeating the comple
       assert.equal(Object.hasOwn(body, 'data'), false, `${resourcePath} must not duplicate its collection under data`);
       assert.ok(Buffer.byteLength(responseText) < 100_000, `${resourcePath} response is unexpectedly large`);
     }
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('projects successful generic JSON and SSE runtime responses before returning them publicly', async () => {
+  // Given
+  const safeLongText = `Internal quarterly analysis ${'keeps useful context '.repeat(12)}`.trim();
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-token',
+    },
+    fetchImpl: async (input) => {
+      const pathname = new URL(String(input)).pathname;
+      if (pathname.endsWith('/runtime-stream')) {
+        return new Response([
+          'event: progress',
+          `data: ${JSON.stringify({ id: 'event-safe', kind: 'progress', text: safeLongText, apiKey: 'stream-secret', command: 'bash -lc whoami', profileRoot: '/Volumes/private/profile' })}`,
+          '',
+          '',
+        ].join('\n'), {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        task: {
+          id: 'task-safe',
+          title: safeLongText,
+          status: 'completed',
+          apiKey: 'json-secret',
+          command: 'node private-script.js',
+          profileRoot: '/Volumes/private/profile',
+        },
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const [jsonResponse, streamResponse] = await Promise.all([
+      fetch(`${baseUrl}/api/runtime-task`),
+      fetch(`${baseUrl}/api/runtime-stream`),
+    ]);
+    const [jsonBody, streamBody] = await Promise.all([jsonResponse.json(), streamResponse.text()]);
+
+    // Then
+    assert.equal(jsonBody.task.title, safeLongText);
+    assert.match(streamBody, /event-safe/);
+    assert.match(streamBody, /Internal quarterly analysis/);
+    assert.doesNotMatch(
+      JSON.stringify({ jsonBody, streamBody }),
+      /json-secret|stream-secret|private-script|whoami|\/Volumes\/private|apiKey|profileRoot|"command"/,
+    );
+  } finally {
+    await close(server);
+  }
+});
+
+test('projects Agent Operations list and mutation records through strict public shapes', async () => {
+  // Given
+  const hostileTask = {
+    id: 'task-public',
+    missionId: 'mission-public',
+    sessionId: 'session-public',
+    title: '공개 작업',
+    status: 'scheduled',
+    origin: 'agent',
+    apiKey: 'task-secret',
+    raw: { command: 'hermes --yolo' },
+    profileRoot: '/Volumes/private/hermes',
+  };
+  const service = {
+    listState: () => ({
+      ok: true,
+      missions: [{
+        id: 'mission-public',
+        title: '공개 미션',
+        objective: '시장 변화를 조사한다.',
+        agentId: 'bizconsultant',
+        status: 'active',
+        apiKey: 'mission-secret',
+        runtimeBinding: { commandTemplate: 'hermes --yolo' },
+      }],
+      tasks: [hostileTask],
+      sessions: [{
+        id: 'session-public',
+        missionId: 'mission-public',
+        taskId: 'task-public',
+        status: 'scheduled',
+        events: [{ kind: 'progress', text: '안전한 진행 상황', command: 'curl https://private.test' }],
+        token: 'session-secret',
+      }],
+      reports: [],
+      daemon: { running: true, commandTemplate: 'node scheduler.js', lastError: '' },
+    }),
+    transitionTask: () => ({ ...hostileTask, status: 'blocked' }),
+  };
+  const server = createRailwayGatewayServer({ env: {}, agentOperationsService: service });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const list = await fetch(`${baseUrl}/api/agent-operations`).then((response) => response.json());
+    const mutation = await fetch(`${baseUrl}/api/agent-operations/tasks/task-public/pause`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }).then((response) => response.json());
+
+    // Then
+    assert.equal(list.missions[0].title, '공개 미션');
+    assert.equal(list.tasks[0].title, '공개 작업');
+    assert.equal(list.sessions[0].events[0].text, '안전한 진행 상황');
+    assert.equal(mutation.task.status, 'blocked');
+    assert.doesNotMatch(
+      JSON.stringify({ list, mutation }),
+      /mission-secret|task-secret|session-secret|--yolo|scheduler\.js|private\.test|\/Volumes\/private|apiKey|runtimeBinding|commandTemplate|profileRoot|"raw"|"command"/,
+    );
+  } finally {
+    await close(server);
+  }
+});
+
+test('runtime task scalars win merge conflicts while stored-only fields and scheduler IDs stay stable', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-runtime-precedence-'));
+  const store = new HermesStore({ dataDir });
+  store.createTask({
+    id: 'task-shared',
+    title: '저장된 제목',
+    status: 'scheduled',
+    notes: 'DB에만 있는 메모',
+  });
+  const runtimeTitle = `Internal runtime result ${'with preserved detail '.repeat(12)}`.trim();
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-token',
+    },
+    gatewayStore: store,
+    fetchImpl: async () => new Response(JSON.stringify({
+      state: {
+        tasks: [{ id: 'task-shared', title: runtimeTitle, status: 'completed' }],
+        schedulerJobs: [{
+          id: 'native-job',
+          name: 'Native scheduler job',
+          agent: 'bizconsultant',
+          source: 'scheduler',
+          raw: { harmless: true },
+        }],
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const body = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const task = body.tasks.find((item) => item.id === 'task-shared');
+
+    // Then
+    assert.equal(task.status, 'completed');
+    assert.equal(task.title, runtimeTitle);
+    assert.equal(task.notes, 'DB에만 있는 메모');
+    assert.equal(body.schedulerJobs[0].id, 'native-job');
   } finally {
     await close(server);
     await rm(dataDir, { recursive: true, force: true });

@@ -143,6 +143,21 @@ async function main() {
       await route.fulfill({ json: { ok: true, mission: operationState.missions[0], tasks: plannedTasks, sessions: operationState.sessions } });
       return;
     }
+    if (request.method() === 'POST' && path === '/api/agent-operations/tasks/task-scan/run-now') {
+      operationState = {
+        ...operationState,
+        tasks: operationState.tasks.map((task) => task.id === 'task-scan' ? { ...task, status: 'completed' } : task),
+        sessions: operationState.sessions.map((session) => session.taskId === 'task-scan' ? { ...session, status: 'completed' } : session),
+      };
+      await route.fulfill({
+        json: {
+          ok: true,
+          run: { startedTaskIds: ['task-scan'], completedTaskIds: ['task-scan'], createdReportIds: [] },
+          task: operationState.tasks.find((task) => task.id === 'task-scan'),
+        },
+      });
+      return;
+    }
     if (request.method() === 'POST' && path.startsWith('/api/agent-operations/tasks/')) {
       const taskId = path.split('/')[4];
       operationState = {
@@ -241,6 +256,10 @@ async function main() {
   assert.match(await page.locator('.mission-contract').textContent() || '', /근거가 있는 기회 3개/);
   assert.equal(await page.getByRole('button', { name: '미션 일시정지' }).count(), 1);
   assert.equal(await page.getByRole('button', { name: '미션 중단' }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: '지금 실행' }).count(), 3);
+  await page.getByRole('button', { name: '지금 실행' }).first().click();
+  await page.locator('.agent-operation-task').first().locator('.agent-operation-task-status', { hasText: '완료' }).waitFor();
+  assert.equal(calls.some((call) => call.path === '/api/agent-operations/tasks/task-scan/run-now'), true);
   await capture(page, 'mission-active-desktop');
   await page.getByRole('tab', { name: 'Agents' }).click();
   assert.match(await page.locator('.agent-roster-row').textContent() || '', /Mac mini Hermes/);

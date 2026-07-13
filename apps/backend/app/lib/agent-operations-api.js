@@ -1,26 +1,27 @@
 const { AgentOperationsError } = require('./agent-operations-service');
+const { projectAgentOperationsResponse } = require('./public-agent-records');
 
 const TASK_ACTIONS = new Set(['approve', 'pause', 'resume', 'cancel', 'retry']);
 const MISSION_ACTIONS = new Set(['pause', 'cancel']);
 
 function success(status, body) {
-  return { status, body: { ok: true, ...body } };
+  return { status, body: projectAgentOperationsResponse({ ok: true, ...body }) };
 }
 
 function failure(error) {
   if (error instanceof AgentOperationsError) {
     return {
       status: error.status,
-      body: { ok: false, error: error.code, message: error.message },
+      body: projectAgentOperationsResponse({ ok: false, error: error.code, message: error.message }),
     };
   }
   return {
     status: 500,
-    body: {
+    body: projectAgentOperationsResponse({
       ok: false,
       error: 'agent_operations_failed',
       message: 'Agent operations request failed',
-    },
+    }),
   };
 }
 
@@ -43,7 +44,7 @@ async function routeAgentOperations({ method, pathSegments, body = {}, service }
 
   try {
     if (method === 'GET' && normalized.length === 1) {
-      return { status: 200, body: service.listState() };
+      return { status: 200, body: projectAgentOperationsResponse(service.listState()) };
     }
     if (method === 'POST' && normalized[1] === 'missions' && normalized.length === 2) {
       return success(201, { mission: service.createMission(body) });
@@ -65,6 +66,9 @@ async function routeAgentOperations({ method, pathSegments, body = {}, service }
       && TASK_ACTIONS.has(normalized[3])
     ) {
       return success(200, { task: service.transitionTask(normalized[2], normalized[3]) });
+    }
+    if (method === 'POST' && normalized.length === 4 && normalized[1] === 'tasks' && normalized[2] && normalized[3] === 'run-now') {
+      return success(200, await service.runTaskNow(normalized[2]));
     }
     if (method === 'GET' && normalized[1] === 'sessions' && normalized[2] && normalized.length === 3) {
       return success(200, { session: service.getSession(normalized[2]) });

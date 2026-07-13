@@ -68,11 +68,13 @@ function MissionTaskRow({
   task,
   busy,
   onAction,
+  onRunNow,
   onOpenSession,
 }: {
   readonly task: AgentTask;
   readonly busy: string;
   readonly onAction: (taskId: string, action: AgentTaskAction) => Promise<void>;
+  readonly onRunNow: (taskId: string) => Promise<void>;
   readonly onOpenSession: (sessionId: string) => void;
 }) {
   const appearance = agentTaskAppearance(task.status);
@@ -88,6 +90,11 @@ function MissionTaskRow({
       </button>
       <div className="agent-operation-task-actions">
         {task.pauseMode === 'next_checkpoint' && <span>next checkpoint</span>}
+        {task.status === 'scheduled' && (
+          <button className="run-now" disabled={busy === task.id} onClick={() => void onRunNow(task.id)}>
+            {busy === task.id ? '실행 중' : '지금 실행'}
+          </button>
+        )}
         {action && (
           <button disabled={busy === task.id} onClick={() => void onAction(task.id, action)}>
             {busy === task.id ? '처리 중' : taskActionLabel(action)}
@@ -109,6 +116,7 @@ export function MissionDetail({
   onApprovePlan,
   onMissionWorkAction,
   onTaskAction,
+  onRunTaskNow,
   onOpenSession,
 }: {
   readonly mission: AgentMission;
@@ -118,6 +126,7 @@ export function MissionDetail({
   readonly onApprovePlan: (missionId: string) => Promise<void>;
   readonly onMissionWorkAction: (missionId: string, action: 'pause' | 'cancel') => Promise<void>;
   readonly onTaskAction: (taskId: string, action: AgentTaskAction) => Promise<void>;
+  readonly onRunTaskNow: (taskId: string) => Promise<void>;
   readonly onOpenSession: (sessionId: string) => void;
 }) {
   const proposedCount = tasks.filter((task) => task.status === 'proposed').length;
@@ -159,7 +168,7 @@ export function MissionDetail({
       <section className="mission-work-plan">
         <header><strong>작업 계획</strong><span>{tasks.length}개</span></header>
         <div className="mission-task-list">
-          {tasks.map((task) => <MissionTaskRow key={task.id} task={task} busy={busy} onAction={onTaskAction} onOpenSession={onOpenSession} />)}
+          {tasks.map((task) => <MissionTaskRow key={task.id} task={task} busy={busy} onAction={onTaskAction} onRunNow={onRunTaskNow} onOpenSession={onOpenSession} />)}
           {!tasks.length && <div className="agent-operation-empty">아직 제안된 작업이 없습니다.</div>}
         </div>
       </section>

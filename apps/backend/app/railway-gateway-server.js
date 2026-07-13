@@ -38,7 +38,23 @@ const {
 } = require('./lib/official-profiles');
 const { buildProductStatus } = require('./lib/product-status');
 const { buildRunnerAdapterCatalog } = require('./lib/runner-adapters');
-const { buildGatewayStatus, buildRuntimeProxyRequest, redactGatewayConfig, safeRuntimeError } = require('./lib/runtime-gateway');
+const {
+  buildGatewayStatus,
+  buildRuntimeProxyRequest,
+  redactGatewayConfig,
+  safePublicText,
+  safeRuntimeError,
+} = require('./lib/runtime-gateway');
+const {
+  projectUnknownPublicJson,
+  publicActivitySessionRecord,
+  publicChatMessageRecord,
+  publicDocumentRecord,
+  publicMissionRecord,
+  publicReportRecord,
+  publicSessionEventRecord,
+  publicSessionRecord,
+} = require('./lib/public-agent-records');
 const { HermesRailwayRelay, isRelayAuthorized, relayEnabled } = require('./lib/railway-relay');
 const { runRelayChatCompletion } = require('./lib/relay-chat-completion');
 const {
@@ -542,7 +558,7 @@ function mergeGatewayLiveState(runtimeState = {}, gatewayState = {}, env = proce
   const hasLiveTickTick = liveTicktickTasks.length > 0;
   const nativeTasks = ticktickReplaced
     ? (Array.isArray(liveState.tasks) ? liveState.tasks : [])
-    : mergeTasksById(runtimeState.tasks, liveState.tasks);
+    : mergeTasksById(liveState.tasks, runtimeState.tasks);
   if (!hasLiveTickTick && !nativeTasks.length && !Array.isArray(liveState.events)) {
     return filterDeletedGatewayAgents({
       ...runtimeState,
@@ -985,12 +1001,77 @@ function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, ga
   return nextBody;
 }
 
+function publicRuntimeSseLine(line) {
+  if (!line) return '';
+  if (line.startsWith('data:')) {
+    const payload = line.slice(5).trimStart();
+    try {
+      const projected = projectUnknownPublicJson(JSON.parse(payload));
+      return `data: ${JSON.stringify(projected || {})}`;
+    } catch {
+      const text = publicDisplayText(payload, '');
+      return text ? `data: ${text}` : '';
+    }
+  }
+  if (line.startsWith('event:')) {
+    const event = publicIdentifier(line.slice(6).trim());
+    return event ? `event: ${event}` : '';
+  }
+  if (line.startsWith('id:')) {
+    const id = publicIdentifier(line.slice(3).trim());
+    return id ? `id: ${id}` : '';
+  }
+  if (line.startsWith('retry:')) {
+    const retry = Math.max(0, Number(line.slice(6).trim()) || 0);
+    return `retry: ${retry}`;
+  }
+  return '';
+}
+
 async function pipeRuntimeResponse(runtimeResponse, res) {
+  const contentType = runtimeResponse.headers.get('content-type') || 'application/json; charset=utf-8';
   const headers = {
-    'content-type': runtimeResponse.headers.get('content-type') || 'application/json; charset=utf-8',
+    'content-type': contentType,
     'cache-control': 'no-store',
   };
   res.writeHead(runtimeResponse.status, headers);
+
+  if (/text\/event-stream/i.test(contentType)) {
+    if (!runtimeResponse.body) {
+      res.end();
+      return;
+    }
+    const reader = runtimeResponse.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        pending += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const lines = pending.split(/\r?\n/);
+        pending = done ? '' : lines.pop() || '';
+        for (const line of lines) {
+          const safe = publicRuntimeSseLine(line);
+          res.write(`${safe}\n`);
+        }
+        if (done) break;
+      }
+      if (pending) {
+        const safe = publicRuntimeSseLine(pending);
+        if (safe) res.write(`${safe}\n`);
+      }
+      res.end();
+    } catch (error) {
+      res.destroy(error);
+    }
+    return;
+  }
+
+  if (/^text\//i.test(contentType)) {
+    const text = publicDisplayText(await runtimeResponse.text(), '');
+    res.end(text);
+    return;
+  }
 
   if (!runtimeResponse.body) {
     res.end(await runtimeResponse.text());
@@ -1260,10 +1341,10 @@ const PUBLIC_METADATA_ENUMS = Object.freeze({
 });
 
 function publicDisplayText(value, fallback = '') {
-  const text = safeRuntimeError(value, '').trim();
+  const text = safePublicText(value, '', 6_000).trim();
   if (!text) return fallback;
   if (
-    /do[\s_-]*not[\s_-]*leak|\b(?:credential|debug|hostile|internal|leak|private|rawcommand|yolo)\b|commandtemplate|--[a-z0-9_-]+/i.test(text)
+    /do[\s_-]*not[\s_-]*leak|\b(?:credential|debug|hostile|leak|private|rawcommand|yolo)\b|commandtemplate|--[a-z0-9_-]+/i.test(text)
     || /\b[A-Z0-9]{2,}(?:_[A-Z0-9]{2,})+\b/.test(text)
     || /\b(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|hf_[A-Za-z0-9]{16,}|(?:gh[pousr]_|sk-|xox[baprs]-)[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,})\b/i.test(text)
     || /\b[a-f0-9]{48,}\b/i.test(text)
@@ -1460,8 +1541,7 @@ function publicSchedulerJob(job = {}) {
   if (!job || typeof job !== 'object' || Array.isArray(job)) return null;
   const cronShape = isHermesCronSchedulerId(job.id)
     || Object.hasOwn(job, 'schedule_display')
-    || Object.hasOwn(job, 'next_run_at')
-    || (job.raw && typeof job.raw === 'object' && !Array.isArray(job.raw));
+    || Object.hasOwn(job, 'next_run_at');
   const source = cronShape ? normalizeHermesCronResponseJob(job) : normalizeSchedulerJobProfile(job);
   const id = publicIdentifier(source.id);
   if (!id) return null;
@@ -1629,6 +1709,13 @@ function projectPublicGatewayState(state = {}) {
   }
   Object.assign(projected, {
     tasks: publicTaskRecords(source.tasks),
+    agentMissions: (Array.isArray(source.agentMissions) ? source.agentMissions : []).map(publicMissionRecord).filter(Boolean),
+    agentSessions: (Array.isArray(source.agentSessions) ? source.agentSessions : []).map(publicSessionRecord).filter(Boolean),
+    agentSessionEvents: (Array.isArray(source.agentSessionEvents) ? source.agentSessionEvents : []).map(publicSessionEventRecord).filter(Boolean),
+    agentReports: (Array.isArray(source.agentReports) ? source.agentReports : []).map(publicReportRecord).filter(Boolean),
+    documents: (Array.isArray(source.documents) ? source.documents : []).map(publicDocumentRecord).filter(Boolean),
+    chatMessages: (Array.isArray(source.chatMessages) ? source.chatMessages : []).map(publicChatMessageRecord).filter(Boolean),
+    sessions: (Array.isArray(source.sessions) ? source.sessions : []).map(publicActivitySessionRecord).filter(Boolean),
     agents: publicOfficialProfileAgents(source.agents),
     tools: publicCapabilityMetadataList(filterActualGatewayTools(source.tools)),
     skills: publicCapabilityMetadataList(source.skills),
@@ -6566,7 +6653,11 @@ async function handleApi(
     if (method === 'POST' && pathSegments[1] === 'snapshot') {
       const body = parseJsonBuffer(bodyBuffer);
       const snapshot = relay.updateSnapshot(body);
-      sendJson(res, 200, { ok: true, snapshot });
+      sendJson(res, 200, {
+        ok: true,
+        accepted: true,
+        receivedAt: publicIsoTimestamp(snapshot?.receivedAt),
+      });
       return;
     }
     if (method === 'GET' && pathSegments[1] === 'poll') {
@@ -6708,7 +6799,7 @@ async function handleApi(
       const body = relayResponse.body || {};
       let responseBody = shouldProjectGatewayResponseBody(body)
         ? mergeGatewayResponseBody(body, gatewayState, env, gatewayStore)
-        : body;
+        : projectUnknownPublicJson(body) || { ok: body.ok !== false };
       if (schedulerTranslation) {
         const cronJob = body.job || body.updated || body.deleted || (body.id || body.name ? body : null);
         const job = cronJob ? publicSchedulerJob(normalizeHermesCronResponseJob(cronJob)) : null;
@@ -7694,7 +7785,9 @@ async function handleApi(
             : [];
       const responseCollection = pathSegments[0] === 'scheduler'
         ? collection.map(normalizeHermesCronResponseJob).map(publicSchedulerJob).filter(Boolean)
-        : collection;
+        : pathSegments[0] === 'documents'
+          ? collection.map(publicDocumentRecord).filter(Boolean)
+          : collection.map((item) => projectUnknownPublicJson(item)).filter(Boolean);
       sendJson(res, runtimeResponse.status, {
         ok: body.ok !== false,
         [compactGetCollections]: responseCollection,
@@ -7708,7 +7801,7 @@ async function handleApi(
       sendJson(res, runtimeResponse.status, mergeGatewayResponseBody(body, gatewayState, env, gatewayStore));
       return;
     }
-    sendJson(res, runtimeResponse.status, body);
+    sendJson(res, runtimeResponse.status, projectUnknownPublicJson(body) || { ok: body.ok !== false });
     return;
   }
   if (

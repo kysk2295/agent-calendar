@@ -1855,6 +1855,14 @@ export function App() {
     }
   }
 
+  async function runAgentOperationTaskNow(taskId: string) {
+    await runAgentOperation(taskId, () => hermesApi.runAgentTaskNow(taskId));
+    const selectedTask = agentOperations.tasks.find((task) => task.id === taskId);
+    if (selectedTask?.sessionId === selectedAgentSessionId) {
+      await openAgentSession(selectedAgentSessionId);
+    }
+  }
+
   async function transitionAgentMissionWork(missionId: string, action: 'pause' | 'cancel') {
     await runAgentOperation(missionId, () => hermesApi.transitionAgentMission(missionId, action));
   }
@@ -2702,7 +2710,7 @@ export function App() {
             {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} />}
             {screen === 'diary' && <DiaryScreen docs={diaryDocs} diaryText={diaryText} setDiaryText={setDiaryText} diaryMood={diaryMood} setDiaryMood={setDiaryMood} saveDiary={saveDiary} />}
             {screen === 'search' && <SearchScreen query={query} setQuery={setQuery} tasks={tasks} docs={docs} openTask={openTask} openDoc={openDoc} />}
-            {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} error={agentOperationsError} busy={agentOperationsBusy} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
+            {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} error={agentOperationsError} busy={agentOperationsBusy} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
             {screen === 'widgets' && <WidgetsScreen tasks={tasks} events={events} runs={runs} />}
             {screen === 'settings' && <SettingsScreen settings={settings} setSettings={setSettings} refresh={hydrate} />}
             {screen === 'login' && <LoginScreen email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} authenticateWithPassword={authenticateWithPassword} />}

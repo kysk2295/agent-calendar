@@ -7,15 +7,26 @@ function normalizeRuntimeUrl(runtimeUrl) {
 function redactPublicText(value) {
   return String(value || '')
     .replace(/Bearer\s+[A-Za-z0-9._~+/-]+/gi, 'Bearer [REDACTED]')
-    .replace(/\b(HERMES_RUNTIME_TOKEN|accessToken|runtimeToken|token)=([^&\s"'}]+)/gi, '$1=[REDACTED]')
+    .replace(/\b(HERMES_RUNTIME_TOKEN|accessToken|runtimeToken|apiKey|api_key|clientSecret|accessKey|access_key|credential|token)\s*[:=]\s*([^&\s,"'}]+)/gi, '$1=[REDACTED]')
     .replace(/\bauthorization\s*[:=]\s*[^,\n\r]+/gi, 'authorization=[REDACTED]')
     .replace(/"authorization"\s*:\s*"[^"]*"/gi, '"authorization":"[REDACTED]"')
-    .replace(/"(HERMES_RUNTIME_TOKEN|accessToken|runtimeToken|token)"\s*:\s*"[^"]*"/gi, '"$1":"[REDACTED]"')
+    .replace(/"(HERMES_RUNTIME_TOKEN|accessToken|runtimeToken|apiKey|api_key|clientSecret|accessKey|access_key|credential|token)"\s*:\s*"[^"]*"/gi, '"$1":"[REDACTED]"')
     .replace(/"runtimeToken"\s*:\s*"[^"]*"/gi, '"runtimeToken":"[REDACTED]"')
     .replace(/hermes_[A-Za-z0-9._-]+/gi, 'hermes_[REDACTED]')
     .replace(/[A-Za-z0-9._-]*secret[A-Za-z0-9._-]*/gi, '[REDACTED]')
-    .replace(/\/(?:Users|home)\/[^\s"'}]+/g, '[PRIVATE_PATH]')
-    .slice(0, 300);
+    .replace(/(?:file:\/\/)?\/(?:Users|home|Volumes|private|var\/folders|tmp)\/[^\s"'}]+/g, '[PRIVATE_PATH]')
+    .replace(/\bmarket[\s_-]*flow\b/gi, '[REDACTED_PROFILE]');
+}
+
+function safePublicText(value, fallback = '', maximumLength = 6_000) {
+  const text = redactPublicText(value).trim();
+  if (!text) return fallback;
+  if (/\[(?:REDACTED|PRIVATE_PATH|REDACTED_PROFILE)\]/i.test(text)) return fallback;
+  if (/\b(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|hf_[A-Za-z0-9]{16,}|(?:gh[pousr]_|sk-|xox[baprs]-)[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,})\b/i.test(text)) return fallback;
+  if (/\b[a-f0-9]{48,}\b/i.test(text)) return fallback;
+  if (/^\s*(?:sudo\s+)?(?:bash|sh|zsh|fish|curl|wget|rm|mv|cp|chmod|chown|git|npm|npx|pnpm|yarn|node|python\d*|ruby|hermes|launchctl|tar)(?=\s|$)/i.test(text)) return fallback;
+  if (/\b(?:command|commandTemplate|rawCommand|recoveryCommand|residentInstallCommand)\s*[:=]/i.test(text)) return fallback;
+  return text.slice(0, Math.max(1, Number(maximumLength) || 6_000));
 }
 
 function safeRuntimeError(message, fallback) {
@@ -232,6 +243,8 @@ async function buildGatewayStatus({
 module.exports = {
   buildGatewayStatus,
   buildRuntimeProxyRequest,
+  redactPublicText,
   redactGatewayConfig,
+  safePublicText,
   safeRuntimeError,
 };

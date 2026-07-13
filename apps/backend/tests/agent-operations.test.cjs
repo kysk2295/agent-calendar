@@ -197,10 +197,12 @@ test('redacts secrets private paths and hidden reasoning from session events', (
   // Given
   const event = {
     kind: 'tool_activity',
-    text: 'token=secret /Users/koyunseo/private.md',
+    text: 'token=secret apiKey=another-secret /Users/koyunseo/private.md /Volumes/private/research.md marketflow',
     metadata: {
       authorization: 'Bearer secret',
       chainOfThought: 'hidden reasoning',
+      command: 'bash -lc whoami',
+      profileRoot: '/Volumes/private/hermes',
     },
   };
 
@@ -209,7 +211,7 @@ test('redacts secrets private paths and hidden reasoning from session events', (
 
   // Then
   const serialized = JSON.stringify(sanitized);
-  assert.doesNotMatch(serialized, /secret|\/Users\/koyunseo|hidden reasoning/);
+  assert.doesNotMatch(serialized, /secret|\/Users\/koyunseo|\/Volumes\/private|hidden reasoning|marketflow|whoami|apiKey/);
   assert.match(serialized, /redacted|private-path/i);
 });
 
@@ -1749,6 +1751,94 @@ test('scheduler creates an evidence-backed report from a due report task', async
   assert.match(executionPayload.messages[1].content, /공식 가격 페이지에서 기회 A의 근거/);
 
   await rm(dataDir, { recursive: true, force: true });
+});
+
+test('run-now API executes one future Agent Task through the scheduler and records its report callback', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-run-now-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-run-now', clock }),
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-run-now',
+    title: '미래 주간 기회 보고',
+    owner: 'Agent',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    createdByAgentId: 'bizconsultant',
+    reason: '예약 시각 전에 실제 콜백 경로를 검증한다.',
+    expectedOutput: '근거가 포함된 주간 기회 보고',
+    scheduledAt: '2026-07-17T06:00:00.000Z',
+    dueAt: '2026-07-17T07:00:00.000Z',
+    estimatedMinutes: 30,
+    actionClass: 'report',
+    sourceRefs: ['mission'],
+  });
+  const session = store.createAgentSession({
+    id: 'session-run-now',
+    missionId: mission.id,
+    taskId: task.id,
+    type: 'task',
+    status: 'scheduled',
+  });
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async ({ meta, payload, onEvent }) => {
+      assert.equal(meta.taskId, task.id);
+      assert.equal(payload.profile, 'bizconsultant');
+      await onEvent({ kind: 'tool_activity', text: '공식 출처를 확인했습니다.' });
+      return {
+        jobId: 'relay-run-now',
+        text: JSON.stringify({
+          title: '미래 주간 기회 보고',
+          findings: ['기회 A'],
+          evidence: [{ label: '공식 가격', url: 'https://example.com/pricing' }],
+          limitations: ['사용자 인터뷰 전'],
+          budget: { usedRuns: 1, usedMinutes: 30 },
+          followUps: [{ title: '사용자 인터뷰', reason: '수요 검증' }],
+        }),
+      };
+    },
+  });
+  const server = createRailwayGatewayServer({
+    env: {},
+    gatewayStore: store,
+    agentOperationsScheduler: scheduler,
+    agentOperationsClock: clock,
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/agent-operations/tasks/${task.id}/run-now`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.run.startedTaskIds, [task.id]);
+    assert.deepEqual(body.run.completedTaskIds, [task.id]);
+    assert.equal(body.run.createdReportIds.length, 1);
+    assert.equal(body.task.status, 'completed');
+    assert.equal(body.report.status, 'ready');
+    assert.equal(body.report.taskId, task.id);
+    assert.equal(store.getState().tasks.find((item) => item.id === task.id).scheduledAt, '2026-07-17T06:00:00.000Z');
+    assert.deepEqual(
+      store.getAgentSession(session.id).events.map((event) => event.kind),
+      ['progress', 'tool_activity', 'agent_message', 'artifact', 'completion'],
+    );
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
 });
 
 test('manual tick API uses the injected Agent Operations scheduler', async () => {

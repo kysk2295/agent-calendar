@@ -261,6 +261,7 @@
 }
 .agent-operation-task-actions span { color: var(--amber); font-size: 9px; font-weight: 800; }
 .agent-operation-task-actions button { height: 28px; padding: 0 8px; color: var(--muted-dark); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; font-size: 10px; font-weight: 700; }
+.agent-operation-task-actions button.run-now { color: var(--accent-dark); background: var(--accent-soft); border-color: var(--accent-line); }
 .agent-operation-task-actions button.danger { color: var(--red); }
 
 .agent-operation-empty { padding: 16px; color: var(--muted); font-size: 11px; text-align: center; }

@@ -6,7 +6,7 @@
 
 ## Non-goals
 
-- 새로운 에이전트 기능이나 신규 화면을 추가하지 않는다.
+- 새 에이전트 종류나 신규 화면은 추가하지 않는다. 단, 실제 예정 작업을 검증하고 사용자가 의도적으로 앞당겨 실행할 수 있는 `지금 실행` 명령은 기존 Task Session 흐름 안에 추가한다.
 - Obsidian 자체의 물리 엔진을 복제하지 않는다.
 - 기존 사용자의 저장 데이터나 다른 작업자의 변경을 삭제하지 않는다.
 
@@ -32,6 +32,9 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - 위키 payload는 동일 데이터를 중복 직렬화하지 않고 그래프를 한 번만 만든다.
 - 상대 링크와 reciprocal edge가 정확하며 그래프 drag/keyboard/label 동작이 검증된다.
 - 전체 테스트, 타입체크, 빌드와 핵심 실제 UI 흐름이 통과한다.
+- 미래 일정의 Agent Task를 `지금 실행`하면 실제 Hermes profile이 수행하고, 동일 Task Session의 완료 이벤트·보고서·캘린더 상태로 콜백된다.
+- 공개 JSON/SSE/Relay/Agent Operations 응답은 레코드별 allowlist를 거쳐 토큰, 명령, 절대경로, raw metadata, 삭제된 profile을 노출하지 않는다.
+- DB 저장 상태와 runtime 상태가 충돌하면 최신 runtime scalar가 우선하면서 DB 전용 필드는 보존되고, scheduler job ID는 응답과 action 경로 사이에서 바뀌지 않는다.
 
 ## Edge cases
 
@@ -51,6 +54,8 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - Wiki symlink, complete inventory, payload shape, relative link, edge dedupe 단위/통합 테스트를 RED로 추가한다.
 - Dense/local drag, keyboard activation, label overlap Playwright를 RED로 추가한다.
 - 각 묶음 후 narrow test, typecheck를 실행하고 마지막에 모든 verification gate를 실행한다.
+- `지금 실행` API·UI·실제 Relay callback을 별도 E2E로 검증하고, 성공 후 테스트 미션은 정지해 반복 실행을 방지한다.
+- hostile generic JSON/SSE, Agent Operations list/detail/mutation, Relay snapshot, task precedence, scheduler ID 회귀를 RED/GREEN으로 검증한다.
 
 ## Acceptance gates
 
@@ -103,7 +108,12 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - [x] first-party capability source와 `skill` taxonomy를 손실 없이 보존한다.
 - [x] 라이브 Hermes 프로필 목록을 에이전트 source of truth로 삼고 삭제된 저장 프로필을 복원하지 않는다.
 - [x] direct health/log, fallback SSE/task/scheduler 응답을 public projection으로 제한한다.
-- [ ] 위 후속 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
+- [x] Agent Operations `지금 실행` API와 scheduler 단일-task 실행 계약을 RED/GREEN으로 구현한다.
+- [x] 미션 상세에서 예정 Agent Task를 즉시 실행하고 진행·완료 상태를 갱신하는 UI를 구현한다.
+- [x] 공개 state/JSON/SSE/Relay/Agent Operations 응답을 레코드별 allowlist projector로 제한한다.
+- [x] runtime task 우선 병합과 scheduler ID 안정성, 안전한 장문 표시 텍스트를 회귀 테스트로 보호한다.
+- [x] 위 후속 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
+- [x] Railway에 배포한 뒤 실제 맥미니 Hermes에 새 미션을 보내 `지금 실행`·콜백·세션·보고서·캘린더 E2E를 검증한다.
 
 ## Rollback / fallback
 
@@ -116,16 +126,17 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 
 - 95% Obsidian 시각 유사도와 직접 Obsidian 입력 증거는 별도 시각 반복이 필요할 수 있다.
 - 현재 대형 App.tsx와 gateway 파일 분리는 행동 수정 후 별도 구조 단계에서만 수행한다.
-- Mac mini에서 실행 중인 Hermes runtime의 실제 safe toolset/yolo 설정과 Telegram 환경 변수는 배포 후 별도 live gate가 필요하다.
+- Mac mini Hermes 실행, callback, Task Session, 보고서 저장은 live gate를 통과했다. Telegram 전송은 현재 배포 환경에 채널 설정이 없어 `not_configured`로 남으며, 보고서 자체는 앱에 정상 저장된다.
+- `지금 실행`은 예약 시각을 삭제하지 않고 해당 실행만 앞당긴다. 동시 tick과의 중복 claim은 기존 scheduler lock 및 task status compare-and-set으로 차단해야 한다.
 
 ## Verification results
 
 - `npm run backend:check`: passed.
-- `npm run test:backend`: 129/129 passed.
+- `npm run test:backend`: 133/133 passed.
 - `npm --workspace apps/desktop run typecheck`: passed.
 - `npm --workspace apps/desktop run test`: 75/75 passed.
 - `npm run build:desktop`: passed.
-- `npm test`: backend 129/129, desktop 75/75 passed.
+- `npm test`: backend 133/133, desktop 75/75 passed.
 - Agent create/mission/approval/artifact, wiki graph/ask/search/tree, calendar CRUD Playwright scenarios: passed.
 - Live gateway QA: unauthenticated caller 401, authenticated offline agents `Unavailable`, offline run 503.
 - Post-push regression QA: task detail format/comment/delegate controls restored; chat, full-page login, and authenticated widget fixtures aligned with the shipped contracts.
@@ -140,3 +151,13 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - Agent profile Playwright: navigated from the Agent Operations `Missions` default tab to `Agents`, rendered `준비됨`, and hid removed `marketflow` readiness.
 - Live browser QA: Railway 재시도 후 연결 상태, 5개 현재 Hermes 프로필, 주간 미션 작업 3개, 보고서, Task Session 진행 로그와 캘린더 작업을 확인했다.
 - Hostile HTTP QA: direct health/log와 fallback task/scheduler/SSE 응답에서 안전한 상태·로그는 유지되고 토큰·명령·절대경로·임의 내부 필드는 제거됐다.
+- Fresh live E2E: mission `mission-20260713102042-9234b15a` planning returned three `bizconsultant` tasks in 31.4 seconds; approval, activation, Task Session persistence, and calendar dates 14/15/17 were observed through live HTTP and the browser UI.
+- Fresh live callback: Relay run `relay-mrj2qkzx-23692b` emitted 19 SSE events and completed with the exact callback marker in 20.8 seconds; user and assistant messages persisted under the same run ID and rendered in the chat console.
+- Railway deployment `e968c1aa-23c8-4cd1-8486-33df68c4457c`: production healthcheck passed and the live relay reported `bridgeOnline=true`, `liveSnapshotOnline=true`.
+- Actual Run Now E2E: mission `mission-20260713110046-7d2f4e84` was planned by real `bizconsultant` in 63.8 seconds, approved, activated, and then paused after verification. Its three scheduled tasks completed through the same scheduler execution path in 109.6, 120.3, and 48.8 seconds.
+- Callback persistence: all three task sessions reached `completed`, retained the planned calendar dates 2026-07-14/15/17, and contain plan, approval, progress, tool activity, agent message, artifact, and completion events. The mission budget recorded 3 runs and 115/120 minutes.
+- Report persistence: `agent-report-20260713110629-76949384` is ready with 4 findings, 12 evidence links, 5 limitations, and 3 follow-ups. Delivery is truthfully `not_configured` because Telegram is not configured.
+- Live browser QA: Calendar rendered the three completed Hermes tasks; Missions rendered all three as `보고 완료`; Reports rendered the persisted evidence report; Task Session rendered the full plan-to-completion transcript. `Scheduler online` was visible and `Railway API 확인 필요` was absent.
+- Responsive browser QA: Agent Operations at 768x900 and 375x812 had no horizontal overflow, out-of-viewport mission/task/action elements, or task-action overlap.
+- Runtime latency audit: authenticated Railway and local proxy requests to `/api/documents` and `/api/channels/status` returned HTTP 200. Five local repetitions measured documents at 0.368-1.420 seconds and channels at 0.413-0.726 seconds; the earlier 25-second wait was not reproducible, so no speculative timeout change was made.
+- Debugging hypotheses: (H1) Railway relay wait, (H2) local proxy bottleneck, and (H3) unsupported Mac mini routes were all refuted by the live local-vs-Railway timings. The execution-path hypotheses were also resolved by identical scheduler started/completed task IDs, persisted completion events/reports, and hostile JSON/SSE projection tests.

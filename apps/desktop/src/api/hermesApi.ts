@@ -86,6 +86,7 @@ export const hermesApi = {
   activateAgentMission: (missionId: string) => hermesJson<unknown>(`/api/agent-operations/missions/${encodeURIComponent(missionId)}/activate`, { method: 'POST', body: '{}' }),
   transitionAgentMission: (missionId: string, action: 'pause' | 'cancel') => hermesJson<unknown>(`/api/agent-operations/missions/${encodeURIComponent(missionId)}/${action}`, { method: 'POST', body: '{}' }),
   transitionAgentTask: (taskId: string, action: AgentTaskAction) => hermesJson<unknown>(`/api/agent-operations/tasks/${encodeURIComponent(taskId)}/${encodeURIComponent(action)}`, { method: 'POST', body: '{}' }),
+  runAgentTaskNow: (taskId: string) => hermesJson<unknown>(`/api/agent-operations/tasks/${encodeURIComponent(taskId)}/run-now`, { method: 'POST', body: '{}' }, AGENT_OPERATIONS_TIMEOUT_MS),
   getAgentSession: (sessionId: string) => hermesJson<unknown>(`/api/agent-operations/sessions/${encodeURIComponent(sessionId)}`),
   sendAgentSessionMessage: (sessionId: string, text: string) => hermesJson<unknown>(`/api/agent-operations/sessions/${encodeURIComponent(sessionId)}/messages`, {
     method: 'POST',

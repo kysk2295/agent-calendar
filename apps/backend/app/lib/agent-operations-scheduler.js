@@ -42,6 +42,48 @@ class AgentOperationsScheduler {
     }
   }
 
+  async runTaskNow(taskId) {
+    if (this.tickPromise) {
+      const error = new Error('Agent operations scheduler is already running');
+      error.code = 'scheduler_busy';
+      error.status = 409;
+      throw error;
+    }
+    this.tickPromise = this.#runTaskNowOnce(taskId);
+    try {
+      return await this.tickPromise;
+    } finally {
+      this.tickPromise = null;
+    }
+  }
+
+  async #runTaskNowOnce(taskId) {
+    const checkedAt = this.clock().toISOString();
+    const result = createSchedulerResult(checkedAt);
+    const task = this.store.getState().tasks.find((item) => item.id === taskId);
+    if (!task || task.origin !== 'agent') {
+      const error = new Error('Agent Task was not found');
+      error.code = 'task_not_found';
+      error.status = 404;
+      throw error;
+    }
+    if (task.status !== 'scheduled') {
+      const error = new Error(`Agent Task cannot run now from ${task.status}`);
+      error.code = 'invalid_task_state';
+      error.status = 409;
+      throw error;
+    }
+    const mission = this.store.getAgentMissions().find((item) => item.id === task.missionId);
+    if (!mission || mission.status !== 'active') {
+      const error = new Error('Agent Task requires an active mission');
+      error.code = 'mission_not_active';
+      error.status = 409;
+      throw error;
+    }
+    await this.#executeTask(task, result);
+    return result;
+  }
+
   async #tickOnce() {
     const checkedAt = this.clock().toISOString();
     const result = createSchedulerResult(checkedAt);
