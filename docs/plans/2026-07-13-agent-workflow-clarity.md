@@ -50,6 +50,7 @@ Medium. Desktop React Agent Operations 화면, 해당 CSS, Playwright 계약과 
 ## Acceptance gates
 
 - `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-operations-mission.cjs`
+- `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-mission.cjs`
 - `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-surface-buttons.cjs`
 - `HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-task-session.cjs`
 - `npm run typecheck`
@@ -90,5 +91,6 @@ Medium. Desktop React Agent Operations 화면, 해당 CSS, Playwright 계약과 
 - CJK 정밀도: 작업 제목과 결과 본문은 `word-break: keep-all`, 결과 제목은 `text-wrap: balance` 계약을 추가해 조사·단어 내부 분리를 막았다.
 - Fresh captures: `apps/desktop/audit/agent-workflow-clarity-2026-07-13/`의 mission, session, session-result 상태를 1280x800, 768x900, 375x812에서 각각 저장했다.
 - Independent visual QA: 디자인/기능 integrity와 visual/CJK precision 두 pass 모두 최신 9개 캡처 기준 `PASS`했다.
+- Legacy E2E entrypoint: 제거된 `.mission` UI에서 timeout 나던 `playwright-agent-mission.cjs`를 현재 Agent Operations 미션 E2E의 호환 진입점으로 바꾸고 `operationRequests=8`로 통과했다.
 - `npm test`: backend 140/140, desktop 75/75 통과.
 - `npm run build:desktop`: renderer와 Electron build 통과.
