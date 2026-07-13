@@ -603,6 +603,11 @@ class PostgresHermesStore extends HermesStore {
          session_id = excluded.session_id,
          payload = excluded.payload,
          updated_at = now()
+       where not (
+         tasks.payload ->> 'origin' = 'agent'
+         and tasks.status in ('running', 'completed', 'cancelled')
+         and excluded.status in ('proposed', 'approved', 'scheduled')
+       )
        returning payload`,
       [
         task.id,

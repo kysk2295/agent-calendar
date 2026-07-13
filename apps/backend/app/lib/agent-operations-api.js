@@ -48,17 +48,18 @@ async function routeAgentOperations({ method, pathSegments, body = {}, service }
     if (method === 'POST' && normalized[1] === 'missions' && normalized.length === 2) {
       return success(201, { mission: service.createMission(body) });
     }
-    if (method === 'POST' && normalized[1] === 'missions' && normalized[2] && normalized[3] === 'plan') {
+    if (method === 'POST' && normalized.length === 4 && normalized[1] === 'missions' && normalized[2] && normalized[3] === 'plan') {
       return success(200, await service.planMission(normalized[2]));
     }
-    if (method === 'POST' && normalized[1] === 'missions' && normalized[2] && normalized[3] === 'activate') {
+    if (method === 'POST' && normalized.length === 4 && normalized[1] === 'missions' && normalized[2] && normalized[3] === 'activate') {
       return success(200, { mission: service.activateMission(normalized[2]) });
     }
-    if (method === 'POST' && normalized[1] === 'missions' && normalized[2] && MISSION_ACTIONS.has(normalized[3])) {
+    if (method === 'POST' && normalized.length === 4 && normalized[1] === 'missions' && normalized[2] && MISSION_ACTIONS.has(normalized[3])) {
       return success(200, service.transitionMission(normalized[2], normalized[3]));
     }
     if (
       method === 'POST'
+      && normalized.length === 4
       && normalized[1] === 'tasks'
       && normalized[2]
       && TASK_ACTIONS.has(normalized[3])
@@ -68,13 +69,13 @@ async function routeAgentOperations({ method, pathSegments, body = {}, service }
     if (method === 'GET' && normalized[1] === 'sessions' && normalized[2] && normalized.length === 3) {
       return success(200, { session: service.getSession(normalized[2]) });
     }
-    if (method === 'POST' && normalized[1] === 'sessions' && normalized[2] && normalized[3] === 'messages') {
+    if (method === 'POST' && normalized.length === 4 && normalized[1] === 'sessions' && normalized[2] && normalized[3] === 'messages') {
       return success(200, await service.addSessionMessage(normalized[2], body));
     }
-    if (method === 'POST' && normalized[1] === 'reports' && normalized[2] && normalized[3] === 'feedback') {
+    if (method === 'POST' && normalized.length === 4 && normalized[1] === 'reports' && normalized[2] && normalized[3] === 'feedback') {
       return success(200, { report: service.recordReportFeedback(normalized[2], body) });
     }
-    if (method === 'POST' && normalized[1] === 'reports' && normalized[2] && normalized[3] === 'follow-ups') {
+    if (method === 'POST' && normalized.length === 4 && normalized[1] === 'reports' && normalized[2] && normalized[3] === 'follow-ups') {
       return success(200, { report: service.recordReportFollowUpDecision(normalized[2], body) });
     }
     if (method === 'POST' && normalized[1] === 'tick' && normalized.length === 2) {

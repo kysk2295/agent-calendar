@@ -573,6 +573,46 @@ test('scheduler job creation strips a removed profile before the Mac mini relay'
   }
 });
 
+test('scheduler job reads normalize removed runtime profiles before returning them', async () => {
+  // Given
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_REMOTE_AUTH_TOKEN: 'client-token',
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-token',
+    },
+    fetchImpl: async () => new Response(JSON.stringify({
+      ok: true,
+      jobs: [{
+        id: 'legacy-cron',
+        name: 'Legacy market scan',
+        profile: 'marketflow',
+        agent: 'marketflow',
+        schedule_display: 'every 1h',
+      }],
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/scheduler/jobs`, {
+      headers: { authorization: 'Bearer client-token' },
+    });
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.equal(body.jobs[0].agent, 'default');
+    assert.doesNotMatch(JSON.stringify(body.jobs[0]), /marketflow/);
+  } finally {
+    await close(server);
+  }
+});
+
 test('routes Hermes chat through a profile mission without inventing an API server model', async () => {
   // Given
   const server = createRailwayGatewayServer({

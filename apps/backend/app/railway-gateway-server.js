@@ -1141,32 +1141,50 @@ function schedulerIntervalSchedule(body = {}) {
   return `every ${minutes}m`;
 }
 
+function normalizeSchedulerJobProfile(job = {}) {
+  const source = job && typeof job === 'object' && !Array.isArray(job) ? job : {};
+  const agent = resolveRequestedOfficialProfile({
+    agentId: source.agentId || source.profile,
+    agent: source.agent,
+  });
+  return {
+    ...source,
+    agent,
+    ...(Object.hasOwn(source, 'agentId') ? { agentId: agent } : {}),
+    ...(Object.hasOwn(source, 'profile') ? { profile: agent } : {}),
+  };
+}
+
 function normalizeHermesCronResponseJob(job = {}) {
-  const rawId = String(job.id || job.name || '').trim();
-  const scheduleDisplay = job.schedule_display || job.scheduleDisplay || job.schedule?.display || '';
+  const normalizedJob = normalizeSchedulerJobProfile(job);
+  const rawJob = normalizeSchedulerJobProfile(
+    normalizedJob.raw && typeof normalizedJob.raw === 'object' ? normalizedJob.raw : normalizedJob,
+  );
+  const rawId = String(normalizedJob.id || normalizedJob.name || '').trim();
+  const scheduleDisplay = normalizedJob.schedule_display || normalizedJob.scheduleDisplay || normalizedJob.schedule?.display || '';
   const intervalMinutes = (() => {
     const everyMinutes = String(scheduleDisplay).match(/^every\s+(\d+)\s*m/i);
     if (everyMinutes) return Math.max(1, Number(everyMinutes[1]) || 1);
     const everyHours = String(scheduleDisplay).match(/^every\s+(\d+)\s*h/i);
     if (everyHours) return Math.max(1, (Number(everyHours[1]) || 1) * 60);
-    return Math.max(1, Math.round(Number(job.intervalMinutes) || 60));
+    return Math.max(1, Math.round(Number(normalizedJob.intervalMinutes) || 60));
   })();
   return {
-    id: rawId.startsWith('hermes-cron:') ? rawId : `hermes-cron:${rawId || job.name || 'job'}`,
-    name: String(job.name || job.title || rawId || 'Hermes cron job'),
-    goal: String(job.goal || job.description || job.prompt || job.script || job.name || 'Scheduled Hermes run'),
-    agent: String(job.agent || job.profile || 'default'),
-    model: String(job.model || 'Hermes CLI'),
+    id: rawId.startsWith('hermes-cron:') ? rawId : `hermes-cron:${rawId || normalizedJob.name || 'job'}`,
+    name: String(normalizedJob.name || normalizedJob.title || rawId || 'Hermes cron job'),
+    goal: String(normalizedJob.goal || normalizedJob.description || normalizedJob.prompt || normalizedJob.script || normalizedJob.name || 'Scheduled Hermes run'),
+    agent: normalizedJob.agent,
+    model: String(normalizedJob.model || 'Hermes CLI'),
     intervalMinutes,
-    enabled: job.enabled !== false && job.state !== 'disabled',
-    runCount: Number(job.repeat?.completed || job.runCount || 0),
-    lastRunAt: job.last_run_at || job.lastRunAt || '',
-    nextRunAt: job.next_run_at || job.nextRunAt || '',
-    schedule: job.schedule || null,
+    enabled: normalizedJob.enabled !== false && normalizedJob.state !== 'disabled',
+    runCount: Number(normalizedJob.repeat?.completed || normalizedJob.runCount || 0),
+    lastRunAt: normalizedJob.last_run_at || normalizedJob.lastRunAt || '',
+    nextRunAt: normalizedJob.next_run_at || normalizedJob.nextRunAt || '',
+    schedule: normalizedJob.schedule || null,
     scheduleDisplay,
-    status: job.state || job.status || '',
+    status: normalizedJob.state || normalizedJob.status || '',
     source: 'hermes-cli-cron',
-    raw: job,
+    raw: rawJob,
   };
 }
 
@@ -5306,7 +5324,11 @@ function fallbackSchedulerJobs({ res, method, body = {}, jobId = '', action = ''
     const jobs = gatewayStore && typeof gatewayStore.getSchedulerJobs === 'function'
       ? gatewayStore.getSchedulerJobs()
       : gatewayState.schedulerJobs;
-    sendJson(res, 200, { ok: true, jobs, gatewayFallback: true });
+    sendJson(res, 200, {
+      ok: true,
+      jobs: (Array.isArray(jobs) ? jobs : []).map(normalizeSchedulerJobProfile),
+      gatewayFallback: true,
+    });
     return;
   }
   if (!gatewayStore) {
@@ -6073,7 +6095,11 @@ async function handleApi(
           : Array.isArray(state.automationJobs)
             ? state.automationJobs
             : [];
-      sendJson(res, 200, { ok: true, jobs, gatewayFallback: false });
+      sendJson(res, 200, {
+        ok: true,
+        jobs: jobs.map(normalizeHermesCronResponseJob),
+        gatewayFallback: false,
+      });
       return;
     }
     if (method === 'GET' && pathSegments[0] === 'tools' && !pathSegments[1]) {
@@ -6916,9 +6942,12 @@ async function handleApi(
           : Array.isArray(state[compactGetCollections])
             ? state[compactGetCollections]
             : [];
+      const responseCollection = pathSegments[0] === 'scheduler'
+        ? collection.map(normalizeHermesCronResponseJob)
+        : collection;
       sendJson(res, runtimeResponse.status, {
         ok: body.ok !== false,
-        [compactGetCollections]: collection,
+        [compactGetCollections]: responseCollection,
         gatewayFallback: body.gatewayFallback === true,
       });
       return;

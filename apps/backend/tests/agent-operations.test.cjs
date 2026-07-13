@@ -17,6 +17,7 @@ const { HermesStore } = require('../app/lib/store');
 const { PostgresHermesStore } = require('../app/lib/postgres-store');
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
 const { AgentOperationsService } = require('../app/lib/agent-operations-service');
+const { routeAgentOperations } = require('../app/lib/agent-operations-api');
 const { taskExecutionMessages } = require('../app/lib/agent-operations-execution');
 const { COMMAND_ROUTES } = require('../app/lib/commands');
 const { listMissionTemplates } = require('../app/lib/missions');
@@ -499,6 +500,109 @@ test('Postgres allows only one process to claim a scheduled Agent Task', async (
     rm(firstDir, { recursive: true, force: true }),
     rm(secondDir, { recursive: true, force: true }),
   ]);
+});
+
+test('Postgres rejects a late scheduled upsert after another process claims an Agent Task', async () => {
+  // Given
+  let databaseTask = { id: 'task-stale-claim', status: 'scheduled', origin: 'agent' };
+  let initialUpserts = 0;
+  let markInitialUpsertsReady;
+  let markStaleUpsertFinished;
+  const initialUpsertsReady = new Promise((resolve) => { markInitialUpsertsReady = resolve; });
+  const staleUpsertFinished = new Promise((resolve) => { markStaleUpsertFinished = resolve; });
+  const pool = {
+    query: async (sql, values = []) => {
+      const statement = String(sql);
+      if (/insert into tasks/i.test(statement)) {
+        const incoming = JSON.parse(values[7]);
+        initialUpserts += 1;
+        if (initialUpserts <= 2) {
+          databaseTask = incoming;
+          if (initialUpserts === 2) markInitialUpsertsReady();
+        } else {
+          const protectsClaimedAgentTask = (
+            /tasks\.payload\s*->>\s*'origin'\s*=\s*'agent'/i.test(statement)
+            && /tasks\.status\s+in\s*\(\s*'running'/i.test(statement)
+            && /excluded\.status\s+in\s*\(\s*'proposed'/i.test(statement)
+          );
+          const staleRegression = (
+            databaseTask.origin === 'agent'
+            && ['running', 'completed', 'cancelled'].includes(databaseTask.status)
+            && ['proposed', 'approved', 'scheduled'].includes(incoming.status)
+          );
+          if (!(protectsClaimedAgentTask && staleRegression)) databaseTask = incoming;
+          markStaleUpsertFinished();
+        }
+        return { rows: [] };
+      }
+      if (/update tasks[\s\S]*where id = \$1 and status = 'scheduled'/i.test(statement)) {
+        if (databaseTask.status !== 'scheduled') return { rows: [] };
+        databaseTask = JSON.parse(values[2]);
+        return { rows: [{ id: values[0] }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const firstDir = await mkdtemp(path.join(os.tmpdir(), 'agent-stale-claim-first-'));
+  const secondDir = await mkdtemp(path.join(os.tmpdir(), 'agent-stale-claim-second-'));
+  const first = new PostgresHermesStore({ pool, dataDir: firstDir, clock, autoMigrate: false });
+  const second = new PostgresHermesStore({ pool, dataDir: secondDir, clock, autoMigrate: false });
+  await Promise.all([first.ready, second.ready]);
+  const taskInput = {
+    id: 'task-stale-claim',
+    title: '늦은 저장 방지',
+    status: 'scheduled',
+    origin: 'agent',
+  };
+  first.createTask(taskInput);
+  second.createTask(taskInput);
+  await initialUpsertsReady;
+  const claimed = await first.claimAgentTask(taskInput.id, { startedAt: FIXED_NOW, attempt: 1 });
+
+  // When
+  second.updateTask(taskInput.id, { title: '늦게 도착한 stale snapshot' });
+  await staleUpsertFinished;
+
+  // Then
+  assert.ok(claimed);
+  assert.equal(databaseTask.status, 'running');
+
+  await Promise.all([
+    rm(firstDir, { recursive: true, force: true }),
+    rm(secondDir, { recursive: true, force: true }),
+  ]);
+});
+
+test('Agent Operations action routes reject trailing path segments', async () => {
+  // Given
+  let mutationCalls = 0;
+  const service = new Proxy({}, {
+    get: () => () => {
+      mutationCalls += 1;
+      return {};
+    },
+  });
+  const trailingPaths = [
+    ['agent-operations', 'missions', 'mission-1', 'plan', 'extra'],
+    ['agent-operations', 'missions', 'mission-1', 'activate', 'extra'],
+    ['agent-operations', 'missions', 'mission-1', 'pause', 'extra'],
+    ['agent-operations', 'tasks', 'task-1', 'approve', 'extra'],
+    ['agent-operations', 'sessions', 'session-1', 'messages', 'extra'],
+    ['agent-operations', 'reports', 'report-1', 'feedback', 'extra'],
+    ['agent-operations', 'reports', 'report-1', 'follow-ups', 'extra'],
+  ];
+
+  // When
+  const responses = await Promise.all(trailingPaths.map((pathSegments) => routeAgentOperations({
+    method: 'POST',
+    pathSegments,
+    body: {},
+    service,
+  })));
+
+  // Then
+  assert.deepEqual(responses.map((response) => response.status), trailingPaths.map(() => 404));
+  assert.equal(mutationCalls, 0);
 });
 
 test('serializes a task delete after an in-flight Postgres upsert', async () => {
