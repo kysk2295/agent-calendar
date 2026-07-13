@@ -1,5 +1,8 @@
 const assert = require('node:assert/strict');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
+const { mkdtemp, rm } = require('node:fs/promises');
 
 const {
   buildMissionPlanPrompt,
@@ -9,6 +12,8 @@ const {
   transitionAgentTask,
   validateReport,
 } = require('../app/lib/agent-operations-domain');
+const { HermesStore } = require('../app/lib/store');
+const { PostgresHermesStore } = require('../app/lib/postgres-store');
 
 const FIXED_NOW = '2026-07-13T09:00:00.000Z';
 const clock = () => new Date(FIXED_NOW);
@@ -168,4 +173,124 @@ test('accepts only evidence-backed report structures', () => {
   // Then
   assert.deepEqual(validated, report);
   assert.throws(() => validateReport({ ...report, evidence: [] }), /evidence/i);
+});
+
+test('persists a mission task session events and report across a store restart', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-'));
+  const first = new HermesStore({ dataDir, clock });
+  const mission = first.createAgentMission(
+    createWeeklyOpportunityMission({ id: 'mission-weekly', clock }),
+  );
+  const task = first.createTask({
+    title: '경쟁사 변화 수집',
+    owner: 'Agent',
+    status: 'proposed',
+    missionId: mission.id,
+    origin: 'agent',
+    createdByAgentId: 'bizconsultant',
+    reason: '근거 부족',
+    expectedOutput: '비교표',
+    scheduledAt: '2026-07-13T10:00:00.000Z',
+    dueAt: '2026-07-13T11:00:00.000Z',
+    estimatedMinutes: 40,
+    actionClass: 'research',
+    sourceRefs: ['web', 'wiki'],
+  });
+  const session = first.createAgentSession({
+    id: 'session-scan',
+    missionId: mission.id,
+    taskId: task.id,
+    status: 'proposed',
+  });
+  first.appendAgentSessionEvent(session.id, {
+    kind: 'plan',
+    text: '공식 출처를 먼저 확인한다.',
+  });
+  first.appendAgentSessionEvent(session.id, {
+    kind: 'progress',
+    text: '공식 가격 페이지를 확인 중이다.',
+  });
+  first.createAgentReport({
+    id: 'report-weekly',
+    missionId: mission.id,
+    sessionId: session.id,
+    status: 'ready',
+    findings: ['기회 1'],
+    evidence: ['source-1'],
+    limitations: [],
+    budget: { usedRuns: 1, usedMinutes: 40 },
+    followUps: [],
+  });
+
+  // When
+  const restarted = new HermesStore({ dataDir, clock });
+  const state = restarted.getState();
+  const restoredSession = restarted.getAgentSession(session.id);
+
+  // Then
+  assert.equal(state.agentMissions[0].id, mission.id);
+  assert.equal(state.tasks.find((item) => item.id === task.id).sessionId, session.id);
+  assert.deepEqual(restoredSession.events.map((event) => event.sequence), [1, 2]);
+  assert.equal(state.agentReports[0].id, 'report-weekly');
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('mirrors agent operation relationships to Postgres tables', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-postgres-'));
+  const queries = [];
+  const pool = {
+    query: async (sql, values = []) => {
+      queries.push({ sql: String(sql), values });
+      return { rows: [] };
+    },
+  };
+  const store = new PostgresHermesStore({
+    pool,
+    dataDir,
+    clock,
+    autoMigrate: false,
+  });
+  await store.ready;
+  const mission = store.createAgentMission(
+    createWeeklyOpportunityMission({ id: 'mission-postgres', clock }),
+  );
+  const task = store.createTask({
+    id: 'task-postgres',
+    title: '기회 근거 확인',
+    owner: 'Agent',
+    status: 'proposed',
+    missionId: mission.id,
+    origin: 'agent',
+  });
+
+  // When
+  const session = store.createAgentSession({
+    id: 'session-postgres',
+    missionId: mission.id,
+    taskId: task.id,
+  });
+  store.appendAgentSessionEvent(session.id, { kind: 'plan', text: '공식 출처 확인' });
+  store.createAgentReport({
+    id: 'report-postgres',
+    missionId: mission.id,
+    sessionId: session.id,
+    findings: ['기회 A'],
+    evidence: ['source-a'],
+    limitations: [],
+    budget: { usedMinutes: 10 },
+    followUps: [],
+  });
+
+  // Then
+  const sql = queries.map((query) => query.sql).join('\n');
+  assert.match(sql, /insert into agent_missions/i);
+  assert.match(sql, /insert into agent_sessions/i);
+  assert.match(sql, /insert into agent_session_events/i);
+  assert.match(sql, /insert into agent_reports/i);
+  assert.match(sql, /insert into tasks \(id, title, status, owner, due_at, mission_id, session_id/i);
+
+  await rm(dataDir, { recursive: true, force: true });
 });

@@ -422,6 +422,10 @@ function createDefaultState(now = new Date().toISOString()) {
       noApprovalMode: true,
     },
     tasks: [],
+    agentMissions: [],
+    agentSessions: [],
+    agentSessionEvents: [],
+    agentReports: [],
     ticktickTasks: [],
     events: [],
     externalCalendarEvents: [],
@@ -465,6 +469,180 @@ class HermesStore {
 
   getState() {
     return this.#load();
+  }
+
+  createAgentMission(input = {}) {
+    const state = this.#load();
+    const now = this.clock().toISOString();
+    const id = String(input.id || createId('mission', this.clock));
+    if (state.agentMissions.some((mission) => mission.id === id)) {
+      throw new Error(`Agent mission already exists: ${id}`);
+    }
+    const mission = {
+      ...input,
+      id,
+      status: String(input.status || 'draft'),
+      createdAt: String(input.createdAt || now),
+      updatedAt: now,
+    };
+    state.agentMissions.unshift(mission);
+    this.#touchAndSave(state);
+    return mission;
+  }
+
+  updateAgentMission(missionId, patch = {}) {
+    const state = this.#load();
+    const index = state.agentMissions.findIndex((mission) => mission.id === missionId);
+    if (index < 0) return null;
+    const mission = {
+      ...state.agentMissions[index],
+      ...patch,
+      id: state.agentMissions[index].id,
+      createdAt: state.agentMissions[index].createdAt,
+      updatedAt: this.clock().toISOString(),
+    };
+    state.agentMissions[index] = mission;
+    this.#touchAndSave(state);
+    return mission;
+  }
+
+  getAgentMissions() {
+    return this.#load().agentMissions;
+  }
+
+  createAgentSession(input = {}) {
+    const state = this.#load();
+    const now = this.clock().toISOString();
+    const missionId = String(input.missionId || '');
+    const taskId = String(input.taskId || '');
+    if (!state.agentMissions.some((mission) => mission.id === missionId)) {
+      throw new Error(`Agent mission not found: ${missionId || 'missing'}`);
+    }
+    const id = String(input.id || createId('session', this.clock));
+    if (state.agentSessions.some((session) => session.id === id)) {
+      throw new Error(`Agent session already exists: ${id}`);
+    }
+    const session = {
+      ...input,
+      id,
+      missionId,
+      taskId,
+      status: String(input.status || 'proposed'),
+      pendingInstructions: normalizeStringArray(input.pendingInstructions),
+      createdAt: String(input.createdAt || now),
+      updatedAt: now,
+    };
+    state.agentSessions.unshift(session);
+    if (taskId) {
+      const task = state.tasks.find((item) => item.id === taskId);
+      if (!task) throw new Error(`Agent task not found: ${taskId}`);
+      task.missionId = missionId;
+      task.sessionId = id;
+      task.updatedAt = now;
+    }
+    this.#touchAndSave(state);
+    return session;
+  }
+
+  updateAgentSession(sessionId, patch = {}) {
+    const state = this.#load();
+    const index = state.agentSessions.findIndex((session) => session.id === sessionId);
+    if (index < 0) return null;
+    const session = {
+      ...state.agentSessions[index],
+      ...patch,
+      id: state.agentSessions[index].id,
+      missionId: state.agentSessions[index].missionId,
+      taskId: state.agentSessions[index].taskId,
+      pendingInstructions: Object.prototype.hasOwnProperty.call(patch, 'pendingInstructions')
+        ? normalizeStringArray(patch.pendingInstructions)
+        : state.agentSessions[index].pendingInstructions,
+      createdAt: state.agentSessions[index].createdAt,
+      updatedAt: this.clock().toISOString(),
+    };
+    state.agentSessions[index] = session;
+    this.#touchAndSave(state);
+    return session;
+  }
+
+  getAgentSession(sessionId) {
+    const state = this.#load();
+    const session = state.agentSessions.find((item) => item.id === sessionId);
+    if (!session) return null;
+    const events = state.agentSessionEvents
+      .filter((event) => event.sessionId === sessionId)
+      .sort((left, right) => left.sequence - right.sequence);
+    return { ...session, events };
+  }
+
+  appendAgentSessionEvent(sessionId, input = {}) {
+    const state = this.#load();
+    const session = state.agentSessions.find((item) => item.id === sessionId);
+    if (!session) throw new Error(`Agent session not found: ${sessionId}`);
+    const now = this.clock().toISOString();
+    const sequence = state.agentSessionEvents
+      .filter((event) => event.sessionId === sessionId)
+      .reduce((maximum, event) => Math.max(maximum, Number(event.sequence) || 0), 0) + 1;
+    const event = {
+      ...input,
+      id: String(input.id || createId('session-event', this.clock)),
+      sessionId,
+      sequence,
+      kind: String(input.kind || 'progress'),
+      text: String(input.text || ''),
+      createdAt: String(input.createdAt || now),
+    };
+    state.agentSessionEvents.push(event);
+    session.updatedAt = now;
+    session.lastEventAt = event.createdAt;
+    this.#touchAndSave(state);
+    return event;
+  }
+
+  createAgentReport(input = {}) {
+    const state = this.#load();
+    const now = this.clock().toISOString();
+    const missionId = String(input.missionId || '');
+    if (!state.agentMissions.some((mission) => mission.id === missionId)) {
+      throw new Error(`Agent mission not found: ${missionId || 'missing'}`);
+    }
+    const id = String(input.id || createId('report', this.clock));
+    if (state.agentReports.some((report) => report.id === id)) {
+      throw new Error(`Agent report already exists: ${id}`);
+    }
+    const report = {
+      ...input,
+      id,
+      missionId,
+      sessionId: String(input.sessionId || ''),
+      status: String(input.status || 'ready'),
+      createdAt: String(input.createdAt || now),
+      updatedAt: now,
+    };
+    state.agentReports.unshift(report);
+    this.#touchAndSave(state);
+    return report;
+  }
+
+  updateAgentReport(reportId, patch = {}) {
+    const state = this.#load();
+    const index = state.agentReports.findIndex((report) => report.id === reportId);
+    if (index < 0) return null;
+    const report = {
+      ...state.agentReports[index],
+      ...patch,
+      id: state.agentReports[index].id,
+      missionId: state.agentReports[index].missionId,
+      createdAt: state.agentReports[index].createdAt,
+      updatedAt: this.clock().toISOString(),
+    };
+    state.agentReports[index] = report;
+    this.#touchAndSave(state);
+    return report;
+  }
+
+  getAgentReports() {
+    return this.#load().agentReports;
   }
 
   createAgent(input) {
@@ -737,7 +915,7 @@ class HermesStore {
     return run;
   }
 
-  createTask(input) {
+  createTask(input = {}) {
     const state = this.#load();
     const now = this.clock().toISOString();
     const owner = input.owner || 'Me';
@@ -745,7 +923,7 @@ class HermesStore {
     const date = input.date || '';
     const time = input.time || '';
     const task = {
-      id: createId('task', this.clock),
+      id: String(input.id || createId('task', this.clock)),
       title: input.title || 'Untitled task',
       owner,
       status,
@@ -774,12 +952,31 @@ class HermesStore {
       completedAt: input.completedAt || '',
       source: input.source || 'native',
       sourceId: input.sourceId ? String(input.sourceId) : '',
+      missionId: input.missionId ? String(input.missionId) : '',
+      sessionId: input.sessionId ? String(input.sessionId) : '',
+      origin: input.origin ? String(input.origin) : '',
+      createdByAgentId: input.createdByAgentId ? String(input.createdByAgentId) : '',
+      reason: input.reason ? String(input.reason) : '',
+      expectedOutput: input.expectedOutput ? String(input.expectedOutput) : '',
+      scheduledAt: input.scheduledAt ? String(input.scheduledAt) : '',
+      dueAt: input.dueAt ? String(input.dueAt) : '',
+      estimatedMinutes: Number.isFinite(Number(input.estimatedMinutes)) ? Number(input.estimatedMinutes) : 0,
+      actionClass: input.actionClass ? String(input.actionClass) : '',
+      sourceRefs: normalizeStringArray(input.sourceRefs),
+      approvalMode: input.approvalMode ? String(input.approvalMode) : '',
+      pauseRequestedAt: input.pauseRequestedAt ? String(input.pauseRequestedAt) : '',
+      cancelRequestedAt: input.cancelRequestedAt ? String(input.cancelRequestedAt) : '',
+      blockedReason: input.blockedReason ? String(input.blockedReason) : '',
+      pauseMode: input.pauseMode ? String(input.pauseMode) : '',
+      pendingInstructions: normalizeStringArray(input.pendingInstructions),
+      attempt: Number.isFinite(Number(input.attempt)) ? Number(input.attempt) : 0,
       ticktickId: input.ticktickId ? String(input.ticktickId) : '',
       ticktickProjectId: input.ticktickProjectId ? String(input.ticktickProjectId) : '',
       ticktickSyncStatus: input.ticktickSyncStatus ? String(input.ticktickSyncStatus) : '',
       ticktickSyncedAt: input.ticktickSyncedAt ? String(input.ticktickSyncedAt) : '',
       ticktickSyncError: input.ticktickSyncError ? String(input.ticktickSyncError) : '',
-      createdAt: now,
+      createdAt: input.createdAt ? String(input.createdAt) : now,
+      updatedAt: now,
     };
     state.tasks.unshift(task);
     state.sessions.unshift({ time: now.slice(11, 16), text: `${task.owner} · ${task.title}`, state: task.status });
@@ -826,7 +1023,15 @@ class HermesStore {
     const state = this.#load();
     const task = state.tasks.find((item) => item.id === taskId);
     if (!task) return null;
-    const allowed = ['title', 'owner', 'status', 'date', 'time', 'lane', 'tag', 'agent', 'model', 'wikiDestination', 'project', 'body', 'notes', 'recurrence', 'runId', 'runFile', 'ticktickId', 'ticktickProjectId', 'ticktickSyncStatus', 'ticktickSyncedAt', 'ticktickSyncError'];
+    const allowed = [
+      'title', 'owner', 'status', 'date', 'time', 'lane', 'tag', 'agent', 'model',
+      'wikiDestination', 'project', 'body', 'notes', 'recurrence', 'runId', 'runFile',
+      'missionId', 'sessionId', 'origin', 'createdByAgentId', 'reason', 'expectedOutput',
+      'scheduledAt', 'dueAt', 'actionClass', 'approvalMode', 'pauseRequestedAt',
+      'cancelRequestedAt', 'blockedReason', 'pauseMode', 'reportId', 'failureCode',
+      'ticktickId', 'ticktickProjectId', 'ticktickSyncStatus', 'ticktickSyncedAt',
+      'ticktickSyncError',
+    ];
     for (const key of allowed) {
       if (Object.prototype.hasOwnProperty.call(patch, key)) {
         task[key] = String(patch[key] || '');
@@ -847,10 +1052,23 @@ class HermesStore {
     if (Array.isArray(patch.successCriteria)) {
       task.successCriteria = patch.successCriteria.map(String);
     }
-    if (task.status === 'Done' && !task.completedAt) {
+    if (Object.prototype.hasOwnProperty.call(patch, 'sourceRefs')) {
+      task.sourceRefs = normalizeStringArray(patch.sourceRefs);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'pendingInstructions')) {
+      task.pendingInstructions = normalizeStringArray(patch.pendingInstructions);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'estimatedMinutes')) {
+      task.estimatedMinutes = Number.isFinite(Number(patch.estimatedMinutes)) ? Number(patch.estimatedMinutes) : 0;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'attempt')) {
+      task.attempt = Number.isFinite(Number(patch.attempt)) ? Number(patch.attempt) : 0;
+    }
+    const taskIsCompleted = task.status === 'Done' || task.status === 'completed';
+    if (taskIsCompleted && !task.completedAt) {
       task.completedAt = this.clock().toISOString();
     }
-    if (task.status !== 'Done') {
+    if (!taskIsCompleted) {
       task.completedAt = '';
     }
     task.executable = task.owner !== 'Me';
@@ -1768,6 +1986,10 @@ class HermesStore {
   }
 
   #normalizeState(state) {
+    if (!Array.isArray(state.agentMissions)) state.agentMissions = [];
+    if (!Array.isArray(state.agentSessions)) state.agentSessions = [];
+    if (!Array.isArray(state.agentSessionEvents)) state.agentSessionEvents = [];
+    if (!Array.isArray(state.agentReports)) state.agentReports = [];
     if (!Array.isArray(state.schedulerJobs)) state.schedulerJobs = [];
     if (!Array.isArray(state.deletedAgentIds)) state.deletedAgentIds = [];
     if (!state.daemon || typeof state.daemon !== 'object') {

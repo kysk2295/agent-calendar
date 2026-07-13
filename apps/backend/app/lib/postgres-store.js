@@ -106,6 +106,54 @@ class PostgresHermesStore extends HermesStore {
     return result;
   }
 
+  createAgentMission(input = {}) {
+    const mission = super.createAgentMission(input);
+    this.#upsertAgentMission(mission);
+    return mission;
+  }
+
+  updateAgentMission(missionId, patch = {}) {
+    const mission = super.updateAgentMission(missionId, patch);
+    if (mission) this.#upsertAgentMission(mission);
+    return mission;
+  }
+
+  createAgentSession(input = {}) {
+    const session = super.createAgentSession(input);
+    this.#upsertAgentSession(session);
+    if (session.taskId) {
+      const task = super.getState().tasks.find((item) => item.id === session.taskId);
+      if (task) this.#upsertTask(task);
+    }
+    return session;
+  }
+
+  updateAgentSession(sessionId, patch = {}) {
+    const session = super.updateAgentSession(sessionId, patch);
+    if (session) this.#upsertAgentSession(session);
+    return session;
+  }
+
+  appendAgentSessionEvent(sessionId, input = {}) {
+    const event = super.appendAgentSessionEvent(sessionId, input);
+    this.#insertAgentSessionEvent(event);
+    const session = super.getAgentSession(sessionId);
+    if (session) this.#upsertAgentSession(session);
+    return event;
+  }
+
+  createAgentReport(input = {}) {
+    const report = super.createAgentReport(input);
+    this.#upsertAgentReport(report);
+    return report;
+  }
+
+  updateAgentReport(reportId, patch = {}) {
+    const report = super.updateAgentReport(reportId, patch);
+    if (report) this.#upsertAgentReport(report);
+    return report;
+  }
+
   createTask(input = {}) {
     const task = super.createTask(input);
     this.#upsertTask(task);
@@ -312,7 +360,21 @@ class PostgresHermesStore extends HermesStore {
   }
 
   async #hydrateFromPostgres() {
-    const [agents, tasks, events, runs, chatMessages, documents, schedulerJobs, workboardPages, stateMeta] = await Promise.all([
+    const [
+      agents,
+      tasks,
+      events,
+      runs,
+      chatMessages,
+      documents,
+      schedulerJobs,
+      workboardPages,
+      agentMissions,
+      agentSessions,
+      agentSessionEvents,
+      agentReports,
+      stateMeta,
+    ] = await Promise.all([
       this.#selectPayloads('agents', 'created_at asc'),
       this.#selectPayloads('tasks', 'created_at desc'),
       this.#selectPayloads('calendar_events', 'starts_at asc, updated_at desc'),
@@ -321,6 +383,10 @@ class PostgresHermesStore extends HermesStore {
       this.#selectPayloads('documents', 'created_at desc'),
       this.#selectPayloads('scheduler_jobs', 'created_at desc'),
       this.#selectPayloads('workboard_pages', 'updated_at desc'),
+      this.#selectPayloads('agent_missions', 'created_at desc'),
+      this.#selectPayloads('agent_sessions', 'created_at desc'),
+      this.#selectPayloads('agent_session_events', 'session_id asc, sequence asc'),
+      this.#selectPayloads('agent_reports', 'created_at desc'),
       this.#selectStateMeta(),
     ]);
     const now = this.clock().toISOString();
@@ -336,6 +402,10 @@ class PostgresHermesStore extends HermesStore {
       documents,
       schedulerJobs,
       workboardPages,
+      agentMissions,
+      agentSessions,
+      agentSessionEvents,
+      agentReports,
       ...(Array.isArray(stateMeta.deletedAgentIds) ? { deletedAgentIds: stateMeta.deletedAgentIds } : {}),
       ...(Array.isArray(stateMeta.ticktickTasks) ? { ticktickTasks: stateMeta.ticktickTasks } : {}),
       ...(Array.isArray(stateMeta.externalCalendarEvents) ? { externalCalendarEvents: stateMeta.externalCalendarEvents } : {}),
@@ -391,15 +461,102 @@ class PostgresHermesStore extends HermesStore {
     );
   }
 
+  #upsertAgentMission(mission) {
+    this.#query(
+      `insert into agent_missions (id, status, agent_id, report_due_at, payload, created_at, updated_at)
+       values ($1, $2, $3, $4, $5::jsonb, coalesce($6::timestamptz, now()), now())
+       on conflict (id) do update set
+         status = excluded.status,
+         agent_id = excluded.agent_id,
+         report_due_at = excluded.report_due_at,
+         payload = excluded.payload,
+         updated_at = now()
+       returning payload`,
+      [
+        mission.id,
+        mission.status || 'draft',
+        mission.agentId || '',
+        mission.reportDueAt || '',
+        JSON.stringify(safeJson(mission)),
+        mission.createdAt || null,
+      ],
+    );
+  }
+
+  #upsertAgentSession(session) {
+    const payload = { ...session };
+    delete payload.events;
+    this.#query(
+      `insert into agent_sessions (id, mission_id, task_id, status, payload, created_at, updated_at)
+       values ($1, $2, $3, $4, $5::jsonb, coalesce($6::timestamptz, now()), now())
+       on conflict (id) do update set
+         mission_id = excluded.mission_id,
+         task_id = excluded.task_id,
+         status = excluded.status,
+         payload = excluded.payload,
+         updated_at = now()
+       returning payload`,
+      [
+        session.id,
+        session.missionId || '',
+        session.taskId || '',
+        session.status || 'proposed',
+        JSON.stringify(safeJson(payload)),
+        session.createdAt || null,
+      ],
+    );
+  }
+
+  #insertAgentSessionEvent(event) {
+    this.#query(
+      `insert into agent_session_events (id, session_id, sequence, kind, payload, created_at)
+       values ($1, $2, $3, $4, $5::jsonb, coalesce($6::timestamptz, now()))
+       on conflict (id) do update set payload = excluded.payload
+       returning payload`,
+      [
+        event.id,
+        event.sessionId,
+        Number(event.sequence),
+        event.kind || 'progress',
+        JSON.stringify(safeJson(event)),
+        event.createdAt || null,
+      ],
+    );
+  }
+
+  #upsertAgentReport(report) {
+    this.#query(
+      `insert into agent_reports (id, mission_id, session_id, status, payload, created_at, updated_at)
+       values ($1, $2, $3, $4, $5::jsonb, coalesce($6::timestamptz, now()), now())
+       on conflict (id) do update set
+         mission_id = excluded.mission_id,
+         session_id = excluded.session_id,
+         status = excluded.status,
+         payload = excluded.payload,
+         updated_at = now()
+       returning payload`,
+      [
+        report.id,
+        report.missionId || '',
+        report.sessionId || '',
+        report.status || 'ready',
+        JSON.stringify(safeJson(report)),
+        report.createdAt || null,
+      ],
+    );
+  }
+
   #upsertTask(task) {
     this.#query(
-      `insert into tasks (id, title, status, owner, due_at, payload, created_at, updated_at)
-       values ($1, $2, $3, $4, $5, $6::jsonb, coalesce($7::timestamptz, now()), now())
+      `insert into tasks (id, title, status, owner, due_at, mission_id, session_id, payload, created_at, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, coalesce($9::timestamptz, now()), now())
        on conflict (id) do update set
          title = excluded.title,
          status = excluded.status,
          owner = excluded.owner,
          due_at = excluded.due_at,
+         mission_id = excluded.mission_id,
+         session_id = excluded.session_id,
          payload = excluded.payload,
          updated_at = now()
        returning payload`,
@@ -409,6 +566,8 @@ class PostgresHermesStore extends HermesStore {
         task.status || '',
         task.owner || '',
         task.due || '',
+        task.missionId || '',
+        task.sessionId || '',
         JSON.stringify(safeJson(task)),
         task.createdAt || null,
       ],
