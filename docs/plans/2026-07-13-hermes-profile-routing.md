@@ -1,0 +1,115 @@
+# Plan: Hermes profile routing for Agent Operations
+
+- Date: 2026-07-13
+- Owner: Codex
+- Work size: Boundary
+- Status: Implemented and live-verified
+
+## Goal
+
+Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes profile without treating the profile ID as an LLM model name. Preserve the API server's own advertised/default model unless an explicit model override is configured.
+
+## Non-Goals
+
+- Do not change the Mac mini Hermes installation or profile files.
+- Do not add multi-user profile ownership in this fix.
+- Do not execute external messages, purchases, trades, publishing, or source deletion.
+
+## Touched Boundaries
+
+- Backend gateway: `apps/backend/app/railway-gateway-server.js`
+- Backend library: `apps/backend/app/lib/agent-operations-planner.js`, `apps/backend/app/lib/agent-operations-scheduler.js`, `apps/backend/app/lib/relay-chat-completion.js`
+- DB/migrations: `apps/backend/app/db/migrations/0006_restore_agent_task_profiles.sql`, `apps/backend/app/db/migrations/0007_restore_agent_task_sessions.sql`
+- Electron bridge: none; the existing outbound Mac mini bridge forwards the corrected payload
+- React UI: `apps/desktop/src/App.tsx`
+- Tests: `apps/backend/tests/agent-operations.test.cjs`, `apps/backend/tests/release-blockers.test.cjs`, `apps/desktop/tests/playwright-agent-operations-mission.cjs`
+- Docs: this plan and the personal live-run checklist
+
+## Success Criteria
+
+- [x] A selected agent is sent as `profile`, not as `model`.
+- [x] No default `hermes-agent` model is injected when Railway has no explicit `HERMES_API_SERVER_MODEL`.
+- [x] An explicit direct API model override is still preserved.
+- [x] A real `bizconsultant` plan request returns bounded proposed tasks through the Mac mini Relay.
+- [x] One invalid Hermes plan is corrected through a single bounded retry; a second invalid plan still returns `422` without tasks.
+- [x] Persisted task ownership remains `bizconsultant` instead of falling back to `default`.
+- [x] Task-to-session links survive concurrent Postgres upserts and a Railway restart.
+- [x] Agent Operations buttons clear their pending state without waiting for unrelated wiki/mail hydration.
+- [x] Hermes profile work can run for up to six minutes without being falsely blocked by the 90-second completion timeout.
+
+## Edge Cases
+
+- Missing profile: use the existing `default` profile.
+- Live but previously unlisted profile: preserve `bizconsultant` and `wikicurator`; do not resurrect removed `marketflow`.
+- Existing Agent Operations task: repair only records with `origin=agent` and a non-empty `createdByAgentId`.
+- Concurrent task writes: serialize updates per task ID so an older blank `sessionId` cannot win a race.
+- Slow unrelated API: refresh Agent Operations independently after its commands.
+- Long profile work: use the dedicated six-minute profile timeout for Agent Operations and profile chat.
+- Explicit model override: preserve it while also sending the selected profile.
+- Relay error: persist a planning error and create no fake task.
+- Over-budget plan: ask the same profile to correct it once with the validation reason.
+
+## Test Plan
+
+제품 코드보다 테스트를 먼저 작성한다.
+
+- RED:
+  - [x] Add assertions that generic Hermes requests use the selected profile mission and omit an invented model.
+  - [x] Add assertions that planner and scheduler Relay payloads use `profile` and do not use an agent ID as `model`.
+  - [x] Add a failing test for one validation-aware replan after an over-budget result.
+- GREEN:
+  - [x] Send the corrected payload shape through both chat and Agent Operations paths.
+- REFACTOR:
+  - [x] Reuse one Relay profile-completion boundary for planning, execution, and ordinary profile chat.
+
+## Acceptance Gates
+
+- [x] `npm run backend:check`
+- [x] `npm run test:backend`
+- [x] `npm test`
+- [x] Live generic chat through the Mac mini Relay
+- [x] Live Agent Operations plan through `bizconsultant`
+
+추가로 `npm run typecheck`, `npm run build:desktop`, 두 Agent Operations Playwright 시나리오도 통과했다.
+
+## Implementation Checklist
+
+- [x] Step 1: Lock the profile/model contract with failing tests.
+- [x] Step 2: Correct generic chat, planning, execution, and Relay metadata payloads.
+- [x] Step 3: Run focused and full backend gates.
+- [x] Step 4: Deploy Railway and execute the real harmless plan flow.
+- [x] Step 5: Add one bounded validation retry for an invalid profile plan.
+- [x] Step 6: Align the static profile allowlist with the five live Mac mini profiles.
+- [x] Step 7: Migrate existing Agent Operations task ownership without touching user tasks.
+- [x] Step 8: Serialize task persistence and restore links from `agent_sessions`.
+- [x] Step 9: Make Agent Operations command refresh independent from full app hydration.
+- [x] Step 10: Separate long-running profile timeout from short chat completion timeout.
+- [x] Step 11: Record runtime evidence and remaining risks.
+
+## Verification Notes
+
+- Command: live `POST /api/agent-operations/missions/:id/plan`
+  - Result: `502 relay_failed`; local Hermes rejected model `bizconsultant`.
+- Command: live generic Relay chat with `model=hermes-agent` and `model=gpt-5.5`
+  - Result: both returned local Hermes `404 model not found`.
+- Command: live `GET /api/state`
+  - Result: `profileReadiness` declares `profileParam: profile`; `bizconsultant` is ready and backed by Hermes CLI.
+- Command: live Hermes CLI profile run through `runtime.request`
+  - Result: `bizconsultant` completed and wrote `{"profile":"bizconsultant","ready":true}` to stdout.
+- Command: live Weekly Opportunity Brief plan through the Hermes CLI profile transport
+  - Result: transport completed and Task Session preserved 22 ordered events, but the 255-minute plan was rejected against the 120-minute weekly budget.
+- Command: validation-aware live replan through `bizconsultant`
+  - Result: the second bounded proposal created three tasks totaling 120 minutes: research 45, analysis 45, report 30.
+- Command: live task execution, user follow-up, resume, and second scheduler tick
+  - Result: task `agent-task-20260713031825-7c8ccdc9` completed on attempt 2; its Task Session contains 28 ordered events, the persisted user message, a non-empty agent result, an artifact, and completion.
+- Command: live generic `POST /api/chat/stream` after Railway deployment `b74b3247-2fd9-45f3-807b-0181107247df`
+  - Result: HTTP 200, no error event, completed `bizconsultant` run, exact response `bizconsultant profile chat ready`.
+- Command: live paused-mission manual tick and repeated Task Session reads
+  - Result: zero tasks started; completed attempt remained 2; all 28 event IDs retained strict order and the user message plus completion remained present.
+- Command: `npm test`
+  - Result: 88 backend and 73 desktop tests passed.
+
+## Remaining Risks
+
+- Risk: a full live report and Telegram delivery has not been forced ahead of its scheduled Friday time.
+  - Mitigation: automated report and Telegram success/failure contracts pass; keep the mission paused and run the live report at its intended schedule after explicit approval.

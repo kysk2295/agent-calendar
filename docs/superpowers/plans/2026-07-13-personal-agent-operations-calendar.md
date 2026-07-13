@@ -1075,7 +1075,7 @@ HERMES_UI_URL=http://127.0.0.1:5586/ node apps/desktop/tests/playwright-agent-mi
 
 Expected: every command exits 0.
 
-- [ ] **Step 3: Run migration against Railway Postgres**
+- [x] **Step 3: Run migration against Railway Postgres**
 
 ```bash
 npm run backend:migrate
@@ -1083,7 +1083,9 @@ npm run backend:migrate
 
 Expected JSON contains `0005_agent_operations.sql` in `migrations`.
 
-- [ ] **Step 4: Deploy the Railway gateway**
+Railway startup migration applied `0005_agent_operations.sql`, `0006_restore_agent_task_profiles.sql`, and `0007_restore_agent_task_sessions.sql`. Running the private Railway Postgres hostname from the local shell is intentionally unsupported; deployment startup is the verified migration boundary.
+
+- [x] **Step 4: Deploy the Railway gateway**
 
 ```bash
 railway up --detach
@@ -1091,6 +1093,8 @@ railway status
 ```
 
 Expected: deployment is online. Set `AGENT_OPERATIONS_DAEMON_ENABLED=true` and `AGENT_OPERATIONS_TICK_MS=60000` in the Railway service before the live scheduling check.
+
+Deployment `b74b3247-2fd9-45f3-807b-0181107247df` is online. The daemon reports `running=true`, interval 60000 ms, and the Mac mini Relay reports `bridgeOnline=true`.
 
 - [ ] **Step 5: Execute the real personal harmless flow**
 
@@ -1107,9 +1111,13 @@ Through the desktop UI at `http://127.0.0.1:5586/`:
 
 Do not delete the QA mission or its records. Pause it after verification so the full audit trail remains visible without scheduling further work.
 
-- [ ] **Step 6: Verify one real failure path**
+Live evidence completed for items 1-7: the real `bizconsultant` profile produced a corrected three-task, 120-minute plan; one research task completed with 28 ordered Task Session events, persisted user guidance, non-empty output, artifact, and completion. The mission remains preserved in `paused`. Item 8 remains scheduled rather than forced: the live Friday report and Telegram delivery were not executed early.
+
+- [x] **Step 6: Verify one real failure path**
 
 Pause the mission before another task becomes due and run a manual tick. Verify no execution starts. Use a test-injected offline response for UI evidence rather than shutting down the real Mac mini, and verify the Task Session shows `blocked`, the cause, and a retry action without false completion.
+
+The live paused-mission tick started zero tasks and preserved the completed task at attempt 2. An earlier 90-second timeout produced a real blocked Task Session; an invalid `retry` from blocked returned `409 invalid_task_transition`, while `resume` correctly scheduled the same session and completed on the next tick. Automated UI evidence covers the offline blocked cause and retry control without disconnecting the Mac mini.
 
 - [ ] **Step 7: Run the required post-implementation review**
 
