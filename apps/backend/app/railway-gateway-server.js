@@ -866,18 +866,66 @@ function runtimeStateFromResponseBody(body = {}) {
   return state;
 }
 
+function shouldProjectGatewayResponseBody(body = {}) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  const data = body.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data : {};
+  return Boolean(
+    (body.state && typeof body.state === 'object' && !Array.isArray(body.state))
+    || (body.run && typeof body.run === 'object' && !Array.isArray(body.run))
+    || Array.isArray(body.runs)
+    || Array.isArray(body.logs)
+    || Array.isArray(body.agents)
+    || (body.agentSourceStatus && typeof body.agentSourceStatus === 'object' && !Array.isArray(body.agentSourceStatus))
+    || (body.remoteVerification && typeof body.remoteVerification === 'object' && !Array.isArray(body.remoteVerification))
+    || (data.state && typeof data.state === 'object' && !Array.isArray(data.state))
+    || (data.run && typeof data.run === 'object' && !Array.isArray(data.run))
+    || Array.isArray(data.runs)
+    || Array.isArray(data.logs)
+    || Array.isArray(data.agents)
+    || (data.agentSourceStatus && typeof data.agentSourceStatus === 'object' && !Array.isArray(data.agentSourceStatus))
+    || (data.remoteVerification && typeof data.remoteVerification === 'object' && !Array.isArray(data.remoteVerification))
+  );
+}
+
+function publicResponseEnvelopeFields(value = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const projected = {};
+  for (const key of [
+    'ok', 'approved', 'cancelled', 'created', 'deleted', 'enabled', 'gatewayFallback',
+    'pending', 'queued', 'ready', 'restored', 'runtimeReachable',
+  ]) {
+    if (typeof source[key] === 'boolean') projected[key] = source[key];
+  }
+  for (const key of ['action', 'error', 'message', 'reason']) {
+    const text = publicDisplayText(source[key], '');
+    if (text) projected[key] = text;
+  }
+  for (const key of ['jobId', 'runId', 'taskId']) {
+    const id = publicIdentifier(source[key]);
+    if (id) projected[key] = id;
+  }
+  if (typeof source.status === 'number' && Number.isFinite(source.status)) {
+    projected.status = source.status;
+  } else {
+    const status = publicDisplayText(source.status, '');
+    if (status) projected.status = status;
+  }
+  return projected;
+}
+
 function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, gatewayStore = null) {
   const runtimeState = runtimeStateFromResponseBody(body);
   const state = projectPublicGatewayState(
     mergeGatewayLiveState(runtimeState, gatewayState, env, gatewayStore),
   );
   const nextBody = {
-    ...body,
+    ...publicResponseEnvelopeFields(body),
     state,
     deletedAgentIds: state.deletedAgentIds || [],
     gatewayMerged: true,
   };
   if (Array.isArray(runtimeState.runs)) nextBody.runs = state.runs;
+  if (Array.isArray(body.logs)) nextBody.logs = publicRunLogs(body.logs);
   if (body.run && typeof body.run === 'object' && !Array.isArray(body.run)) {
     const run = publicRunRecord(body.run);
     if (run) nextBody.run = run;
@@ -898,8 +946,9 @@ function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, ga
   }
   if (Array.isArray(runtimeState.agents)) nextBody.agents = state.agents;
   if (body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
-    const data = { ...body.data };
+    const data = publicResponseEnvelopeFields(body.data);
     if (Array.isArray(body.data.runs)) data.runs = publicRunRecords(body.data.runs);
+    if (Array.isArray(body.data.logs)) data.logs = publicRunLogs(body.data.logs);
     if (body.data.run && typeof body.data.run === 'object' && !Array.isArray(body.data.run)) {
       const run = publicRunRecord(body.data.run);
       if (run) data.run = run;
@@ -1206,7 +1255,7 @@ const PUBLIC_RUNTIME_SOURCES = new Map([
 const PUBLIC_METADATA_ENUMS = Object.freeze({
   category: new Set(['analysis', 'api', 'automation', 'business', 'communication', 'connector', 'general', 'knowledge', 'productivity', 'research', 'skill', 'tool', 'trading']),
   riskLevel: new Set(['high', 'low', 'medium', 'safe']),
-  status: new Set(['available', 'busy', 'disabled', 'enabled', 'error', 'healthy', 'idle', 'missing', 'offline', 'ok', 'paused', 'ready', 'running', 'unavailable', 'unknown']),
+  status: new Set(['active', 'available', 'busy', 'completed', 'disabled', 'draft', 'enabled', 'error', 'failed', 'healthy', 'idle', 'missing', 'offline', 'ok', 'paused', 'ready', 'running', 'scheduled', 'unavailable', 'unknown']),
   type: new Set(['api', 'command', 'connector', 'function', 'integration', 'skill', 'tool', 'workflow']),
 });
 
@@ -1256,6 +1305,7 @@ const PUBLIC_RUN_STATUSES = new Set([
   'completed',
   'done',
   'failed',
+  'gateway-fallback',
   'needs-review',
   'paused',
   'queued',
@@ -1263,6 +1313,7 @@ const PUBLIC_RUN_STATUSES = new Set([
   'scheduled',
   'stopped',
   'stopping',
+  'streaming',
   'unknown',
 ]);
 
@@ -1321,7 +1372,11 @@ function publicRunRecord(run = {}) {
     if (value) projected[key] = value;
   }
   if (Array.isArray(run.steps)) projected.steps = run.steps.map(publicRunStep).filter(Boolean).slice(0, 100);
+  if (Array.isArray(run.logs)) projected.logs = publicRunLogs(run.logs);
   if (typeof run.noApproval === 'boolean') projected.noApproval = false;
+  for (const key of ['gatewayFallback', 'runtimeReachable']) {
+    if (typeof run[key] === 'boolean') projected[key] = run[key];
+  }
   return projected;
 }
 
@@ -1334,6 +1389,110 @@ function publicRunLogs(logs = []) {
     .map((line) => publicDisplayText(line, ''))
     .filter(Boolean)
     .slice(-200);
+}
+
+function publicTaskChecklist(items = []) {
+  return (Array.isArray(items) ? items : []).map((item) => {
+    if (typeof item === 'string') return publicDisplayText(item, '') || null;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const projected = {};
+    const id = publicIdentifier(item.id);
+    if (id) projected.id = id;
+    for (const key of ['title', 'text', 'name']) {
+      const value = publicDisplayText(item[key], '');
+      if (value) projected[key] = value;
+    }
+    if (typeof item.done === 'boolean') projected.done = item.done;
+    if (typeof item.completed === 'boolean') projected.completed = item.completed;
+    return Object.keys(projected).length ? projected : null;
+  }).filter(Boolean);
+}
+
+function publicTaskRecord(task = {}) {
+  if (!task || typeof task !== 'object' || Array.isArray(task)) return null;
+  const id = publicIdentifier(task.id);
+  if (!id) return null;
+  const projected = { id };
+  for (const key of [
+    'title', 'original', 'owner', 'status', 'due', 'date', 'time', 'endDate', 'endTime',
+    'startDate', 'dueDate', 'lane', 'tag', 'agent', 'model', 'priority', 'project', 'category',
+    'list', 'body', 'notes', 'content', 'recurrence', 'repeat', 'repeatUntil', 'source',
+    'origin', 'reason', 'expectedOutput', 'actionClass', 'approvalMode', 'blockedReason',
+    'pauseMode', 'ticktickSyncStatus', 'ticktickSyncError', 'kind', 'type', 'recordType',
+  ]) {
+    const value = publicDisplayText(task[key], '');
+    if (value) projected[key] = value;
+  }
+  for (const key of [
+    'sourceId', 'ticktickId', 'ticktickProjectId', 'missionId', 'sessionId', 'createdByAgentId',
+    'runId', 'reportId', 'lastRunId',
+  ]) {
+    const value = publicIdentifier(task[key]);
+    if (value) projected[key] = value;
+  }
+  for (const key of ['wikiDestination', 'runFile']) {
+    const value = publicRunReference(task[key]);
+    if (value) projected[key] = value;
+  }
+  for (const key of ['createdAt', 'updatedAt', 'completedAt', 'scheduledAt', 'dueAt', 'pauseRequestedAt', 'cancelRequestedAt', 'startedAt', 'finishedAt', 'retryScheduledAt', 'ticktickSyncedAt']) {
+    const value = publicIsoTimestamp(task[key]);
+    if (value) projected[key] = value;
+  }
+  for (const key of ['estimatedMinutes', 'attempt']) {
+    if (task[key] !== undefined && task[key] !== null) projected[key] = Math.max(0, Number(task[key]) || 0);
+  }
+  for (const key of ['executable', 'allDay']) {
+    if (typeof task[key] === 'boolean') projected[key] = task[key];
+  }
+  for (const key of ['tags', 'reminders', 'successCriteria', 'pendingInstructions']) {
+    if (Array.isArray(task[key])) projected[key] = task[key].map((value) => publicDisplayText(value, '')).filter(Boolean);
+  }
+  if (Array.isArray(task.sourceRefs)) projected.sourceRefs = task.sourceRefs.map(publicRunReference).filter(Boolean);
+  if (Array.isArray(task.checklist)) projected.checklist = publicTaskChecklist(task.checklist);
+  return projected;
+}
+
+function publicTaskRecords(tasks = []) {
+  return (Array.isArray(tasks) ? tasks : []).map(publicTaskRecord).filter(Boolean);
+}
+
+function publicSchedulerJob(job = {}) {
+  if (!job || typeof job !== 'object' || Array.isArray(job)) return null;
+  const cronShape = isHermesCronSchedulerId(job.id)
+    || Object.hasOwn(job, 'schedule_display')
+    || Object.hasOwn(job, 'next_run_at')
+    || (job.raw && typeof job.raw === 'object' && !Array.isArray(job.raw));
+  const source = cronShape ? normalizeHermesCronResponseJob(job) : normalizeSchedulerJobProfile(job);
+  const id = publicIdentifier(source.id);
+  if (!id) return null;
+  const projected = { id };
+  for (const key of ['name', 'goal', 'model', 'scheduleDisplay']) {
+    const value = publicDisplayText(source[key], '');
+    if (value) projected[key] = value;
+  }
+  projected.agent = resolveRequestedOfficialProfile({
+    agentId: source.agentId || source.profile,
+    agent: source.agent,
+  });
+  if (Object.hasOwn(source, 'agentId')) projected.agentId = projected.agent;
+  if (Object.hasOwn(source, 'profile')) projected.profile = projected.agent;
+  projected.intervalMinutes = Math.max(1, Math.round(Number(source.intervalMinutes) || 60));
+  projected.enabled = source.enabled !== false;
+  projected.runCount = Math.max(0, Number(source.runCount) || 0);
+  const status = publicEnumValue(source.status || source.state, PUBLIC_METADATA_ENUMS.status);
+  if (status) projected.status = status;
+  for (const key of ['createdAt', 'updatedAt', 'lastRunAt', 'nextRunAt']) {
+    const value = publicIsoTimestamp(source[key]);
+    if (value) projected[key] = value;
+  }
+  const lastRunId = publicIdentifier(source.lastRunId);
+  if (lastRunId) projected.lastRunId = lastRunId;
+  projected.source = cronShape ? 'hermes-cli-cron' : publicRuntimeSource(source.source, 'scheduler');
+  return projected;
+}
+
+function publicSchedulerJobs(jobs = []) {
+  return (Array.isArray(jobs) ? jobs : []).map(publicSchedulerJob).filter(Boolean);
 }
 
 function publicCapabilityMetadata(item = {}) {
@@ -1469,10 +1628,13 @@ function projectPublicGatewayState(state = {}) {
     if (Array.isArray(source[key])) projected[key] = source[key];
   }
   Object.assign(projected, {
+    tasks: publicTaskRecords(source.tasks),
     agents: publicOfficialProfileAgents(source.agents),
     tools: publicCapabilityMetadataList(filterActualGatewayTools(source.tools)),
     skills: publicCapabilityMetadataList(source.skills),
     runs: publicRunRecords(source.runs),
+    schedulerJobs: publicSchedulerJobs(source.schedulerJobs),
+    automationJobs: publicSchedulerJobs(source.automationJobs),
     toolsets: ['safe'],
     mcpServers: [],
   });
@@ -1481,12 +1643,6 @@ function projectPublicGatewayState(state = {}) {
   if (agentSourceStatus) projected.agentSourceStatus = agentSourceStatus;
   const remoteVerification = publicRemoteVerification(source.remoteVerification);
   if (remoteVerification) projected.remoteVerification = remoteVerification;
-  if (Array.isArray(source.schedulerJobs)) {
-    projected.schedulerJobs = source.schedulerJobs.map(normalizeHermesCronResponseJob);
-  }
-  if (Array.isArray(source.automationJobs)) {
-    projected.automationJobs = source.automationJobs.map(normalizeSchedulerJobProfile);
-  }
   for (const key of ['gatewayMerged', 'gatewayFallback', 'runtimeReachable']) {
     if (typeof source[key] === 'boolean') projected[key] = source[key];
   }
@@ -1538,6 +1694,22 @@ function projectPublicRelayHealth(health = {}, snapshot = {}) {
       ageMs: Math.max(0, Number(snapshot.ageMs) || 0),
       ttlMs: Math.max(0, Number(snapshot.ttlMs) || 0),
     },
+  };
+}
+
+function projectPublicRuntimeHealth(health = {}) {
+  const source = health && typeof health === 'object' && !Array.isArray(health) ? health : {};
+  const status = publicEnumValue(
+    source.status || source.state,
+    new Set(['degraded', 'error', 'healthy', 'offline', 'ok', 'ready', 'unavailable', 'unknown']),
+  );
+  return {
+    ok: source.ok !== false,
+    ...(typeof source.ready === 'boolean' ? { ready: source.ready } : {}),
+    ...(status ? { status } : {}),
+    ...(source.uptimeMs !== undefined ? { uptimeMs: Math.max(0, Number(source.uptimeMs) || 0) } : {}),
+    gatewayFallback: false,
+    runtimeReachable: true,
   };
 }
 
@@ -3723,7 +3895,8 @@ async function fallbackState(res, gatewayState, env = process.env, gatewayStore 
         publicBaseUrl: gatewayPublicBaseUrl(env),
         authEnabled: Boolean(env.HERMES_RUNTIME_TOKEN),
       },
-      wikiRoot: env.HERMES_WIKI_ROOT || '/Users/goyunseo/Library/Mobile Documents/com~apple~CloudDocs/LLM-Wiki',
+      wikiConfigured: Boolean(env.HERMES_WIKI_ROOT),
+      wikiRoot: '',
     },
     gatewayFallback: true,
   });
@@ -3942,7 +4115,8 @@ function fallbackSettings(res, env = process.env) {
     },
     auth: { enabled: Boolean(env.HERMES_RUNTIME_TOKEN), accessToken: env.HERMES_RUNTIME_TOKEN ? '••••' : '' },
     autopilot: { enabled: false, intervalMs: 60000 },
-    wikiRoot: env.HERMES_WIKI_ROOT || '/Users/goyunseo/Library/Mobile Documents/com~apple~CloudDocs/LLM-Wiki',
+    wikiConfigured: Boolean(env.HERMES_WIKI_ROOT),
+    wikiRoot: '',
   };
   sendJson(res, 200, {
     ...settings,
@@ -5165,7 +5339,7 @@ function fallbackTasksList({ res, query = {}, gatewayState, gatewayStore = null 
       status: query.status || '',
       date: query.date || '',
     };
-    const tasks = gatewayStore.searchTasks(query.query || '', filters);
+    const tasks = publicTaskRecords(gatewayStore.searchTasks(query.query || '', filters));
     sendJson(res, 200, { ok: true, tasks, gatewayFallback: true });
     return;
   }
@@ -5194,15 +5368,15 @@ function fallbackTasksList({ res, query = {}, gatewayState, gatewayStore = null 
   });
   sendJson(res, 200, {
     ok: true,
-    tasks,
+    tasks: publicTaskRecords(tasks),
     gatewayFallback: true,
   });
 }
 
 function fallbackTaskCreate({ res, body = {}, gatewayState, gatewayStore = null }) {
   if (gatewayStore) {
-    const task = gatewayStore.createTask({ ...body, source: body.source || 'railway-gateway' });
-    const tasks = gatewayStore.searchTasks('');
+    const task = publicTaskRecord(gatewayStore.createTask({ ...body, source: body.source || 'railway-gateway' }));
+    const tasks = publicTaskRecords(gatewayStore.searchTasks(''));
     const state = publicGatewaySnapshot(gatewayState, gatewayStore);
     sendJson(res, 200, { ok: true, data: { task, tasks, state }, task, tasks, state, gatewayFallback: true });
     return;
@@ -5230,13 +5404,13 @@ function fallbackTaskShareDraft({ res, body = {}, gatewayState, gatewayStore = n
         .some((value) => String(value || '').toLowerCase().includes(search));
     });
   const draft = buildTaskShareDraft({
-    tasks,
+    tasks: publicTaskRecords(tasks),
     channel: body.channel || 'post',
     now: new Date(),
   });
   sendJson(res, 200, {
     draft,
-    tasks,
+    tasks: publicTaskRecords(tasks),
     state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
@@ -5297,14 +5471,15 @@ function fallbackTaskMutation({ res, method, taskId, body = {}, gatewayState, ga
       });
       return;
     }
-    const task = method === 'DELETE'
+    const storedTask = method === 'DELETE'
       ? gatewayStore.deleteTask(taskId)
       : gatewayStore.updateTask(taskId, body);
-    if (!task) {
+    if (!storedTask) {
       sendJson(res, 404, { ok: false, error: 'Task not found in gateway Postgres state', gatewayFallback: true });
       return;
     }
-    const tasks = gatewayStore.searchTasks('');
+    const task = publicTaskRecord(storedTask);
+    const tasks = publicTaskRecords(gatewayStore.searchTasks(''));
     const state = publicGatewaySnapshot(gatewayState, gatewayStore);
     sendJson(res, 200, { ok: true, data: { task, tasks, state }, task, tasks, state, gatewayFallback: true });
     return;
@@ -5848,8 +6023,8 @@ function fallbackMissionSchedule({ res, body = {}, gatewayState, gatewayStore = 
   }
   const job = gatewayStore.createSchedulerJob(buildMissionSchedulePayload(body));
   sendJson(res, 200, {
-    job,
-    jobs: gatewayStore.getSchedulerJobs(),
+    job: publicSchedulerJob(job),
+    jobs: publicSchedulerJobs(gatewayStore.getSchedulerJobs()),
     state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
@@ -5862,7 +6037,7 @@ function fallbackSchedulerJobs({ res, method, body = {}, jobId = '', action = ''
       : gatewayState.schedulerJobs;
     sendJson(res, 200, {
       ok: true,
-      jobs: (Array.isArray(jobs) ? jobs : []).map(normalizeSchedulerJobProfile),
+      jobs: publicSchedulerJobs(jobs),
       gatewayFallback: true,
     });
     return;
@@ -5873,7 +6048,7 @@ function fallbackSchedulerJobs({ res, method, body = {}, jobId = '', action = ''
   }
   if (method === 'POST' && !jobId) {
     const job = gatewayStore.createSchedulerJob(body);
-    sendJson(res, 200, { job, jobs: gatewayStore.getSchedulerJobs(), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { job: publicSchedulerJob(job), jobs: publicSchedulerJobs(gatewayStore.getSchedulerJobs()), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   const jobs = gatewayStore.getSchedulerJobs();
@@ -5892,8 +6067,8 @@ function fallbackSchedulerJobs({ res, method, body = {}, jobId = '', action = ''
       createdAt: currentJob.createdAt,
     });
     sendJson(res, 200, {
-      job,
-      jobs: gatewayStore.getSchedulerJobs(),
+      job: publicSchedulerJob(job),
+      jobs: publicSchedulerJobs(gatewayStore.getSchedulerJobs()),
       state: publicGatewaySnapshot(gatewayState, gatewayStore),
       gatewayFallback: true,
     });
@@ -5901,7 +6076,7 @@ function fallbackSchedulerJobs({ res, method, body = {}, jobId = '', action = ''
   }
   if (method === 'DELETE' && !action) {
     const deleted = gatewayStore.deleteSchedulerJob(currentJob.id);
-    sendJson(res, 200, { deleted, jobs: gatewayStore.getSchedulerJobs(), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { deleted: publicSchedulerJob(deleted), jobs: publicSchedulerJobs(gatewayStore.getSchedulerJobs()), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   if (method === 'POST' && action === 'run') {
@@ -5920,7 +6095,7 @@ function fallbackSchedulerJobs({ res, method, body = {}, jobId = '', action = ''
       lastRunAt: new Date().toISOString(),
       lastRunId: savedRun.id,
     });
-    sendJson(res, 200, { run: publicRunRecord(savedRun), job: updatedJob, jobs: gatewayStore.getSchedulerJobs(), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
+    sendJson(res, 200, { run: publicRunRecord(savedRun), job: publicSchedulerJob(updatedJob), jobs: publicSchedulerJobs(gatewayStore.getSchedulerJobs()), state: publicGatewaySnapshot(gatewayState, gatewayStore), gatewayFallback: true });
     return;
   }
   sendJson(res, 405, { error: 'Unsupported scheduler fallback action', gatewayFallback: true });
@@ -5941,7 +6116,7 @@ function fallbackSchedulerTick({ res, gatewayState, gatewayStore = null }) {
     checkedAt,
     daemon,
     createdRuns: [],
-    jobs: gatewayStore.getSchedulerJobs(),
+    jobs: publicSchedulerJobs(gatewayStore.getSchedulerJobs()),
     state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
   });
@@ -6278,7 +6453,7 @@ async function fallbackChatStream({ res, body, env, fetchImpl, gatewayState, gat
     sendSseStream(res, buildHermesChatStreamEvents({
       message: command.message,
       command,
-      run,
+      run: publicRunRecord(run),
       state: publicGatewaySnapshot(gatewayState, gatewayStore),
     }));
     return;
@@ -6307,7 +6482,7 @@ async function fallbackChatStream({ res, body, env, fetchImpl, gatewayState, gat
   sendSseStream(res, buildHermesChatStreamEvents({
     message: command.message,
     command,
-    run,
+    run: publicRunRecord(run),
     state: publicGatewaySnapshot(gatewayState, gatewayStore),
   }));
 }
@@ -6531,16 +6706,24 @@ async function handleApi(
     });
     if (relayResponse && !(settingsRuntimeRequest && relayResponse.status >= 400)) {
       const body = relayResponse.body || {};
-      let responseBody = body && typeof body === 'object' && !Array.isArray(body) && body.state
+      let responseBody = shouldProjectGatewayResponseBody(body)
         ? mergeGatewayResponseBody(body, gatewayState, env, gatewayStore)
         : body;
-      if (schedulerTranslation?.kind === 'cron-create') {
-        const cronJob = body.job || (body.id || body.name ? body : null);
-        if (cronJob) responseBody = { ok: body.ok !== false, ...body, job: normalizeHermesCronResponseJob(cronJob) };
-      }
-      if (schedulerTranslation?.kind?.startsWith('cron-') && schedulerTranslation.kind !== 'cron-create') {
+      if (schedulerTranslation) {
         const cronJob = body.job || body.updated || body.deleted || (body.id || body.name ? body : null);
-        if (cronJob) responseBody = { ok: body.ok !== false, ...body, job: normalizeHermesCronResponseJob(cronJob) };
+        const job = cronJob ? publicSchedulerJob(normalizeHermesCronResponseJob(cronJob)) : null;
+        const jobs = Array.isArray(body.jobs)
+          ? body.jobs.map(normalizeHermesCronResponseJob).map(publicSchedulerJob).filter(Boolean)
+          : null;
+        const error = publicDisplayText(body.error, '');
+        const message = publicDisplayText(body.message, '');
+        responseBody = {
+          ok: body.ok !== false,
+          ...(job ? { job } : {}),
+          ...(jobs ? { jobs } : {}),
+          ...(error ? { error } : {}),
+          ...(message ? { message } : {}),
+        };
       }
       if (agentProfileCreateRequest) {
         const profileCreateOk = relayResponse.status < 400 && body.ok !== false;
@@ -6865,15 +7048,7 @@ async function handleApi(
       fallbackHealth(res, runtimeResponse, env, new Error(`Invalid Mac mini health JSON: ${error.message}`));
       return;
     }
-    sendJson(res, runtimeResponse.status, {
-      ...body,
-      gatewayFallback: false,
-      runtimeReachable: true,
-      gateway: redactGatewayConfig({
-        runtimeUrl: env.HERMES_RUNTIME_URL,
-        runtimeToken: env.HERMES_RUNTIME_TOKEN,
-      }),
-    });
+    sendJson(res, runtimeResponse.status, projectPublicRuntimeHealth(body));
     return;
   }
   if (method === 'GET' && pathSegments[0] === 'health' && runtimeResponse.status >= 500) {
@@ -7410,7 +7585,7 @@ async function handleApi(
     const state = mergeGatewayLiveState(runtimeState, gatewayState, env, gatewayStore);
     sendJson(res, runtimeResponse.status, {
       ok: body.ok !== false,
-      tasks: gatewayTasksFromState(state),
+      tasks: publicTaskRecords(gatewayTasksFromState(state)),
       gatewayMerged: true,
       gatewayFallback: body.gatewayFallback === true,
     });
@@ -7518,7 +7693,7 @@ async function handleApi(
             ? state[compactGetCollections]
             : [];
       const responseCollection = pathSegments[0] === 'scheduler'
-        ? collection.map(normalizeHermesCronResponseJob)
+        ? collection.map(normalizeHermesCronResponseJob).map(publicSchedulerJob).filter(Boolean)
         : collection;
       sendJson(res, runtimeResponse.status, {
         ok: body.ok !== false,
@@ -7527,22 +7702,7 @@ async function handleApi(
       });
       return;
     }
-    const wrappedData = body.data && typeof body.data === 'object' && !Array.isArray(body.data)
-      ? body.data
-      : {};
-    const shouldMergeGatewayBody = body
-      && typeof body === 'object'
-      && !Array.isArray(body)
-      && (
-        (body.state && typeof body.state === 'object' && !Array.isArray(body.state))
-        || Array.isArray(body.agents)
-        || (body.agentSourceStatus && typeof body.agentSourceStatus === 'object' && !Array.isArray(body.agentSourceStatus))
-        || (body.remoteVerification && typeof body.remoteVerification === 'object' && !Array.isArray(body.remoteVerification))
-        || Array.isArray(wrappedData.agents)
-        || (wrappedData.state && typeof wrappedData.state === 'object' && !Array.isArray(wrappedData.state))
-        || (wrappedData.agentSourceStatus && typeof wrappedData.agentSourceStatus === 'object' && !Array.isArray(wrappedData.agentSourceStatus))
-        || (wrappedData.remoteVerification && typeof wrappedData.remoteVerification === 'object' && !Array.isArray(wrappedData.remoteVerification))
-      );
+    const shouldMergeGatewayBody = shouldProjectGatewayResponseBody(body);
     if (shouldMergeGatewayBody) {
       await ensureGatewayTickTickSnapshot({ gatewayState, gatewayStore, env, fetchImpl });
       sendJson(res, runtimeResponse.status, mergeGatewayResponseBody(body, gatewayState, env, gatewayStore));

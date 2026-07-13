@@ -101,6 +101,8 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - [x] public `runs`, `run`, `data.run`을 전용 allowlist projector로 제한한다.
 - [x] 정상 길이 JWT와 public health Relay provenance를 정제한다.
 - [x] first-party capability source와 `skill` taxonomy를 손실 없이 보존한다.
+- [x] 라이브 Hermes 프로필 목록을 에이전트 source of truth로 삼고 삭제된 저장 프로필을 복원하지 않는다.
+- [x] direct health/log, fallback SSE/task/scheduler 응답을 public projection으로 제한한다.
 - [ ] 위 후속 회귀를 RED/GREEN으로 검증하고 전체 review-work gate를 다시 통과한다.
 
 ## Rollback / fallback
@@ -119,11 +121,11 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 ## Verification results
 
 - `npm run backend:check`: passed.
-- `npm run test:backend`: 126/126 passed.
+- `npm run test:backend`: 129/129 passed.
 - `npm --workspace apps/desktop run typecheck`: passed.
 - `npm --workspace apps/desktop run test`: 75/75 passed.
 - `npm run build:desktop`: passed.
-- `npm test`: backend 126/126, desktop 75/75 passed.
+- `npm test`: backend 129/129, desktop 75/75 passed.
 - Agent create/mission/approval/artifact, wiki graph/ask/search/tree, calendar CRUD Playwright scenarios: passed.
 - Live gateway QA: unauthenticated caller 401, authenticated offline agents `Unavailable`, offline run 503.
 - Post-push regression QA: task detail format/comment/delegate controls restored; chat, full-page login, and authenticated widget fixtures aligned with the shipped contracts.
@@ -136,3 +138,5 @@ Large / Boundary. Backend gateway, Electron local services, React desktop, persi
 - Diagnostic envelope QA: data-state-only run responses were projected, and caller-visible source/verification diagnostics excluded raw token, path, and command fields.
 - Public agent metadata QA: the official profile id/profile key stayed fixed while rich nested display name, description, Ready status, and skills survived projection.
 - Agent profile Playwright: navigated from the Agent Operations `Missions` default tab to `Agents`, rendered `준비됨`, and hid removed `marketflow` readiness.
+- Live browser QA: Railway 재시도 후 연결 상태, 5개 현재 Hermes 프로필, 주간 미션 작업 3개, 보고서, Task Session 진행 로그와 캘린더 작업을 확인했다.
+- Hostile HTTP QA: direct health/log와 fallback task/scheduler/SSE 응답에서 안전한 상태·로그는 유지되고 토큰·명령·절대경로·임의 내부 필드는 제거됐다.

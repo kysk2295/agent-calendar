@@ -275,7 +275,7 @@ test('projects Relay snapshots to official profiles and safe public capability m
         model: 'Hermes',
         status: 'completed',
         progress: 100,
-        logs: ['Bearer relay-run-token', '/Users/koyunseo/private-run', 'hermes --yolo'],
+        logs: ['runner completed', 'Bearer relay-run-token', '/Users/koyunseo/private-run', 'hermes --yolo'],
         output: 'hf_1234567890abcdefghijklmnop',
         runtimeBinding: { commandTemplate: 'hermes --yolo' },
       }],
@@ -311,19 +311,21 @@ test('projects Relay snapshots to official profiles and safe public capability m
 
     // When
     const callerHeaders = { authorization: 'Bearer client-token' };
-    const [agentsResponse, toolsResponse, stateResponse, snapshotResponse, healthResponse] = await Promise.all([
+    const [agentsResponse, toolsResponse, stateResponse, snapshotResponse, healthResponse, runLogsResponse] = await Promise.all([
       fetch(`${baseUrl}/api/agents`, { headers: callerHeaders }),
       fetch(`${baseUrl}/api/tools`, { headers: callerHeaders }),
       fetch(`${baseUrl}/api/state`, { headers: callerHeaders }),
       fetch(`${baseUrl}/api/relay/snapshot`, { headers: callerHeaders }),
       fetch(`${baseUrl}/api/health`, { headers: callerHeaders }),
+      fetch(`${baseUrl}/api/runs/relay-run/logs`, { headers: callerHeaders }),
     ]);
-    const [agents, tools, state, snapshot, health] = await Promise.all([
+    const [agents, tools, state, snapshot, health, runLogs] = await Promise.all([
       agentsResponse.json(),
       toolsResponse.json(),
       stateResponse.json(),
       snapshotResponse.json(),
       healthResponse.json(),
+      runLogsResponse.json(),
     ]);
 
     // Then
@@ -348,7 +350,8 @@ test('projects Relay snapshots to official profiles and safe public capability m
     assert.equal(snapshot.skills.length, 1);
     assert.equal(state.runs[0].id, 'relay-run');
     assert.equal(state.runs[0].name, 'Relay research run');
-    assert.equal(Object.hasOwn(state.runs[0], 'logs'), false);
+    assert.deepEqual(state.runs[0].logs, ['runner completed']);
+    assert.deepEqual(runLogs.logs, ['runner completed']);
     assert.equal(health.relaySnapshot.source, 'unknown');
     assert.equal(Object.hasOwn(health, 'debugSecret'), false);
     for (const readiness of [agents.profileReadiness, state.profileReadiness, snapshot.profileReadiness]) {
@@ -597,7 +600,7 @@ test('projects direct runtime agent and tool reads through the same public polic
       skills: [{ id: 'research', name: 'Research', description: 'Full nested skill' }],
     },
   ];
-  const unsafeTools = [{ id: 'browser', name: 'Browser', description: 'Full nested tool', command: 'super-secret-command', raw: { token: 'super-secret' } }];
+  const unsafeTools = [{ id: 'browser', name: 'Browser', description: 'Full nested tool', status: 'draft', command: 'super-secret-command', raw: { token: 'super-secret' } }];
   const unsafeSkills = [{ id: 'research', name: 'Research', description: 'Full nested skill', sourcePath: '/Users/koyunseo/private-skill' }];
   const unsafeRuns = [{
     id: 'run-sensitive',
@@ -609,7 +612,7 @@ test('projects direct runtime agent and tool reads through the same public polic
     progress: 100,
     createdAt: '2026-07-13T00:00:00.000Z',
     documentId: 'document-safe',
-    logs: ['Bearer direct-run-token', '/Users/koyunseo/private-run', 'hermes --danger'],
+    logs: ['runner completed', 'Bearer direct-run-token', '/Users/koyunseo/private-run', 'hermes --danger'],
     output: 'AIza1234567890abcdefghijklmnop',
     privatePath: '/Users/koyunseo/private-run',
     runtimeBinding: { commandTemplate: 'hermes --danger' },
@@ -632,8 +635,30 @@ test('projects direct runtime agent and tool reads through the same public polic
     fetchImpl: async (input) => {
       const runtimeUrl = new URL(String(input));
       const { pathname } = runtimeUrl;
-      const payload = pathname === '/api/agents/bizconsultant/metrics'
+      const payload = pathname === '/api/health'
+        ? {
+          ok: true,
+          ready: true,
+          status: 'healthy',
+          uptimeMs: 1234,
+          debugSecret: 'super-secret-health',
+          privatePath: '/Users/koyunseo/private-health',
+          rawCommand: 'hermes --danger',
+        }
+        : pathname === '/api/agents/bizconsultant/metrics'
         ? { ok: true, metrics: { completed: 3 } }
+        : pathname === '/api/runs/run-logs/logs'
+          ? {
+            ok: true,
+            debugSecret: 'top-level-run-secret',
+            privatePath: '/Users/koyunseo/private-run-envelope',
+            run: { ...unsafeRuns[0], id: 'run-logs', status: 'streaming' },
+            logs: unsafeRuns[0].logs,
+            data: {
+              debugSecret: 'nested-run-secret',
+              logs: unsafeRuns[0].logs,
+            },
+          }
         : pathname === '/api/runs/run-data-state'
           ? {
             ok: true,
@@ -778,17 +803,19 @@ test('projects direct runtime agent and tool reads through the same public polic
   try {
     // When
     const headers = { authorization: 'Bearer client-token' };
-    const [agents, agentDetail, agentMetrics, runDetail, dataOnlyRun, tools, state, dataState, nestedDataState, siblingState] = await Promise.all([
+    const [agents, agentDetail, agentMetrics, runDetail, runLogs, dataOnlyRun, tools, state, dataState, nestedDataState, siblingState, health] = await Promise.all([
       fetch(`${baseUrl}/api/agents`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/agents/bizconsultant`, { headers }).then(async (response) => ({ status: response.status, body: await response.json() })),
       fetch(`${baseUrl}/api/agents/bizconsultant/metrics`, { headers }).then(async (response) => ({ status: response.status, body: await response.json() })),
       fetch(`${baseUrl}/api/runs/run-1`, { headers }).then((response) => response.json()),
+      fetch(`${baseUrl}/api/runs/run-logs/logs`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/runs/run-data-state`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/tools`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/state`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/state?shape=data`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/state?shape=data-state`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/state?shape=sibling-state`, { headers }).then((response) => response.json()),
+      fetch(`${baseUrl}/api/health`, { headers }).then((response) => response.json()),
     ]);
 
     // Then
@@ -808,13 +835,16 @@ test('projects direct runtime agent and tool reads through the same public polic
     assert.equal(runDetail.run.id, 'run-1');
     assert.equal(runDetail.run.name, 'Safe public run');
     assert.equal(runDetail.data.run.id, 'run-1');
-    assert.equal(Object.hasOwn(runDetail.run, 'logs'), false);
+    assert.deepEqual(runDetail.run.logs, ['runner completed']);
     assert.equal(Object.hasOwn(runDetail.data.run, 'runtimeBinding'), false);
+    assert.equal(runLogs.run.status, 'streaming');
+    assert.deepEqual(runLogs.logs, ['runner completed']);
     assert.deepEqual(tools.toolsets, ['safe']);
     assert.deepEqual(tools.mcpServers, []);
     assert.equal(tools.tools.length, 1);
     assert.equal(tools.tools[0].id, 'browser');
     assert.equal(tools.tools[0].description, 'Full nested tool');
+    assert.equal(tools.tools[0].status, 'draft');
     assert.equal(tools.skills[0].description, 'Full nested skill');
     assert.ok(runDetail.data.state.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
     assert.deepEqual(runDetail.data.state.toolsets, ['safe']);
@@ -854,12 +884,16 @@ test('projects direct runtime agent and tool reads through the same public polic
       assert.deepEqual(publicState.sessions, storedState.sessions);
       assert.deepEqual(publicState.commandInboxArchivedIds, storedState.commandInboxArchivedIds);
       assert.equal(publicState.runs[0].id, 'run-sensitive');
-      assert.equal(Object.hasOwn(publicState.runs[0], 'logs'), false);
+      assert.deepEqual(publicState.runs[0].logs, ['runner completed']);
     }
+    assert.deepEqual(
+      Object.keys(health).sort(),
+      ['gatewayFallback', 'ok', 'ready', 'runtimeReachable', 'status', 'uptimeMs'],
+    );
     assert.doesNotMatch(JSON.stringify({ agents, agentDetail, runDetail, dataOnlyRun, state, dataState, nestedDataState, siblingState }), /commandTemplate/);
     assert.doesNotMatch(
-      JSON.stringify({ agents, agentDetail, runDetail, dataOnlyRun, tools, state, dataState, nestedDataState, siblingState }),
-      /marketflow|--yolo|--danger|shell-server|super-secret|direct-run-token|nested-step-token|AIza1234567890|\/Users\/koyunseo/,
+      JSON.stringify({ agents, agentDetail, runDetail, runLogs, dataOnlyRun, tools, state, dataState, nestedDataState, siblingState, health }),
+      /marketflow|--yolo|--danger|shell-server|super-secret|run-secret|direct-run-token|nested-step-token|AIza1234567890|\/Users\/koyunseo/,
     );
   } finally {
     await close(server);
@@ -873,9 +907,9 @@ test('projects fallback run state detail and logs through the public run policy'
     name: 'Fallback run',
     goal: 'Safe fallback goal',
     agent: 'bizconsultant',
-    status: 'completed',
+    status: 'gateway-fallback',
     documentId: 'fallback-document',
-    logs: ['Bearer fallback-run-token', '/Users/koyunseo/private-fallback', 'hermes --danger'],
+    logs: ['fallback saved', 'Bearer fallback-run-token', '/Users/koyunseo/private-fallback', 'hermes --danger'],
     output: 'hf_1234567890abcdefghijklmnop',
     runtimeBinding: { commandTemplate: 'hermes --danger' },
   };
@@ -900,8 +934,10 @@ test('projects fallback run state detail and logs through the public run policy'
 
     // Then
     assert.equal(state.runs[0].id, 'fallback-run');
+    assert.equal(state.runs[0].status, 'gateway-fallback');
     assert.equal(detail.run.id, 'fallback-run');
     assert.equal(detail.run.documentId, 'fallback-document');
+    assert.deepEqual(logs.logs, ['fallback saved']);
     assert.doesNotMatch(
       JSON.stringify({ state, detail, logs }),
       /fallback-run-token|\/Users\/koyunseo|--danger|hf_1234567890|commandTemplate/,
@@ -1363,6 +1399,108 @@ test('routes Hermes chat through a profile mission without inventing an API serv
   }
 });
 
+test('projects fallback chat stream runs before sending SSE events', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-chat-projection-'));
+  const server = createRailwayGatewayServer({
+    env: {},
+    gatewayStore: new HermesStore({ dataDir }),
+    fetchImpl: async () => {
+      throw new Error('runtime offline');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: 'Summarize the approved research',
+        agentId: 'bizconsultant',
+        view: 'agent-operations',
+      }),
+    });
+    const body = await response.text();
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.match(body, /"status":"gateway-fallback"/);
+    assert.match(body, /gateway fallback run created/);
+    assert.doesNotMatch(body, /recoveryCommand=|residentInstallCommand|\/Users\/|commandTemplate|--[a-z]/i);
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('projects fallback task and scheduler mutations through public records', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-record-projection-'));
+  const server = createRailwayGatewayServer({
+    env: {},
+    gatewayStore: new HermesStore({ dataDir }),
+    fetchImpl: async () => {
+      throw new Error('runtime offline');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const createdTaskResponse = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Public task',
+        notes: 'Visible note',
+        runFile: '/Users/koyunseo/private-task.md',
+        secret: 'super-secret-task',
+      }),
+    });
+    const createdTask = await createdTaskResponse.json();
+    const patchedTask = await fetch(`${baseUrl}/api/tasks/${createdTask.task.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Updated public task',
+        runFile: '/Users/koyunseo/private-task-updated.md',
+      }),
+    }).then((response) => response.json());
+    const createdJob = await fetch(`${baseUrl}/api/scheduler/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Public schedule', goal: 'Visible scheduled work', agent: 'bizconsultant' }),
+    }).then((response) => response.json());
+    const patchedJob = await fetch(`${baseUrl}/api/scheduler/jobs/${createdJob.job.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        status: 'draft',
+        secret: 'super-secret-job',
+        profileRoot: '/Users/koyunseo/private-profile',
+        raw: { command: 'hermes --danger' },
+      }),
+    }).then((response) => response.json());
+    const listedJobs = await fetch(`${baseUrl}/api/scheduler/jobs`).then((response) => response.json());
+
+    // Then
+    assert.equal(createdTask.task.title, 'Public task');
+    assert.equal(createdTask.task.notes, 'Visible note');
+    assert.equal(patchedTask.task.title, 'Updated public task');
+    assert.equal(patchedJob.job.status, 'draft');
+    assert.equal(listedJobs.jobs[0].status, 'draft');
+    assert.doesNotMatch(
+      JSON.stringify({ createdTask, patchedTask, createdJob, patchedJob, listedJobs }),
+      /super-secret|\/Users\/koyunseo|profileRoot|"raw"|--danger|runFile/,
+    );
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('returns an explicit pending profileRequest when offline profile creation is accepted', async () => {
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-profile-pending-'));
@@ -1426,7 +1564,7 @@ test('persists an accepted profileRequest across a local store restart', async (
 
 test('falls back to public desktop settings when the runtime rejects settings access', async () => {
   const server = createRailwayGatewayServer({
-    env: {},
+    env: { HERMES_WIKI_ROOT: '/Users/koyunseo/private-wiki' },
     fetchImpl: async () => new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,
       headers: { 'content-type': 'application/json' },
@@ -1435,12 +1573,20 @@ test('falls back to public desktop settings when the runtime rejects settings ac
   const baseUrl = await listen(server);
 
   try {
-    const response = await fetch(`${baseUrl}/api/settings`);
-    const body = await response.json();
+    const [response, stateResponse] = await Promise.all([
+      fetch(`${baseUrl}/api/settings`),
+      fetch(`${baseUrl}/api/state`),
+    ]);
+    const [body, state] = await Promise.all([response.json(), stateResponse.json()]);
 
     assert.equal(response.status, 200);
     assert.equal(body.gatewayFallback, true);
     assert.ok(body.settings);
+    assert.equal(body.settings.wikiConfigured, true);
+    assert.equal(body.settings.wikiRoot, '');
+    assert.equal(state.systemConnections.wikiConfigured, true);
+    assert.equal(state.systemConnections.wikiRoot, '');
+    assert.doesNotMatch(JSON.stringify({ body, state }), /\/Users\/koyunseo\/private-wiki/);
   } finally {
     await close(server);
   }
