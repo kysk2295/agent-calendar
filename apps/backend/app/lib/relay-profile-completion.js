@@ -1,13 +1,13 @@
 const { sanitizeSessionEvent } = require('./agent-operations-domain');
 const { relayEnabled } = require('./railway-relay');
-
-function profileCompletionError(code, message, jobId = '', runId = '') {
-  const error = new Error(message);
-  error.code = code;
-  error.jobId = jobId;
-  error.runId = runId;
-  return error;
-}
+const {
+  isTerminalRunStatus,
+  profileCompletionError,
+  requestRelayRunStop,
+  runFromSnapshot,
+  runFromSnapshotByIdempotencyKey,
+  waitForRelayRun,
+} = require('./relay-run-lifecycle');
 
 function agentOperationsProfileTimeout(env = process.env) {
   const configured = Number(env.AGENT_OPERATIONS_PROFILE_TIMEOUT_MS || 360_000);
@@ -27,17 +27,6 @@ function profileGoal(payload = {}) {
     `<task_data>\n${transcript}\n</task_data>`,
     'Write only the final requested output to stdout. Preserve JSON exactly when JSON is requested.',
   ].filter(Boolean).join('\n\n');
-}
-
-function runFromRuntimeBody(body = {}) {
-  return body.run || body.data?.run || (body.id ? body : null);
-}
-
-function runFromSnapshot(snapshot, runId) {
-  const runs = Array.isArray(snapshot?.state?.runs)
-    ? snapshot.state.runs
-    : (Array.isArray(snapshot?.runs) ? snapshot.runs : []);
-  return runs.find((run) => run.id === runId) || null;
 }
 
 function runOutput(run = {}) {
@@ -75,65 +64,6 @@ function sessionEventFromRunLog(line) {
   });
 }
 
-async function waitForRelayRun({ relay, job, deadline, now }) {
-  let cursor = 0;
-  let lastError = '';
-  while (now() < deadline) {
-    const batch = await relay.waitForEvents(
-      job.id,
-      cursor,
-      Math.min(5_000, Math.max(1, deadline - now())),
-    );
-    cursor = batch.cursor || cursor;
-    for (const record of batch.events || []) {
-      if (record.event === 'error') lastError = String(record.data?.error || 'Hermes profile launch failed');
-      if (record.event === 'bridge-complete') {
-        const run = runFromRuntimeBody(record.data?.body || {});
-        if (run) return run;
-      }
-    }
-    if (batch.complete) break;
-  }
-  throw profileCompletionError(
-    lastError ? 'relay_failed' : 'relay_timeout',
-    lastError || 'Mac mini Hermes profile launch timed out',
-    job.id,
-  );
-}
-
-async function requestRelayRunStop({ relay, runId, now }) {
-  if (!runId) return false;
-  const job = relay.enqueue({
-    kind: 'runtime.request',
-    payload: {
-      method: 'POST',
-      path: `/api/runs/${encodeURIComponent(runId)}/stop`,
-      query: {},
-      body: '{}',
-    },
-    meta: { source: 'agent-operations-timeout-cancel', runId },
-  });
-  const deadline = now() + 30_000;
-  let cursor = 0;
-  while (now() < deadline) {
-    const batch = await relay.waitForEvents(
-      job.id,
-      cursor,
-      Math.min(5_000, Math.max(1, deadline - now())),
-    );
-    cursor = batch.cursor || cursor;
-    for (const record of batch.events || []) {
-      if (record.event !== 'bridge-complete') continue;
-      if (record.data?.ok === false || record.data?.body?.ok === false) return false;
-      const run = runFromRuntimeBody(record.data?.body || {});
-      const status = String(run?.status || '').toLowerCase();
-      if (['done', 'completed', 'failed', 'cancelled', 'stopped'].includes(status)) return true;
-    }
-    if (batch.complete) return false;
-  }
-  return false;
-}
-
 async function runRelayProfileCompletion({
   relay,
   env = process.env,
@@ -152,7 +82,9 @@ async function runRelayProfileCompletion({
   const durationMs = Math.max(1_000, Number(timeoutMs || agentOperationsProfileTimeout(env)));
   const deadline = now() + durationMs;
   const model = String(payload.model || '').trim();
-  const idempotencyKey = String(meta.idempotencyKey || meta.taskId || meta.missionId || '').trim();
+  const idempotencyKey = String(
+    meta.idempotencyKey || meta.taskId || meta.missionId || meta.runId || '',
+  ).trim();
   const job = relay.enqueue({
     kind: 'runtime.request',
     payload: {
@@ -178,7 +110,45 @@ async function runRelayProfileCompletion({
       ...meta,
     },
   });
-  let run = await waitForRelayRun({ relay, job, deadline, now });
+  let run;
+  try {
+    run = await waitForRelayRun({ relay, job, deadline, now });
+  } catch (error) {
+    if (error?.code !== 'relay_timeout') throw error;
+    const recoveredRun = runFromSnapshotByIdempotencyKey(
+      relay.snapshot({ env, allowStale: true }),
+      idempotencyKey,
+    );
+    if (!recoveredRun?.id) {
+      throw profileCompletionError(
+        'relay_cancel_unconfirmed',
+        'Mac mini Hermes profile launch timed out and remote cancellation was not confirmed',
+        job.id,
+      );
+    }
+    const recoveredStatus = String(recoveredRun.status || '').toLowerCase();
+    if (isTerminalRunStatus(recoveredStatus)) {
+      run = recoveredRun;
+    } else {
+      const cancellationConfirmed = await requestRelayRunStop({
+        relay,
+        env,
+        runId: recoveredRun.id,
+        now,
+        sleep,
+        pollIntervalMs,
+      }).catch(() => false);
+      if (!cancellationConfirmed) {
+        throw profileCompletionError(
+          'relay_cancel_unconfirmed',
+          'Mac mini Hermes profile launch timed out and remote cancellation was not confirmed',
+          job.id,
+          recoveredRun.id,
+        );
+      }
+      throw profileCompletionError('relay_timeout', error.message, job.id, recoveredRun.id);
+    }
+  }
   let emittedLogs = 0;
   const events = [];
 
@@ -190,7 +160,7 @@ async function runRelayProfileCompletion({
       await onEvent(event);
     }
     emittedLogs = logs.length;
-    if (['done', 'completed', 'failed', 'cancelled'].includes(String(run.status || '').toLowerCase())) break;
+    if (isTerminalRunStatus(run.status)) break;
     await sleep(Math.max(1, pollIntervalMs));
     const latest = runFromSnapshot(relay.snapshot({ env, allowStale: true }), run.id);
     if (latest) run = latest;
@@ -200,7 +170,14 @@ async function runRelayProfileCompletion({
   if (!['done', 'completed'].includes(status)) {
     let cancellationConfirmed = true;
     if (!['failed', 'cancelled', 'stopped'].includes(status)) {
-      cancellationConfirmed = await requestRelayRunStop({ relay, runId: run.id, now }).catch(() => false);
+      cancellationConfirmed = await requestRelayRunStop({
+        relay,
+        env,
+        runId: run.id,
+        now,
+        sleep,
+        pollIntervalMs,
+      }).catch(() => false);
     }
     if (!cancellationConfirmed) {
       throw profileCompletionError(

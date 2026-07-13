@@ -848,7 +848,8 @@ class HermesStore {
       sourceDocumentPath: input.sourceDocumentPath || '',
       toolId: input.toolId ? String(input.toolId) : '',
       sourceTool: input.sourceTool || null,
-      noApproval: input.noApproval !== false,
+      idempotencyKey: input.idempotencyKey ? String(input.idempotencyKey) : '',
+      noApproval: false,
       autonomy: input.autonomy ? String(input.autonomy) : '',
       rubric: input.rubric ? String(input.rubric) : '',
       delegation: input.delegation && typeof input.delegation === 'object'
@@ -1077,6 +1078,12 @@ class HermesStore {
     task.updatedAt = this.clock().toISOString();
     this.#touchAndSave(state);
     return task;
+  }
+
+  claimAgentTask(taskId, patch = {}) {
+    const task = this.getState().tasks.find((item) => item.id === taskId);
+    if (!task || task.status !== 'scheduled') return null;
+    return this.updateTask(taskId, { ...patch, status: 'running' });
   }
 
   deleteTask(taskId) {

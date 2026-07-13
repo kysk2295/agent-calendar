@@ -447,6 +447,60 @@ test('keeps the newest task session link when Postgres upserts finish out of ord
   await rm(dataDir, { recursive: true, force: true });
 });
 
+test('Postgres allows only one process to claim a scheduled Agent Task', async () => {
+  // Given
+  let databaseStatus = 'scheduled';
+  let taskUpserts = 0;
+  let markUpsertsReady;
+  const upsertsReady = new Promise((resolve) => { markUpsertsReady = resolve; });
+  const pool = {
+    query: async (sql, values = []) => {
+      const statement = String(sql);
+      if (/insert into tasks/i.test(statement)) {
+        databaseStatus = String(values[2]);
+        taskUpserts += 1;
+        if (taskUpserts === 2) markUpsertsReady();
+        return { rows: [] };
+      }
+      if (/update tasks[\s\S]*where id = \$1 and status = 'scheduled'/i.test(statement)) {
+        if (databaseStatus !== 'scheduled') return { rows: [] };
+        databaseStatus = String(values[1]);
+        return { rows: [{ id: values[0] }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const firstDir = await mkdtemp(path.join(os.tmpdir(), 'agent-claim-first-'));
+  const secondDir = await mkdtemp(path.join(os.tmpdir(), 'agent-claim-second-'));
+  const first = new PostgresHermesStore({ pool, dataDir: firstDir, clock, autoMigrate: false });
+  const second = new PostgresHermesStore({ pool, dataDir: secondDir, clock, autoMigrate: false });
+  await Promise.all([first.ready, second.ready]);
+  const taskInput = {
+    id: 'task-atomic-claim',
+    title: '원자적 선점',
+    status: 'scheduled',
+    origin: 'agent',
+  };
+  first.createTask(taskInput);
+  second.createTask(taskInput);
+  await upsertsReady;
+
+  // When
+  const claims = await Promise.all([
+    first.claimAgentTask(taskInput.id, { startedAt: FIXED_NOW, attempt: 1 }),
+    second.claimAgentTask(taskInput.id, { startedAt: FIXED_NOW, attempt: 1 }),
+  ]);
+
+  // Then
+  assert.equal(claims.filter(Boolean).length, 1);
+  assert.equal(databaseStatus, 'running');
+
+  await Promise.all([
+    rm(firstDir, { recursive: true, force: true }),
+    rm(secondDir, { recursive: true, force: true }),
+  ]);
+});
+
 test('serializes a task delete after an in-flight Postgres upsert', async () => {
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-postgres-delete-'));
@@ -733,6 +787,150 @@ test('profile timeout blocks retries when remote cancellation is not confirmed',
   assert.equal(JSON.parse(jobs[0].payload.body).idempotencyKey, 'task-idempotent');
 });
 
+test('profile launch timeout recovers the remote run by idempotency key before cancellation', async () => {
+  // Given
+  const { runRelayProfileCompletion } = require('../app/lib/relay-profile-completion');
+  const jobs = [];
+  const relay = {
+    isBridgeOnline: () => true,
+    enqueue: (input) => {
+      const job = { ...input, id: `job-launch-timeout-${jobs.length + 1}` };
+      jobs.push(job);
+      return job;
+    },
+    waitForEvents: async (jobId) => (jobId === 'job-launch-timeout-1'
+      ? { cursor: 0, complete: true, events: [] }
+      : {
+        cursor: 1,
+        complete: true,
+        events: [{ event: 'bridge-complete', data: { ok: false, status: 409, error: 'stop rejected' } }],
+      }),
+    snapshot: () => ({
+      state: {
+        runs: [{
+          id: 'run-lost-launch-response',
+          status: 'running',
+          idempotencyKey: 'task-launch-timeout',
+          logs: [],
+        }],
+      },
+    }),
+    fail: () => {},
+  };
+
+  // When / Then
+  await assert.rejects(
+    runRelayProfileCompletion({
+      relay,
+      env: { HERMES_RELAY_TOKEN: 'relay-token' },
+      payload: { profile: 'bizconsultant', messages: [{ role: 'user', content: 'bounded task' }] },
+      meta: { idempotencyKey: 'task-launch-timeout' },
+      timeoutMs: 1_000,
+    }),
+    (error) => (
+      error.code === 'relay_cancel_unconfirmed'
+      && error.runId === 'run-lost-launch-response'
+    ),
+  );
+  assert.equal(jobs[1].payload.path, '/api/runs/run-lost-launch-response/stop');
+});
+
+test('profile launch timeout returns a completed run recovered by idempotency key', async () => {
+  // Given
+  const { runRelayProfileCompletion } = require('../app/lib/relay-profile-completion');
+  const jobs = [];
+  const relay = {
+    isBridgeOnline: () => true,
+    enqueue: (input) => {
+      const job = { ...input, id: `job-completed-recovery-${jobs.length + 1}` };
+      jobs.push(job);
+      return job;
+    },
+    waitForEvents: async () => ({ cursor: 0, complete: true, events: [] }),
+    snapshot: () => ({
+      state: {
+        runs: [{
+          id: 'run-completed-recovery',
+          status: 'completed',
+          model: 'Codex',
+          idempotencyKey: 'task-completed-recovery',
+          logs: ['stdout: recovered completion'],
+        }],
+      },
+    }),
+    fail: () => {},
+  };
+
+  // When
+  const completion = await runRelayProfileCompletion({
+    relay,
+    env: { HERMES_RELAY_TOKEN: 'relay-token' },
+    payload: { profile: 'bizconsultant', messages: [{ role: 'user', content: 'bounded task' }] },
+    meta: { idempotencyKey: 'task-completed-recovery' },
+    timeoutMs: 1_000,
+  });
+
+  // Then
+  assert.equal(completion.text, 'recovered completion');
+  assert.equal(completion.runId, 'run-completed-recovery');
+  assert.equal(jobs.length, 1);
+});
+
+test('profile timeout waits for a stopping run to become terminal', async () => {
+  // Given
+  const { runRelayProfileCompletion } = require('../app/lib/relay-profile-completion');
+  let nowMs = 0;
+  let stopRequested = false;
+  let stopSnapshots = 0;
+  const jobs = [];
+  const relay = {
+    isBridgeOnline: () => true,
+    enqueue: (input) => {
+      const job = { ...input, id: `job-stopping-${jobs.length + 1}` };
+      jobs.push(job);
+      if (input.payload.path.includes('/stop')) stopRequested = true;
+      return job;
+    },
+    waitForEvents: async (jobId) => (jobId === 'job-stopping-1'
+      ? {
+        cursor: 1,
+        complete: true,
+        events: [{ event: 'bridge-complete', data: { body: { run: { id: 'run-stopping', status: 'running', logs: [] } } } }],
+      }
+      : {
+        cursor: 1,
+        complete: true,
+        events: [{ event: 'bridge-complete', data: { body: { run: { id: 'run-stopping', status: 'stopping' } } } }],
+      }),
+    snapshot: () => {
+      if (!stopRequested) return { state: { runs: [{ id: 'run-stopping', status: 'running', logs: [] }] } };
+      stopSnapshots += 1;
+      return {
+        state: {
+          runs: [{ id: 'run-stopping', status: stopSnapshots >= 2 ? 'stopped' : 'stopping', logs: [] }],
+        },
+      };
+    },
+    fail: () => {},
+  };
+
+  // When / Then
+  await assert.rejects(
+    runRelayProfileCompletion({
+      relay,
+      env: { HERMES_RELAY_TOKEN: 'relay-token' },
+      payload: { profile: 'bizconsultant', messages: [{ role: 'user', content: 'bounded task' }] },
+      meta: { idempotencyKey: 'task-stopping' },
+      timeoutMs: 1_000,
+      pollIntervalMs: 1_000,
+      now: () => nowMs,
+      sleep: async (duration) => { nowMs += duration; },
+    }),
+    (error) => error.code === 'relay_timeout' && error.runId === 'run-stopping',
+  );
+  assert.equal(stopSnapshots >= 2, true);
+});
+
 test('built-in command and mission routes only reference live official profiles', () => {
   // Given / When
   const referenced = [
@@ -758,6 +956,7 @@ test('mission launch preserves the safe toolset deadline and approval boundary',
     yolo: false,
     timeoutMs: 360_000,
     deadlineAt,
+    idempotencyKey: 'task-mission-launch',
   });
 
   // Then
@@ -766,6 +965,7 @@ test('mission launch preserves the safe toolset deadline and approval boundary',
   assert.equal(run.noApproval, false);
   assert.equal(run.timeoutMs, 360_000);
   assert.equal(run.deadlineAt, deadlineAt);
+  assert.equal(run.idempotencyKey, 'task-mission-launch');
 
   const defaultRun = buildMissionRunPayload({
     templateId: 'product-build',
@@ -825,6 +1025,20 @@ test('legacy run payloads use official profiles and require approval', async () 
   assert.equal(setup.profile, 'default');
   assert.equal(safetySources.every((source) => !source.includes('noApproval: true')), true);
   assert.equal(safetySources.every((source) => !source.includes('marketflow')), true);
+});
+
+test('run persistence defaults to manual approval', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-run-approval-default-'));
+  const store = new HermesStore({ dataDir, clock });
+
+  // When
+  const run = store.createRun({ goal: 'Safe persisted run', agent: 'bizconsultant' });
+
+  // Then
+  assert.equal(run.noApproval, false);
+
+  await rm(dataDir, { recursive: true, force: true });
 });
 
 test('planning API creates proposed calendar work and one Task Session per task', async () => {
@@ -989,8 +1203,8 @@ test('planning retries one invalid budget proposal with the validation reason', 
   const service = new AgentOperationsService({
     store,
     clock,
-    planCompletion: async ({ payload }) => {
-      planningRequests.push(payload);
+    planCompletion: async ({ payload, meta }) => {
+      planningRequests.push({ payload, meta });
       return {
         text: JSON.stringify(planningRequests.length === 1 ? invalidPlan : createValidPlan()),
         jobId: `relay-plan-${planningRequests.length}`,
@@ -1017,8 +1231,9 @@ test('planning retries one invalid budget proposal with the validation reason', 
     assert.equal(response.status, 200);
     assert.equal(body.tasks.length, 3);
     assert.equal(planningRequests.length, 2);
-    assert.match(planningRequests[1].messages.at(-1).content, /runtime budget/i);
-    assert.match(planningRequests[1].messages.at(-1).content, /120/);
+    assert.match(planningRequests[1].payload.messages.at(-1).content, /runtime budget/i);
+    assert.match(planningRequests[1].payload.messages.at(-1).content, /120/);
+    assert.notEqual(planningRequests[0].meta.idempotencyKey, planningRequests[1].meta.idempotencyKey);
   } finally {
     await close(server);
     await rm(dataDir, { recursive: true, force: true });
@@ -1149,6 +1364,61 @@ test('scheduler serializes overlapping ticks and runs at most one due task per t
   // Then
   assert.equal(overlappingTick.skipped, true);
   assert.deepEqual(executionCalls, ['task-overlap-a', 'task-overlap-b']);
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('scheduler quarantines an orphaned task before starting the next valid task', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-orphan-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-orphan', clock }),
+    status: 'active',
+  });
+  const orphan = store.createTask({
+    id: 'task-orphan-a',
+    title: '세션 없는 작업',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    scheduledAt: '2026-07-13T08:58:00.000Z',
+    actionClass: 'research',
+  });
+  const valid = store.createTask({
+    id: 'task-orphan-b',
+    title: '정상 작업',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    scheduledAt: '2026-07-13T08:59:00.000Z',
+    actionClass: 'research',
+  });
+  store.createAgentSession({
+    id: 'session-after-orphan',
+    missionId: mission.id,
+    taskId: valid.id,
+    status: 'scheduled',
+  });
+  const executionCalls = [];
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async ({ meta }) => {
+      executionCalls.push(meta.taskId);
+      return { text: 'valid result', jobId: 'job-after-orphan' };
+    },
+  });
+
+  // When
+  const result = await scheduler.tick();
+
+  // Then
+  assert.deepEqual(result.failedTaskIds, [orphan.id]);
+  assert.deepEqual(result.startedTaskIds, [valid.id]);
+  assert.deepEqual(executionCalls, [valid.id]);
+  assert.equal(store.getState().tasks.find((task) => task.id === orphan.id).failureCode, 'task_contract_invalid');
 
   await rm(dataDir, { recursive: true, force: true });
 });
@@ -1505,6 +1775,44 @@ test('a task with unconfirmed remote cancellation cannot resume', async () => {
   );
 
   await rm(dataDir, { recursive: true, force: true });
+});
+
+test('generic task mutation cannot bypass Agent Operations cancellation state', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-task-mutation-guard-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-task-mutation-guard', clock }),
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-mutation-guard',
+    title: '취소 확인 대기',
+    status: 'blocked',
+    missionId: mission.id,
+    origin: 'agent',
+  });
+  store.updateTask(task.id, { failureCode: 'relay_cancel_unconfirmed' });
+  const server = createRailwayGatewayServer({ env: {}, gatewayStore: store });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/tasks/${task.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'scheduled', failureCode: '' }),
+    });
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 409);
+    assert.equal(body.error, 'agent_task_action_required');
+    assert.equal(store.getState().tasks.find((item) => item.id === task.id).status, 'blocked');
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
 });
 
 test('scheduler applies a running pause request before persisting completion', async () => {

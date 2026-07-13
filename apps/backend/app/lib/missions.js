@@ -157,6 +157,7 @@ function buildMissionRunPayload(input = {}) {
   const deadlineAt = Number.isFinite(new Date(input.deadlineAt).getTime())
     ? new Date(input.deadlineAt).toISOString()
     : '';
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
 
   const expandedGoal = [
     `Mission: ${template.label}`,
@@ -181,6 +182,7 @@ function buildMissionRunPayload(input = {}) {
     toolsets,
     ...(Number.isFinite(timeoutMs) && timeoutMs >= 1_000 ? { timeoutMs: Math.round(timeoutMs) } : {}),
     ...(deadlineAt ? { deadlineAt } : {}),
+    ...(idempotencyKey ? { idempotencyKey } : {}),
     mission: {
       id: template.id,
       label: template.label,

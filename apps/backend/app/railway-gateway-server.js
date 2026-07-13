@@ -2328,6 +2328,21 @@ function buildCalendarRunPayload(draft) {
   };
 }
 
+function buildSafeRuntimeExecutionBody(body = {}) {
+  const agent = resolveRequestedOfficialProfile({
+    agentId: body.agentId,
+    agent: body.agent,
+  });
+  return {
+    ...body,
+    agentId: agent,
+    agent,
+    noApproval: false,
+    yolo: false,
+    toolsets: ['safe'],
+  };
+}
+
 function buildChatRunPayload(command) {
   const wikiFile = `5_conversation/agent-runs/${dateStamp()}-${slugify(command.message, 'chat-run')}.md`;
   return {
@@ -4724,6 +4739,16 @@ function fallbackLearningPromoteSkill({ res, body = {}, gatewayState, gatewaySto
 
 function fallbackTaskMutation({ res, method, taskId, body = {}, gatewayState, gatewayStore = null }) {
   if (gatewayStore) {
+    const existingTask = gatewayStore.getState().tasks.find((task) => task.id === taskId);
+    if (existingTask?.origin === 'agent') {
+      sendJson(res, 409, {
+        ok: false,
+        error: 'agent_task_action_required',
+        message: 'Use the Agent Operations task action endpoint for agent-owned work',
+        gatewayFallback: true,
+      });
+      return;
+    }
     const task = method === 'DELETE'
       ? gatewayStore.deleteTask(taskId)
       : gatewayStore.updateTask(taskId, body);
@@ -5913,6 +5938,9 @@ async function handleApi(
   const missionScheduleRequest = method === 'POST' && pathSegments[0] === 'missions' && pathSegments[1] === 'schedule';
   const agentProfileCreateRequest = method === 'POST' && pathSegments[0] === 'agents' && !pathSegments[1];
   const runCreateRequest = method === 'POST' && pathSegments[0] === 'runs' && !pathSegments[1];
+  const safeRuntimeExecutionBody = runCreateRequest || missionLaunchRequest
+    ? buildSafeRuntimeExecutionBody(requestBody)
+    : null;
   const settingsRuntimeRequest = pathSegments[0] === 'settings' && ['GET', 'POST'].includes(method);
   const schedulerTranslation = schedulerRelayTranslation({ method, pathSegments, body: requestBody });
   const toolTranslation = toolRelayTranslation({
@@ -5931,7 +5959,10 @@ async function handleApi(
       pathOverride: toolTranslation?.pathOverride || schedulerTranslation?.pathOverride || (agentProfileCreateRequest ? '/api/profiles' : ''),
       query: toolTranslation?.query || schedulerTranslation?.query || queryObject(requestUrl.searchParams),
       bodyBuffer,
-      bodyText: toolTranslation?.bodyText || schedulerTranslation?.bodyText || (profileCreateBody ? JSON.stringify(profileCreateBody) : ''),
+      bodyText: toolTranslation?.bodyText
+        || schedulerTranslation?.bodyText
+        || (profileCreateBody ? JSON.stringify(profileCreateBody) : '')
+        || (safeRuntimeExecutionBody ? JSON.stringify(safeRuntimeExecutionBody) : ''),
     });
     if (relayResponse && !(settingsRuntimeRequest && relayResponse.status >= 400)) {
       const body = relayResponse.body || {};
@@ -6252,7 +6283,9 @@ async function handleApi(
       path: pathSegments,
       query: queryObject(requestUrl.searchParams),
       headers: req.headers || {},
-      body: bodyBuffer,
+      body: safeRuntimeExecutionBody
+        ? Buffer.from(JSON.stringify(safeRuntimeExecutionBody))
+        : bodyBuffer,
     });
     runtimeResponse = await fetchImpl(runtimeRequest.url, runtimeRequest.options);
   } catch (error) {

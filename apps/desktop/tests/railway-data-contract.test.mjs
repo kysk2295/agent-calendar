@@ -276,6 +276,12 @@ test('delegate modal uses backend agents only and does not invent fallback agent
   assert.doesNotMatch(appSource, /name:\s*'플래너'/);
 });
 
+test('desktop task ownership recognizes live Hermes profiles without the removed profile', () => {
+  assert.doesNotMatch(appSource, /marketflow/i);
+  assert.match(appSource, /bizconsultant/);
+  assert.match(appSource, /wikicurator/);
+});
+
 test('agent cards use Hermes dashboard profile readiness instead of idle fallback labels', () => {
   assert.match(appSource, /profileReadiness:\s*obj\(dashboard,\s*'profileReadiness'\)/);
   assert.match(appSource, /mergeAgentsWithProfileReadiness\(state\.agents,\s*state\.profileReadiness\)/);

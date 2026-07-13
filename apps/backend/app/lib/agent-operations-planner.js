@@ -141,6 +141,7 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
         missionId: mission.id,
         sessionId: missionThread.id,
         agentId: mission.agentId,
+        idempotencyKey: `${mission.id}:plan:1`,
       },
       onEvent: handlePlanningEvent,
     });
@@ -183,6 +184,7 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
           sessionId: missionThread.id,
           agentId: mission.agentId,
           planAttempt: 2,
+          idempotencyKey: `${mission.id}:plan:2`,
         },
         onEvent: handlePlanningEvent,
       });

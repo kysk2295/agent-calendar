@@ -1,40 +1,13 @@
-const crypto = require('node:crypto');
-
 const { sanitizeAgentReport, sanitizeSessionEvent, validateReport } = require('./agent-operations-domain');
 const { taskExecutionMessages } = require('./agent-operations-execution');
 const { deliverAgentReport } = require('./agent-report-delivery');
-
-function schedulerId(prefix, clock) {
-  const stamp = clock().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
-  return `${prefix}-${stamp}-${crypto.randomUUID().slice(0, 8)}`;
-}
-
-function isRuntimeFailure(error) {
-  return ['runtime_unavailable', 'relay_timeout', 'relay_failed', 'relay_cancel_unconfirmed'].includes(error?.code);
-}
-
-function completedMissionEvidence(store, missionId, excludedSessionId) {
-  const state = store.getState();
-  const taskTitles = new Map(state.tasks.map((task) => [task.id, task.title]));
-  return state.agentSessions
-    .filter((session) => (
-      session.missionId === missionId
-      && session.id !== excludedSessionId
-      && session.status === 'completed'
-    ))
-    .flatMap((session) => {
-      const detail = store.getAgentSession(session.id);
-      return (detail?.events || [])
-        .filter((event) => ['agent_message', 'artifact'].includes(event.kind))
-        .map((event) => ({
-          taskTitle: taskTitles.get(session.taskId) || session.title,
-          kind: event.kind,
-          text: String(event.text || '').slice(0, 6_000),
-        }));
-    })
-    .filter((event) => event.text)
-    .slice(-12);
-}
+const {
+  completedMissionEvidence,
+  createSchedulerResult,
+  isRuntimeFailure,
+  recordMissionBudget,
+  schedulerId,
+} = require('./agent-operations-scheduler-support');
 
 class AgentOperationsScheduler {
   constructor({
@@ -56,17 +29,10 @@ class AgentOperationsScheduler {
 
   async tick() {
     if (this.tickPromise) {
-      return {
-        checkedAt: this.clock().toISOString(),
+      return createSchedulerResult(this.clock().toISOString(), {
         skipped: true,
         reason: 'scheduler tick already running',
-        startedTaskIds: [],
-        completedTaskIds: [],
-        blockedTaskIds: [],
-        failedTaskIds: [],
-        cancelledTaskIds: [],
-        createdReportIds: [],
-      };
+      });
     }
     this.tickPromise = this.#tickOnce();
     try {
@@ -78,15 +44,7 @@ class AgentOperationsScheduler {
 
   async #tickOnce() {
     const checkedAt = this.clock().toISOString();
-    const result = {
-      checkedAt,
-      startedTaskIds: [],
-      completedTaskIds: [],
-      blockedTaskIds: [],
-      failedTaskIds: [],
-      cancelledTaskIds: [],
-      createdReportIds: [],
-    };
+    const result = createSchedulerResult(checkedAt);
     const state = this.store.getState();
     const activeMissionIds = new Set(
       state.agentMissions
@@ -106,11 +64,11 @@ class AgentOperationsScheduler {
         || String(left.id).localeCompare(String(right.id))
       ));
 
-    const task = dueTasks[0];
-    if (task) {
+    for (const task of dueTasks) {
       const currentTask = this.store.getState().tasks.find((item) => item.id === task.id);
       if (currentTask?.status === 'scheduled') {
-        await this.#executeTask(currentTask, result);
+        const executed = await this.#executeTask(currentTask, result);
+        if (executed) break;
       }
     }
     return result;
@@ -119,11 +77,19 @@ class AgentOperationsScheduler {
   async #executeTask(task, result) {
     const mission = this.store.getAgentMissions().find((item) => item.id === task.missionId);
     const session = this.store.getAgentSession(task.sessionId);
-    if (!mission || !session) return;
+    if (!mission || !session) {
+      this.store.updateTask(task.id, {
+        status: 'failed',
+        failureCode: 'task_contract_invalid',
+        blockedReason: 'Agent task is missing its mission or Task Session',
+        finishedAt: this.clock().toISOString(),
+      });
+      result.failedTaskIds.push(task.id);
+      return false;
+    }
 
     const startedAt = this.clock().toISOString();
-    const runningTask = this.store.updateTask(task.id, {
-      status: 'running',
+    const runningTask = await this.store.claimAgentTask(task.id, {
       startedAt,
       blockedReason: '',
       failureCode: '',
@@ -132,6 +98,7 @@ class AgentOperationsScheduler {
         : Number(task.attempt || 0) + 1,
       retryScheduledAt: '',
     });
+    if (!runningTask) return false;
     this.store.updateAgentSession(session.id, { status: 'running' });
     this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
       kind: 'progress',
@@ -198,7 +165,7 @@ class AgentOperationsScheduler {
           metadata: { action: cancelled ? 'cancel' : 'pause', applicationMode: 'applied_at_checkpoint' },
         }));
         (cancelled ? result.cancelledTaskIds : result.blockedTaskIds).push(task.id);
-        return;
+        return true;
       }
 
       let report = null;
@@ -248,7 +215,7 @@ class AgentOperationsScheduler {
         finishedAt: this.clock().toISOString(),
       });
       this.store.updateAgentSession(session.id, { status: 'completed' });
-      this.#recordBudget(mission, task);
+      recordMissionBudget(this.store, mission, task);
       result.completedTaskIds.push(task.id);
       await deliverAgentReport({
         store: this.store,
@@ -274,18 +241,9 @@ class AgentOperationsScheduler {
       }));
       (blocked ? result.blockedTaskIds : result.failedTaskIds).push(task.id);
     }
+    return true;
   }
 
-  #recordBudget(mission, task) {
-    const budget = mission.budget || {};
-    this.store.updateAgentMission(mission.id, {
-      budget: {
-        ...budget,
-        usedRuns: Number(budget.usedRuns || 0) + 1,
-        usedMinutes: Number(budget.usedMinutes || 0) + Number(task.estimatedMinutes || 0),
-      },
-    });
-  }
 }
 
 module.exports = {

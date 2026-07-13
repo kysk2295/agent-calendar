@@ -97,6 +97,11 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
 - [x] Step 13: Confirm remote cancellation and prevent unsafe resume when confirmation fails.
 - [x] Step 14: Require usable report evidence and preserve an honest unknown model state.
 - [ ] Step 15: Re-run full backend, desktop, build, deployment, and independent review gates.
+- [x] Step 16: Recover an initial launch timeout by idempotency key before deciding cancellation status.
+- [x] Step 17: Remove the final stale desktop profile ownership reference.
+- [x] Step 18: Normalize direct run and mission launch safety at the Relay boundary.
+- [x] Step 19: Make Postgres Agent Task claiming atomic and quarantine orphaned tasks.
+- [x] Step 20: Prevent generic task mutation from bypassing Agent Operations state transitions.
 
 ## Verification Notes
 
@@ -119,7 +124,7 @@ Route Agent Operations and ordinary Hermes chat to the selected Mac mini Hermes 
 - Command: live paused-mission manual tick and repeated Task Session reads
   - Result: zero tasks started; completed attempt remained 2; all 28 event IDs retained strict order and the user message plus completion remained present.
 - Command: `npm test`
-  - Result: 108 backend and 74 desktop tests passed after the final scheduler, cancellation, evidence, and timeout fixes.
+  - Result: 116 backend and 75 desktop tests passed after the final scheduler, cancellation, idempotency, claim, evidence, and timeout fixes.
 - Command: real report task through the enabled Railway daemon
   - Result: one evidence-backed report reached `ready` with five findings and five evidence rows; its first follow-up decision persisted as `approved` and rendered in the Reports tab.
 - Command: unauthenticated Relay snapshot and synthetic sensitive profile output probes

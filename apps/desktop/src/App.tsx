@@ -336,7 +336,7 @@ function isDone(item: Item) {
 
 function taskOwner(item: Item) {
   const owner = text(item.owner || item.agent || item.agentId, 'Me');
-  if (/agent|default|marketflow|stockagent|uniportpm|Hermes|Agent Calendar/i.test(owner)) return 'Agent';
+  if (/agent|default|bizconsultant|stockagent|uniportpm|wikicurator|Hermes|Agent Calendar/i.test(owner)) return 'Agent';
   if (/hybrid|joint|공동/i.test(owner)) return 'Hybrid';
   return 'Me';
 }

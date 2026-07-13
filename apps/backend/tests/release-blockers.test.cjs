@@ -416,8 +416,11 @@ test('routes mission launch through the live Mac mini relay', async () => {
       body: JSON.stringify({
         templateId: 'product-build',
         goal: 'Verify remote mission execution',
-        agentId: 'bizconsultant',
+        agentId: 'marketflow',
         source: 'desktop-mission',
+        noApproval: true,
+        yolo: true,
+        toolsets: ['all'],
       }),
     });
 
@@ -426,12 +429,7 @@ test('routes mission launch through the live Mac mini relay', async () => {
     assert.equal(polled.job.kind, 'runtime.request');
     assert.equal(polled.job.payload.method, 'POST');
     assert.equal(polled.job.payload.path, '/api/missions/launch');
-    assert.deepEqual(JSON.parse(polled.job.payload.body), {
-      templateId: 'product-build',
-      goal: 'Verify remote mission execution',
-      agentId: 'bizconsultant',
-      source: 'desktop-mission',
-    });
+    const runtimeBody = JSON.parse(polled.job.payload.body);
 
     await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/complete`, {
       method: 'POST',
@@ -448,7 +446,7 @@ test('routes mission launch through the live Mac mini relay', async () => {
             id: 'run-relay-mission',
             name: 'Verify remote mission execution',
             status: 'running',
-            agent: 'bizconsultant',
+            agent: 'default',
           },
         },
       }),
@@ -456,11 +454,72 @@ test('routes mission launch through the live Mac mini relay', async () => {
 
     const response = await missionPromise;
     const body = await response.json();
+    assert.equal(runtimeBody.goal, 'Verify remote mission execution');
+    assert.equal(runtimeBody.agentId, 'default');
+    assert.equal(runtimeBody.agent, 'default');
+    assert.equal(runtimeBody.noApproval, false);
+    assert.equal(runtimeBody.yolo, false);
+    assert.deepEqual(runtimeBody.toolsets, ['safe']);
     assert.equal(response.status, 201);
     assert.equal(body.run.id, 'run-relay-mission');
-    assert.equal(body.run.agent, 'bizconsultant');
+    assert.equal(body.run.agent, 'default');
     assert.equal(body.relayRuntimeRequest, true);
     assert.equal(body.gatewayFallback, false);
+  } finally {
+    await close(server);
+  }
+});
+
+test('direct run creation strips approval bypasses before the Mac mini relay', async () => {
+  // Given
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_CLIENT_TOKEN: 'client-token',
+      HERMES_RELAY_TOKEN: 'relay-token',
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // When
+    const runPromise = fetch(`${baseUrl}/api/runs`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer client-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        goal: 'Untrusted direct run',
+        agentId: 'marketflow',
+        noApproval: true,
+        yolo: true,
+        toolsets: ['shell', 'browser'],
+      }),
+    });
+    const polled = await pollPromise;
+    const runtimeBody = JSON.parse(polled.job.payload.body);
+
+    await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({ ok: true, status: 201, body: { ok: true, run: { id: 'run-safe-direct' } } }),
+    });
+    assert.equal((await runPromise).status, 201);
+
+    // Then
+    assert.equal(runtimeBody.agentId, 'default');
+    assert.equal(runtimeBody.agent, 'default');
+    assert.equal(runtimeBody.noApproval, false);
+    assert.equal(runtimeBody.yolo, false);
+    assert.deepEqual(runtimeBody.toolsets, ['safe']);
   } finally {
     await close(server);
   }
@@ -519,7 +578,9 @@ test('routes Hermes chat through a profile mission without inventing an API serv
     const body = await response.text();
     assert.equal(relayJob.kind, 'runtime.request');
     assert.equal(relayJob.payload.path, '/api/missions/launch');
-    assert.equal(JSON.parse(relayJob.payload.body).agentId, 'bizconsultant');
+    const runtimeBody = JSON.parse(relayJob.payload.body);
+    assert.equal(runtimeBody.agentId, 'bizconsultant');
+    assert.match(runtimeBody.idempotencyKey, /^relay-/);
     assert.equal(response.status, 200);
     assert.match(body, /bizconsultant ready/);
     assert.doesNotMatch(body, /hermes-agent/);

@@ -169,6 +169,29 @@ class PostgresHermesStore extends HermesStore {
     return task;
   }
 
+  async claimAgentTask(taskId, patch = {}) {
+    const pendingPersistence = this.taskPersistChains.get(taskId);
+    if (pendingPersistence) await pendingPersistence;
+    const current = super.getState().tasks.find((task) => task.id === taskId);
+    if (!current || current.status !== 'scheduled') return null;
+    const claimedPayload = {
+      ...current,
+      ...patch,
+      status: 'running',
+      attempt: Number.isFinite(Number(patch.attempt)) ? Number(patch.attempt) : Number(current.attempt || 0),
+      updatedAt: this.clock().toISOString(),
+    };
+    const result = await this.#query(
+      `update tasks
+       set status = $2, payload = $3::jsonb, updated_at = now()
+       where id = $1 and status = 'scheduled'
+       returning id`,
+      [taskId, 'running', JSON.stringify(claimedPayload)],
+    );
+    if (!result || !Array.isArray(result.rows) || !result.rows.length) return null;
+    return super.updateTask(taskId, { ...patch, status: 'running' });
+  }
+
   deleteTask(taskId) {
     const task = super.deleteTask(taskId);
     if (task) this.#deleteTask(taskId);
