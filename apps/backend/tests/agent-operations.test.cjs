@@ -24,6 +24,7 @@ const { listMissionTemplates } = require('../app/lib/missions');
 const { buildMissionRunPayload } = require('../app/lib/missions');
 const { OFFICIAL_PROFILE_NAMES } = require('../app/lib/official-profiles');
 const { buildAgentProfileSetup } = require('../app/lib/agent-profile-setup');
+const { projectAgentsForState } = require('../app/lib/agent-registry');
 const { buildWorkboardRunPayload, buildWorkboardTaskDraft } = require('../app/lib/workboard');
 
 const FIXED_NOW = '2026-07-13T09:00:00.000Z';
@@ -1045,6 +1046,34 @@ test('built-in command and mission routes only reference live official profiles'
   // Then
   assert.equal(referenced.every((profile) => OFFICIAL_PROFILE_NAMES.includes(profile)), true);
   assert.equal(referenced.includes('marketflow'), false);
+});
+
+test('live Hermes profiles do not resurrect a removed persisted profile', () => {
+  // Given
+  const persistedState = {
+    agents: [
+      {
+        id: 'marketflow',
+        name: 'marketflow',
+        agentSource: 'hermes-cli',
+        profile: { name: 'marketflow' },
+      },
+    ],
+  };
+  const liveProfiles = [
+    {
+      id: 'bizconsultant',
+      name: 'bizconsultant',
+      agentSource: 'hermes-cli',
+      profile: { name: 'bizconsultant' },
+    },
+  ];
+
+  // When
+  const agents = projectAgentsForState(persistedState, { profileAgents: liveProfiles });
+
+  // Then
+  assert.deepEqual(agents.map((agent) => agent.id), ['bizconsultant']);
 });
 
 test('mission launch preserves the safe toolset deadline and approval boundary', () => {

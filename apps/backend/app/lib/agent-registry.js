@@ -155,8 +155,8 @@ function projectAgentsForState(state = {}, { profileAgents = [] } = {}) {
   (Array.isArray(state.agents) ? state.agents : []).forEach((agent) => {
     const key = agentKey(agent);
     if (!key) return;
-    if (!projected.has(key) && !profiles.length && isProfileAgent(agent)) {
-      projected.set(key, normalizeProfileAgent(agent));
+    if (!projected.has(key) && isProfileAgent(agent)) {
+      if (!profiles.length) projected.set(key, normalizeProfileAgent(agent));
       return;
     }
     if (!projected.has(key)) {
