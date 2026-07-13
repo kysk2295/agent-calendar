@@ -356,10 +356,16 @@ test('projects direct runtime agent and tool reads through the same public polic
   };
   const unsafeAgents = [
     { id: 'marketflow', name: 'marketflow', runtimeBinding: { commandTemplate: 'hermes --yolo' } },
-    { id: 'bizconsultant', name: 'bizconsultant', profile: { name: 'bizconsultant' } },
+    {
+      id: 'bizconsultant',
+      name: 'bizconsultant',
+      status: 'Ready',
+      profile: { name: 'bizconsultant' },
+      skills: [{ id: 'research', name: 'Research', description: 'Full nested skill' }],
+    },
   ];
-  const unsafeTools = [{ id: 'browser', name: 'Browser', command: 'super-secret-command', raw: { token: 'super-secret' } }];
-  const unsafeSkills = [{ id: 'research', name: 'Research', sourcePath: '/Users/koyunseo/private-skill' }];
+  const unsafeTools = [{ id: 'browser', name: 'Browser', description: 'Full nested tool', command: 'super-secret-command', raw: { token: 'super-secret' } }];
+  const unsafeSkills = [{ id: 'research', name: 'Research', description: 'Full nested skill', sourcePath: '/Users/koyunseo/private-skill' }];
   const storedState = {
     tasks: [{ id: 'stored-task', title: 'Stored task' }],
     documents: [{ id: 'stored-document', title: 'Stored document' }],
@@ -379,11 +385,29 @@ test('projects direct runtime agent and tool reads through the same public polic
       const { pathname } = runtimeUrl;
       const payload = pathname === '/api/agents/bizconsultant/metrics'
         ? { ok: true, metrics: { completed: 3 } }
+        : pathname === '/api/runs/run-1'
+          ? {
+            ok: true,
+            run: { id: 'run-1', status: 'completed' },
+            state: { agents: unsafeAgents },
+            data: {
+              run: { id: 'run-1', status: 'completed' },
+              state: {
+                debugSecret: 'super-secret',
+                privatePath: '/Users/koyunseo/private-top-level',
+                agents: unsafeAgents,
+                tools: unsafeTools,
+                skills: unsafeSkills,
+                toolsets: ['safe', 'shell'],
+                mcpServers: [{ id: 'shell-server', command: 'super-secret-command' }],
+              },
+            },
+          }
         : pathname.startsWith('/api/agents')
         ? {
           ok: true,
           debugSecret: 'super-secret',
-          agents: [],
+          agents: [{ id: 'bizconsultant' }],
           agent: pathname === '/api/agents/bizconsultant' ? unsafeAgents[1] : undefined,
           data: {
             agents: unsafeAgents,
@@ -393,8 +417,8 @@ test('projects direct runtime agent and tool reads through the same public polic
         : pathname === '/api/tools'
           ? {
             ok: true,
-            tools: [{ id: 'benchmark-tool', name: 'benchmark-tool' }],
-            skills: [{ command: 'super-secret-command' }],
+            tools: [{ id: 'benchmark-tool', name: 'benchmark-tool' }, { id: 'browser' }],
+            skills: [{ id: 'research' }, { command: 'super-secret-command' }],
             data: {
               tools: unsafeTools,
               skills: unsafeSkills,
@@ -469,10 +493,11 @@ test('projects direct runtime agent and tool reads through the same public polic
   try {
     // When
     const headers = { authorization: 'Bearer client-token' };
-    const [agents, agentDetail, agentMetrics, tools, state, dataState, nestedDataState, siblingState] = await Promise.all([
+    const [agents, agentDetail, agentMetrics, runDetail, tools, state, dataState, nestedDataState, siblingState] = await Promise.all([
       fetch(`${baseUrl}/api/agents`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/agents/bizconsultant`, { headers }).then(async (response) => ({ status: response.status, body: await response.json() })),
       fetch(`${baseUrl}/api/agents/bizconsultant/metrics`, { headers }).then(async (response) => ({ status: response.status, body: await response.json() })),
+      fetch(`${baseUrl}/api/runs/run-1`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/tools`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/state`, { headers }).then((response) => response.json()),
       fetch(`${baseUrl}/api/state?shape=data`, { headers }).then((response) => response.json()),
@@ -486,6 +511,8 @@ test('projects direct runtime agent and tool reads through the same public polic
     assert.ok(agents.profileReadiness.requiredProfiles.every((entry) => Object.hasOwn(entry, 'setup') === false));
     assert.equal(Object.hasOwn(agents, 'debugSecret'), false);
     assert.equal(Object.hasOwn(agents, 'state'), false);
+    assert.equal(agents.agents[0].status, 'Ready');
+    assert.equal(agents.agents[0].skills.length, 1);
     assert.equal(agentDetail.status, 200);
     assert.equal(agentDetail.body.agent.id, 'bizconsultant');
     assert.equal(agentMetrics.status, 200);
@@ -494,6 +521,11 @@ test('projects direct runtime agent and tool reads through the same public polic
     assert.deepEqual(tools.mcpServers, []);
     assert.equal(tools.tools.length, 1);
     assert.equal(tools.tools[0].id, 'browser');
+    assert.equal(tools.tools[0].description, 'Full nested tool');
+    assert.equal(tools.skills[0].description, 'Full nested skill');
+    assert.ok(runDetail.data.state.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
+    assert.deepEqual(runDetail.data.state.toolsets, ['safe']);
+    assert.deepEqual(runDetail.data.state.mcpServers, []);
     assert.ok(state.agents.every((agent) => OFFICIAL_PROFILE_NAMES.includes(agent.id)));
     assert.deepEqual(state.toolsets, ['safe']);
     assert.deepEqual(state.mcpServers, []);
@@ -520,9 +552,9 @@ test('projects direct runtime agent and tool reads through the same public polic
       assert.deepEqual(publicState.sessions, storedState.sessions);
       assert.deepEqual(publicState.commandInboxArchivedIds, storedState.commandInboxArchivedIds);
     }
-    assert.doesNotMatch(JSON.stringify({ agents, agentDetail, state, dataState, nestedDataState, siblingState }), /commandTemplate/);
+    assert.doesNotMatch(JSON.stringify({ agents, agentDetail, runDetail, state, dataState, nestedDataState, siblingState }), /commandTemplate/);
     assert.doesNotMatch(
-      JSON.stringify({ agents, agentDetail, tools, state, dataState, nestedDataState, siblingState }),
+      JSON.stringify({ agents, agentDetail, runDetail, tools, state, dataState, nestedDataState, siblingState }),
       /marketflow|--yolo|shell-server|super-secret|\/Users\/koyunseo/,
     );
   } finally {

@@ -797,14 +797,33 @@ function mergedResponseArray(...values) {
   const arrays = values.filter(Array.isArray);
   if (!arrays.length) return null;
   const merged = [];
-  const seen = new Set();
+  const positions = new Map();
   for (const item of arrays.flat()) {
     const identity = item && typeof item === 'object'
       ? String(item.id || item.name || item.profile?.name || JSON.stringify(item))
       : JSON.stringify(item);
-    if (seen.has(identity)) continue;
-    seen.add(identity);
-    merged.push(item);
+    if (!positions.has(identity)) {
+      positions.set(identity, merged.length);
+      merged.push(item);
+      continue;
+    }
+    const position = positions.get(identity);
+    const existing = merged[position];
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing) || !item || typeof item !== 'object' || Array.isArray(item)) {
+      continue;
+    }
+    const combined = { ...item, ...existing };
+    for (const key of Object.keys(item)) {
+      if (Array.isArray(existing[key]) && Array.isArray(item[key])) {
+        combined[key] = mergedResponseArray(existing[key], item[key]) || [];
+      } else if (
+        existing[key] && typeof existing[key] === 'object' && !Array.isArray(existing[key])
+        && item[key] && typeof item[key] === 'object' && !Array.isArray(item[key])
+      ) {
+        combined[key] = { ...item[key], ...existing[key] };
+      }
+    }
+    merged[position] = combined;
   }
   return merged;
 }
@@ -870,6 +889,9 @@ function mergeGatewayResponseBody(body = {}, gatewayState, env = process.env, ga
   if (Array.isArray(runtimeState.agents)) nextBody.agents = state.agents;
   if (body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
     const data = { ...body.data };
+    if (body.data.state && typeof body.data.state === 'object' && !Array.isArray(body.data.state)) {
+      data.state = state;
+    }
     if (Array.isArray(body.data.agents)) {
       const agents = filterDeletedGatewayAgents({ agents: body.data.agents }, gatewayState, gatewayStore).agents || [];
       data.agents = publicOfficialProfileAgents(agents);
