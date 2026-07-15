@@ -112,7 +112,11 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
       <div className="agent-work-layout">
         <section className="agent-work-primary" aria-label="작업 대화">
           <AgentWorkTimeline checkpoints={props.conversation?.checkpoints || []} loading={props.loading} error={props.error} readOnly={props.aggregateStale || props.loading || Boolean(props.error)} tasks={props.tasks} reports={props.reports} currentResultReportId={props.conversation?.work.revision.currentResultReportId || ''} responsibleAgentName={props.responsibleAgentName} busy={props.busy} onTaskAction={taskAction} onOpenSession={props.onOpenSession} onReportFeedback={props.onReportFeedback} onFollowUpDecision={props.onFollowUpDecision} onRefresh={props.onRefresh} onRetry={retryConversation} liveTurn={props.liveTurn} />
-          <AgentWorkComposer onSend={props.onSendMessage} streaming={props.liveTurn.active} />
+          <AgentWorkComposer
+            onSend={props.onSendMessage}
+            streaming={props.liveTurn.active}
+            refreshError={props.error && props.liveTurn.refreshFailed ? '메시지는 저장됐지만 최신 대화를 불러오지 못했습니다. 다시 시도해 주세요.' : ''}
+          />
         </section>
         {!props.loading && !props.error && !props.aggregateStale && <AgentWorkDetails mission={props.mission} tasks={props.tasks} responsibleAgentName={props.responsibleAgentName} assignmentCopy={assignmentCopy} resolvedExecutionEngine={props.conversation?.work.resolvedExecutionEngine || null} busy={props.busy} onPlanMission={props.onPlanMission} onApprovePlan={props.onApprovePlan} onMissionWorkAction={props.onMissionWorkAction} onTaskAction={taskAction} onRunTaskNow={props.onRunTaskNow} onOpenSession={props.onOpenSession} onRefresh={props.onRefresh} />}
       </div>

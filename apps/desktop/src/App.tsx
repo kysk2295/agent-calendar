@@ -19,6 +19,7 @@ import type {
 } from './features/agent-operations/types';
 import './features/agent-operations/agent-operations.css';
 import './features/agent-operations/agent-workspace.css';
+import { useAgentCalendarDeepLink } from './features/agent-operations/useAgentCalendarDeepLink';
 
 type ScreenId = 'calendar' | 'today' | 'next7' | 'tasks' | 'kanban' | 'mail' | 'notes' | 'someday' | 'review' | 'wiki' | 'diary' | 'search' | 'agents' | 'widgets' | 'settings' | 'login';
 type ModalId = 'task' | 'new' | 'delegate' | 'run' | 'agent' | 'settings' | 'taxonomy' | null;
@@ -1868,6 +1869,7 @@ export function App() {
 
   async function openAgentSession(sessionId: string) {
     if (!sessionId) return;
+    openScreen('agents');
     setSelectedAgentSessionId(sessionId);
     setAgentSessionDetail((current) => current?.id === sessionId ? current : null);
     setAgentSessionLoading(true);
@@ -2742,6 +2744,8 @@ export function App() {
     const timer = window.setTimeout(() => setCompletionNotice(null), 4600);
     return () => window.clearTimeout(timer);
   }, [completionNotice]);
+
+  useAgentCalendarDeepLink(loggedIn && !loading && !isWidgetOverlay, openAgentSession);
 
   if (isWidgetOverlay) {
     return (

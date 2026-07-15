@@ -149,7 +149,7 @@ async function main() {
   const calls = [];
   const consoleErrors = [];
   let failedMessageAttempts = 0;
-  let conversationRefreshFailuresRemaining = 0;
+  let forceConversationRefreshFailure = false;
   let holdNextConversationLoad = true;
   let releaseConversationLoad = null;
   let showEmptyConversation = false;
@@ -168,7 +168,7 @@ async function main() {
     if (method === 'GET' && apiPath === '/api/scheduler/jobs') { await route.fulfill({ json: { ok: true, jobs } }); return; }
     const conversationMatch = apiPath.match(/^\/api\/agent-operations\/work\/([^/]+)\/conversation$/);
     if (method === 'GET' && conversationMatch) {
-      if (conversationRefreshFailuresRemaining > 0) { conversationRefreshFailuresRemaining -= 1; await route.fulfill({ status: 503, json: { ok: false, error: 'GET /api/agent-operations/work/private/conversation failed' } }); return; }
+      if (forceConversationRefreshFailure) { await route.fulfill({ status: 503, json: { ok: false, error: 'GET /api/agent-operations/work/private/conversation failed' } }); return; }
       if (holdNextConversationLoad) {
         await new Promise((resolve) => { releaseConversationLoad = resolve; });
         holdNextConversationLoad = false;
@@ -209,7 +209,7 @@ async function main() {
         const metadata = { deliveryStatus: status, applicationMode, acceptedAt, ...(applied ? { appliedAt: acceptedAt } : {}) };
         message = nextEvent(missionId, body.text, metadata);
         checkpoints = [...checkpoints, message];
-        if (body.text === '대화 새로고침 실패') conversationRefreshFailuresRemaining = 2;
+        if (body.text === '대화 새로고침 실패') forceConversationRefreshFailure = true;
         if (rejected) checkpoints = [...checkpoints, { ...nextEvent(missionId, '외부 이메일 전송은 지원되지 않아 아무 작업도 수행하지 않았습니다.', {}), kind: 'blocked' }];
       }
       const delivery = { status, applicationMode, acceptedAt, ...(status === 'applied' ? { appliedAt: acceptedAt } : {}) };
@@ -244,7 +244,7 @@ async function main() {
       const metadata = { deliveryStatus: status, applicationMode, acceptedAt, ...(applied ? { appliedAt: acceptedAt } : {}) };
       const message = nextEvent(missionId, body.text, metadata);
       checkpoints = [...checkpoints, message];
-      if (body.text === '대화 새로고침 실패') conversationRefreshFailuresRemaining = 2;
+      if (body.text === '대화 새로고침 실패') forceConversationRefreshFailure = true;
       if (rejected) checkpoints = [...checkpoints, { ...nextEvent(missionId, '외부 이메일 전송은 지원되지 않아 아무 작업도 수행하지 않았습니다.', {}), kind: 'blocked' }];
       await route.fulfill({ json: { ok: true, message, delivery: { status, applicationMode, acceptedAt, ...(applied ? { appliedAt: acceptedAt } : {}) }, idempotentReplay: failedMessageAttempts > 1 } }); return;
     }
@@ -361,6 +361,7 @@ async function main() {
     assert.equal(await conversationRetry.evaluate((element) => element === document.activeElement), true);
     assert.equal(await approvalCheckpoint.getByRole('button', { name: /이 제안 (승인|거절)/ }).count(), 0);
     assert.equal(await composer.inputValue(), '작성 중인 다음 지시');
+    forceConversationRefreshFailure = false;
     await conversationRetry.click();
     await conversationError.waitFor({ state: 'detached' });
     assert.equal(await composer.inputValue(), '작성 중인 다음 지시');
@@ -438,7 +439,7 @@ async function main() {
 
     await composer.fill('실패 보존');
     await page.getByRole('button', { name: '작업 대화에 보내기' }).click();
-    await page.getByRole('alert').filter({ hasText: /다시 시도/ }).waitFor();
+    await page.locator('.agent-work-message-error', { hasText: '메시지를 보내지 못했습니다. 입력을 유지했습니다. 다시 시도해 주세요.' }).waitFor();
     assert.equal(await composer.inputValue(), '실패 보존');
     assert.equal(await page.locator('.agent-work-conversation').count(), 1);
     await page.getByRole('button', { name: '작업 대화에 보내기' }).click();
@@ -460,6 +461,10 @@ async function main() {
 
     for (const viewport of [{ width: 768, height: 900, name: 'tablet' }, { width: 375, height: 812, name: 'mobile' }]) {
       await page.setViewportSize(viewport);
+      const details = page.locator('.agent-work-details > details');
+      await page.waitForFunction(() => !document.querySelector('.agent-work-details > details')?.hasAttribute('open'));
+      await details.locator('summary').click();
+      await page.waitForFunction(() => document.querySelector('.agent-work-details > details')?.hasAttribute('open'));
       await page.waitForFunction(() => { const element = document.querySelector('.agent-work-conversation'); return element && element.scrollHeight > element.clientHeight; });
       const scrollOwners = await page.locator('.agent-work-conversation, .agent-work-layout, .agent-work-primary, .agent-work-timeline, .agent-work-details').evaluateAll((elements) => elements.filter((element) => {
         const overflowY = getComputedStyle(element).overflowY;
@@ -490,18 +495,15 @@ async function main() {
       assert.equal(cjkPolicies.every((item) => item.wordBreak === 'keep-all' && item.overflowWrap === 'anywhere'), true, JSON.stringify(cjkPolicies));
       await assertTextPairUnsplit(page.locator('.agent-work-header h1'), '변화');
       await assertTextPairUnsplit(approvalCheckpoint.locator('dd').filter({ hasText: '범위를' }), '범위를');
-      await assertTextPairUnsplit(unsupportedCheckpoint.locator('p'), '수행하지 않았습니다');
+      await assertTextPairUnsplit(unsupportedCheckpoint.locator('p'), '수행하지\u00a0않았습니다');
       assert.equal(await unsupportedCheckpoint.locator('p').evaluate((element) => getComputedStyle(element).textWrapStyle), 'pretty');
       const undersizedMetadata = await page.locator('.agent-status-card small:visible, .agent-status-card footer:visible, .agent-control-section-title > span:visible, .agent-control-section-note:visible, .agent-running-card small:visible, .agent-running-card p:visible, .agent-approval-open small:visible, .agent-approval-card > div span:visible, .agent-approval-card footer time:visible, .agent-activity-timeline > b:visible, .agent-activity-timeline time:visible, .agent-activity-timeline small:visible, .agent-work-kicker:visible, .agent-checkpoint header time:visible, .agent-checkpoint > small:visible, .agent-work-composer > small:visible, .agent-work-details-body *:visible').evaluateAll((elements) => elements.filter((element) => Number.parseFloat(getComputedStyle(element).fontSize) < 10).map((element) => `${element.tagName}:${getComputedStyle(element).fontSize}:${element.textContent?.trim()}`));
       assert.deepEqual(undersizedMetadata, []);
       await page.locator('.agent-work-conversation').evaluate((element) => { element.scrollTop = 0; });
       await capture(page, `${viewport.name}-work-conversation`);
-      const details = page.locator('.agent-work-details > details');
-      await page.waitForFunction(() => !document.querySelector('.agent-work-details > details')?.hasAttribute('open'));
-      assert.equal(await details.getAttribute('open'), null);
+      assert.notEqual(await details.getAttribute('open'), null);
       await details.scrollIntoViewIfNeeded();
       assert.equal(await details.isVisible(), true);
-      await details.locator('summary').click();
       const undersized = await page.locator('.agent-control-room button:visible, .agent-control-room a:visible, .agent-control-room summary:visible, .agent-control-room select:visible').evaluateAll((elements) => elements.filter((element) => { const box = element.getBoundingClientRect(); return box.width < 44 || box.height < 44; }).map((element) => `${element.tagName}:${element.textContent?.trim()}`));
       assert.deepEqual(undersized, []);
       const tinyDetails = await page.locator('.agent-work-details-body *:visible').evaluateAll((elements) => elements.filter((element) => Number.parseFloat(getComputedStyle(element).fontSize) < 10).map((element) => `${element.tagName}:${getComputedStyle(element).fontSize}`));
@@ -596,6 +598,7 @@ async function main() {
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     assert.equal(await zoomRetry.isVisible(), true);
     assert.equal(await zoomRetryButton.evaluate((element) => element === document.activeElement), true);
+    forceConversationRefreshFailure = false;
     await zoomRetryButton.click();
     await zoomRetry.waitFor({ state: 'detached' });
     assert.equal(await page.locator('.agent-work-header h1').evaluate((element) => element === document.activeElement), true);

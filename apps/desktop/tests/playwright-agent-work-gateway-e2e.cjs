@@ -70,7 +70,7 @@ async function assertPhraseOnOneLine(page, selector, phrase) {
   const lineCount = await page.locator(selector).evaluate((element, target) => {
     const text = element.firstChild;
     if (!text || text.nodeType !== Node.TEXT_NODE) throw new Error('heading text node was not found');
-    const start = text.textContent.indexOf(target);
+    const start = text.textContent.replace(/\u00a0/g, ' ').indexOf(target);
     if (start < 0) throw new Error(`phrase was not found: ${target}`);
     const range = document.createRange();
     range.setStart(text, start);
@@ -217,7 +217,7 @@ async function main() {
     assert.match(messageResponse.headers()['content-type'] || '', /text\/event-stream/);
     await page.getByText('공식 출처를 우선해서 정리해줘', { exact: true }).waitFor();
     await page.getByText('실시간 작업 응답입니다.', { exact: true }).last().waitFor();
-    const timelineText = await page.locator('.agent-checkpoint').allTextContents();
+    const timelineText = (await page.locator('.agent-checkpoint').allTextContents()).map((text) => text.replace(/\u00a0/g, ' '));
     const userMessageIndex = timelineText.findIndex((text) => text.includes('공식 출처를 우선해서 정리해줘'));
     const finalAnswerIndex = timelineText.map((text, index) => ({ text, index }))
       .filter((item) => item.text.includes('실시간 작업 응답입니다.')).at(-1)?.index;
@@ -275,11 +275,11 @@ async function main() {
       const overflowY = getComputedStyle(element).overflowY;
       return (overflowY === 'auto' || overflowY === 'scroll') && element.scrollHeight > element.clientHeight;
     }).map((element) => element.className));
-    assert.deepEqual(mobileScrollOwners, ['agent-work-conversation']);
+    assert.deepEqual(mobileScrollOwners, ['agent-work-timeline']);
     await captureEvidence(page, '375-settled');
     await page.locator('.agent-work-composer').scrollIntoViewIfNeeded();
     assert.equal(await page.locator('.agent-work-composer').evaluate((element) => element.getBoundingClientRect().bottom <= window.innerHeight), true);
-    await page.locator('.agent-work-conversation').evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.locator('.agent-work-timeline').evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await page.locator('.agent-checkpoint[data-kind="blocked"]').last().waitFor();
     assert.equal(await page.locator('.agent-checkpoint-delivery-outcome').evaluateAll((elements) => elements.every((element) => getComputedStyle(element).whiteSpace === 'nowrap')), true);
     assert.equal(await page.locator('.agent-checkpoint-delivery-outcome').evaluateAll((elements) => elements.every((element) => getComputedStyle(element.parentElement).display === 'grid')), true);

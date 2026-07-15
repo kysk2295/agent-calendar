@@ -111,12 +111,24 @@ async function capture(page, name) {
 }
 
 async function scrollWorkSurface(page, edge) {
-  await page.evaluate((nextEdge) => {
-    const owner = window.matchMedia('(max-width: 960px)').matches
-      ? document.querySelector('.agent-work-conversation')
-      : document.querySelector('.agent-work-timeline');
-    if (owner) owner.scrollTop = nextEdge === 'bottom' ? owner.scrollHeight : 0;
+  const result = await page.evaluate((nextEdge) => {
+    const candidates = [
+      document.querySelector('.agent-work-conversation'),
+      document.querySelector('.agent-work-timeline'),
+    ].filter(Boolean);
+    const owner = candidates.find((element) => {
+      const overflowY = getComputedStyle(element).overflowY;
+      return ['auto', 'scroll'].includes(overflowY) && element.scrollHeight > element.clientHeight;
+    });
+    if (!owner) return null;
+    owner.scrollTop = nextEdge === 'bottom' ? owner.scrollHeight : 0;
+    return {
+      className: owner.className,
+      clientHeight: owner.clientHeight,
+      scrollHeight: owner.scrollHeight,
+    };
   }, edge);
+  assert.notEqual(result, null, `no scroll owner found for ${edge}`);
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
@@ -182,12 +194,22 @@ async function main() {
       operationState = { ...operationState, missions: [createdMission, ...operationState.missions], tasks: [createdTask, ...operationState.tasks] };
       await route.fulfill({ status: 201, json: { ok: true, work: workPayload(createdMission, `keyword:${createdMission.agentId}`), conversation: conversationPayload(createdMission, null).conversation, message: initial, idempotentReplay: false } }); return;
     }
-    const messageMatch = apiPath.match(/^\/api\/agent-operations\/work\/([^/]+)\/messages$/);
-    if (method === 'POST' && messageMatch) {
-      const messageMissionId = decodeURIComponent(messageMatch[1]);
+    const liveMatch = apiPath.match(/^\/api\/agent-operations\/work\/([^/]+)\/live$/);
+    if (method === 'POST' && liveMatch) {
+      const messageMissionId = decodeURIComponent(liveMatch[1]);
       const item = operationState.missions.find((candidate) => candidate.id === messageMissionId);
       if (!item) { await route.fulfill({ status: 404, json: { ok: false, error: 'not_found' } }); return; }
-      const message = { id: 'event-keyboard-message', sessionId: item.missionThreadId, sequence: createdCheckpoints.length + 1, kind: 'user_message', text: body.text, metadata: { deliveryStatus: 'accepted', applicationMode: 'mission_context', acceptedAt: createdAt }, createdAt: '2026-07-14T09:00:02.000Z' };
+      const sse = (event, data) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+      if (body.initial === true) {
+        const message = createdCheckpoints.find((checkpoint) => checkpoint.kind === 'user_message');
+        const delivery = { status: 'accepted', applicationMode: 'mission_context', acceptedAt: createdAt };
+        await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body: sse('accepted', { message, delivery, idempotentReplay: true }) + sse('done', { idempotentReplay: true }) }); return;
+      }
+      const revision = item.id === mission.id && body.text === '수정 차수로 보완해줘';
+      const stateTransition = item.id === mission.id && body.text === '수정 차수 작업을 일시정지해줘';
+      const deliveryStatus = revision || stateTransition ? 'applied' : 'accepted';
+      const applicationMode = revision ? 'revision' : stateTransition ? 'state_transition' : 'mission_context';
+      const message = { id: 'event-keyboard-message', sessionId: item.missionThreadId, sequence: createdCheckpoints.length + 1, kind: 'user_message', text: body.text, metadata: { deliveryStatus, applicationMode, acceptedAt: createdAt, ...(deliveryStatus === 'applied' ? { appliedAt: createdAt } : {}) }, createdAt: '2026-07-14T09:00:02.000Z' };
       if (item.id === mission.id && body.text === '수정 차수로 보완해줘') {
         operationState = { ...operationState, tasks: [...operationState.tasks, revisionTask], reports: [...operationState.reports, revisionReport] };
         missionMutationCheckpoints = [
@@ -202,7 +224,8 @@ async function main() {
       } else if (item.id !== mission.id) {
         createdCheckpoints = [...createdCheckpoints, message];
       }
-      await route.fulfill({ json: { ok: true, message, delivery: { status: 'accepted', applicationMode: 'mission_context', acceptedAt: createdAt }, idempotentReplay: false } }); return;
+      const delivery = { status: deliveryStatus, applicationMode, acceptedAt: createdAt, ...(deliveryStatus === 'applied' ? { appliedAt: createdAt } : {}) };
+      await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body: sse('accepted', { message, delivery, idempotentReplay: false }) + sse('done', { idempotentReplay: false }) }); return;
     }
     const taskMatch = apiPath.match(/^\/api\/agent-operations\/tasks\/([^/]+)\/(approve|pause|resume|cancel|retry)$/);
     if (method === 'POST' && taskMatch) {
@@ -220,7 +243,8 @@ async function main() {
     await page.locator('.agent-checkpoint').nth(204).waitFor();
     assert.equal(await page.locator('.agent-checkpoint').count(), 205);
     assert.equal(await page.locator('.agent-checkpoint').first().getAttribute('data-kind'), 'user_message');
-    assert.match(await page.locator('.agent-checkpoint').last().textContent() || '', /승인이 필요/);
+    const lastCheckpointText = (await page.locator('.agent-checkpoint').last().textContent() || '').replace(/\u00a0/g, ' ');
+    assert.match(lastCheckpointText, /승인이 필요/);
     assert.deepEqual(calls.filter((call) => call.path.endsWith('/work-live/conversation')).slice(0, 2).map((call) => call.cursor), [null, 'older-page']);
     const headerText = await page.locator('.agent-work-header').textContent() || '';
     assert.match(headerText, /직접 지정.*사용자가 담당 에이전트를 선택/);
@@ -263,7 +287,7 @@ async function main() {
     const revisionApproval = page.locator('.agent-checkpoint').filter({ hasText: '수정 차수 보완 승인이 필요합니다.' });
     await revisionApproval.getByRole('button', { name: '이 제안 승인' }).waitFor();
     const revisionCalls = calls.slice(revisionCallStart);
-    const revisionPost = revisionCalls.findIndex((call) => call.method === 'POST' && call.path.endsWith('/work-live/messages'));
+    const revisionPost = revisionCalls.findIndex((call) => call.method === 'POST' && call.path.endsWith('/work-live/live'));
     const revisionAggregate = revisionCalls.findIndex((call) => call.method === 'GET' && call.path === '/api/agent-operations');
     const revisionConversation = revisionCalls.findIndex((call) => call.method === 'GET' && call.path.endsWith('/work-live/conversation'));
     assert.equal(revisionPost >= 0 && revisionAggregate > revisionPost && revisionConversation > revisionAggregate, true, JSON.stringify(revisionCalls));

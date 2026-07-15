@@ -8,17 +8,21 @@ const { buildHermesChatDeltas, buildHermesChatStreamEvents, compactStateSummary 
 const { routeWebCommand } = require('./lib/commands');
 const { routeAgentOperations } = require('./lib/agent-operations-api');
 const { AgentOperationsScheduler } = require('./lib/agent-operations-scheduler');
-const { AgentOperationsService } = require('./lib/agent-operations-service');
+const { AgentOperationsError, AgentOperationsService } = require('./lib/agent-operations-service');
 const { resolveExecutionEngine } = require('./lib/agent-operations-execution');
 const { resolveLiveWorkAgentAvailability } = require('./lib/agent-work-availability');
 const { SchedulerDaemon } = require('./lib/daemon');
 const { normalizeMailAccount, syncMailAccounts } = require('./lib/connectors/mail');
 const {
   createRunPayloadFromTelegram,
-  formatAgentReportTelegram,
+  isTelegramWebhookPath,
   parseTelegramUpdate,
   registerTelegramWebhook,
-  sendTelegramMessage,
+  sendAgentReportTelegram,
+  telegramBotRoutesFromEnv,
+  telegramBotTokenForAgent,
+  telegramIngressMode,
+  telegramWebhookRequestAuthorized,
 } = require('./lib/connectors/telegram');
 const {
   createTickTickOAuthUrl,
@@ -2848,6 +2852,7 @@ function recordGatewayTelegramChatCandidate({ gatewayState, gatewayStore = null,
   if (gatewayStore && typeof gatewayStore.addTelegramChatCandidate === 'function') {
     return gatewayStore.addTelegramChatCandidate({
       chatId: parsed.chatId,
+      agentId: parsed.agentId || 'default',
       username: parsed.username,
       text: parsed.text,
       reason,
@@ -2855,9 +2860,14 @@ function recordGatewayTelegramChatCandidate({ gatewayState, gatewayStore = null,
   }
   if (!Array.isArray(gatewayState.telegramChatCandidates)) gatewayState.telegramChatCandidates = [];
   const chatId = String(parsed.chatId);
+  const agentId = String(parsed.agentId || 'default');
   const now = new Date().toISOString();
-  const existing = gatewayState.telegramChatCandidates.find((item) => String(item.chatId) === chatId);
+  const existing = gatewayState.telegramChatCandidates.find((item) => (
+    String(item.chatId) === chatId
+    && String(item.agentId || 'default') === agentId
+  ));
   if (existing) {
+    existing.agentId = agentId;
     existing.username = parsed.username || existing.username;
     existing.lastText = parsed.text || existing.lastText || '';
     existing.reason = reason || existing.reason || '';
@@ -2867,6 +2877,7 @@ function recordGatewayTelegramChatCandidate({ gatewayState, gatewayStore = null,
   }
   const record = {
     chatId,
+    agentId,
     username: parsed.username || '',
     firstSeenAt: now,
     lastSeenAt: now,
@@ -2978,12 +2989,32 @@ function fallbackCommandInboxAction({ res, gatewayState, gatewayStore = null, it
   sendJson(res, 405, { error: 'Unsupported command inbox action', gatewayFallback: true });
 }
 
-function fallbackTelegramWebhook({ res, body = {}, env = process.env, gatewayState, gatewayStore = null }) {
+function fallbackTelegramWebhook({
+  req,
+  res,
+  body = {},
+  env = process.env,
+  gatewayState,
+  gatewayStore = null,
+  agentId = 'default',
+}) {
+  if (telegramIngressMode(env) !== 'webhook') {
+    sendJson(res, 404, { accepted: false, reason: 'telegram_webhook_disabled' });
+    return;
+  }
   if (!gatewayStore) {
     sendDatabaseRequired(res, 'telegram commands');
     return;
   }
-  const parsed = parseTelegramUpdate(body);
+  const botToken = telegramBotTokenForAgent(env, agentId);
+  if (!telegramWebhookRequestAuthorized({
+    botToken,
+    secretToken: req?.headers?.['x-telegram-bot-api-secret-token'],
+  })) {
+    sendJson(res, 401, { accepted: false, reason: 'telegram_webhook_unauthorized' });
+    return;
+  }
+  const parsed = parseTelegramUpdate(body, { agentId });
   const allowedChatIds = String(env.HERMES_TELEGRAM_ALLOWED_CHAT_IDS || '')
     .split(',')
     .map((item) => item.trim())
@@ -4041,17 +4072,7 @@ async function fallbackState(res, gatewayState, env = process.env, gatewayStore 
         token: env.HERMES_TICKTICK_ACCESS_TOKEN ? '••••' : '',
         importedCount: Array.isArray(state.ticktickTasks) ? state.ticktickTasks.length : 0,
       },
-      telegram: {
-        connected: Boolean(env.HERMES_TELEGRAM_BOT_TOKEN),
-        state: env.HERMES_TELEGRAM_BOT_TOKEN ? 'ready' : 'missing',
-        detail: env.HERMES_TELEGRAM_BOT_TOKEN
-          ? 'Railway gateway has HERMES_TELEGRAM_BOT_TOKEN.'
-          : 'HERMES_TELEGRAM_BOT_TOKEN is not provisioned on Railway gateway.',
-        token: env.HERMES_TELEGRAM_BOT_TOKEN ? '••••' : '',
-        allowedChatCount: String(env.HERMES_TELEGRAM_ALLOWED_CHAT_IDS || '').split(',').map((item) => item.trim()).filter(Boolean).length,
-        webhookUrl: gatewayPublicBaseUrl(env) ? `${gatewayPublicBaseUrl(env)}/api/telegram/webhook` : '',
-        registered: false,
-      },
+      telegram: gatewayTelegramConnectionState({ env, gatewayState, gatewayStore }),
       remote: {
         publicBaseUrl: gatewayPublicBaseUrl(env),
         authEnabled: Boolean(env.HERMES_RUNTIME_TOKEN),
@@ -4240,7 +4261,7 @@ function fallbackSettings(res, env = process.env) {
   const ticktickAccessToken = env.HERMES_TICKTICK_ACCESS_TOKEN || '';
   const ticktickClientId = env.HERMES_TICKTICK_CLIENT_ID || '';
   const ticktickClientSecret = env.HERMES_TICKTICK_CLIENT_SECRET || '';
-  const telegramBotToken = env.HERMES_TELEGRAM_BOT_TOKEN || '';
+  const telegramBotRoutes = telegramBotRoutesFromEnv(env);
   const allowedChatIds = String(env.HERMES_TELEGRAM_ALLOWED_CHAT_IDS || '')
     .split(',')
     .map((item) => item.trim())
@@ -4254,9 +4275,11 @@ function fallbackSettings(res, env = process.env) {
       apiBase: env.HERMES_TICKTICK_API_BASE || 'https://api.ticktick.com',
     },
     telegram: {
-      connected: Boolean(telegramBotToken),
-      botToken: telegramBotToken ? '••••' : '',
+      connected: telegramBotRoutes.length > 0,
+      botToken: telegramBotRoutes.length ? '••••' : '',
       allowedChatIds,
+      configuredAgentIds: telegramBotRoutes.map((route) => route.agentId),
+      ingressMode: telegramIngressMode(env),
     },
     mail: {
       accounts: publicGatewayMailAccounts(env),
@@ -4816,14 +4839,112 @@ function gatewayPublicBaseUrl(env = process.env) {
   return '';
 }
 
-function fallbackSystemConnections({ res, env = process.env, gatewayState, gatewayStore = null }) {
-  const storedState = gatewayStore && typeof gatewayStore.getState === 'function' ? gatewayStore.getState() : {};
-  const ticktickAccessToken = env.HERMES_TICKTICK_ACCESS_TOKEN || '';
-  const telegramBotToken = env.HERMES_TELEGRAM_BOT_TOKEN || '';
-  const allowedChatIds = String(env.HERMES_TELEGRAM_ALLOWED_CHAT_IDS || '')
+function gatewayTelegramConnectionState({
+  env = process.env,
+  gatewayState = {},
+  gatewayStore = null,
+} = {}) {
+  const routes = telegramBotRoutesFromEnv(env);
+  const configuredAgentIds = routes.map((route) => route.agentId);
+  const ingressMode = telegramIngressMode(env);
+  const allowedChatCount = String(env.HERMES_TELEGRAM_ALLOWED_CHAT_IDS || '')
     .split(',')
     .map((item) => item.trim())
-    .filter(Boolean);
+    .filter(Boolean).length;
+  const publicBaseUrl = gatewayPublicBaseUrl(env);
+  const storedState = gatewayStore && typeof gatewayStore.getState === 'function'
+    ? gatewayStore.getState()
+    : {};
+  const webhookStatus = storedState.telegramWebhook || gatewayState.telegramWebhook || {};
+  const configuredAgentIdSet = new Set(configuredAgentIds);
+  let registrations = (Array.isArray(webhookStatus.registrations) ? webhookStatus.registrations : [])
+    .filter((registration) => configuredAgentIdSet.has(String(registration?.agentId || '')))
+    .map((registration) => ({
+      agentId: String(registration.agentId),
+      webhookUrl: String(registration.webhookUrl || ''),
+      registered: registration.registered === true,
+      description: safeRuntimeError(registration.description, ''),
+    }));
+  if (!registrations.length && webhookStatus.registered === true && configuredAgentIds.length === 1) {
+    registrations = [{
+      agentId: configuredAgentIds[0],
+      webhookUrl: String(webhookStatus.webhookUrl || ''),
+      registered: true,
+      description: safeRuntimeError(webhookStatus.description, ''),
+    }];
+  }
+  const registeredCount = registrations.filter((registration) => registration.registered).length;
+  const connected = configuredAgentIds.length > 0;
+  const deliveryReady = connected && allowedChatCount > 0;
+
+  if (ingressMode !== 'webhook') {
+    const existingPoller = ingressMode === 'existing-poller';
+    const state = !connected
+      ? 'missing'
+      : existingPoller
+        ? (deliveryReady ? 'ready' : 'waiting')
+        : 'disabled';
+    const detail = !connected
+      ? 'Telegram bot routes are not provisioned on Railway gateway.'
+      : existingPoller
+        ? deliveryReady
+          ? 'Existing Mac mini Telegram poller retained; Agent Calendar webhook registration is skipped and report delivery is ready.'
+          : 'Existing Mac mini Telegram poller retained; configure an allowed chat before Agent Calendar report delivery.'
+        : 'Telegram ingress is disabled because HERMES_TELEGRAM_INGRESS_MODE is not recognized.';
+    return {
+      connected,
+      state,
+      detail,
+      ingressMode,
+      deliveryReady,
+      token: connected ? '••••' : '',
+      allowedChatCount,
+      webhookUrl: '',
+      registered: false,
+      registeredCount: 0,
+      configuredAgentIds,
+      registrations: [],
+    };
+  }
+
+  const registered = connected && registeredCount === configuredAgentIds.length;
+  const state = !connected
+    ? 'missing'
+    : !publicBaseUrl
+      ? 'waiting'
+      : registered
+        ? 'registered'
+        : registeredCount
+          ? 'partial'
+          : 'ready';
+  const detail = !connected
+    ? 'Telegram bot routes are not provisioned on Railway gateway.'
+    : !publicBaseUrl
+      ? 'Public Railway URL is required for Telegram webhooks.'
+      : registered
+        ? `${registeredCount}/${configuredAgentIds.length} Telegram bot webhooks registered.`
+        : registeredCount
+          ? `${registeredCount}/${configuredAgentIds.length} Telegram bot webhooks registered.`
+          : `${configuredAgentIds.length} Telegram bot routes are configured and waiting for bootstrap.`;
+  return {
+    connected,
+    state,
+    detail,
+    ingressMode,
+    deliveryReady,
+    token: connected ? '••••' : '',
+    allowedChatCount,
+    webhookUrl: publicBaseUrl ? `${publicBaseUrl}/api/telegram/webhook` : '',
+    registered,
+    registeredCount,
+    configuredAgentIds,
+    registrations,
+  };
+}
+
+function fallbackSystemConnections({ res, env = process.env, gatewayState, gatewayStore = null }) {
+  const ticktickAccessToken = env.HERMES_TICKTICK_ACCESS_TOKEN || '';
+  const telegram = gatewayTelegramConnectionState({ env, gatewayState, gatewayStore });
   const publicBaseUrl = gatewayPublicBaseUrl(env);
   const status = {
     managedBy: 'railway-gateway-env',
@@ -4841,17 +4962,7 @@ function fallbackSystemConnections({ res, env = process.env, gatewayState, gatew
       token: ticktickAccessToken ? '••••' : '',
       importedCount: gatewayTickTickTaskCount(gatewayState, gatewayStore),
     },
-    telegram: {
-      connected: Boolean(telegramBotToken),
-      state: telegramBotToken && publicBaseUrl ? 'ready' : telegramBotToken ? 'waiting' : 'missing',
-      detail: telegramBotToken
-        ? (publicBaseUrl ? 'Railway gateway can register Telegram webhook server-side.' : 'Public Railway URL is required for Telegram webhook.')
-        : 'HERMES_TELEGRAM_BOT_TOKEN is not provisioned on Railway gateway.',
-      token: telegramBotToken ? '••••' : '',
-      allowedChatCount: allowedChatIds.length,
-      webhookUrl: publicBaseUrl ? `${publicBaseUrl}/api/telegram/webhook` : '',
-      registered: Boolean((storedState.telegramWebhook || gatewayState.telegramWebhook) && (storedState.telegramWebhook || gatewayState.telegramWebhook).registered),
-    },
+    telegram,
     remote: {
       publicBaseUrl,
       authEnabled: Boolean(env.HERMES_RUNTIME_TOKEN),
@@ -4864,7 +4975,7 @@ function fallbackSystemConnections({ res, env = process.env, gatewayState, gatew
 
 function buildGatewayChannelRoutingStatus({ env = process.env, gatewayState, gatewayStore = null }) {
   const ticktickAccessToken = env.HERMES_TICKTICK_ACCESS_TOKEN || '';
-  const telegramBotToken = env.HERMES_TELEGRAM_BOT_TOKEN || '';
+  const telegram = gatewayTelegramConnectionState({ env, gatewayState, gatewayStore });
   const mailAccounts = publicGatewayMailAccounts(env);
   const allowedChatIds = String(env.HERMES_TELEGRAM_ALLOWED_CHAT_IDS || '')
     .split(',')
@@ -4898,7 +5009,7 @@ function buildGatewayChannelRoutingStatus({ env = process.env, gatewayState, gat
     ? mailSyncStatus.accounts.filter((account) => account && account.ok === false)
     : [];
   const mailFailure = mailFailedAccounts.map((account) => `${account.provider || account.accountId || 'mail'}: ${account.reason || 'sync_failed'}`).join(' · ');
-  const telegramWebhookUrl = publicBaseUrl ? `${publicBaseUrl}/api/telegram/webhook` : '';
+  const telegramWebhookUrl = telegram.webhookUrl;
   const channels = [
     {
       id: 'web',
@@ -4917,18 +5028,21 @@ function buildGatewayChannelRoutingStatus({ env = process.env, gatewayState, gat
     {
       id: 'telegram',
       label: 'Telegram',
-      connected: Boolean(telegramBotToken),
-      state: telegramBotToken && publicBaseUrl ? 'ready' : telegramBotToken ? 'waiting' : 'missing',
+      connected: telegram.connected,
+      state: telegram.state,
       linkedAgent: 'default',
+      linkedAgents: telegram.configuredAgentIds,
+      configuredAgentIds: telegram.configuredAgentIds,
+      registeredCount: telegram.registeredCount,
+      ingressMode: telegram.ingressMode,
+      deliveryReady: telegram.deliveryReady,
       model: 'Codex',
       endpoint: telegramWebhookUrl,
       allowedChatCount: allowedChatIds.length,
       candidateCount: 0,
       importedCount: commandRows.filter((item) => item.source === 'telegram').length,
       lastCommand: commandRows.find((item) => item.source === 'telegram') || null,
-      detail: telegramBotToken
-        ? 'Telegram webhook can be registered from Railway without exposing the bot token.'
-        : 'Telegram bot token is missing on Railway.',
+      detail: telegram.detail,
     },
     {
       id: 'ticktick',
@@ -4986,9 +5100,13 @@ function buildGatewayChannelRoutingStatus({ env = process.env, gatewayState, gat
         token: ticktickAccessToken ? '••••' : '',
       },
       telegram: {
-        connected: Boolean(telegramBotToken),
-        token: telegramBotToken ? '••••' : '',
+        connected: telegram.connected,
+        token: telegram.token,
         allowedChatCount: allowedChatIds.length,
+        configuredAgentIds: telegram.configuredAgentIds,
+        registeredCount: telegram.registeredCount,
+        ingressMode: telegram.ingressMode,
+        deliveryReady: telegram.deliveryReady,
       },
     },
     gatewayFallback: true,
@@ -5004,13 +5122,8 @@ async function fallbackSystemConnectionsBootstrap({ res, env = process.env, fetc
     sendDatabaseRequired(res, 'system connection bootstrap');
     return;
   }
-  const storedState = gatewayStore.getState();
   const ticktickAccessToken = env.HERMES_TICKTICK_ACCESS_TOKEN || '';
-  const telegramBotToken = env.HERMES_TELEGRAM_BOT_TOKEN || '';
-  const allowedChatIds = String(env.HERMES_TELEGRAM_ALLOWED_CHAT_IDS || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
+  const telegramBotRoutes = telegramBotRoutesFromEnv(env);
   const publicBaseUrl = gatewayPublicBaseUrl(env);
   const status = {
     managedBy: 'railway-gateway-env',
@@ -5029,17 +5142,7 @@ async function fallbackSystemConnectionsBootstrap({ res, env = process.env, fetc
       importedCount: gatewayTickTickTaskCount(gatewayState, gatewayStore),
       skippedCount: 0,
     },
-    telegram: {
-      connected: Boolean(telegramBotToken),
-      state: telegramBotToken && publicBaseUrl ? 'ready' : telegramBotToken ? 'waiting' : 'missing',
-      detail: telegramBotToken
-        ? (publicBaseUrl ? 'Telegram bot token exists on Railway gateway.' : 'Public Railway URL is required for Telegram webhook.')
-        : 'HERMES_TELEGRAM_BOT_TOKEN is not provisioned on Railway gateway.',
-      token: telegramBotToken ? '••••' : '',
-      allowedChatCount: allowedChatIds.length,
-      webhookUrl: publicBaseUrl ? `${publicBaseUrl}/api/telegram/webhook` : '',
-      registered: Boolean((storedState.telegramWebhook || gatewayState.telegramWebhook) && (storedState.telegramWebhook || gatewayState.telegramWebhook).registered),
-    },
+    telegram: gatewayTelegramConnectionState({ env, gatewayState, gatewayStore }),
     remote: {
       publicBaseUrl,
       authEnabled: Boolean(env.HERMES_RUNTIME_TOKEN),
@@ -5063,26 +5166,47 @@ async function fallbackSystemConnectionsBootstrap({ res, env = process.env, fetc
     }
   }
 
-  if (telegramBotToken && publicBaseUrl) {
-    const webhookUrl = `${publicBaseUrl}/api/telegram/webhook`;
-    try {
-      const result = await registerTelegramWebhook({
-        botToken: telegramBotToken,
-        webhookUrl,
-        fetchImpl,
-      });
-      const webhookStatus = gatewayStore.setTelegramWebhookStatus({ webhookUrl, result });
-      status.telegram.state = webhookStatus.registered ? 'registered' : 'failed';
-      status.telegram.detail = webhookStatus.description || 'Telegram webhook registered from Railway gateway.';
-      status.telegram.webhookUrl = webhookUrl;
-      status.telegram.registered = webhookStatus.registered;
-    } catch (error) {
-      gatewayStore.setTelegramWebhookStatus({ webhookUrl, error: error.message || String(error) });
-      status.telegram.state = 'failed';
-      status.telegram.detail = error.message;
-      status.telegram.webhookUrl = webhookUrl;
-      status.telegram.registered = false;
+  if (telegramIngressMode(env) === 'webhook' && telegramBotRoutes.length && publicBaseUrl) {
+    const registrations = [];
+    for (const route of telegramBotRoutes) {
+      const webhookUrl = `${publicBaseUrl}${route.webhookPath}`;
+      try {
+        const result = await registerTelegramWebhook({
+          botToken: route.botToken,
+          webhookUrl,
+          fetchImpl,
+        });
+        registrations.push({
+          agentId: route.agentId,
+          webhookUrl,
+          registered: result?.ok !== false,
+          description: String(result?.description || ''),
+        });
+      } catch (error) {
+        registrations.push({
+          agentId: route.agentId,
+          webhookUrl,
+          registered: false,
+          description: error.message || String(error),
+        });
+      }
     }
+    const registeredCount = registrations.filter((registration) => registration.registered).length;
+    const allRegistered = registeredCount === telegramBotRoutes.length;
+    const webhookUrl = `${publicBaseUrl}/api/telegram/webhook`;
+    const description = `${registeredCount}/${telegramBotRoutes.length} Telegram bot webhooks registered.`;
+    gatewayStore.setTelegramWebhookStatus({
+      webhookUrl,
+      result: { ok: allRegistered, description },
+      ...(allRegistered ? {} : { error: description }),
+      registrations,
+    });
+    status.telegram.state = allRegistered ? 'registered' : registeredCount ? 'partial' : 'failed';
+    status.telegram.detail = description;
+    status.telegram.webhookUrl = webhookUrl;
+    status.telegram.registered = allRegistered;
+    status.telegram.registeredCount = registeredCount;
+    status.telegram.registrations = registrations;
   }
 
   gatewayState.systemConnections = status;
@@ -7324,7 +7448,15 @@ async function handleApi(
       return;
     }
     if (method === 'POST' && pathSegments[0] === 'telegram' && pathSegments[1] === 'webhook') {
-      fallbackTelegramWebhook({ res, body, env, gatewayState, gatewayStore });
+      fallbackTelegramWebhook({
+        req,
+        res,
+        body,
+        env,
+        gatewayState,
+        gatewayStore,
+        agentId: pathSegments[2] ? decodeURIComponent(pathSegments[2]) : 'default',
+      });
       return;
     }
     if (pathSegments[0] === 'inbox' && pathSegments[1] === 'commands') {
@@ -7970,6 +8102,25 @@ function createRailwayGatewayServer({
     ).trim() || 'hermes';
     const deliverable = payload.deliverable || meta.deliverable || {};
     const executionEngine = resolveExecutionEngine(requestedExecutionEngine, deliverable);
+    if (executionEngine === 'codex') {
+      const readiness = await relayRuntimeJsonRequest({
+        relay,
+        env,
+        pathOverride: '/api/runner/adapters',
+        timeoutMs: Number(env.HERMES_RELAY_STREAM_TIMEOUT_MS || 30_000),
+      });
+      const codexAdapter = (Array.isArray(readiness?.body?.adapters) ? readiness.body.adapters : [])
+        .find((adapter) => String(adapter?.id || '') === 'codex-cli');
+      const codexReady = codexAdapter?.ready === true
+        || String(codexAdapter?.status || '').toLowerCase() === 'ready';
+      if (!readiness?.ok || !codexReady) {
+        throw new AgentOperationsError(
+          'runtime_unavailable',
+          'Codex runner is not ready on the Mac mini runtime',
+          503,
+        );
+      }
+    }
     const completion = executionEngine === 'local_llm'
       ? await runRelayChatCompletion({
         relay,
@@ -8029,15 +8180,19 @@ function createRailwayGatewayServer({
     .split(',')
     .map((chatId) => chatId.trim())
     .find(Boolean);
-  const sendAgentReportTelegram = env.HERMES_TELEGRAM_BOT_TOKEN && agentReportChatId
-    ? (report) => sendTelegramMessage({
-      botToken: env.HERMES_TELEGRAM_BOT_TOKEN,
-      chatId: agentReportChatId,
-      text: formatAgentReportTelegram(report, {
-        appUrl: `agent-calendar://sessions/${encodeURIComponent(report.sessionId || '')}`,
-      }),
-      fetchImpl,
-    })
+  const agentReportTelegramSender = agentReportChatId && gatewayStore
+    ? (report) => {
+      const mission = gatewayStore.getAgentMissions()
+        .find((item) => item.id === report?.missionId);
+      return sendAgentReportTelegram({
+        env,
+        agentId: mission?.agentId,
+        chatId: agentReportChatId,
+        report,
+        appUrl: `agent-calendar://sessions/${encodeURIComponent(report?.sessionId || '')}`,
+        fetchImpl,
+      });
+    }
     : null;
   const agentOperationsScheduler = injectedAgentOperationsService
     ? injectedAgentOperationsScheduler
@@ -8046,7 +8201,7 @@ function createRailwayGatewayServer({
         store: gatewayStore,
         clock: operationClock,
         executeCompletion: executeAgentCompletion,
-        sendTelegram: sendAgentReportTelegram,
+        sendTelegram: agentReportTelegramSender,
       })
       : null);
   const agentOperationsDaemon = agentOperationsScheduler
@@ -8094,7 +8249,11 @@ function createRailwayGatewayServer({
         return;
       }
       if (requestUrl.pathname.startsWith('/api/')) {
-        if (!isRelayApiPath(requestUrl.pathname) && !isPublicHealthApiPath(requestUrl.pathname)) {
+        if (
+          !isRelayApiPath(requestUrl.pathname)
+          && !isPublicHealthApiPath(requestUrl.pathname)
+          && !isTelegramWebhookPath(requestUrl.pathname)
+        ) {
           const callerAuth = apiCallerAuth(req, env);
           if (!callerAuth.ok) {
             if (callerAuth.status === 401) res.setHeader('www-authenticate', 'Bearer');

@@ -50,6 +50,13 @@ function defaultSettings() {
     },
     telegram: {
       botToken: '',
+      botTokens: {
+        bizconsultant: '',
+        stockagent: '',
+        uniportpm: '',
+        wikicurator: '',
+      },
+      ingressMode: 'webhook',
       allowedChatIds: [],
     },
     mail: {
@@ -106,6 +113,12 @@ class SecretStore {
 
   getPublicSettings() {
     const settings = this.getSettings();
+    const telegramBotTokens = settings.telegram?.botTokens || {};
+    const configuredTelegramAgentIds = [
+      ...(settings.telegram?.botToken ? ['default'] : []),
+      ...['bizconsultant', 'stockagent', 'uniportpm', 'wikicurator']
+        .filter((agentId) => Boolean(telegramBotTokens[agentId])),
+    ];
     return {
       ticktick: {
         connected: Boolean(settings.ticktick.accessToken),
@@ -117,8 +130,15 @@ class SecretStore {
         apiBase: settings.ticktick.apiBase,
       },
       telegram: {
-        connected: Boolean(settings.telegram.botToken),
+        connected: configuredTelegramAgentIds.length > 0,
         botToken: redactSecret(settings.telegram.botToken),
+        botTokens: Object.fromEntries(
+          Object.entries(telegramBotTokens)
+            .filter(([, value]) => Boolean(value))
+            .map(([agentId, value]) => [agentId, redactSecret(value)]),
+        ),
+        configuredAgentIds: configuredTelegramAgentIds,
+        ingressMode: settings.telegram.ingressMode || 'webhook',
         allowedChatIds: settings.telegram.allowedChatIds || [],
       },
       mail: {

@@ -131,7 +131,10 @@ async function main() {
     window.__consoleLiveFrames = [];
     const capture = () => {
       const live = document.querySelector('.agent-work-live-turn');
-      if (live) window.__agentWorkLiveFrames.push({ text: live.textContent || '', at: Date.now() });
+      if (live) {
+        const answer = live.querySelector(':scope > p')?.textContent || '';
+        window.__agentWorkLiveFrames.push({ text: live.textContent || '', answer, at: Date.now() });
+      }
       const consoleAnswer = document.querySelector('.chat .message.assistant:last-of-type');
       if (consoleAnswer) window.__consoleLiveFrames.push({ text: consoleAnswer.textContent || '', at: Date.now() });
     };
@@ -201,15 +204,27 @@ async function main() {
     await page.locator('.agent-work-live-turn').waitFor({ timeout: 120_000 });
     const followUpAnswer = await waitForSettledAgentMessage(page, beforeFollowUp);
 
-    const liveFrames = await page.evaluate(() => window.__agentWorkLiveFrames);
+    const liveFrames = (await page.evaluate(() => window.__agentWorkLiveFrames)).map((frame) => ({
+      ...frame,
+      answer: frame.answer.replace(/\s+/gu, ' ').trim(),
+    }));
     assert.ok(liveFrames.some((frame) => frame.text.includes('응답 중')), 'the configured runtime never rendered a live response state');
-    const firstAnswerFrame = liveFrames.find((frame) => frame.at >= initialTurnStartedAt && frame.text.includes('응답 중') && !frame.text.includes('응답을 받고 있습니다.'));
+    const firstAnswerFrame = liveFrames.find((frame) => frame.at >= initialTurnStartedAt && frame.answer && frame.answer !== '응답을 받고 있습니다.');
     assert.ok(firstAnswerFrame, 'the configured runtime never rendered a streamed answer delta');
     const progressiveAnswerFrames = [...new Map(liveFrames
-      .filter((frame) => frame.at >= initialTurnStartedAt && frame.at <= initialTurnSettledAt && frame.text.includes('응답 중') && !frame.text.includes('응답을 받고 있습니다.'))
-      .map((frame) => [frame.text, frame])).values()];
+      .filter((frame) => frame.at >= initialTurnStartedAt && frame.at <= initialTurnSettledAt && frame.answer && frame.answer !== '응답을 받고 있습니다.')
+      .map((frame) => [frame.answer, frame])).values()];
     assert.ok(progressiveAnswerFrames.length >= 2, `the configured runtime rendered only ${progressiveAnswerFrames.length} distinct answer frame(s)`);
-    assert.ok(progressiveAnswerFrames.every((frame, index) => index === 0 || frame.text.length > progressiveAnswerFrames[index - 1].text.length), 'the configured runtime answer frames did not grow incrementally');
+    const progressiveFrameDiagnostics = progressiveAnswerFrames.map((frame, index) => ({
+      index,
+      elapsedMs: frame.at - initialTurnStartedAt,
+      chars: frame.answer.length,
+      grew: index === 0 || (frame.answer.length > progressiveAnswerFrames[index - 1].answer.length && frame.answer.startsWith(progressiveAnswerFrames[index - 1].answer)),
+    }));
+    assert.ok(
+      progressiveAnswerFrames.every((frame, index) => index === 0 || (frame.answer.length > progressiveAnswerFrames[index - 1].answer.length && frame.answer.startsWith(progressiveAnswerFrames[index - 1].answer))),
+      `the configured runtime answer frames did not grow incrementally: ${JSON.stringify(progressiveFrameDiagnostics)}`,
+    );
     assert.ok(apiResponses.some((item) => item.method === 'POST' && item.path.endsWith(`/work/${workId}/live`) && item.status === 200), 'the configured runtime did not use the live SSE endpoint');
     assert.equal(consoleErrors.length, 0, consoleErrors.join('\n'));
 
@@ -248,6 +263,7 @@ async function main() {
     let consoleLiveFrames = [];
     if (selectedExecutionEngine === 'hermes') {
       await page.setViewportSize({ width: 1280, height: 900 });
+      await page.locator('.nav-item').filter({ hasText: '캘린더' }).click();
       await page.locator('.chat-fab').click();
       await page.locator('.chat').waitFor();
       const consoleStreamResponsePromise = page.waitForResponse((response) => {

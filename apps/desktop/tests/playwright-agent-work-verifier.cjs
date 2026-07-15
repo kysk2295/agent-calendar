@@ -85,11 +85,14 @@ async function main() {
     }
     if (request.method() === 'GET' && apiPath === '/api/agents') { await route.fulfill({ json: { ok: true, agents: [{ id: mission.agentId, displayName: 'Business Consultant', status: 'ready', model: 'Recommended', role: '검토', provider: 'Hermes', trustLevel: '승인', allowedTaskClasses: ['research'] }] } }); return; }
     if (request.method() === 'GET' && apiPath === `/api/agent-operations/work/${mission.id}/conversation`) { await route.fulfill({ json: conversationPayload(mission, 'report-new') }); return; }
-    if (request.method() === 'POST' && apiPath === `/api/agent-operations/work/${mission.id}/messages`) {
+    if (request.method() === 'POST' && apiPath === `/api/agent-operations/work/${mission.id}/live`) {
       const body = request.postDataJSON();
       if (body.text === '이제 실패') { await route.fulfill({ status: 503, json: { ok: false, error: 'temporary_failure', message: '잠시 후 다시 시도하세요.' } }); return; }
       const nextCheckpoint = body.text === '다음 체크포인트에 멈춰줘';
-      await route.fulfill({ json: { ok: true, message: { id: `message-${body.text}`, sessionId: mission.missionThreadId, sequence: 2, kind: 'user_message', text: body.text, metadata: {}, createdAt }, delivery: { status: 'accepted', applicationMode: nextCheckpoint ? 'next_checkpoint' : 'mission_context', acceptedAt: createdAt }, idempotentReplay: false } }); return;
+      const message = { id: `message-${body.text}`, sessionId: mission.missionThreadId, sequence: 2, kind: 'user_message', text: body.text, metadata: {}, createdAt };
+      const delivery = { status: 'accepted', applicationMode: nextCheckpoint ? 'next_checkpoint' : 'mission_context', acceptedAt: createdAt };
+      const sse = (event, data) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+      await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body: sse('accepted', { message, delivery, idempotentReplay: false }) + sse('done', { idempotentReplay: false }) }); return;
     }
     if (request.method() === 'POST' && apiPath === '/api/agent-operations/work') {
       const body = request.postDataJSON();
@@ -146,7 +149,7 @@ async function main() {
       await prompt.fill('aggregate 누락 작업');
       await page.getByRole('button', { name: '위임' }).click();
       await page.locator('.agent-work-conversation').waitFor({ timeout: 2000 });
-      assert.match(await page.locator('.agent-work-header').textContent() || '', /aggregate 누락 작업/);
+      assert.match(await page.locator('.agent-work-header').textContent() || '', /aggregate\u00a0누락\u00a0작업/);
       assert.equal(await page.locator('.agent-control-room-board').count(), 0);
       const createdComposer = page.getByLabel('작업 대화 메시지');
       assert.equal(await createdComposer.isEnabled(), true);
@@ -190,7 +193,7 @@ async function main() {
       assert.equal(await createdComposer.inputValue(), '새로고침 중에도 보존할 후속 지시');
       await aggregateRetry.click();
       await aggregateError.waitFor({ state: 'detached' });
-      assert.match(await page.locator('.agent-work-header').textContent() || '', /aggregate 누락 작업/);
+      assert.match(await page.locator('.agent-work-header').textContent() || '', /aggregate\u00a0누락\u00a0작업/);
       assert.equal(await createdComposer.inputValue(), '새로고침 중에도 보존할 후속 지시');
       assert.equal(await page.locator('.agent-work-header h1').evaluate((element) => element === document.activeElement), true);
       assert.equal(await page.locator('.agent-work-scrim, .agent-work-drawer').count(), 0);

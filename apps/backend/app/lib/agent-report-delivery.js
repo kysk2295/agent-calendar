@@ -23,6 +23,12 @@ async function deliverAgentReport({
       deliveryError: '',
     });
   } catch (error) {
+    if (error?.code === 'telegram_not_configured') {
+      return store.updateAgentReport(report.id, {
+        deliveryStatus: 'not_configured',
+        deliveryError: 'telegram_not_configured',
+      });
+    }
     const safeError = sanitizeSessionEvent({
       kind: 'error',
       text: String(error.message || 'Telegram delivery failed'),

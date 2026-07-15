@@ -102,7 +102,7 @@ async function routeAgentOperations({ method, pathSegments, body = {}, query = {
       return success(200, { task: service.transitionTask(normalized[2], normalized[3]) });
     }
     if (method === 'POST' && normalized.length === 4 && normalized[1] === 'tasks' && normalized[2] && normalized[3] === 'run-now') {
-      return success(200, await service.runTaskNow(normalized[2]));
+      return success(202, await service.startTaskNow(normalized[2]));
     }
     if (method === 'GET' && normalized[1] === 'sessions' && normalized[2] && normalized.length === 3) {
       return success(200, { session: service.getSession(normalized[2]) });

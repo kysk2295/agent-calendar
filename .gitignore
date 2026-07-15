@@ -6,6 +6,7 @@ dist/
 dist-electron/
 apps/desktop/dist/
 apps/desktop/dist-electron/
+apps/desktop/release/
 apps/desktop/audit/*.json
 apps/desktop/audit/
 .omo/

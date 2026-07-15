@@ -158,10 +158,21 @@ async function runRelayChatCompletion({
 }
 
 function runRelayProfileChatCompletion(options = {}) {
-  const { model: _model, ...payload } = options.payload || {};
+  const {
+    model: _model,
+    toolsets: _toolsets,
+    yolo: _yolo,
+    noApproval: _noApproval,
+    ...payload
+  } = options.payload || {};
   return runRelayChatCompletion({
     ...options,
-    payload,
+    payload: {
+      ...payload,
+      toolsets: ['safe'],
+      yolo: false,
+      noApproval: false,
+    },
     jobKind: 'profile.chat',
   });
 }

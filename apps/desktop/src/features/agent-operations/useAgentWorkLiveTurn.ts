@@ -8,9 +8,10 @@ export type AgentWorkLiveTurnState = Readonly<{
   active: boolean;
   text: string;
   error: string;
+  refreshFailed: boolean;
 }>;
 
-const IDLE: AgentWorkLiveTurnState = { active: false, text: '', error: '' };
+const IDLE: AgentWorkLiveTurnState = { active: false, text: '', error: '', refreshFailed: false };
 
 function errorCopy(error: unknown): string {
   if (error instanceof HermesApiError && error.code === 'work_turn_in_progress') {
@@ -33,7 +34,14 @@ export function useAgentWorkLiveTurn(missionId: string, onRefresh: () => Promise
     if (abortRef.current) throw new Error('Live Work Conversation is already active');
     const controller = new AbortController();
     abortRef.current = controller;
-    setState({ active: true, text: '', error: '' });
+    setState({ active: true, text: '', error: '', refreshFailed: false });
+    const refresh = async () => {
+      try {
+        return await onRefreshRef.current();
+      } catch {
+        return false;
+      }
+    };
     return new Promise<AgentWorkDelivery>((resolve, reject) => {
       let accepted = false;
       let completed = false;
@@ -46,7 +54,9 @@ export function useAgentWorkLiveTurn(missionId: string, onRefresh: () => Promise
             if (event.type === 'accepted') {
               accepted = true;
               resolve(event.delivery);
-              void onRefreshRef.current();
+              void refresh().then((refreshed) => {
+                if (!refreshed) setState((current) => ({ ...current, refreshFailed: true }));
+              });
               return;
             }
             if (event.type === 'delta') {
@@ -63,18 +73,20 @@ export function useAgentWorkLiveTurn(missionId: string, onRefresh: () => Promise
               return;
             }
             if (event.type === 'done') {
-              const refreshed = await onRefreshRef.current();
-              if (!streamError || refreshed || durableTerminalError) setState(IDLE);
+              const refreshed = await refresh();
+              if (!streamError || refreshed || durableTerminalError) {
+                setState(refreshed ? IDLE : { ...IDLE, refreshFailed: true });
+              }
               completed = true;
             }
           });
           if (!accepted) throw new Error('Live Work Conversation did not acknowledge the message');
         } catch (error: unknown) {
           const message = errorCopy(error);
-          setState({ active: false, text: '', error: message });
+          setState({ active: false, text: '', error: message, refreshFailed: false });
           if (!accepted) reject(error instanceof Error ? error : new Error(message));
         } finally {
-          if (accepted && !completed) await onRefreshRef.current();
+          if (accepted && !completed) await refresh();
           if (abortRef.current === controller) abortRef.current = null;
         }
       })();

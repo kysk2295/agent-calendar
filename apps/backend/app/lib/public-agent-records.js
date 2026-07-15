@@ -425,6 +425,9 @@ function projectAgentOperationsResponse(body = {}) {
   if (source.daemon) projected.daemon = publicDaemonRecord(source.daemon);
   if (source.tick) projected.tick = publicSchedulerResult(source.tick);
   if (source.run) projected.run = publicSchedulerResult(source.run);
+  if (typeof source.accepted === 'boolean') projected.accepted = source.accepted;
+  if (source.acceptedAt) projected.acceptedAt = publicTimestamp(source.acceptedAt);
+  if (source.taskId) projected.taskId = publicIdentifier(source.taskId);
   if (typeof source.idempotentReplay === 'boolean') {
     projected.idempotentReplay = source.idempotentReplay;
   }

@@ -75,6 +75,34 @@ test('live Work turn persists the final agent answer while emitting accepted, pr
   }
 });
 
+test('an active taskless Work Conversation can pause and resume while a taskless draft still requires planning', async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-work-live-turn-resume-'));
+  const store = new HermesStore({ dataDir, clock });
+  const service = new AgentOperationsService({
+    store,
+    clock,
+    liveTurnCompletion: async () => ({ text: '작업 대화를 시작했습니다.', jobId: 'live-job-resume', executionEngine: 'hermes' }),
+  });
+
+  try {
+    const activeWork = await service.createWork(workRequest({ clientRequestId: 'live-turn-resume-request' }));
+    await service.streamWorkTurn(activeWork.work.id, { initial: true }, async () => {});
+    assert.equal(store.getState().tasks.filter((task) => task.missionId === activeWork.work.id).length, 0);
+
+    const paused = service.transitionMission(activeWork.work.id, 'pause');
+    assert.equal(paused.mission.status, 'paused');
+    assert.equal(service.activateMission(activeWork.work.id).status, 'active');
+
+    const draftWork = await service.createWork(workRequest({ clientRequestId: 'live-turn-draft-plan-gate' }));
+    assert.throws(
+      () => service.activateMission(draftWork.work.id),
+      (error) => error?.code === 'mission_plan_required' && error?.status === 409,
+    );
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('live Work turns do not invoke the runtime for unsupported external requests or idempotent replays', async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-work-live-turn-safety-'));
   const store = new HermesStore({ dataDir, clock });

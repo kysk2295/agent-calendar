@@ -1,0 +1,19 @@
+--- a/app/server.js
++++ b/app/server.js
+@@ -2973,7 +2973,16 @@
+         }
+         if (action === 'stop') {
+-          const stopped = store.updateRunStatus(runId, 'stopped') || run;
++          const stopConfirmed = await runner.stopRun(runId);
++          if (!stopConfirmed) {
++            sendJson(res, 409, {
++              ok: false,
++              error: 'Run cancellation was not confirmed',
++              run: store.getRun(runId) || run,
++            });
++            return;
++          }
++          const stopped = store.getRun(runId) || run;
+           store.appendRunLog(runId, `${clock().toISOString().slice(11, 19)} stop requested`);
+           const state = store.getState();
+           sendJson(res, 200, { ok: true, data: { run: stopped, state }, run: stopped, state });

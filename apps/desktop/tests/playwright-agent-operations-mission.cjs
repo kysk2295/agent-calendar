@@ -209,6 +209,11 @@ async function main() {
       operationState = {
         ...operationState,
         missions: operationState.missions.map((mission) => ({ ...mission, status: 'active' })),
+        tasks: operationState.tasks.map((task) => (
+          task.missionPause && task.status === 'blocked'
+            ? { ...task, status: 'scheduled', missionPause: false }
+            : task
+        )),
       };
       await route.fulfill({ json: { ok: true, mission: operationState.missions[0] } });
       return;
@@ -282,10 +287,14 @@ async function main() {
   await page.getByRole('button', { name: '계획 만들기', exact: true }).click();
   await page.locator('.agent-work-task').first().waitFor();
   assert.equal(await page.locator('.agent-work-task').count(), 3);
-  assert.deepEqual(await page.locator('.agent-work-task header strong').allTextContents(), ['경쟁사 변화 수집', '기회 가설 검증', '주간 기회 보고']);
+  assert.deepEqual(await page.locator('.agent-work-task header strong').allTextContents(), [
+    '경쟁사\u00a0변화\u00a0수집',
+    '기회\u00a0가설\u00a0검증',
+    '주간\u00a0기회\u00a0보고',
+  ]);
   assert.equal(await page.getByRole('button', { name: 'Task Session 열기' }).count(), 3);
   assert.match(await page.locator('.agent-work-details').textContent() || '', /0\/3/);
-  assert.match(await page.locator('.agent-work-details').textContent() || '', /가격 변화 근거가 부족하다/);
+  assert.match(await page.locator('.agent-work-details').textContent() || '', /가격\u00a0변화\u00a0근거가\u00a0부족하다/);
   await page.setViewportSize({ width: 768, height: 900 });
   const tabletMissionWidths = await page.locator('.agent-work-conversation, .agent-work-timeline').evaluateAll((elements) => elements.map((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })));
   assert.equal(tabletMissionWidths.every((width) => width.scrollWidth <= width.clientWidth), true);
@@ -305,15 +314,33 @@ async function main() {
   assert.equal(calls.some((call) => call.path === '/api/agent-operations/tasks/task-scan/run-now'), true);
   await capture(page, 'mission-active-desktop');
   assert.match(await page.locator('.agent-work-header').textContent() || '', /Business Consultant/);
+  const firstPauseResponse = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/agent-operations/missions/mission-weekly/pause'
+  ));
   await page.getByRole('button', { name: '전체 일시정지' }).click();
-  await page.locator('.agent-work-header b', { hasText: '일시정지' }).waitFor();
+  assert.equal((await firstPauseResponse).status(), 200);
+  try {
+    await page.locator('.agent-work-header b', { hasText: '확인 필요' }).waitFor();
+  } catch (error) {
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${JSON.stringify({
+      header: await page.locator('.agent-work-header').textContent(),
+      alerts: await page.locator('.agent-operations-error').allTextContents(),
+      recentCalls: calls.slice(-20),
+    })}`);
+  }
   const missionActions = page.locator('.agent-work-mission-actions');
   assert.equal(await missionActions.getByRole('button', { name: '재개', exact: true }).count(), 1);
   await missionActions.getByRole('button', { name: '재개', exact: true }).click();
   await page.locator('.agent-work-header b', { hasText: '운영 중' }).waitFor();
   assert.equal(await page.getByRole('button', { name: '전체 일시정지' }).count(), 1);
+  const secondPauseResponse = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/agent-operations/missions/mission-weekly/pause'
+  ));
   await page.getByRole('button', { name: '전체 일시정지' }).click();
-  await page.locator('.agent-work-header b', { hasText: '일시정지' }).waitFor();
+  assert.equal((await secondPauseResponse).status(), 200);
+  await page.locator('.agent-work-header b', { hasText: '확인 필요' }).waitFor();
   await page.getByRole('button', { name: '작업 중단' }).click();
   await page.locator('.agent-work-header b', { hasText: '중단됨' }).waitFor();
   assert.match(await page.locator('.agent-work-details').textContent() || '', /1\/3/);

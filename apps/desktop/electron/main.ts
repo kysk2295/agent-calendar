@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loginWithPassword, signUpWithPassword, startProviderLogin, type AuthProvider } from './auth.js';
+import { createAgentCalendarDeepLinkMain } from './deepLinkMain.js';
 import { createApiProxyServer, isTrustedProxyRendererUrl } from './proxy.js';
 import { migrateLegacyUserDataFiles, publicSettings, readSettings, saveSettings } from './settings.js';
 
@@ -26,6 +27,7 @@ let mainWindow: BrowserWindow | null = null;
 let widgetOverlayWindow: BrowserWindow | null = null;
 let proxyBaseUrl = '';
 const proxyCredential = randomBytes(32).toString('base64url');
+const deepLinks = createAgentCalendarDeepLinkMain();
 let widgetActionPoller: NodeJS.Timeout | null = null;
 
 app.setName(APP_NAME);
@@ -134,6 +136,7 @@ function createWindow() {
       sandbox: false,
     },
   });
+  deepLinks.attachWindow(mainWindow);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);

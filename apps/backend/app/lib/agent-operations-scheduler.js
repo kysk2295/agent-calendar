@@ -35,21 +35,17 @@ class AgentOperationsScheduler {
   }
 
   async runTaskNow(taskId) {
+    const started = this.startTaskNow(taskId);
+    return started.completion;
+  }
+
+  startTaskNow(taskId) {
     if (this.tickPromise) {
       const error = new Error('Agent operations scheduler is already running');
       error.code = 'scheduler_busy';
       error.status = 409;
       throw error;
     }
-    this.tickPromise = this.#runTaskNowOnce(taskId);
-    try {
-      return await this.tickPromise;
-    } finally {
-      this.tickPromise = null;
-    }
-  }
-
-  async #runTaskNowOnce(taskId) {
     const checkedAt = this.clock().toISOString();
     const result = createSchedulerResult(checkedAt);
     const task = this.store.getState().tasks.find((item) => item.id === taskId);
@@ -72,8 +68,23 @@ class AgentOperationsScheduler {
       error.status = 409;
       throw error;
     }
-    await this.#executeTask(task, result);
-    return result;
+    let didStart = false;
+    let resolveStarted;
+    const started = new Promise((resolve) => { resolveStarted = resolve; });
+    const completion = this.#executeTask(task, result, (runningTask) => {
+      didStart = true;
+      resolveStarted(runningTask);
+    }).then(() => {
+      return result;
+    });
+    completion.finally(() => {
+      if (!didStart) resolveStarted(null);
+    }).catch(() => {});
+    this.tickPromise = completion;
+    completion.finally(() => {
+      if (this.tickPromise === completion) this.tickPromise = null;
+    }).catch(() => {});
+    return { acceptedAt: checkedAt, taskId, started, completion };
   }
 
   async #tickOnce() {
@@ -108,7 +119,7 @@ class AgentOperationsScheduler {
     return result;
   }
 
-  async #executeTask(task, result) {
+  async #executeTask(task, result, onStarted) {
     return executeAgentTask({
       store: this.store,
       clock: this.clock,
@@ -116,6 +127,7 @@ class AgentOperationsScheduler {
       sendTelegram: this.sendTelegram,
       task,
       result,
+      onStarted,
     });
   }
 

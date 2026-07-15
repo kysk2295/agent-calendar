@@ -40,6 +40,19 @@ function createOperationId(prefix, clock) {
   return `${prefix}-${stamp}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+function reconcileTerminalTaskSessions(store) {
+  const state = store.getState();
+  const terminalStatuses = new Set(['blocked', 'cancelled', 'completed', 'failed']);
+  const tasks = new Map(state.tasks.map((task) => [task.id, task]));
+  for (const session of state.agentSessions) {
+    if (!session.taskId || session.type === 'mission-thread') continue;
+    const task = tasks.get(session.taskId);
+    if (!task || task.missionId !== session.missionId || !terminalStatuses.has(task.status)) continue;
+    if (session.status !== task.status) store.updateAgentSession(session.id, { status: task.status });
+  }
+  return store.getState();
+}
+
 class AgentOperationsService {
   constructor({
     store,
@@ -67,7 +80,7 @@ class AgentOperationsService {
 
   listState() {
     const read = () => {
-      const state = this.store.getState();
+      const state = reconcileTerminalTaskSessions(this.store);
       return {
         ok: true,
         missions: this.store.getAgentMissions(),
@@ -253,7 +266,7 @@ class AgentOperationsService {
   activateMission(missionId) {
     const mission = this.#mission(missionId);
     const tasks = this.store.getState().tasks.filter((task) => task.missionId === mission.id);
-    if (!tasks.length) {
+    if (mission.status === 'draft' && !tasks.length) {
       throw new AgentOperationsError(
         'mission_plan_required',
         'Create and review a mission plan before activation',
@@ -447,6 +460,40 @@ class AgentOperationsService {
         ...(report ? { report: sanitizeAgentReport(report) } : {}),
       };
     } catch (error) {
+      if (error?.code && error?.status) {
+        throw new AgentOperationsError(error.code, error.message, error.status);
+      }
+      throw error;
+    }
+  }
+
+  async startTaskNow(taskId) {
+    if (!this.scheduler || typeof this.scheduler.startTaskNow !== 'function') {
+      throw new AgentOperationsError(
+        'scheduler_unavailable',
+        'Agent operations scheduler is unavailable',
+        503,
+      );
+    }
+    try {
+      const accepted = this.scheduler.startTaskNow(taskId);
+      accepted.completion.catch(() => {});
+      const task = await accepted.started;
+      if (!task) {
+        throw new AgentOperationsError(
+          'task_not_started',
+          'Agent Task could not be claimed for execution',
+          409,
+        );
+      }
+      return {
+        accepted: true,
+        acceptedAt: accepted.acceptedAt,
+        taskId,
+        task,
+      };
+    } catch (error) {
+      if (error instanceof AgentOperationsError) throw error;
       if (error?.code && error?.status) {
         throw new AgentOperationsError(error.code, error.message, error.status);
       }

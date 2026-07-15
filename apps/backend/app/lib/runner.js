@@ -14,6 +14,8 @@ class HermesRunner extends EventEmitter {
     this.active = false;
     this.adapter = null;
     this.adapterResolver = typeof adapterResolver === 'function' ? adapterResolver : null;
+    this.activeAdapters = new Map();
+    this.stopDecisions = new Map();
   }
 
   setAdapter(adapter) {
@@ -21,6 +23,8 @@ class HermesRunner extends EventEmitter {
   }
 
   enqueueRun(run) {
+    const currentRun = this.store.getRun(run.id);
+    if (currentRun?.status === 'stopped') return currentRun;
     this.queue.push(run);
     this.emitEvent('run:queued', run, 'queued for no-approval runner');
     if (!this.active) {
@@ -30,6 +34,8 @@ class HermesRunner extends EventEmitter {
   }
 
   async runOnce(run) {
+    const persistedRun = this.store.getRun(run.id);
+    if (persistedRun?.status === 'stopped') return persistedRun;
     this.store.updateRunStatus(run.id, 'running');
     this.store.appendRunLog(run.id, `${this.#time()} runner started`);
     this.emitEvent('run:started', run, 'runner started');
@@ -42,6 +48,7 @@ class HermesRunner extends EventEmitter {
     await wait(this.stepDelayMs);
 
     const currentRun = this.store.getRun(run.id) || run;
+    if (currentRun.status === 'stopped') return currentRun;
     const adapter = this.adapterResolver ? this.adapterResolver(currentRun) : this.adapter;
     if (adapter) {
       const adapterId = adapter.id || '';
@@ -50,6 +57,7 @@ class HermesRunner extends EventEmitter {
       this.emitEvent('run:log', currentRun, adapterMessage);
       let result;
       try {
+        this.activeAdapters.set(run.id, adapter);
         result = await adapter.execute(this.store.getRun(run.id) || run, {
           onLog: ({ stream, line } = {}) => {
             const message = `${stream || 'stdout'}: ${String(line || '').trim()}`;
@@ -59,12 +67,34 @@ class HermesRunner extends EventEmitter {
           },
         });
       } catch (error) {
+        this.activeAdapters.delete(run.id);
+        const stopDecision = this.stopDecisions.get(run.id);
+        if (stopDecision) {
+          const confirmed = await stopDecision.promise;
+          this.stopDecisions.delete(run.id);
+          if (confirmed) {
+            const stoppedRun = this.store.getRun(run.id);
+            this.store.appendRunLog(run.id, `${this.#time()} runner stopped`);
+            this.emitEvent('run:stopped', stoppedRun || run, 'runner stopped');
+            return this.store.getRun(run.id);
+          }
+        }
+        const stoppedRun = this.store.getRun(run.id);
+        if (stoppedRun?.status === 'stopped') {
+          this.store.appendRunLog(run.id, `${this.#time()} runner stopped`);
+          this.emitEvent('run:stopped', stoppedRun, 'runner stopped');
+          return this.store.getRun(run.id);
+        }
         const failedRun = this.store.updateRunStatus(run.id, 'failed');
         const message = error && error.message ? error.message : String(error);
         this.store.appendRunLog(run.id, `${this.#time()} adapter error: ${message}`);
         this.emitEvent('run:failed', failedRun || run, `adapter error: ${message}`);
         return this.store.getRun(run.id);
       }
+      this.activeAdapters.delete(run.id);
+      this.stopDecisions.delete(run.id);
+      const stoppedRun = this.store.getRun(run.id);
+      if (stoppedRun?.status === 'stopped') return stoppedRun;
       if (!result.streamedLogs && result.stdout && result.stdout.trim()) {
         this.store.appendRunLog(run.id, `${this.#time()} stdout: ${result.stdout.trim()}`);
         this.emitEvent('run:log', run, 'local command stdout captured');
@@ -85,6 +115,45 @@ class HermesRunner extends EventEmitter {
     this.store.appendRunLog(run.id, `${this.#time()} runner completed`);
     this.emitEvent('run:done', doneRun || run, 'runner completed');
     return this.store.getRun(run.id);
+  }
+
+  async stopRun(runId) {
+    const key = String(runId || '').trim();
+    if (!key) return false;
+    const queuedIndex = this.queue.findIndex((run) => run.id === key);
+    if (queuedIndex >= 0) {
+      this.queue.splice(queuedIndex, 1);
+      this.store.updateRunStatus(key, 'stopped');
+      return true;
+    }
+    const currentRun = this.store.getRun(key);
+    if (!currentRun) return false;
+    if (currentRun.status === 'stopped') return true;
+    if (currentRun.status === 'queued') {
+      this.store.updateRunStatus(key, 'stopped');
+      return true;
+    }
+    if (currentRun.status !== 'running') return false;
+    const adapter = this.activeAdapters.get(key);
+    if (!adapter) {
+      this.store.updateRunStatus(key, 'stopped');
+      return true;
+    }
+    if (typeof adapter.stop !== 'function') return false;
+    const existingDecision = this.stopDecisions.get(key);
+    if (existingDecision) return existingDecision.promise;
+    let resolveDecision;
+    const decision = new Promise((resolve) => { resolveDecision = resolve; });
+    this.stopDecisions.set(key, { promise: decision, resolve: resolveDecision });
+    let confirmed = false;
+    try {
+      confirmed = await adapter.stop(key);
+    } catch {
+      confirmed = false;
+    }
+    if (confirmed) this.store.updateRunStatus(key, 'stopped');
+    resolveDecision(confirmed);
+    return confirmed;
   }
 
   emitEvent(type, run, message) {

@@ -43,7 +43,9 @@ test('Work Conversation header exposes a scannable status and assignment summary
   assert.match(conversationSource, /className="agent-work-status-badge"/);
   assert.match(conversationSource, /className="agent-work-assignment"/);
   assert.match(conversationSource, /className="agent-work-attention"/);
-  assert.match(rule('.agent-work-header h1:focus'), /outline:\s*none/);
+  const focusedTitle = rule('.agent-work-header h1:focus');
+  assert.match(focusedTitle, /outline:\s*2px\s+solid/);
+  assert.doesNotMatch(focusedTitle, /outline:\s*none/);
 });
 
 test('Control Home does not render invented progress for work without measured progress', () => {
@@ -78,8 +80,10 @@ test('minimum-width Work Conversation keeps one timeline scroll owner with the c
   assert.match(narrow, /\.agent-work-timeline\s*\{[^}]*overflow:\s*auto/);
   assert.doesNotMatch(narrow, /\.agent-work-layout\s*\{[^}]*overflow-y:\s*auto/);
   assert.match(detailsSource, /matchMedia\('\(min-width: 1121px\)'\)/);
-  assert.match(narrow, /\.agent-work-conversation:has\(\.agent-work-details\s*>\s*details\[open\]\)\s*\{[^}]*overflow-y:\s*auto/);
-  assert.match(narrow, /\.agent-work-conversation:has\(\.agent-work-details\s*>\s*details\[open\]\)\s+\.agent-work-timeline\s*\{[^}]*overflow:\s*visible/);
+  assert.match(narrow, /\.agent-work-conversation:has\(\.agent-work-details\s*>\s*details\[open\]\)[^{]*\{[^}]*overflow-y:\s*auto/);
+  assert.match(narrow, /\.agent-work-conversation:has\(\.agent-work-details\s*>\s*details\[open\]\)\s+\.agent-work-timeline[^{]*\{[^}]*flex:\s*none[^}]*overflow:\s*visible/);
+  assert.match(narrow, /\.agent-work-conversation:has\(\.agent-work-state-error\)[^{]*\{[^}]*overflow-y:\s*auto/);
+  assert.match(narrow, /\.agent-work-conversation:has\(\.agent-work-state-error\)\s+\.agent-work-timeline\s*\{[^}]*flex:\s*none[^}]*overflow:\s*visible/);
 });
 
 test('the Agent Work Control Space takes full reading width at the documented 768px breakpoint', () => {

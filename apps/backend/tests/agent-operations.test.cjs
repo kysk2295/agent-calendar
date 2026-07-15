@@ -456,9 +456,10 @@ test('enforces explicit agent task state transitions', () => {
 
 test('redacts secrets private paths and hidden reasoning from session events', () => {
   // Given
+  const rawBotToken = `${'1234567890'}:${'AA'}${'x'.repeat(33)}`;
   const event = {
     kind: 'tool_activity',
-    text: 'token=secret apiKey=another-secret /Users/koyunseo/private.md /Volumes/private/research.md marketflow',
+    text: `token=secret apiKey=another-secret ${rawBotToken} /Users/koyunseo/private.md /Volumes/private/research.md marketflow`,
     metadata: {
       authorization: 'Bearer secret',
       chainOfThought: 'hidden reasoning',
@@ -473,6 +474,7 @@ test('redacts secrets private paths and hidden reasoning from session events', (
   // Then
   const serialized = JSON.stringify(sanitized);
   assert.doesNotMatch(serialized, /secret|\/Users\/koyunseo|\/Volumes\/private|hidden reasoning|marketflow|whoami|apiKey/);
+  assert.equal(serialized.includes(rawBotToken), false);
   assert.match(serialized, /redacted|private-path/i);
 });
 
@@ -561,6 +563,49 @@ test('session repair migration matches the mission and chooses one deterministic
   assert.match(sql, /session\.mission_id\s*=\s*task\.mission_id/i);
   assert.match(sql, /row_number\(\)\s+over/i);
   assert.match(sql, /session_rank\s*=\s*1/i);
+});
+
+test('Agent Operations refresh repairs a terminal task whose Task Session stayed running', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-session-terminal-repair-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-terminal-repair', clock }),
+    status: 'active',
+  });
+  const task = store.createTask({
+    id: 'task-terminal-repair',
+    title: 'Terminal repair',
+    missionId: mission.id,
+    origin: 'agent',
+    status: 'completed',
+  });
+  const session = store.createAgentSession({
+    id: 'session-terminal-repair',
+    missionId: mission.id,
+    taskId: task.id,
+    type: 'task',
+    status: 'running',
+  });
+  store.appendAgentSessionEvent(session.id, {
+    kind: 'completion',
+    text: '작업이 완료되어 결과와 근거를 저장했습니다.',
+  });
+  const service = new AgentOperationsService({ store, clock });
+
+  // When
+  const state = await service.listState();
+  const restarted = new HermesStore({ dataDir, clock });
+
+  // Then
+  assert.equal(state.sessions.find((item) => item.id === session.id).status, 'completed');
+  assert.equal(restarted.getAgentSession(session.id).status, 'completed');
+  assert.deepEqual(
+    restarted.getAgentSession(session.id).events.map((event) => event.kind),
+    ['completion'],
+  );
+
+  await rm(dataDir, { recursive: true, force: true });
 });
 
 test('accepts only evidence-backed report structures', () => {
@@ -709,12 +754,19 @@ test('keeps the newest task session link when Postgres upserts finish out of ord
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-postgres-order-'));
   const persistedTasks = new Map();
+  let completedTaskUpserts = 0;
+  let markAllTaskUpsertsCompleted;
+  const allTaskUpsertsCompleted = new Promise((resolve) => {
+    markAllTaskUpsertsCompleted = resolve;
+  });
   const pool = {
     query: async (sql, values = []) => {
       if (/insert into tasks/i.test(String(sql))) {
         const payload = JSON.parse(values[7]);
         await new Promise((resolve) => setTimeout(resolve, payload.sessionId ? 1 : 30));
         persistedTasks.set(payload.id, payload);
+        completedTaskUpserts += 1;
+        if (completedTaskUpserts === 2) markAllTaskUpsertsCompleted();
       }
       return { rows: [] };
     },
@@ -745,10 +797,66 @@ test('keeps the newest task session link when Postgres upserts finish out of ord
     missionId: mission.id,
     taskId: task.id,
   });
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  await allTaskUpsertsCompleted;
 
   // Then
   assert.equal(persistedTasks.get(task.id).sessionId, session.id);
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('keeps the newest Task Session status when Postgres upserts would finish out of order', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-session-postgres-order-'));
+  let persistedSession = null;
+  let completedSessionUpserts = 0;
+  let markAllSessionUpsertsCompleted;
+  const allSessionUpsertsCompleted = new Promise((resolve) => {
+    markAllSessionUpsertsCompleted = resolve;
+  });
+  const pool = {
+    query: async (sql, values = []) => {
+      if (/insert into agent_sessions/i.test(String(sql))) {
+        const payload = JSON.parse(values[4]);
+        await new Promise((resolve) => setTimeout(resolve, payload.status === 'running' ? 30 : 1));
+        persistedSession = payload;
+        completedSessionUpserts += 1;
+        if (completedSessionUpserts === 2) markAllSessionUpsertsCompleted();
+      }
+      return { rows: [] };
+    },
+  };
+  const store = new PostgresHermesStore({
+    pool,
+    dataDir,
+    clock,
+    autoMigrate: false,
+  });
+  await store.ready;
+  store.createAgentMission(createWeeklyOpportunityMission({
+    id: 'mission-postgres-status-order',
+    clock,
+  }));
+  store.createTask({
+    id: 'task-postgres-status-order',
+    title: 'Task Session status order',
+    missionId: 'mission-postgres-status-order',
+    origin: 'agent',
+    status: 'running',
+  });
+  const session = store.createAgentSession({
+    id: 'session-postgres-status-order',
+    missionId: 'mission-postgres-status-order',
+    taskId: 'task-postgres-status-order',
+    status: 'running',
+  });
+
+  // When
+  store.updateAgentSession(session.id, { status: 'completed' });
+  await allSessionUpsertsCompleted;
+
+  // Then
+  assert.equal(persistedSession.status, 'completed');
 
   await rm(dataDir, { recursive: true, force: true });
 });
@@ -1799,6 +1907,9 @@ test('Hermes live Work Conversation uses profile chat streaming without a model 
     assert.equal(relayJob.payload.profile, 'default');
     assert.equal(relayJob.payload.stream, true);
     assert.equal('model' in relayJob.payload, false);
+    assert.deepEqual(relayJob.payload.toolsets, ['safe']);
+    assert.equal(relayJob.payload.yolo, false);
+    assert.equal(relayJob.payload.noApproval, false);
     assert.match(stream, /event: delta/);
     assert.match(stream, /실제 Hermes 응답/);
   } finally {
@@ -2520,22 +2631,25 @@ test('Codex mission planning requests the per-run Codex CLI adapter', async () =
       method: 'POST',
     });
     const readiness = await readinessPoll;
-    assert.equal(readiness.job.payload.path, '/api/runner/adapters');
-    await fetch(`${baseUrl}/api/relay/jobs/${readiness.job.id}/complete`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-hermes-relay-token': 'relay-token',
-      },
-      body: JSON.stringify({
-        ok: true,
-        status: 200,
-        body: { adapters: [{ id: 'codex-cli', ready: true, status: 'ready' }] },
-      }),
-    });
-    const polled = await fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
-      headers: { 'x-hermes-relay-token': 'relay-token' },
-    }).then((response) => response.json());
+    const readinessPath = readiness.job.payload.path;
+    let polled = readiness;
+    if (readinessPath === '/api/runner/adapters') {
+      await fetch(`${baseUrl}/api/relay/jobs/${readiness.job.id}/complete`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-hermes-relay-token': 'relay-token',
+        },
+        body: JSON.stringify({
+          ok: true,
+          status: 200,
+          body: { adapters: [{ id: 'codex-cli', ready: true, status: 'ready' }] },
+        }),
+      });
+      polled = await fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+        headers: { 'x-hermes-relay-token': 'relay-token' },
+      }).then((response) => response.json());
+    }
     const runtimeBody = JSON.parse(polled.job.payload.body || '{}');
     await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/complete`, {
       method: 'POST',
@@ -2558,6 +2672,7 @@ test('Codex mission planning requests the per-run Codex CLI adapter', async () =
     const response = await planPromise;
 
     // Then
+    assert.equal(readinessPath, '/api/runner/adapters');
     assert.equal(polled.job.kind, 'runtime.request');
     assert.equal(runtimeBody.runnerAdapterId, 'codex-cli');
     assert.equal(runtimeBody.executionEngine, 'codex');
@@ -3124,7 +3239,7 @@ test('scheduler creates an evidence-backed report from a due report task', async
   await rm(dataDir, { recursive: true, force: true });
 });
 
-test('run-now API executes one future Agent Task through the scheduler and records its report callback', async () => {
+test('run-now API accepts one future Agent Task before the long execution completes', async () => {
   // Given
   const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-run-now-'));
@@ -3156,6 +3271,10 @@ test('run-now API executes one future Agent Task through the scheduler and recor
     type: 'task',
     status: 'scheduled',
   });
+  let markExecutionStarted;
+  const executionStarted = new Promise((resolve) => { markExecutionStarted = resolve; });
+  let releaseCompletion;
+  const completionGate = new Promise((resolve) => { releaseCompletion = resolve; });
   const scheduler = new AgentOperationsScheduler({
     store,
     clock,
@@ -3163,6 +3282,8 @@ test('run-now API executes one future Agent Task through the scheduler and recor
       assert.equal(meta.taskId, task.id);
       assert.equal(payload.profile, 'bizconsultant');
       await onEvent({ kind: 'tool_activity', text: '공식 출처를 확인했습니다.' });
+      markExecutionStarted();
+      await completionGate;
       return {
         jobId: 'relay-run-now',
         text: JSON.stringify({
@@ -3183,30 +3304,48 @@ test('run-now API executes one future Agent Task through the scheduler and recor
     agentOperationsClock: clock,
   });
   const baseUrl = await listen(server);
+  let responsePromise;
 
   try {
     // When
-    const response = await fetch(`${baseUrl}/api/agent-operations/tasks/${task.id}/run-now`, {
+    responsePromise = fetch(`${baseUrl}/api/agent-operations/tasks/${task.id}/run-now`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: '{}',
     });
+    await executionStarted;
+    const response = await Promise.race([
+      responsePromise,
+      new Promise((resolve) => setTimeout(() => resolve(null), 100)),
+    ]);
+    assert.notEqual(response, null, 'run-now must acknowledge before task completion');
     const body = await response.json();
 
     // Then
-    assert.equal(response.status, 200);
-    assert.deepEqual(body.run.startedTaskIds, [task.id]);
-    assert.deepEqual(body.run.completedTaskIds, [task.id]);
-    assert.equal(body.run.createdReportIds.length, 1);
-    assert.equal(body.task.status, 'completed');
-    assert.equal(body.report.status, 'ready');
-    assert.equal(body.report.taskId, task.id);
+    assert.equal(response.status, 202);
+    assert.equal(body.accepted, true);
+    assert.equal(body.taskId, task.id);
+    assert.equal(body.task.status, 'running');
+    assert.equal(store.getState().tasks.find((item) => item.id === task.id).status, 'running');
+
+    releaseCompletion();
+    for (let index = 0; index < 100; index += 1) {
+      if (store.getState().tasks.find((item) => item.id === task.id).status === 'completed') break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const completedTask = store.getState().tasks.find((item) => item.id === task.id);
+    const report = store.getAgentReports().find((item) => item.id === completedTask.reportId);
+    assert.equal(completedTask.status, 'completed');
+    assert.equal(report.status, 'ready');
+    assert.equal(report.taskId, task.id);
     assert.equal(store.getState().tasks.find((item) => item.id === task.id).scheduledAt, '2026-07-17T06:00:00.000Z');
     assert.deepEqual(
       store.getAgentSession(session.id).events.map((event) => event.kind),
       ['progress', 'tool_activity', 'agent_message', 'artifact', 'completion'],
     );
   } finally {
+    releaseCompletion();
+    await responsePromise?.catch(() => {});
     await close(server);
     await rm(dataDir, { recursive: true, force: true });
   }
@@ -3530,6 +3669,23 @@ test('Telegram sends only a minimized Agent Report summary', async () => {
   assert.match(sent.text, /기회 C/);
   assert.doesNotMatch(sent.text, /기회 D|\/Users\/|Bearer|secret/);
   assert.equal(result.message_id, 99);
+});
+
+test('Telegram report summary stays within the sendMessage limit and keeps its session deep link', () => {
+  const { formatAgentReportTelegram } = require('../app/lib/connectors/telegram');
+  const appUrl = `agent-calendar://sessions/${'s'.repeat(200)}`;
+  const rawBotToken = `${'1234567890'}:${'AA'}${'x'.repeat(33)}`;
+  const text = formatAgentReportTelegram({
+    title: '주간 기회 보고 '.repeat(40),
+    findings: Array.from({ length: 3 }, (_, index) => `${index ? '' : rawBotToken} ${index + 1} ${'기회'.repeat(1_000)}`),
+    limitations: [`${'검증'.repeat(1_000)} token=top-secret /Users/owner/private.md`],
+  }, { appUrl });
+
+  assert.equal(Array.from(text).length <= 4_096, true, `summary length: ${Array.from(text).length}`);
+  assert.equal(text.endsWith(appUrl), true);
+  assert.match(text, /…/);
+  assert.doesNotMatch(text, /top-secret|\/Users\//);
+  assert.equal(text.includes(rawBotToken), false);
 });
 
 test('Telegram delivery failure never turns a completed Agent Report into failure', async () => {

@@ -415,6 +415,15 @@ function sanitizeWebhookUrl(value) {
   }
 }
 
+function sanitizeTelegramStatusText(value) {
+  return String(value || '')
+    .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
+    .replace(/\b\d{6,12}:AA[A-Za-z0-9_-]{30,}/g, '[redacted-telegram-token]')
+    .replace(/([?&]access_token=)[^&\s]+/gi, '$1redacted')
+    .replace(/(?:token|secret|password)\s*[=:]\s*[^\s]+/gi, '[redacted]')
+    .slice(0, 500);
+}
+
 function createDefaultState(now = new Date().toISOString()) {
   return {
     meta: {
@@ -2159,12 +2168,17 @@ class HermesStore {
     const state = this.#load();
     const now = this.clock().toISOString();
     const chatId = String(candidate && candidate.chatId ? candidate.chatId : '');
+    const agentId = String(candidate && candidate.agentId ? candidate.agentId : 'default');
     const username = candidate && candidate.username ? String(candidate.username) : '';
     const text = candidate && candidate.text ? String(candidate.text).slice(0, 500) : '';
     const reason = candidate && candidate.reason ? String(candidate.reason) : '';
     if (!chatId) return null;
-    const existing = state.telegramChatCandidates.find((item) => item.chatId === chatId);
+    const existing = state.telegramChatCandidates.find((item) => (
+      item.chatId === chatId
+      && String(item.agentId || 'default') === agentId
+    ));
     if (existing) {
+      existing.agentId = agentId;
       existing.username = username || existing.username;
       existing.lastText = text;
       existing.reason = reason || existing.reason;
@@ -2175,6 +2189,7 @@ class HermesStore {
     }
     const record = {
       chatId,
+      agentId,
       username,
       firstSeenAt: now,
       lastSeenAt: now,
@@ -2187,15 +2202,24 @@ class HermesStore {
     return record;
   }
 
-  setTelegramWebhookStatus({ webhookUrl, result, error } = {}) {
+  setTelegramWebhookStatus({ webhookUrl, result, error, registrations = [] } = {}) {
     const state = this.#load();
     const ok = Boolean(result && result.ok !== false && !error);
+    const safeRegistrations = (Array.isArray(registrations) ? registrations : [])
+      .filter((registration) => isOfficialProfileName(registration?.agentId))
+      .map((registration) => ({
+        agentId: String(registration.agentId),
+        webhookUrl: sanitizeWebhookUrl(registration.webhookUrl),
+        registered: registration.registered === true,
+        description: sanitizeTelegramStatusText(registration.description),
+      }));
     state.telegramWebhook = {
       registered: ok,
       webhookUrl: sanitizeWebhookUrl(webhookUrl),
       checkedAt: this.clock().toISOString(),
-      description: result && result.description ? String(result.description) : '',
-      error: error ? String(error).replace(/(access_token=)[^&\s]+/g, '$1redacted') : '',
+      description: sanitizeTelegramStatusText(result?.description),
+      error: sanitizeTelegramStatusText(error),
+      registrations: safeRegistrations,
     };
     this.#touchAndSave(state);
     return state.telegramWebhook;

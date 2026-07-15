@@ -15,11 +15,13 @@ test('browser preview proxy never acts as an owner-authorized confused deputy', 
   assert.doesNotMatch(viteConfigSource, /authorization:\s*`Bearer \$\{apiProxyToken\}`/);
 });
 
-test('Agent Operations requests allow the backend profile run to reach its terminal state', () => {
+test('long Agent Operations requests use a terminal timeout while run-now only waits for acceptance', () => {
   assert.match(apiSource, /const AGENT_OPERATIONS_TIMEOUT_MS = 400_000/);
   assert.match(apiSource, /getAgentOperations: \(\) => hermesJson<unknown>\('\/api\/agent-operations', undefined, AGENT_OPERATIONS_TIMEOUT_MS\)/);
   assert.match(apiSource, /planAgentMission:[\s\S]*AGENT_OPERATIONS_TIMEOUT_MS/);
   assert.match(apiSource, /tickAgentOperations:[\s\S]*AGENT_OPERATIONS_TIMEOUT_MS/);
+  assert.match(apiSource, /runAgentTaskNow:[^\n]+body: '\{\}' \}\),/);
+  assert.doesNotMatch(apiSource, /runAgentTaskNow:[^\n]+AGENT_OPERATIONS_TIMEOUT_MS/);
 });
 
 test('agent work state refreshes independently of unrelated application hydration failures', () => {

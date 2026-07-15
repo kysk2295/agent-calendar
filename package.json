@@ -2,6 +2,10 @@
   "name": "agent-calendar",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "22.x",
+    "npm": ">=10"
+  },
   "description": "Agent Calendar monorepo for the Electron desktop app, macOS widgets, and the backend they use.",
   "workspaces": [
     "apps/desktop",
@@ -17,6 +21,7 @@
     "test:backend": "npm --workspace apps/backend run test",
     "backend:start": "npm --workspace apps/backend run start",
     "backend:check": "npm --workspace apps/backend run check",
-    "backend:migrate": "npm --workspace apps/backend run db:migrate"
+    "backend:migrate": "npm --workspace apps/backend run db:migrate",
+    "verify:beta": "npm run backend:check && npm run typecheck && npm test && npm run build:desktop"
   }
 }

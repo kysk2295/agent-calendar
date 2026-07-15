@@ -49,6 +49,7 @@ class PostgresHermesStore extends HermesStore {
     this.pool = pool || createPool({ env });
     this.persistErrors = [];
     this.taskPersistChains = new Map();
+    this.agentSessionPersistChains = new Map();
     this.delegatedWorkChains = new Map();
     this.suppressAgentWorkPersistence = false;
     const migrationReady = autoMigrate
@@ -315,6 +316,10 @@ class PostgresHermesStore extends HermesStore {
 
   async refreshAgentOperations() {
     await this.ready;
+    await Promise.all([
+      ...this.taskPersistChains.values(),
+      ...this.agentSessionPersistChains.values(),
+    ]);
     await this.#hydrateFromPostgres();
   }
 
@@ -1213,7 +1218,27 @@ class PostgresHermesStore extends HermesStore {
   #upsertAgentSession(session) {
     const payload = { ...session };
     delete payload.events;
-    this.#query(
+    const snapshot = JSON.parse(JSON.stringify(safeJson(payload)));
+    return this.#queueAgentSessionPersistence(session.id, () => this.#writeAgentSession(snapshot));
+  }
+
+  #queueAgentSessionPersistence(sessionId, operation) {
+    const previous = this.agentSessionPersistChains.get(sessionId);
+    const pending = previous
+      ? previous.then(operation, operation)
+      : Promise.resolve(operation());
+    const tracked = pending.catch(() => null);
+    this.agentSessionPersistChains.set(sessionId, tracked);
+    tracked.then(() => {
+      if (this.agentSessionPersistChains.get(sessionId) === tracked) {
+        this.agentSessionPersistChains.delete(sessionId);
+      }
+    });
+    return tracked;
+  }
+
+  #writeAgentSession(session) {
+    return this.#query(
       `insert into agent_sessions (id, mission_id, task_id, status, payload, created_at, updated_at)
        values ($1, $2, $3, $4, $5::jsonb, coalesce($6::timestamptz, now()), now())
        on conflict (id) do update set
@@ -1228,7 +1253,7 @@ class PostgresHermesStore extends HermesStore {
         session.missionId || '',
         session.taskId || '',
         session.status || 'proposed',
-        JSON.stringify(safeJson(payload)),
+        JSON.stringify(safeJson(session)),
         session.createdAt || null,
       ],
     );

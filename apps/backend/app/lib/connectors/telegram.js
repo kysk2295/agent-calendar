@@ -1,9 +1,67 @@
+const crypto = require('node:crypto');
+
+const TELEGRAM_BOT_ROUTE_DEFINITIONS = Object.freeze([
+  { agentId: 'default', envName: 'HERMES_TELEGRAM_BOT_TOKEN', webhookPath: '/api/telegram/webhook' },
+  { agentId: 'bizconsultant', envName: 'HERMES_TELEGRAM_BOT_TOKEN_BIZCONSULTANT', webhookPath: '/api/telegram/webhook/bizconsultant' },
+  { agentId: 'stockagent', envName: 'HERMES_TELEGRAM_BOT_TOKEN_STOCKAGENT', webhookPath: '/api/telegram/webhook/stockagent' },
+  { agentId: 'uniportpm', envName: 'HERMES_TELEGRAM_BOT_TOKEN_UNIPORTPM', webhookPath: '/api/telegram/webhook/uniportpm' },
+  { agentId: 'wikicurator', envName: 'HERMES_TELEGRAM_BOT_TOKEN_WIKICURATOR', webhookPath: '/api/telegram/webhook/wikicurator' },
+]);
+
+function telegramBotRoutesFromEnv(env = process.env) {
+  const seenTokens = new Set();
+  return TELEGRAM_BOT_ROUTE_DEFINITIONS.flatMap((definition) => {
+    const botToken = String(env[definition.envName] || '').trim();
+    if (!botToken || seenTokens.has(botToken)) return [];
+    seenTokens.add(botToken);
+    return [{ ...definition, botToken }];
+  });
+}
+
+function telegramBotTokenForAgent(env = process.env, agentId = 'default') {
+  const normalizedAgentId = String(agentId || 'default').trim().toLowerCase() || 'default';
+  return telegramBotRoutesFromEnv(env)
+    .find((route) => route.agentId === normalizedAgentId)?.botToken || '';
+}
+
+function telegramIngressMode(env = process.env) {
+  const mode = String(env.HERMES_TELEGRAM_INGRESS_MODE || '').trim().toLowerCase();
+  if (!mode || mode === 'webhook') return 'webhook';
+  if (['existing-poller', 'poller', 'external-poller'].includes(mode)) return 'existing-poller';
+  return 'disabled';
+}
+
+function isTelegramWebhookPath(pathname = '') {
+  const normalizedPathname = String(pathname || '').trim();
+  return TELEGRAM_BOT_ROUTE_DEFINITIONS
+    .some((route) => route.webhookPath === normalizedPathname);
+}
+
 function stripCommand(text) {
   return String(text || '')
     .replace(/^\s*\/hermes(?:@\w+)?\b/i, '')
     .replace(/#\S+/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function telegramWebhookSecret(botToken) {
+  const token = String(botToken || '').trim();
+  if (!token) return '';
+  return crypto
+    .createHmac('sha256', token)
+    .update('agent-calendar-telegram-webhook:v1')
+    .digest('hex');
+}
+
+function telegramWebhookRequestAuthorized({ botToken, secretToken } = {}) {
+  const expected = telegramWebhookSecret(botToken);
+  const received = String(secretToken || '').trim();
+  if (!expected || !received) return false;
+  const expectedBuffer = Buffer.from(expected);
+  const receivedBuffer = Buffer.from(received);
+  return expectedBuffer.length === receivedBuffer.length
+    && crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
 }
 
 function largestPhoto(photos = []) {
@@ -50,7 +108,7 @@ function telegramAttachmentFromMessage(message = {}) {
   return null;
 }
 
-function parseTelegramUpdate(update = {}) {
+function parseTelegramUpdate(update = {}, { agentId = 'default' } = {}) {
   const message = update.message || update.edited_message || {};
   const text = message.text || message.caption || '';
   const tags = text.match(/#\S+/g) || [];
@@ -58,10 +116,13 @@ function parseTelegramUpdate(update = {}) {
   const chatId = message.chat && message.chat.id;
   const messageId = message.message_id || update.update_id || 'unknown';
   const attachment = telegramAttachmentFromMessage(message);
+  const normalizedAgentId = String(agentId || 'default').trim().toLowerCase() || 'default';
+  const sourcePrefix = normalizedAgentId === 'default' ? 'telegram' : `telegram:${normalizedAgentId}`;
   return {
+    agentId: normalizedAgentId,
     shouldRun,
     source: 'telegram',
-    sourceId: `telegram:${chatId || 'unknown'}:${messageId}`,
+    sourceId: `${sourcePrefix}:${chatId || 'unknown'}:${messageId}`,
     chatId,
     messageId,
     username: message.from && (message.from.username || message.from.first_name),
@@ -146,7 +207,7 @@ function createRunPayloadFromTelegram(parsed) {
     goal: parsed.command || parsed.text,
     source: 'telegram',
     sourceId: parsed.sourceId,
-    agent: 'default',
+    agent: parsed.agentId || 'default',
     model: 'Recommended',
     noApproval: false,
     metadata: {
@@ -167,6 +228,7 @@ async function registerTelegramWebhook({ botToken, webhookUrl, fetchImpl = fetch
     body: JSON.stringify({
       url: webhookUrl,
       allowed_updates: ['message', 'edited_message'],
+      secret_token: telegramWebhookSecret(botToken),
     }),
   });
   if (!response.ok) {
@@ -175,32 +237,63 @@ async function registerTelegramWebhook({ botToken, webhookUrl, fetchImpl = fetch
   return response.json();
 }
 
-function safeTelegramSummaryLine(value) {
-  return String(value || '')
+function safeTelegramSummaryLine(value, maximumLength = Number.POSITIVE_INFINITY) {
+  const sanitized = String(value || '')
     .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
+    .replace(/\b\d{6,12}:AA[A-Za-z0-9_-]{30,}/g, '[redacted-telegram-token]')
     .replace(/(?:token|secret|password)\s*[=:]\s*[^\s]+/gi, '[redacted]')
     .replace(/\/(?:Users|home)\/[^\s"']+/g, '[private-path]')
     .replace(/\s+/g, ' ')
     .trim();
+  const characters = Array.from(sanitized);
+  if (characters.length <= maximumLength) return sanitized;
+  return `${characters.slice(0, Math.max(0, maximumLength - 1)).join('')}…`;
 }
 
 function formatAgentReportTelegram(report = {}, { appUrl = '' } = {}) {
-  const title = safeTelegramSummaryLine(report.title || 'Agent Report');
+  const title = safeTelegramSummaryLine(report.title || 'Agent Report', 200);
   const findings = (Array.isArray(report.findings) ? report.findings : [])
     .slice(0, 3)
-    .map(safeTelegramSummaryLine)
+    .map((finding) => safeTelegramSummaryLine(finding, 800))
     .filter(Boolean);
   const limitation = safeTelegramSummaryLine(
     (Array.isArray(report.limitations) ? report.limitations : [])[0] || '',
+    500,
   );
+  const sessionLink = safeTelegramSummaryLine(appUrl, 500);
   return [
     title,
     '',
     '발견',
     ...findings.map((finding, index) => `${index + 1}. ${finding}`),
     ...(limitation ? ['', `한계: ${limitation}`] : []),
-    ...(appUrl ? ['', String(appUrl)] : []),
+    ...(sessionLink ? ['', sessionLink] : []),
   ].join('\n');
+}
+
+async function sendAgentReportTelegram({
+  env = process.env,
+  agentId,
+  chatId,
+  report,
+  appUrl = '',
+  fetchImpl = fetch,
+} = {}) {
+  const normalizedAgentId = String(agentId || '').trim().toLowerCase();
+  const botToken = normalizedAgentId
+    ? telegramBotTokenForAgent(env, normalizedAgentId)
+    : '';
+  if (!botToken || !String(chatId || '').trim()) {
+    const error = new Error(`Telegram delivery is not configured for ${normalizedAgentId || 'unknown agent'}`);
+    error.code = 'telegram_not_configured';
+    throw error;
+  }
+  return sendTelegramMessage({
+    botToken,
+    chatId,
+    text: formatAgentReportTelegram(report, { appUrl }),
+    fetchImpl,
+  });
 }
 
 async function sendTelegramMessage({ botToken, chatId, text, fetchImpl = fetch } = {}) {
@@ -237,5 +330,11 @@ module.exports = {
   formatAgentReportTelegram,
   parseTelegramUpdate,
   registerTelegramWebhook,
+  sendAgentReportTelegram,
   sendTelegramMessage,
+  isTelegramWebhookPath,
+  telegramBotRoutesFromEnv,
+  telegramBotTokenForAgent,
+  telegramIngressMode,
+  telegramWebhookRequestAuthorized,
 };

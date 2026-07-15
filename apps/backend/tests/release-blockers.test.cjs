@@ -9,6 +9,7 @@ const { HermesStore } = require('../app/lib/store');
 const { OFFICIAL_PROFILE_NAMES } = require('../app/lib/official-profiles');
 const { relayTokensMatch } = require('../app/lib/railway-relay');
 const { safeRuntimeError } = require('../app/lib/runtime-gateway');
+const { registerTelegramWebhook } = require('../app/lib/connectors/telegram');
 
 function listen(server) {
   return new Promise((resolve) => {
@@ -175,6 +176,64 @@ test('keeps the Railway gateway health check public while other API routes remai
     assert.equal(runtimeCalls.length, 0);
   } finally {
     await close(server);
+  }
+});
+
+test('Telegram webhook accepts only the secret registered with Bot API before recording an update', async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-telegram-webhook-'));
+  const gatewayStore = new HermesStore({ dataDir });
+  const botToken = `${'123456789'}:${'AA'}${'x'.repeat(33)}`;
+  let registrationBody = null;
+  await registerTelegramWebhook({
+    botToken,
+    webhookUrl: 'https://calendar.example.test/api/telegram/webhook',
+    fetchImpl: async (_url, init) => {
+      registrationBody = JSON.parse(init.body);
+      return new Response(JSON.stringify({ ok: true, result: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  const secret = registrationBody?.secret_token;
+  assert.match(secret || '', /^[A-Za-z0-9_-]{32,256}$/);
+
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_TELEGRAM_BOT_TOKEN: botToken,
+      HERMES_TELEGRAM_ALLOWED_CHAT_IDS: '1234',
+    },
+    gatewayStore,
+  });
+  const baseUrl = await listen(server);
+  const update = {
+    update_id: 1,
+    message: {
+      message_id: 2,
+      date: 1_752_550_400,
+      chat: { id: 1234 },
+      from: { username: 'owner' },
+      text: '확인 메시지',
+    },
+  };
+  const postUpdate = (headerValue) => fetch(`${baseUrl}/api/telegram/webhook`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(headerValue ? { 'x-telegram-bot-api-secret-token': headerValue } : {}),
+    },
+    body: JSON.stringify(update),
+  });
+
+  try {
+    assert.equal((await postUpdate()).status, 401);
+    assert.equal((await postUpdate('wrong-secret')).status, 401);
+    assert.equal(gatewayStore.getState().telegramChatCandidates.length, 0);
+    assert.equal((await postUpdate(secret)).status, 200);
+    assert.equal(gatewayStore.getState().telegramChatCandidates.length, 1);
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
   }
 });
 
@@ -1691,6 +1750,9 @@ test('routes Hermes console chat through profile streaming without inventing an 
     assert.equal(relayJob.payload.profile, 'bizconsultant');
     assert.equal(relayJob.payload.stream, true);
     assert.equal('model' in relayJob.payload, false);
+    assert.deepEqual(relayJob.payload.toolsets, ['safe']);
+    assert.equal(relayJob.payload.yolo, false);
+    assert.equal(relayJob.payload.noApproval, false);
     assert.equal(response.status, 200);
     assert.match(body, /bizconsultant ready/);
     assert.doesNotMatch(body, /hermes-agent/);

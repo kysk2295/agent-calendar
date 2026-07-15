@@ -250,6 +250,7 @@ function redactSessionValue(value, key = '') {
   if (typeof value === 'string') {
     const redacted = value
       .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
+      .replace(/\b\d{6,12}:AA[A-Za-z0-9_-]{30,}/g, '[redacted-telegram-token]')
       .replace(/("(?:api.?key|authorization|credential|token|secret|password)"\s*:\s*)"[^"]*"/gi, '$1"[redacted]"')
       .replace(/(?:api.?key|authorization|credential|token|secret|password)\s*[=:]\s*[^\s]+/gi, '[redacted]')
       .replace(/(?:file:\/\/)?\/(?:Users|home|Volumes|private|var\/folders|tmp)\/[^\s"']+/g, '[private-path]')

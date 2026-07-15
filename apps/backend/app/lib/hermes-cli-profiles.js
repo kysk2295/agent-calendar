@@ -235,10 +235,9 @@ function profileCommandTemplate(profile = {}, options = {}) {
   const name = String(profile.name || '').trim();
   if (!name || !isSafeProfileId(name)) return '';
   const cli = shellQuote(options.cliPath || 'hermes');
-  const alias = normalizeCell(profile.alias);
-  if (alias && isSafeProfileId(alias)) return `${shellQuote(alias)} -z "$HERMES_GOAL"`;
-  if (name === 'default') return `${cli} -z "$HERMES_GOAL"`;
-  return `${cli} profile use ${shellQuote(name)} && ${cli} -z "$HERMES_GOAL"`;
+  const safeQuery = 'chat -q "$HERMES_GOAL" -Q -t safe --source tool';
+  if (name === 'default') return `${cli} ${safeQuery}`;
+  return `${cli} -p ${shellQuote(name)} ${safeQuery}`;
 }
 
 function profileRules(profile = {}, metadata = {}) {

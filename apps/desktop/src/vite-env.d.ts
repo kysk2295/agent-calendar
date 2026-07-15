@@ -75,6 +75,8 @@ interface Window {
     loginWithPassword(payload: { email: string; password: string }): Promise<HermesDesktopSettings>;
     logoutAuth(): Promise<HermesDesktopSettings>;
     getHermesConnection(): Promise<HermesConnection>;
+    getPendingDeepLink(): Promise<unknown>;
+    onDeepLink(callback: (target: unknown) => void): () => void;
     saveWidgetSnapshot(snapshot: HermesWidgetSnapshotPayload): Promise<{ ok: boolean; path: string; changed: boolean }>;
     readWidgetActions(): Promise<HermesWidgetAction[]>;
     clearWidgetActions(ids: string[]): Promise<{ ok: boolean; cleared: number }>;

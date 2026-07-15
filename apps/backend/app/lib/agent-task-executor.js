@@ -15,7 +15,15 @@ const {
   prepareWorkExecution,
 } = require('./agent-work-scheduler');
 
-async function executeAgentTask({ store, clock, executeCompletion, sendTelegram, task, result } = {}) {
+async function executeAgentTask({
+  store,
+  clock,
+  executeCompletion,
+  sendTelegram,
+  task,
+  result,
+  onStarted = () => {},
+} = {}) {
   const mission = store.getAgentMissions().find((item) => item.id === task.missionId);
   const session = store.getAgentSession(task.sessionId);
   if (!mission || !session) {
@@ -52,6 +60,7 @@ async function executeAgentTask({ store, clock, executeCompletion, sendTelegram,
     },
   }));
   result.startedTaskIds.push(task.id);
+  onStarted(runningTask);
   try {
     const agentId = resolveRequestedOfficialProfile({
       agentId: task.createdByAgentId || mission.agentId,

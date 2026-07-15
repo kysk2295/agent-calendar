@@ -30,7 +30,7 @@ function normalizeProfileAgent(agent = {}) {
   const model = agent.executionBackend?.model || agent.runtimeBinding?.model || agent.model || 'Recommended';
   const commandTemplate = agent.executionBackend?.commandTemplate
     || agent.runtimeBinding?.commandTemplate
-    || 'hermes -z "$HERMES_GOAL"';
+    || 'hermes chat -q "$HERMES_GOAL" -Q -t safe --source tool';
   const agentIdentity = {
     id: agent.agentIdentity?.id || id,
     displayName: agent.agentIdentity?.displayName || displayName,

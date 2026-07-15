@@ -16,6 +16,7 @@
     "test": "npm run build:electron && node --test tests/*.test.mjs",
     "test:ui:calendar": "node tests/playwright-calendar-crud.cjs",
     "test:ui:wiki": "node tests/playwright-wiki-graph-ask.cjs",
+    "test:packaged:deep-link": "node tests/packaged-deep-link-smoke.cjs",
     "dist:mac": "npm run build && electron-builder --mac dmg zip --arm64"
   },
   "dependencies": {
@@ -29,8 +30,8 @@
     "@types/react-dom": "^18.3.5",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
-    "electron": "^33.2.1",
-    "electron-builder": "^25.1.8",
+    "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
     "playwright": "^1.61.1",
     "typescript": "^5.7.3",
     "vite": "^6.0.7",
@@ -39,8 +40,21 @@
   "build": {
     "appId": "com.agents.calendar",
     "productName": "Agent Calendar",
-    "electronVersion": "33.4.11",
+    "electronVersion": "43.1.1",
+    "forceCodeSigning": true,
     "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "protocols": [
+      {
+        "name": "Agent Calendar Work Conversation",
+        "schemes": [
+          "agent-calendar"
+        ]
+      }
+    ],
     "files": [
       "dist/**",
       "dist-electron/**",
@@ -63,7 +77,9 @@
           ]
         }
       ],
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "gatekeeperAssess": false
     }
   }
