@@ -2,6 +2,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { resolveHermesAgent } = require('./agent-registry');
+const { AgentWorkContractError } = require('./agent-work-contract');
+const { deliveryFromEvent, deliveryMetadata } = require('./agent-work-delivery');
 const {
   createOfficialProfileAgent,
   isOfficialProfileName,
@@ -464,11 +466,370 @@ class HermesStore {
     this.dataDir = dataDir || path.resolve(process.cwd(), 'work/hermes-os-data');
     this.clock = clock;
     this.statePath = path.join(this.dataDir, 'state.json');
+    this.atomicState = null;
+    this.atomicWriteRequested = false;
     fs.mkdirSync(this.dataDir, { recursive: true });
   }
 
   getState() {
     return this.#load();
+  }
+
+  createDelegatedWork({ mission, conversation, message } = {}) {
+    const state = this.#load({ persistDefault: false });
+    const existingMission = state.agentMissions.find((item) => item.id === mission?.id);
+    if (existingMission) {
+      if (existingMission.requestFingerprint !== mission.requestFingerprint) {
+        throw new AgentWorkContractError(
+          'work_idempotency_conflict',
+          'clientRequestId was already used for different work',
+          409,
+        );
+      }
+      if (
+        existingMission.missionThreadId !== conversation.id
+        || existingMission.workConversationId !== conversation.id
+      ) {
+        throw new AgentWorkContractError(
+          'work_persistence_incomplete',
+          'Delegated work points to a different Work Conversation',
+          500,
+        );
+      }
+      let existingConversation = state.agentSessions.find((item) => (
+        item.id === existingMission.missionThreadId && item.missionId === existingMission.id
+      ));
+      let existingMessage = state.agentSessionEvents.find((item) => (
+        item.id === message.id && item.sessionId === existingConversation?.id
+      ));
+      if (
+        existingConversation
+        && (
+          existingConversation.type !== 'mission-thread'
+          || existingConversation.title !== conversation.title
+          || existingConversation.taskId !== ''
+          || !['draft', 'planning', 'waiting_for_approval'].includes(existingConversation.status)
+        )
+      ) {
+        throw new AgentWorkContractError(
+          'work_persistence_incomplete',
+          'Stored Work Conversation does not match the Delegated Work',
+          500,
+        );
+      }
+      if (
+        existingMessage
+        && (
+          existingMessage.kind !== 'user_message'
+          || existingMessage.text !== message.text
+          || Number(existingMessage.sequence) !== 1
+          || existingMessage.metadata?.clientMessageId !== message.metadata.clientMessageId
+          || existingMessage.metadata?.applicationMode !== 'mission_context'
+          || existingMessage.metadata?.acceptedAt !== existingMessage.createdAt
+        )
+      ) {
+        throw new AgentWorkContractError(
+          'work_persistence_incomplete',
+          'Stored initial message does not match the Delegated Work',
+          500,
+        );
+      }
+      let repaired = false;
+      if (!existingConversation) {
+        if (state.agentSessions.some((item) => item.id === conversation.id)) {
+          throw new AgentWorkContractError(
+            'work_persistence_incomplete',
+            'Work Conversation identifier belongs to different work',
+            500,
+          );
+        }
+        existingConversation = { ...conversation };
+        state.agentSessions.unshift(existingConversation);
+        repaired = true;
+      }
+      if (!existingMessage) {
+        if (state.agentSessionEvents.some((item) => item.id === message.id)) {
+          throw new AgentWorkContractError(
+            'work_persistence_incomplete',
+            'Initial message identifier belongs to a different conversation',
+            500,
+          );
+        }
+        existingMessage = { ...message };
+        state.agentSessionEvents.push(existingMessage);
+        repaired = true;
+      }
+      if (repaired) this.#touchAndSave(state);
+      return {
+        mission: existingMission,
+        conversation: existingConversation,
+        message: existingMessage,
+        idempotentReplay: true,
+      };
+    }
+    if (
+      state.agentSessions.some((item) => item.id === conversation?.id)
+      || state.agentSessionEvents.some((item) => item.id === message?.id)
+    ) {
+      throw new AgentWorkContractError(
+        'work_idempotency_conflict',
+        'Deterministic work identifiers already exist',
+        409,
+      );
+    }
+    const now = this.clock().toISOString();
+    const storedMission = {
+      ...mission,
+      status: String(mission.status || 'draft'),
+      createdAt: String(mission.createdAt || now),
+      updatedAt: now,
+    };
+    const storedConversation = {
+      ...conversation,
+      pendingInstructions: normalizeStringArray(conversation.pendingInstructions),
+      createdAt: String(conversation.createdAt || now),
+      updatedAt: now,
+      lastEventAt: String(message.createdAt || now),
+    };
+    const storedMessage = {
+      ...message,
+      sequence: 1,
+      createdAt: String(message.createdAt || now),
+    };
+    state.agentMissions.unshift(storedMission);
+    state.agentSessions.unshift(storedConversation);
+    state.agentSessionEvents.push(storedMessage);
+    this.#touchAndSave(state);
+    return {
+      mission: storedMission,
+      conversation: storedConversation,
+      message: storedMessage,
+      idempotentReplay: false,
+    };
+  }
+
+  addDelegatedWorkMessage(input = {}) {
+    const state = this.#load();
+    const mission = state.agentMissions.find((item) => item.id === input.missionId);
+    if (!mission) {
+      throw new AgentWorkContractError('work_not_found', 'Delegated work was not found', 404);
+    }
+    const conversation = state.agentSessions.find((item) => (
+      item.id === mission.missionThreadId && item.type === 'mission-thread'
+    ));
+    if (!conversation) {
+      throw new AgentWorkContractError(
+        'work_persistence_incomplete',
+        'Work Conversation was not found',
+        500,
+      );
+    }
+    const existing = state.agentSessionEvents.find((event) => (
+      event.sessionId === conversation.id
+      && event.metadata?.clientMessageId === input.clientMessageId
+    ));
+    if (existing) {
+      if (existing.text !== input.text) {
+        throw new AgentWorkContractError(
+          'work_message_idempotency_conflict',
+          'clientMessageId was already used for different text',
+          409,
+        );
+      }
+      return {
+        message: existing,
+        delivery: deliveryFromEvent(existing),
+        idempotentReplay: true,
+      };
+    }
+    const authoritative = input.authoritativeEvent;
+    if (
+      authoritative
+      && (
+        authoritative.id !== input.eventId
+        || authoritative.sessionId !== conversation.id
+        || authoritative.kind !== 'user_message'
+        || authoritative.text !== input.text
+        || authoritative.metadata?.clientMessageId !== input.clientMessageId
+      )
+    ) {
+      throw new AgentWorkContractError(
+        'work_persistence_incomplete',
+        'Authoritative Work Conversation message does not match the request',
+        500,
+      );
+    }
+    const sequence = state.agentSessionEvents
+      .filter((event) => event.sessionId === conversation.id)
+      .reduce((maximum, event) => Math.max(maximum, Number(event.sequence) || 0), 0) + 1;
+    const message = authoritative ? { ...authoritative } : {
+      id: input.eventId,
+      sessionId: conversation.id,
+      sequence,
+      kind: 'user_message',
+      text: input.text,
+      createdAt: input.acceptedAt,
+      metadata: {
+        clientMessageId: input.clientMessageId,
+        ...deliveryMetadata(input.delivery || {
+          status: 'accepted',
+          applicationMode: 'mission_context',
+        }, input.acceptedAt),
+      },
+    };
+    state.agentSessionEvents.push(message);
+    conversation.updatedAt = this.clock().toISOString();
+    conversation.lastEventAt = message.createdAt;
+    this.#touchAndSave(state);
+    return {
+      message,
+      delivery: deliveryFromEvent(message),
+      idempotentReplay: false,
+    };
+  }
+
+  applyDelegatedWorkCommand(input = {}, apply) {
+    if (typeof apply !== 'function') throw new Error('Agent Work command application is required');
+    return this.#runAtomic(() => {
+      const stored = HermesStore.prototype.addDelegatedWorkMessage.call(this, input);
+      if (stored.idempotentReplay) return stored;
+      return apply(stored);
+    });
+  }
+
+  getDelegatedWorkMessage(missionId, clientMessageId) {
+    const state = this.#load();
+    const mission = state.agentMissions.find((item) => item.id === missionId);
+    const conversation = state.agentSessions.find((item) => (
+      item.id === mission?.missionThreadId && item.type === 'mission-thread'
+    ));
+    if (!conversation) return null;
+    return state.agentSessionEvents.find((event) => (
+      event.sessionId === conversation.id
+      && event.metadata?.clientMessageId === clientMessageId
+    )) || null;
+  }
+
+  createRevisionCycle(input = {}) {
+    const messageInput = input.message || {};
+    const existing = this.getDelegatedWorkMessage(messageInput.missionId, messageInput.clientMessageId);
+    if (existing) {
+      if (existing.text !== messageInput.text) {
+        throw new AgentWorkContractError(
+          'work_message_idempotency_conflict',
+          'clientMessageId was already used for different text',
+          409,
+        );
+      }
+      return {
+        message: existing,
+        delivery: deliveryFromEvent(existing),
+        idempotentReplay: true,
+      };
+    }
+    const state = this.#load();
+    const mission = state.agentMissions.find((item) => item.id === messageInput.missionId);
+    if (!mission) {
+      throw new AgentWorkContractError('work_not_found', 'Delegated work was not found', 404);
+    }
+    if (mission.pendingRevisionId) {
+      throw new AgentWorkContractError(
+        'revision_already_pending',
+        'Complete or retry the pending revision before starting another',
+        409,
+      );
+    }
+    const report = state.agentReports.find((item) => (
+      item.id === input.baseReportId
+      && item.missionId === mission.id
+      && item.status === 'ready'
+    ));
+    const baseTask = state.tasks.find((item) => (
+      item.id === input.baseTaskId
+      && item.missionId === mission.id
+      && item.status === 'completed'
+    ));
+    if (
+      !report
+      || !baseTask
+      || mission.currentResultReportId !== report.id
+      || report.taskId !== baseTask.id
+    ) {
+      throw new AgentWorkContractError(
+        'revision_result_required',
+        'A valid current result is required before requesting a revision',
+        409,
+      );
+    }
+    if (
+      state.tasks.some((task) => task.id === input.task?.id)
+      || state.agentSessions.some((session) => session.id === input.session?.id)
+    ) {
+      throw new AgentWorkContractError(
+        'revision_already_pending',
+        'Revision records already exist',
+        409,
+      );
+    }
+    return this.#runAtomic(() => {
+      const stored = this.addDelegatedWorkMessage({
+        ...messageInput,
+        delivery: input.delivery,
+      });
+      const task = this.createTask(input.task);
+      const session = this.createAgentSession({ ...input.session, taskId: task.id });
+      const events = (input.events || []).map((event) => (
+        this.appendAgentSessionEvent(session.id, event)
+      ));
+      const updatedMission = this.updateAgentMission(mission.id, input.missionPatch);
+      return {
+        ...stored,
+        mission: updatedMission,
+        task,
+        session,
+        events,
+        revisionId: task.revisionId,
+        revisionNumber: task.revisionNumber,
+      };
+    });
+  }
+
+  completeRevisionCycle({ missionId, task, report, event } = {}) {
+    const state = this.#load();
+    const mission = state.agentMissions.find((item) => item.id === missionId);
+    const previous = state.agentReports.find((item) => item.id === task?.revisesReportId);
+    const existingCurrent = state.agentReports.find((item) => item.id === report?.id);
+    if (
+      !mission
+      || !previous
+      || !report?.id
+      || mission.pendingRevisionId !== task?.revisionId
+      || mission.currentResultReportId !== previous.id
+      || report.taskId !== task?.id
+      || (existingCurrent && existingCurrent.taskId !== task?.id)
+    ) {
+      throw new AgentWorkContractError(
+        'revision_completion_invalid',
+        'Revision completion records do not match the pending revision',
+        409,
+      );
+    }
+    return this.#runAtomic(() => {
+      const current = existingCurrent || this.createAgentReport(report);
+      const previousReport = this.updateAgentReport(previous.id, { supersededByReportId: current.id });
+      const updatedReport = this.updateAgentReport(current.id, { supersedesReportId: previous.id });
+      const updatedMission = this.updateAgentMission(mission.id, {
+        pendingRevisionId: '',
+        currentResultReportId: current.id,
+      });
+      const completionEvent = this.appendAgentSessionEvent(task.sessionId, event);
+      return {
+        mission: updatedMission,
+        report: updatedReport,
+        previousReport,
+        event: completionEvent,
+      };
+    });
   }
 
   createAgentMission(input = {}) {
@@ -595,6 +956,23 @@ class HermesStore {
     state.agentSessionEvents.push(event);
     session.updatedAt = now;
     session.lastEventAt = event.createdAt;
+    this.#touchAndSave(state);
+    return event;
+  }
+
+  updateAgentSessionEvent(eventId, patch = {}) {
+    const state = this.#load();
+    const index = state.agentSessionEvents.findIndex((event) => event.id === eventId);
+    if (index < 0) return null;
+    const event = {
+      ...state.agentSessionEvents[index],
+      ...patch,
+      id: state.agentSessionEvents[index].id,
+      sessionId: state.agentSessionEvents[index].sessionId,
+      sequence: state.agentSessionEvents[index].sequence,
+      createdAt: state.agentSessionEvents[index].createdAt,
+    };
+    state.agentSessionEvents[index] = event;
     this.#touchAndSave(state);
     return event;
   }
@@ -964,7 +1342,15 @@ class HermesStore {
       estimatedMinutes: Number.isFinite(Number(input.estimatedMinutes)) ? Number(input.estimatedMinutes) : 0,
       actionClass: input.actionClass ? String(input.actionClass) : '',
       sourceRefs: normalizeStringArray(input.sourceRefs),
+      executionEngine: input.executionEngine ? String(input.executionEngine) : '',
+      deliverable: input.deliverable && typeof input.deliverable === 'object'
+        ? { ...input.deliverable }
+        : null,
       approvalMode: input.approvalMode ? String(input.approvalMode) : '',
+      revisionId: input.revisionId ? String(input.revisionId) : '',
+      revisionNumber: Number.isFinite(Number(input.revisionNumber)) ? Number(input.revisionNumber) : 0,
+      revisesTaskId: input.revisesTaskId ? String(input.revisesTaskId) : '',
+      revisesReportId: input.revisesReportId ? String(input.revisesReportId) : '',
       pauseRequestedAt: input.pauseRequestedAt ? String(input.pauseRequestedAt) : '',
       cancelRequestedAt: input.cancelRequestedAt ? String(input.cancelRequestedAt) : '',
       blockedReason: input.blockedReason ? String(input.blockedReason) : '',
@@ -1031,6 +1417,7 @@ class HermesStore {
       'scheduledAt', 'dueAt', 'actionClass', 'approvalMode', 'pauseRequestedAt',
       'cancelRequestedAt', 'blockedReason', 'pauseMode', 'reportId', 'failureCode',
       'startedAt', 'finishedAt', 'retryScheduledAt',
+      'revisionId', 'revisesTaskId', 'revisesReportId',
       'ticktickId', 'ticktickProjectId', 'ticktickSyncStatus', 'ticktickSyncedAt',
       'ticktickSyncError',
     ];
@@ -1065,6 +1452,9 @@ class HermesStore {
     }
     if (Object.prototype.hasOwnProperty.call(patch, 'attempt')) {
       task.attempt = Number.isFinite(Number(patch.attempt)) ? Number(patch.attempt) : 0;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'revisionNumber')) {
+      task.revisionNumber = Number.isFinite(Number(patch.revisionNumber)) ? Number(patch.revisionNumber) : 0;
     }
     const taskIsCompleted = task.status === 'Done' || task.status === 'completed';
     if (taskIsCompleted && !task.completedAt) {
@@ -1984,10 +2374,11 @@ class HermesStore {
       || { id: 'agent-default', displayName: 'Hermes', name: 'Hermes', model: 'Recommended' };
   }
 
-  #load() {
+  #load({ persistDefault = true } = {}) {
+    if (this.atomicState) return this.atomicState;
     if (!fs.existsSync(this.statePath)) {
       const state = createDefaultState(this.clock().toISOString());
-      this.#save(state);
+      if (persistDefault) this.#save(state);
       return state;
     }
     return this.#normalizeState(JSON.parse(fs.readFileSync(this.statePath, 'utf8')));
@@ -2023,7 +2414,29 @@ class HermesStore {
 
   #touchAndSave(state) {
     state.meta.updatedAt = this.clock().toISOString();
+    if (this.atomicState === state) {
+      this.atomicWriteRequested = true;
+      return;
+    }
     this.#save(state);
+  }
+
+  #runAtomic(operation) {
+    if (this.atomicState) throw new Error('Nested file-store transaction is not supported');
+    const original = this.#load();
+    this.atomicState = JSON.parse(JSON.stringify(original));
+    this.atomicWriteRequested = false;
+    try {
+      const result = operation();
+      if (result && typeof result.then === 'function') {
+        throw new Error('File-store transaction operation must be synchronous');
+      }
+      if (this.atomicWriteRequested) this.#save(this.atomicState);
+      return result;
+    } finally {
+      this.atomicState = null;
+      this.atomicWriteRequested = false;
+    }
   }
 
   #save(state) {

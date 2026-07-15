@@ -1,14 +1,5 @@
-const { sanitizeAgentReport, sanitizeSessionEvent, validateReport } = require('./agent-operations-domain');
-const { taskExecutionMessages } = require('./agent-operations-execution');
-const { deliverAgentReport } = require('./agent-report-delivery');
-const { resolveRequestedOfficialProfile } = require('./official-profiles');
-const {
-  completedMissionEvidence,
-  createSchedulerResult,
-  isRuntimeFailure,
-  recordMissionBudget,
-  schedulerId,
-} = require('./agent-operations-scheduler-support');
+const { createSchedulerResult } = require('./agent-operations-scheduler-support');
+const { executeAgentTask } = require('./agent-task-executor');
 
 class AgentOperationsScheduler {
   constructor({
@@ -118,176 +109,14 @@ class AgentOperationsScheduler {
   }
 
   async #executeTask(task, result) {
-    const mission = this.store.getAgentMissions().find((item) => item.id === task.missionId);
-    const session = this.store.getAgentSession(task.sessionId);
-    if (!mission || !session) {
-      this.store.updateTask(task.id, {
-        status: 'failed',
-        failureCode: 'task_contract_invalid',
-        blockedReason: 'Agent task is missing its mission or Task Session',
-        finishedAt: this.clock().toISOString(),
-      });
-      result.failedTaskIds.push(task.id);
-      return false;
-    }
-
-    const startedAt = this.clock().toISOString();
-    const runningTask = await this.store.claimAgentTask(task.id, {
-      startedAt,
-      blockedReason: '',
-      failureCode: '',
-      attempt: task.retryScheduledAt
-        ? Math.max(1, Number(task.attempt || 1))
-        : Number(task.attempt || 0) + 1,
-      retryScheduledAt: '',
+    return executeAgentTask({
+      store: this.store,
+      clock: this.clock,
+      executeCompletion: this.executeCompletion,
+      sendTelegram: this.sendTelegram,
+      task,
+      result,
     });
-    if (!runningTask) return false;
-    this.store.updateAgentSession(session.id, { status: 'running' });
-    this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
-      kind: 'progress',
-      text: 'Mac mini Hermes에서 작업을 시작했습니다.',
-      metadata: { startedAt, attempt: runningTask.attempt },
-    }));
-    result.startedTaskIds.push(task.id);
-
-    try {
-      const agentId = resolveRequestedOfficialProfile({
-        agentId: task.createdByAgentId || mission.agentId,
-        agent: task.agent,
-      });
-      const completion = await this.executeCompletion({
-        payload: {
-          profile: agentId,
-          stream: true,
-          messages: taskExecutionMessages(
-            mission,
-            task,
-            this.store.getAgentSession(session.id),
-            completedMissionEvidence(this.store, mission.id, session.id),
-          ),
-        },
-        meta: {
-          missionId: mission.id,
-          taskId: task.id,
-          sessionId: session.id,
-          idempotencyKey: task.id,
-          agentId,
-        },
-        onEvent: async (event) => {
-          if (event.kind === 'agent_message') return;
-          this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent(event));
-        },
-      });
-      const text = String(completion?.text || '').trim();
-      if (!text) {
-        const error = new Error('Hermes returned an empty task result');
-        error.code = 'output_invalid';
-        throw error;
-      }
-
-      const checkpointTask = this.store.getState().tasks.find((item) => item.id === task.id);
-      if (checkpointTask.pauseRequestedAt || checkpointTask.cancelRequestedAt) {
-        const cancelled = Boolean(checkpointTask.cancelRequestedAt);
-        const status = cancelled ? 'cancelled' : 'blocked';
-        this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
-          kind: 'agent_message',
-          text,
-          metadata: { jobId: completion.jobId || '', applicationMode: 'checkpoint_result' },
-        }));
-        this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
-          kind: 'artifact',
-          text: task.expectedOutput || task.title,
-          metadata: { checkpoint: true },
-        }));
-        this.store.updateTask(task.id, {
-          status,
-          blockedReason: cancelled ? '' : '사용자 일시정지 요청이 체크포인트에 적용됨',
-          finishedAt: this.clock().toISOString(),
-        });
-        this.store.updateAgentSession(session.id, { status });
-        this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
-          kind: 'approval_response',
-          text: `${cancelled ? 'cancel' : 'pause'} 요청을 checkpoint에 적용했습니다. 완료로 표시하지 않았습니다.`,
-          metadata: { action: cancelled ? 'cancel' : 'pause', applicationMode: 'applied_at_checkpoint' },
-        }));
-        (cancelled ? result.cancelledTaskIds : result.blockedTaskIds).push(task.id);
-        return true;
-      }
-
-      let report = null;
-      if (task.actionClass === 'report') {
-        let parsed;
-        try {
-          parsed = sanitizeAgentReport(JSON.parse(text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')));
-          validateReport(parsed);
-        } catch {
-          const error = new Error('Hermes returned an invalid evidence-backed report');
-          error.code = 'report_invalid';
-          throw error;
-        }
-        report = this.store.createAgentReport({
-          ...parsed,
-          id: schedulerId('agent-report', this.clock),
-          missionId: mission.id,
-          sessionId: session.id,
-          taskId: task.id,
-          status: 'ready',
-          deliveryStatus: 'pending',
-        });
-        result.createdReportIds.push(report.id);
-      }
-
-      this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
-        kind: 'agent_message',
-        text,
-        metadata: { jobId: completion.jobId || '' },
-      }));
-      this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
-        kind: 'artifact',
-        text: report ? report.title || task.title : task.expectedOutput || task.title,
-        metadata: {
-          reportId: report?.id || '',
-          evidenceCount: report?.evidence?.length || 0,
-        },
-      }));
-      this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
-        kind: 'completion',
-        text: '작업이 완료되어 결과와 근거를 저장했습니다.',
-        metadata: { completedAt: this.clock().toISOString(), reportId: report?.id || '' },
-      }));
-      this.store.updateTask(task.id, {
-        status: 'completed',
-        reportId: report?.id || '',
-        finishedAt: this.clock().toISOString(),
-      });
-      this.store.updateAgentSession(session.id, { status: 'completed' });
-      recordMissionBudget(this.store, mission, task);
-      result.completedTaskIds.push(task.id);
-      await deliverAgentReport({
-        store: this.store,
-        sessionId: session.id,
-        report,
-        sendTelegram: this.sendTelegram,
-        clock: this.clock,
-      });
-    } catch (error) {
-      const blocked = isRuntimeFailure(error);
-      const status = blocked ? 'blocked' : 'failed';
-      this.store.updateTask(task.id, {
-        status,
-        blockedReason: blocked ? error.message : '',
-        failureCode: error.code || 'task_execution_failed',
-        finishedAt: this.clock().toISOString(),
-      });
-      this.store.updateAgentSession(session.id, { status });
-      this.store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
-        kind: 'error',
-        text: error.message || 'Agent task execution failed',
-        metadata: { code: error.code || 'task_execution_failed', status },
-      }));
-      (blocked ? result.blockedTaskIds : result.failedTaskIds).push(task.id);
-    }
-    return true;
   }
 
 }

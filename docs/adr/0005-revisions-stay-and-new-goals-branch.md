@@ -1,0 +1,3 @@
+# Revisions stay and new goals branch
+
+A request to change the existing outcome starts a new `수정 차수` in the same Work Conversation, preserving prior results and identifying exactly one current result through `currentResultReportId`. A materially different goal returns `follow_up_required` and does not mutate the current work or create another record. The user must explicitly create a new Delegated Work; automatic creation and a visible link back to the source are deferred in this release. An unsupported external action remains rejected/blocked; it does not become Follow-up Work or an approval request merely because it is consequential.

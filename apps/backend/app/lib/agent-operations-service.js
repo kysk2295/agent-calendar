@@ -1,6 +1,9 @@
 const crypto = require('node:crypto');
 
 const {
+  DELIVERABLE_KINDS,
+  EXECUTION_ENGINES,
+  createGeneralAgentMission,
   createWeeklyOpportunityMission,
   sanitizeAgentReport,
   sanitizeSessionEvent,
@@ -11,6 +14,17 @@ const {
   transitionAgentTaskWithIntervention,
 } = require('./agent-operations-interventions');
 const { AgentOperationsPlanError, planAgentMission } = require('./agent-operations-planner');
+const { resolveRequestedOfficialProfile } = require('./official-profiles');
+const {
+  addWorkMessage,
+  createWork,
+  getWorkConversation,
+  isAgentWorkError,
+} = require('./agent-work-service');
+const {
+  AgentWorkLiveTurnError,
+  streamWorkTurn,
+} = require('./agent-work-live-turn');
 
 class AgentOperationsError extends Error {
   constructor(code, message, status = 400) {
@@ -32,6 +46,8 @@ class AgentOperationsService {
     clock = () => new Date(),
     planCompletion = null,
     taskCompletion = null,
+    liveTurnCompletion = null,
+    resolveAgentAvailability = null,
     sendTelegram = null,
     scheduler = null,
     daemon = null,
@@ -41,41 +57,173 @@ class AgentOperationsService {
     this.clock = clock;
     this.planCompletion = planCompletion;
     this.taskCompletion = taskCompletion;
+    this.liveTurnCompletion = liveTurnCompletion;
+    this.resolveAgentAvailability = resolveAgentAvailability;
+    this.liveTurns = new Map();
     this.sendTelegram = sendTelegram;
     this.scheduler = scheduler;
     this.daemon = daemon;
   }
 
   listState() {
-    const state = this.store.getState();
-    return {
-      ok: true,
-      missions: this.store.getAgentMissions(),
-      tasks: state.tasks.filter((task) => task.origin === 'agent'),
-      sessions: state.agentSessions,
-      reports: this.store.getAgentReports().map((report) => sanitizeAgentReport(report)),
-      daemon: this.daemon?.status() || state.agentOperationsDaemon || {
-        running: false,
-        lastRun: null,
-        lastError: null,
-      },
+    const read = () => {
+      const state = this.store.getState();
+      return {
+        ok: true,
+        missions: this.store.getAgentMissions(),
+        tasks: state.tasks.filter((task) => task.origin === 'agent'),
+        sessions: state.agentSessions,
+        reports: this.store.getAgentReports().map((report) => sanitizeAgentReport(report)),
+        daemon: this.daemon?.status() || state.agentOperationsDaemon || {
+          running: false,
+          lastRun: null,
+          lastError: null,
+        },
+      };
     };
+    if (typeof this.store.refreshAgentOperations !== 'function') return read();
+    const refreshed = this.store.refreshAgentOperations();
+    return refreshed && typeof refreshed.then === 'function' ? refreshed.then(read) : read();
   }
 
   createMission(input = {}) {
-    if (input.templateId !== 'weekly-opportunity-brief') {
+    if (!['weekly-opportunity-brief', 'general-agent-work'].includes(input.templateId)) {
       throw new AgentOperationsError(
         'template_not_found',
-        'Only the Weekly Opportunity Brief template is available',
+        'Agent mission template was not found',
         422,
       );
     }
+    const executionEngine = String(input.executionEngine || 'hermes').trim();
+    if (!EXECUTION_ENGINES.includes(executionEngine)) {
+      throw new AgentOperationsError(
+        'execution_engine_invalid',
+        'Execution engine must be auto, hermes, local_llm, or codex',
+        422,
+      );
+    }
+    const rawDeliverable = input.deliverable && typeof input.deliverable === 'object'
+      ? input.deliverable
+      : {};
+    const deliverableKind = String(rawDeliverable.kind || 'report').trim();
+    if (!DELIVERABLE_KINDS.includes(deliverableKind)) {
+      throw new AgentOperationsError(
+        'deliverable_invalid',
+        'Deliverable kind must be report, document, image, or file',
+        422,
+      );
+    }
+    const deliverable = {
+      kind: deliverableKind,
+      format: String(rawDeliverable.format || (deliverableKind === 'report' ? 'markdown' : '')).trim(),
+    };
     const id = createOperationId('mission', this.clock);
-    const mission = createWeeklyOpportunityMission({ id, clock: this.clock });
+    const agentId = resolveRequestedOfficialProfile({ agentId: input.agentId });
+    let mission;
+    try {
+      mission = input.templateId === 'general-agent-work'
+        ? createGeneralAgentMission({
+          id,
+          title: input.title,
+          objective: input.objective,
+          agentId,
+          executionEngine,
+          deliverable,
+          clock: this.clock,
+        })
+        : {
+          ...createWeeklyOpportunityMission({ id, clock: this.clock }),
+          executionEngine,
+          deliverable,
+          ...(String(input.agentId || '').trim() ? { agentId } : {}),
+        };
+    } catch (error) {
+      throw new AgentOperationsError('mission_contract_invalid', error.message, 422);
+    }
     return this.store.createAgentMission({
       ...mission,
       ...(String(input.title || '').trim() ? { title: String(input.title).trim() } : {}),
     });
+  }
+
+  async createWork(input = {}) {
+    try {
+      return await createWork({ store: this.store, clock: this.clock, input });
+    } catch (error) {
+      if (isAgentWorkError(error)) {
+        throw new AgentOperationsError(error.code, error.message, error.status);
+      }
+      throw error;
+    }
+  }
+
+  async addWorkMessage(missionId, input = {}) {
+    try {
+      return await addWorkMessage({
+        store: this.store,
+        clock: this.clock,
+        missionId,
+        input,
+        transitionTask: (taskId, action) => this.transitionTask(taskId, action),
+      });
+    } catch (error) {
+      if (isAgentWorkError(error)) {
+        throw new AgentOperationsError(error.code, error.message, error.status);
+      }
+      throw error;
+    }
+  }
+
+  async streamWorkTurn(missionId, input = {}, onEvent = async () => {}) {
+    if (this.liveTurns.has(missionId)) {
+      throw new AgentOperationsError(
+        'work_turn_in_progress',
+        'A live response is already in progress for this work',
+        409,
+      );
+    }
+    const completion = this.liveTurnCompletion || this.planCompletion || this.taskCompletion;
+    const turn = streamWorkTurn({
+      store: this.store,
+      clock: this.clock,
+      missionId,
+      input,
+      addMessage: (id, message) => this.addWorkMessage(id, message),
+      completion,
+      resolveAgentAvailability: this.resolveAgentAvailability,
+      onEvent,
+    });
+    this.liveTurns.set(missionId, turn);
+    try {
+      return await turn;
+    } catch (error) {
+      if (error instanceof AgentWorkLiveTurnError) {
+        throw new AgentOperationsError(error.code, error.message, error.status);
+      }
+      throw error;
+    } finally {
+      if (this.liveTurns.get(missionId) === turn) this.liveTurns.delete(missionId);
+    }
+  }
+
+  getWorkConversation(missionId, options = {}) {
+    try {
+      const result = getWorkConversation({ store: this.store, missionId, options });
+      if (result && typeof result.then === 'function') {
+        return result.catch((error) => {
+          if (isAgentWorkError(error)) {
+            throw new AgentOperationsError(error.code, error.message, error.status);
+          }
+          throw error;
+        });
+      }
+      return result;
+    } catch (error) {
+      if (isAgentWorkError(error)) {
+        throw new AgentOperationsError(error.code, error.message, error.status);
+      }
+      throw error;
+    }
   }
 
   async planMission(missionId) {

@@ -1,0 +1,3 @@
+# Natural-language interventions and bounded approval gates
+
+Work Conversation messages are operational instructions. Safe internal changes such as clarifying scope, revising an artifact, or redirecting research proceed immediately. Consequential actions that the product already supports follow their existing execution and approval policy. Unsupported external send, publish, purchase, or delete requests fail closed as rejected/blocked checkpoints with no approval action; approval must never imply that an unavailable integration can execute. This preserves direct interaction without turning every message into a confirmation form or granting unbounded authority.

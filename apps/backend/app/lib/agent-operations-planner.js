@@ -5,6 +5,7 @@ const {
   parseMissionPlan,
   sanitizeSessionEvent,
 } = require('./agent-operations-domain');
+const { markMissionContextApplied } = require('./agent-work-delivery');
 
 class AgentOperationsPlanError extends Error {
   constructor(code, message, status) {
@@ -64,6 +65,8 @@ function createPlannedTask({ store, mission, taskPlan, clock }) {
     estimatedMinutes: taskPlan.estimatedMinutes,
     actionClass: taskPlan.actionClass,
     sourceRefs: taskPlan.sourceRefs,
+    executionEngine: mission.executionEngine || 'hermes',
+    deliverable: mission.deliverable || { kind: 'report', format: 'markdown' },
     approvalMode: 'required',
   });
   const session = store.createAgentSession({
@@ -73,6 +76,8 @@ function createPlannedTask({ store, mission, taskPlan, clock }) {
     type: 'task',
     title: task.title,
     status: 'proposed',
+    executionEngine: mission.executionEngine || 'hermes',
+    deliverable: mission.deliverable || { kind: 'report', format: 'markdown' },
   });
   store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
     kind: 'plan',
@@ -83,6 +88,8 @@ function createPlannedTask({ store, mission, taskPlan, clock }) {
       dueAt: taskPlan.dueAt,
       estimatedMinutes: taskPlan.estimatedMinutes,
       sourceRefs: taskPlan.sourceRefs,
+      executionEngine: mission.executionEngine || 'hermes',
+      deliverable: mission.deliverable || { kind: 'report', format: 'markdown' },
     },
   }));
   store.appendAgentSessionEvent(session.id, sanitizeSessionEvent({
@@ -122,11 +129,17 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
     store.appendAgentSessionEvent(missionThread.id, sanitizeSessionEvent(event));
   };
   try {
-    const prompt = buildMissionPlanPrompt({
+    const workMessages = store.getAgentSession(missionThread.id).events
+      .filter((event) => event.kind === 'user_message')
+      .map((event) => event.text);
+    const basePrompt = buildMissionPlanPrompt({
       mission,
       priorReports: store.getAgentReports().filter((report) => report.missionId === mission.id),
       userFeedback: Array.isArray(mission.userFeedback) ? mission.userFeedback : [],
     });
+    const prompt = workMessages.length
+      ? `${basePrompt}\nWork Conversation context:\n${workMessages.map((text) => `- ${text}`).join('\n')}`
+      : basePrompt;
     planningMessages = [
       { role: 'system', content: 'You plan bounded internal work for Agent Calendar. Return JSON only.' },
       { role: 'user', content: prompt },
@@ -134,6 +147,8 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
     completion = await planCompletion({
       payload: {
         profile: mission.agentId,
+        executionEngine: mission.executionEngine || 'hermes',
+        deliverable: mission.deliverable || { kind: 'report', format: 'markdown' },
         stream: true,
         messages: planningMessages,
       },
@@ -141,6 +156,8 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
         missionId: mission.id,
         sessionId: missionThread.id,
         agentId: mission.agentId,
+        executionEngine: mission.executionEngine || 'hermes',
+        deliverable: mission.deliverable || { kind: 'report', format: 'markdown' },
         idempotencyKey: `${mission.id}:plan:1`,
       },
       onEvent: handlePlanningEvent,
@@ -170,9 +187,11 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
     ].join(' ');
     try {
       completion = await planCompletion({
-        payload: {
-          profile: mission.agentId,
-          stream: true,
+          payload: {
+            profile: mission.agentId,
+            executionEngine: mission.executionEngine || 'hermes',
+            deliverable: mission.deliverable || { kind: 'report', format: 'markdown' },
+            stream: true,
           messages: [
             ...planningMessages,
             { role: 'assistant', content: String(completion?.text || '') },
@@ -183,6 +202,8 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
           missionId: mission.id,
           sessionId: missionThread.id,
           agentId: mission.agentId,
+          executionEngine: mission.executionEngine || 'hermes',
+          deliverable: mission.deliverable || { kind: 'report', format: 'markdown' },
           planAttempt: 2,
           idempotencyKey: `${mission.id}:plan:2`,
         },
@@ -214,6 +235,11 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
     plannedAt: clock().toISOString(),
   });
   store.updateAgentSession(missionThread.id, { status: 'waiting_for_approval' });
+  markMissionContextApplied({
+    store,
+    missionId: mission.id,
+    appliedAt: clock().toISOString(),
+  });
   return {
     mission: updatedMission,
     missionThread: store.getAgentSession(missionThread.id),

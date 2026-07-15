@@ -1,0 +1,647 @@
+<title>에이전트 탭 — Agent Calendar 프로토타입 v2</title>
+<style>
+  :root {
+    --accent: #D7613D; --accent-dark: #B8492C; --accent-soft: #FAEDE6; --accent-line: #E4C3B5;
+    --canvas: #EAE5DA; --main: #F4F0E8; --sidebar: #EFEADF; --panel: #FBF9F4; --input: #FFFEFB;
+    --line: #E6DFD0; --line-strong: #E0D8C8;
+    --text: #2B2620; --muted: #6E6253; --muted-dark: #51483D;
+    --green: #3E9B72; --green-soft: #E4F0E9; --blue: #5C77AD; --blue-soft: #E7EBF3;
+    --lavender: #7A66A7; --lavender-soft: #ECE8F3; --amber: #9A6A20; --amber-soft: #F5E9CF;
+    --red: #B55245; --red-soft: #F6E3DF;
+    --scrim: rgba(43, 38, 32, .34);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent: #E07A55; --accent-dark: #EE8E6A; --accent-soft: #3A2A22; --accent-line: #59392C;
+      --canvas: #1E1B16; --main: #26221C; --sidebar: #221F19; --panel: #2C2822; --input: #332E27;
+      --line: #3A342B; --line-strong: #453E33;
+      --text: #EDE7DC; --muted: #A2957F; --muted-dark: #C2B49C;
+      --green: #67B991; --green-soft: #24352C; --blue: #8CA3D3; --blue-soft: #272E3D;
+      --lavender: #A793D3; --lavender-soft: #2F2939; --amber: #D3A25A; --amber-soft: #3B3021;
+      --red: #D3796B; --red-soft: #3D2A26;
+      --scrim: rgba(0, 0, 0, .5);
+    }
+  }
+  :root[data-theme="light"] {
+    --accent: #D7613D; --accent-dark: #B8492C; --accent-soft: #FAEDE6; --accent-line: #E4C3B5;
+    --canvas: #EAE5DA; --main: #F4F0E8; --sidebar: #EFEADF; --panel: #FBF9F4; --input: #FFFEFB;
+    --line: #E6DFD0; --line-strong: #E0D8C8;
+    --text: #2B2620; --muted: #6E6253; --muted-dark: #51483D;
+    --green: #3E9B72; --green-soft: #E4F0E9; --blue: #5C77AD; --blue-soft: #E7EBF3;
+    --lavender: #7A66A7; --lavender-soft: #ECE8F3; --amber: #9A6A20; --amber-soft: #F5E9CF;
+    --red: #B55245; --red-soft: #F6E3DF;
+    --scrim: rgba(43, 38, 32, .34);
+  }
+  :root[data-theme="dark"] {
+    --accent: #E07A55; --accent-dark: #EE8E6A; --accent-soft: #3A2A22; --accent-line: #59392C;
+    --canvas: #1E1B16; --main: #26221C; --sidebar: #221F19; --panel: #2C2822; --input: #332E27;
+    --line: #3A342B; --line-strong: #453E33;
+    --text: #EDE7DC; --muted: #A2957F; --muted-dark: #C2B49C;
+    --green: #67B991; --green-soft: #24352C; --blue: #8CA3D3; --blue-soft: #272E3D;
+    --lavender: #A793D3; --lavender-soft: #2F2939; --amber: #D3A25A; --amber-soft: #3B3021;
+    --red: #D3796B; --red-soft: #3D2A26;
+    --scrim: rgba(0, 0, 0, .5);
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--canvas); color: var(--text);
+    font-family: 'Pretendard', 'Pretendard Variable', 'Apple SD Gothic Neo', -apple-system, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 28px 16px 48px;
+  }
+  .stage { max-width: 1120px; margin: 0 auto; }
+  .stage-note { font-size: 12px; color: var(--muted); letter-spacing: .04em; margin: 0 4px 10px; }
+
+  .shell {
+    position: relative; display: flex; min-height: 780px;
+    background: var(--main); border: 1px solid var(--line-strong); border-radius: 18px;
+    overflow: hidden;
+  }
+
+  .side {
+    width: 208px; flex: none; background: var(--sidebar); border-right: 1px solid var(--line);
+    padding: 18px 12px; display: flex; flex-direction: column; gap: 2px;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 2px 8px 16px; }
+  .brand-mark { width: 26px; height: 26px; border-radius: 8px; background: var(--accent); flex: none; }
+  .brand b { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+  .brand span { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; }
+  .nav-label { font-size: 10.5px; color: var(--muted); letter-spacing: .08em; padding: 14px 10px 5px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--muted-dark);
+    padding: 7px 10px; border-radius: 9px; cursor: pointer; border: 1px solid transparent;
+  }
+  .nav-item svg { flex: none; opacity: .75; }
+  .nav-item:hover { background: var(--panel); }
+  .nav-item.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-dark); font-weight: 600; }
+  .nav-item.on svg { opacity: 1; }
+  .nav-count { margin-left: auto; font-size: 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .nav-item.on .nav-count { background: var(--accent); border-color: var(--accent); color: #FFF7F2; }
+  .side-foot { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 10px 8px 2px; border-top: 1px solid var(--line); }
+  .side-foot .avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--amber-soft); color: var(--amber); display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+  .side-foot p { font-size: 12px; font-weight: 600; }
+  .side-foot span { font-size: 10.5px; color: var(--muted); }
+
+  .mainarea { flex: 1; min-width: 0; padding: 22px 24px 26px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
+
+  .head { display: flex; align-items: baseline; gap: 12px; }
+  .head h1 { font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
+  .head .sub { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .head .live { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+
+  .delegate { display: flex; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px; }
+  .delegate input[type=text] { flex: 1; min-width: 0; font: inherit; font-size: 13.5px; color: var(--text); background: var(--input); border: 1px solid var(--line-strong); border-radius: 9px; padding: 9px 12px; }
+  .delegate input::placeholder { color: var(--muted); }
+  .delegate select { font: inherit; font-size: 12.5px; color: var(--muted-dark); background: var(--input); border: 1px solid var(--line-strong); border-radius: 9px; padding: 0 10px; }
+  .delegate input:focus-visible, .delegate select:focus-visible, button:focus-visible, .thread-input input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .delegate-hint { font-size: 11.5px; color: var(--muted); margin: -7px 4px 0; }
+  .btn-primary { font: inherit; font-size: 13px; font-weight: 600; color: #FFF7F2; background: var(--accent); border: 1px solid var(--accent-dark); border-radius: 9px; padding: 0 16px; cursor: pointer; display: flex; align-items: center; gap: 7px; }
+  .btn-primary:hover { background: var(--accent-dark); }
+  .btn-primary:active { transform: scale(.98); }
+
+  .agents { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .agent-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 13px 15px; display: flex; flex-direction: column; gap: 9px; }
+  .agent-top { display: flex; align-items: center; gap: 9px; }
+  .agent-avatar { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; font-size: 13px; font-weight: 700; flex: none; }
+  .agent-avatar.blue { background: var(--blue-soft); color: var(--blue); }
+  .agent-avatar.lavender { background: var(--lavender-soft); color: var(--lavender); }
+  .agent-avatar.green { background: var(--green-soft); color: var(--green); }
+  .agent-name { font-size: 13.5px; font-weight: 600; }
+  .agent-state { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+  .state-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); flex: none; }
+  .state-dot.run { background: var(--green); }
+  .state-dot.ask { background: var(--amber); }
+  .agent-meta { font-size: 11.5px; color: var(--muted); display: flex; gap: 10px; font-variant-numeric: tabular-nums; }
+  .agent-meta b { color: var(--muted-dark); font-weight: 600; }
+
+  .cols { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  .col h2 { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 7px; margin: 0 2px 9px; }
+  .col h2 + .col-note { font-size: 11.5px; color: var(--muted); margin: -6px 2px 9px; }
+  .badge { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px; background: var(--amber-soft); color: var(--amber); font-variant-numeric: tabular-nums; }
+  .badge.blue { background: var(--blue-soft); color: var(--blue); }
+  .section-gap { margin-top: 18px; }
+
+  .runcard {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 12px 15px; margin-bottom: 8px; cursor: pointer;
+  }
+  .runcard:hover { border-color: var(--accent-line); }
+  .runcard.asking { border-color: var(--amber); background: var(--amber-soft); }
+  .run-top { display: flex; align-items: center; gap: 8px; }
+  .run-title { font-size: 13.5px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run-open { font-size: 11.5px; color: var(--muted); flex: none; display: flex; align-items: center; gap: 3px; }
+  .run-sub { font-size: 11.5px; color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+  .runcard.asking .run-sub { color: var(--amber); font-weight: 550; }
+  .progress { height: 4px; border-radius: 999px; background: var(--line); margin-top: 9px; overflow: hidden; }
+  .progress i { display: block; height: 100%; border-radius: 999px; background: var(--blue); }
+  .runcard.asking .progress i { background: var(--amber); }
+
+  .proposal { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 13px 15px; margin-bottom: 10px; }
+  .proposal.leaving { opacity: 0; transform: translateX(8px); transition: opacity .25s ease, transform .25s ease; }
+  .prop-eyebrow { font-size: 11.5px; color: var(--muted); }
+  .prop-eyebrow .who { font-weight: 600; }
+  .who.blue { color: var(--blue); } .who.lavender { color: var(--lavender); }
+  .prop-title { font-size: 14.5px; font-weight: 600; margin: 6px 0 3px; letter-spacing: -.01em; }
+  .prop-title input { font: inherit; color: var(--text); background: var(--input); border: 1px solid var(--accent-line); border-radius: 7px; padding: 4px 8px; width: 100%; }
+  .prop-basis { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .prop-plan { font-size: 12px; color: var(--muted-dark); background: var(--main); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; margin-bottom: 11px; line-height: 1.65; }
+  .prop-plan b { font-weight: 600; font-size: 11px; color: var(--muted); display: block; margin-bottom: 2px; letter-spacing: .04em; }
+  .prop-actions { display: flex; gap: 6px; align-items: center; }
+  .prop-actions .due { margin-left: auto; font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+  .prop-actions .due select { font: inherit; font-size: 11.5px; color: var(--muted-dark); background: var(--input); border: 1px solid var(--line-strong); border-radius: 7px; padding: 3px 6px; }
+  .btn { font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; border-radius: 8px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 5px; background: var(--input); border: 1px solid var(--line-strong); color: var(--muted-dark); }
+  .btn:hover { border-color: var(--accent-line); }
+  .btn:active { transform: scale(.97); }
+  .btn.approve { color: var(--green); border-color: var(--green-soft); background: var(--green-soft); }
+  .btn.reject { color: var(--muted); background: transparent; border-color: transparent; }
+  .btn.reject:hover { color: var(--red); border-color: var(--red-soft); background: var(--red-soft); }
+  .btn.small { font-size: 11.5px; padding: 4px 10px; }
+  .queue-empty { border: 1px dashed var(--line-strong); border-radius: 14px; padding: 22px; text-align: center; font-size: 12.5px; color: var(--muted); display: none; }
+
+  .timeline { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 3px 15px; }
+  .t-group { font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--muted); padding: 12px 0 2px; border-bottom: 1px solid var(--line); }
+  .t-item { display: flex; gap: 11px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .t-item.link { cursor: pointer; }
+  .t-item.link:hover .t-title { color: var(--accent-dark); }
+  .t-item:last-child { border-bottom: 0; }
+  .t-item.new { animation: slidein .3s ease; }
+  @keyframes slidein { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .t-item.new { animation: none; }
+    .proposal.leaving { transition: none; }
+    .drawer { transition: none; }
+  }
+  .t-time { font-size: 11.5px; color: var(--muted); min-width: 36px; padding-top: 3px; font-variant-numeric: tabular-nums; }
+  .t-icon { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; flex: none; margin-top: 1px; }
+  .t-icon.done { background: var(--green-soft); color: var(--green); }
+  .t-icon.run { background: var(--blue-soft); color: var(--blue); }
+  .t-icon.idea { background: var(--amber-soft); color: var(--amber); }
+  .t-icon.sched { background: var(--accent-soft); color: var(--accent-dark); }
+  .t-icon.drop { background: var(--red-soft); color: var(--red); }
+  .t-body { min-width: 0; }
+  .t-title { font-size: 13px; font-weight: 550; }
+  .t-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .t-meta a { color: var(--blue); text-decoration: none; }
+  .t-meta a:hover { text-decoration: underline; }
+  .chip { display: inline-flex; align-items: center; gap: 3px; }
+
+  .scrim { position: absolute; inset: 0; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 5; }
+  .shell.drawer-open .scrim { opacity: 1; pointer-events: auto; }
+  .drawer {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 420px; max-width: 88%;
+    background: var(--panel); border-left: 1px solid var(--line-strong);
+    transform: translateX(102%); transition: transform .25s ease; z-index: 6;
+    display: flex; flex-direction: column;
+  }
+  .shell.drawer-open .drawer { transform: none; }
+  .drawer-head { padding: 16px 18px 12px; border-bottom: 1px solid var(--line); }
+  .drawer-eyebrow { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); }
+  .drawer-close { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--muted); padding: 4px; border-radius: 7px; }
+  .drawer-close:hover { background: var(--main); color: var(--text); }
+  .drawer-title { font-size: 16px; font-weight: 700; letter-spacing: -.01em; margin-top: 7px; }
+  .drawer-facts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 9px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .drawer-facts b { color: var(--muted-dark); font-weight: 600; }
+  .drawer-status { display: inline-flex; align-items: center; gap: 5px; }
+  .artifact { margin: 12px 18px 0; display: flex; align-items: center; gap: 9px; background: var(--main); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 12.5px; }
+  .artifact svg { color: var(--blue); flex: none; }
+  .artifact span { color: var(--muted); font-size: 11.5px; }
+  .thread { flex: 1; overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 88%; border-radius: 12px; padding: 9px 12px; font-size: 12.5px; line-height: 1.65; }
+  .msg .msg-who { font-size: 10.5px; font-weight: 600; color: var(--muted); display: flex; gap: 6px; margin-bottom: 3px; font-variant-numeric: tabular-nums; }
+  .msg.agent { align-self: flex-start; background: var(--main); border: 1px solid var(--line); }
+  .msg.me { align-self: flex-end; background: var(--accent-soft); border: 1px solid var(--accent-line); }
+  .msg.system { align-self: center; background: none; border: none; font-size: 11px; color: var(--muted); padding: 2px; }
+  .quick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }
+  .thread-input { display: flex; gap: 7px; padding: 12px 14px; border-top: 1px solid var(--line); }
+  .thread-input input { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; color: var(--text); background: var(--input); border: 1px solid var(--line-strong); border-radius: 9px; padding: 8px 11px; }
+  .thread-input input::placeholder { color: var(--muted); }
+
+  @media (max-width: 880px) {
+    .side { display: none; }
+    .cols, .agents { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="stage">
+  <p class="stage-note">프로토타입 v2 · 에이전트 탭 — 승인 / 거절 / 위임이 동작하고, 진행 중 작업이나 타임라인 항목을 클릭하면 작업 스레드가 열립니다</p>
+  <div class="shell" id="shell">
+
+    <aside class="side">
+      <div class="brand">
+        <div class="brand-mark"></div>
+        <div><b>Agent Calendar</b><span>할 일 · 캘린더 · 에이전트</span></div>
+      </div>
+      <p class="nav-label">워크스페이스</p>
+      <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>캘린더</div>
+      <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>오늘<span class="nav-count">1</span></div>
+      <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/></svg>칸반 보드</div>
+      <div class="nav-item on"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="7" width="14" height="12" rx="3"/><path d="M12 7V4M8 12h.01M16 12h.01M9 16h6"/></svg>에이전트<span class="nav-count" id="navCount">3</span></div>
+      <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h11a3 3 0 0 1 3 3v13l-4-3H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>위키</div>
+      <div class="side-foot">
+        <div class="avatar">윤</div>
+        <div><p>Yunseo</p><span>Railway 연결됨</span></div>
+      </div>
+    </aside>
+
+    <main class="mainarea">
+      <div class="head">
+        <h1>에이전트</h1>
+        <span class="sub" id="summary">오늘 완료 4 · 진행 2 · 확인 필요 3</span>
+        <span class="live"><span class="live-dot"></span>relay 브리지 온라인 · 텔레그램 연결됨</span>
+      </div>
+
+      <div class="delegate">
+        <input type="text" id="delegateInput" placeholder="일 시키기 — 예: 과제 3 경쟁사 리서치 정리해서 문서로 만들어줘" aria-label="에이전트에게 위임할 작업" />
+        <select id="delegateWho" aria-label="담당 에이전트">
+          <option value="자동 배정">담당: 자동</option>
+          <option value="위키큐레이터">위키큐레이터</option>
+          <option value="비즈컨설턴트">비즈컨설턴트</option>
+        </select>
+        <button class="btn-primary" id="delegateBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4 18-7z"/></svg>위임
+        </button>
+      </div>
+      <p class="delegate-hint">캘린더 채팅이나 텔레그램에서 시켜도 같은 곳에 쌓입니다 — 여기는 관제 화면이에요.</p>
+
+      <div class="agents">
+        <div class="agent-card">
+          <div class="agent-top">
+            <div class="agent-avatar blue">위</div>
+            <div>
+              <p class="agent-name">위키큐레이터</p>
+              <p class="agent-state" id="state-wiki"><span class="state-dot run"></span>실행 중 · 리서치 1건</p>
+            </div>
+          </div>
+          <p class="agent-meta"><span>오늘 <b>2건</b> 완료</span><span>문서 <b>3</b></span><span>평균 <b>41분</b></span></p>
+        </div>
+        <div class="agent-card">
+          <div class="agent-top">
+            <div class="agent-avatar lavender">비</div>
+            <div>
+              <p class="agent-name">비즈컨설턴트</p>
+              <p class="agent-state" id="state-biz"><span class="state-dot ask"></span>질문 대기 · 답을 기다려요</p>
+            </div>
+          </div>
+          <p class="agent-meta"><span>오늘 <b>1건</b> 완료</span><span>제안 <b>1</b></span><span>평균 <b>67분</b></span></p>
+        </div>
+        <div class="agent-card">
+          <div class="agent-top">
+            <div class="agent-avatar green">스</div>
+            <div>
+              <p class="agent-name">스케줄러</p>
+              <p class="agent-state"><span class="state-dot"></span>다음 실행 18:00 · 저녁 다이제스트</p>
+            </div>
+          </div>
+          <p class="agent-meta"><span>반복 작업 <b>3개</b></span><span>이번 주 <b>19회</b> 실행</span></p>
+        </div>
+      </div>
+
+      <div class="cols">
+        <section class="col">
+          <h2>진행 중 <span class="badge blue" id="runBadge">2</span></h2>
+          <p class="col-note">카드를 클릭하면 작업 스레드가 열립니다 — 지시 추가, 질문 답변, 중간 산출물 확인.</p>
+          <div id="running">
+            <article class="runcard asking" data-task="biz-briefing" role="button" tabindex="0">
+              <div class="run-top">
+                <p class="run-title">투자자 미팅 브리핑 준비</p>
+                <span class="run-open">스레드 열기<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></span>
+              </div>
+              <p class="run-sub"><span class="who lavender">비즈컨설턴트</span> · 질문 1건 대기 — "지표는 주간 기준으로 볼까요?"</p>
+              <div class="progress"><i style="width: 45%"></i></div>
+            </article>
+            <article class="runcard" data-task="wiki-research" role="button" tabindex="0">
+              <div class="run-top">
+                <p class="run-title">과제 3 경쟁사 리서치</p>
+                <span class="run-open">스레드 열기<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></span>
+              </div>
+              <p class="run-sub"><span class="who blue">위키큐레이터</span> · 32분 경과 · 중간 산출물 1개</p>
+              <div class="progress"><i style="width: 70%"></i></div>
+            </article>
+          </div>
+
+          <h2 class="section-gap">승인 대기 <span class="badge" id="queueBadge">2</span></h2>
+          <div id="queue">
+            <article class="proposal" data-who="위키큐레이터" data-color="blue">
+              <p class="prop-eyebrow"><span class="who blue">위키큐레이터</span>의 제안 · 리서치 중 발견</p>
+              <p class="prop-title">경쟁사 A 요금제 변경 후속 분석</p>
+              <p class="prop-basis">근거: 과제 3 리서치 문서 § 시장 동향 — "6월 요금제 개편 이후 전환율 데이터 부재"</p>
+              <div class="prop-plan"><b>실행 계획</b>요금제 전후 공개 지표 수집 → 전환율 추정 → 우리 가격 정책에 주는 시사점 1페이지. 예상 60분, 산출물: 위키 문서.</div>
+              <div class="prop-actions">
+                <button class="btn approve"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 12.5 9.5 18 20 6.5"/></svg>승인</button>
+                <button class="btn edit"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg>수정</button>
+                <button class="btn reject">거절</button>
+                <span class="due">마감 <select aria-label="마감일"><option>내일</option><option>이번 주</option><option>다음 주</option></select></span>
+              </div>
+            </article>
+            <article class="proposal" data-who="비즈컨설턴트" data-color="lavender">
+              <p class="prop-eyebrow"><span class="who lavender">비즈컨설턴트</span>의 제안 · 주간 회고 기반</p>
+              <p class="prop-title">유니포트 온보딩 문서 초안 작성</p>
+              <p class="prop-basis">근거: MVP 피드백 7건 중 4건이 온보딩 어려움 언급</p>
+              <div class="prop-plan"><b>실행 계획</b>피드백 4건 원문 분석 → 온보딩 3단계 초안 → 스크린샷 자리 표시. 예상 90분, 산출물: 위키 문서 + 할 일 2건.</div>
+              <div class="prop-actions">
+                <button class="btn approve"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 12.5 9.5 18 20 6.5"/></svg>승인</button>
+                <button class="btn edit"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg>수정</button>
+                <button class="btn reject">거절</button>
+                <span class="due">마감 <select aria-label="마감일"><option>이번 주</option><option>내일</option><option>다음 주</option></select></span>
+              </div>
+            </article>
+          </div>
+          <div class="queue-empty" id="queueEmpty">대기 중인 제안이 없어요. 에이전트가 새 제안을 올리면 여기에 표시됩니다.</div>
+        </section>
+
+        <section class="col" aria-label="활동">
+          <h2>활동</h2>
+          <div class="timeline" id="timeline">
+            <div class="t-group">오늘</div>
+            <div class="t-item link" data-task="wiki-research">
+              <span class="t-time">14:10</span>
+              <span class="t-icon run"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
+              <div class="t-body">
+                <p class="t-title">과제 3 경쟁사 리서치 진행 중</p>
+                <p class="t-meta">위키큐레이터 · 32분 경과 · 완료 시 캘린더에 기록됩니다</p>
+              </div>
+            </div>
+            <div class="t-item">
+              <span class="t-time">11:42</span>
+              <span class="t-icon done"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 12.5 9.5 18 20 6.5"/></svg></span>
+              <div class="t-body">
+                <p class="t-title">시장 동향 리서치 완료</p>
+                <p class="t-meta"><a href="#">결과 문서 열기</a> · 캘린더 기록됨 · <span class="chip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4 18-7z"/></svg>텔레그램 발송됨</span></p>
+              </div>
+            </div>
+            <div class="t-item">
+              <span class="t-time">10:05</span>
+              <span class="t-icon idea"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 1 3.6 10.8c-.6.5-.6 1.2-.6 2.2h-6c0-1-.1-1.7-.6-2.2A6 6 0 0 1 12 3z"/></svg></span>
+              <div class="t-body">
+                <p class="t-title">새 제안 2건 등록</p>
+                <p class="t-meta">승인 대기로 이동 · 승인 전에는 실행되지 않습니다</p>
+              </div>
+            </div>
+            <div class="t-item">
+              <span class="t-time">09:00</span>
+              <span class="t-icon sched"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12H1.5M4 12l2.5 2.5"/></svg></span>
+              <div class="t-body">
+                <p class="t-title">아침 브리핑 발송</p>
+                <p class="t-meta">스케줄러 · 매일 09:00 · 캘린더 기록됨 · <span class="chip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4 18-7z"/></svg>텔레그램 발송됨</span></p>
+              </div>
+            </div>
+            <div class="t-group">어제</div>
+            <div class="t-item">
+              <span class="t-time">18:00</span>
+              <span class="t-icon sched"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12H1.5M4 12l2.5 2.5"/></svg></span>
+              <div class="t-body">
+                <p class="t-title">저녁 다이제스트 발송</p>
+                <p class="t-meta">완료 3 · 진행 1 · 제안 1 요약 · <span class="chip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4 18-7z"/></svg>텔레그램 발송됨</span></p>
+              </div>
+            </div>
+            <div class="t-item">
+              <span class="t-time">16:22</span>
+              <span class="t-icon done"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 12.5 9.5 18 20 6.5"/></svg></span>
+              <div class="t-body">
+                <p class="t-title">유니포트 주간 지표 정리 완료</p>
+                <p class="t-meta"><a href="#">결과 문서 열기</a> · 캘린더 기록됨</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <div class="scrim" id="scrim"></div>
+    <aside class="drawer" id="drawer" aria-label="작업 스레드">
+      <div class="drawer-head">
+        <p class="drawer-eyebrow">
+          <span class="who" id="dWho">위키큐레이터</span><span id="dOrigin">· 채팅에서 위임됨</span>
+          <button class="drawer-close" id="drawerClose" aria-label="닫기"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </p>
+        <p class="drawer-title" id="dTitle">과제 3 경쟁사 리서치</p>
+        <p class="drawer-facts">
+          <span class="drawer-status" id="dStatus"><span class="state-dot run"></span>진행 중</span>
+          <span>마감 <b id="dDue">오늘 18:00</b></span>
+          <span>경과 <b id="dElapsed">32분</b></span>
+          <span>완료 시 <b>캘린더 기록 + 텔레그램</b></span>
+        </p>
+      </div>
+      <div class="artifact" id="dArtifact">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM14 3v5h5M9 13h6M9 17h4"/></svg>
+        <div>중간 산출물 — 경쟁사-비교-draft.md<span> · 12분 전 갱신</span></div>
+      </div>
+      <div class="thread" id="thread"></div>
+      <div class="thread-input">
+        <input type="text" id="threadInput" placeholder="지시나 답변 보내기 — 예: 국내 3사만 비교해줘" aria-label="스레드 메시지" />
+        <button class="btn-primary" id="threadSend" style="padding: 0 13px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4 18-7z"/></svg></button>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+  var counts = { done: 4, running: 2, attention: 3 };
+  function refreshCounts() {
+    document.getElementById('summary').textContent = '오늘 완료 ' + counts.done + ' · 진행 ' + counts.running + ' · 확인 필요 ' + counts.attention;
+    var pendingCards = document.querySelectorAll('#queue .proposal').length;
+    document.getElementById('queueBadge').textContent = pendingCards;
+    document.getElementById('runBadge').textContent = counts.running;
+    document.getElementById('navCount').textContent = counts.attention;
+    document.getElementById('queueEmpty').style.display = pendingCards === 0 ? 'block' : 'none';
+  }
+  function nowLabel() {
+    var d = new Date();
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  var ICONS = {
+    done: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 12.5 9.5 18 20 6.5"/></svg>',
+    run: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
+    drop: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    idea: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 1 3.6 10.8c-.6.5-.6 1.2-.6 2.2h-6c0-1-.1-1.7-.6-2.2A6 6 0 0 1 12 3z"/></svg>'
+  };
+  function addTimeline(kind, title, meta) {
+    var el = document.createElement('div');
+    el.className = 't-item new';
+    el.innerHTML = '<span class="t-time">' + nowLabel() + '</span>'
+      + '<span class="t-icon ' + kind + '">' + ICONS[kind] + '</span>'
+      + '<div class="t-body"><p class="t-title"></p><p class="t-meta"></p></div>';
+    el.querySelector('.t-title').textContent = title;
+    el.querySelector('.t-meta').textContent = meta;
+    var tl = document.getElementById('timeline');
+    tl.insertBefore(el, tl.children[1]);
+  }
+
+  var TASKS = {
+    'wiki-research': {
+      who: '위키큐레이터', whoClass: 'blue', origin: '· 채팅에서 위임됨', title: '과제 3 경쟁사 리서치',
+      status: '진행 중', statusDot: 'run', due: '오늘 18:00', elapsed: '32분', artifact: true,
+      thread: [
+        { from: 'me', at: '13:38', text: '과제 3에 넣을 경쟁사 리서치 정리해줘. 투자입문 앱 위주로.' },
+        { from: 'agent', at: '13:39', text: '알겠습니다. 범위를 이렇게 잡을게요 — 국내 투자입문 앱 5곳의 온보딩·요금제·핵심 기능 비교. 산출물은 위키 문서 1개로 만들겠습니다.' },
+        { from: 'system', at: '', text: '작업 시작 · 캘린더에 "리서치 (진행 중)" 기록됨' },
+        { from: 'agent', at: '14:02', text: '중간 공유: 3곳 조사 완료했습니다. 경쟁사 A가 6월에 요금제를 개편했는데 후속 분석 가치가 있어 보여서 별도 제안으로 올려뒀어요.' }
+      ]
+    },
+    'biz-briefing': {
+      who: '비즈컨설턴트', whoClass: 'lavender', origin: '· 텔레그램에서 위임됨', title: '투자자 미팅 브리핑 준비',
+      status: '질문 대기', statusDot: 'ask', due: '내일 10:00', elapsed: '18분', artifact: false,
+      thread: [
+        { from: 'me', at: '13:50', text: '다음 주 화요일 투자자 미팅용 브리핑 자료 준비해줘.' },
+        { from: 'agent', at: '13:52', text: '네. 유니포트 지표 요약 + 로드맵 + 경쟁 포지셔닝 3부로 구성하겠습니다.' },
+        { from: 'agent', at: '14:08', text: '질문이 있어요 — 지표는 주간 기준으로 볼까요, 월간 누적으로 볼까요? 미팅 상대가 성장 추세를 중시한다면 주간을 추천합니다.', quick: ['주간 기준으로', '월간 누적으로'] }
+      ]
+    }
+  };
+
+  var shell = document.getElementById('shell');
+  var currentTask = null;
+  function renderThread(task) {
+    var wrap = document.getElementById('thread');
+    wrap.innerHTML = '';
+    task.thread.forEach(function (message) {
+      var el = document.createElement('div');
+      el.className = 'msg ' + message.from;
+      if (message.from === 'system') {
+        el.textContent = message.text;
+      } else {
+        var who = message.from === 'me' ? '나' : task.who;
+        el.innerHTML = '<p class="msg-who"><span>' + who + '</span><span>' + message.at + '</span></p><p class="msg-text"></p>';
+        el.querySelector('.msg-text').textContent = message.text;
+        if (message.quick) {
+          var quick = document.createElement('div');
+          quick.className = 'quick';
+          message.quick.forEach(function (label) {
+            var button = document.createElement('button');
+            button.className = 'btn small';
+            button.textContent = label;
+            button.addEventListener('click', function () { sendThread(label); });
+            quick.appendChild(button);
+          });
+          el.appendChild(quick);
+        }
+      }
+      wrap.appendChild(el);
+    });
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+  function openDrawer(taskId) {
+    var task = TASKS[taskId];
+    if (!task) return;
+    currentTask = task;
+    document.getElementById('dWho').textContent = task.who;
+    document.getElementById('dWho').className = 'who ' + task.whoClass;
+    document.getElementById('dOrigin').textContent = task.origin;
+    document.getElementById('dTitle').textContent = task.title;
+    document.getElementById('dDue').textContent = task.due;
+    document.getElementById('dElapsed').textContent = task.elapsed;
+    document.getElementById('dStatus').innerHTML = '<span class="state-dot ' + task.statusDot + '"></span>' + task.status;
+    document.getElementById('dArtifact').style.display = task.artifact ? 'flex' : 'none';
+    renderThread(task);
+    shell.classList.add('drawer-open');
+    document.getElementById('threadInput').focus({ preventScroll: true });
+  }
+  function closeDrawer() { shell.classList.remove('drawer-open'); currentTask = null; }
+  document.getElementById('scrim').addEventListener('click', closeDrawer);
+  document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeDrawer(); });
+
+  document.querySelectorAll('[data-task]').forEach(function (el) {
+    el.addEventListener('click', function () { openDrawer(el.dataset.task); });
+    el.addEventListener('keydown', function (event) { if (event.key === 'Enter') openDrawer(el.dataset.task); });
+  });
+
+  function sendThread(preset) {
+    var input = document.getElementById('threadInput');
+    var textValue = preset || input.value.trim();
+    if (!textValue || !currentTask) return;
+    currentTask.thread.push({ from: 'me', at: nowLabel(), text: textValue });
+    if (currentTask.statusDot === 'ask') {
+      currentTask.status = '진행 중'; currentTask.statusDot = 'run';
+      currentTask.thread.push({ from: 'agent', at: nowLabel(), text: '확인했습니다 — "' + textValue + '" 기준으로 계속 진행할게요.' });
+      counts.attention -= 1;
+      var bizCard = document.querySelector('[data-task="biz-briefing"]');
+      if (bizCard) {
+        bizCard.classList.remove('asking');
+        bizCard.querySelector('.run-sub').innerHTML = '<span class="who lavender">비즈컨설턴트</span> · 답변 반영해 진행 중';
+      }
+      document.getElementById('state-biz').innerHTML = '<span class="state-dot run"></span>실행 중 · 브리핑 준비';
+      addTimeline('run', currentTask.title + ' 재개', '비즈컨설턴트 · 질문에 답변함 · "' + textValue + '"');
+      refreshCounts();
+    } else {
+      currentTask.thread.push({ from: 'agent', at: nowLabel(), text: '반영했습니다. 다음 중간 공유 때 결과로 보여드릴게요.' });
+    }
+    renderThread(currentTask);
+    document.getElementById('dStatus').innerHTML = '<span class="state-dot ' + currentTask.statusDot + '"></span>' + currentTask.status;
+    input.value = '';
+  }
+  document.getElementById('threadSend').addEventListener('click', function () { sendThread(); });
+  document.getElementById('threadInput').addEventListener('keydown', function (event) { if (event.key === 'Enter') sendThread(); });
+
+  document.getElementById('queue').addEventListener('click', function (event) {
+    var card = event.target.closest('.proposal');
+    if (!card) return;
+    var titleEl = card.querySelector('.prop-title');
+    var who = card.dataset.who;
+    if (event.target.closest('.btn.approve')) {
+      var due = card.querySelector('.due select');
+      addTimeline('run', titleEl.textContent.trim() + ' 시작', who + ' · 제안 승인됨 · 마감 ' + due.value + ' · 완료 시 캘린더에 기록됩니다');
+      counts.running += 1; counts.attention -= 1;
+      card.classList.add('leaving');
+      setTimeout(function () { card.remove(); refreshCounts(); }, 250);
+      refreshCounts();
+    } else if (event.target.closest('.btn.reject')) {
+      addTimeline('drop', titleEl.textContent.trim() + ' 거절', who + ' 제안 · 사유는 에이전트에게 피드백으로 전달됩니다');
+      counts.attention -= 1;
+      card.classList.add('leaving');
+      setTimeout(function () { card.remove(); refreshCounts(); }, 250);
+      refreshCounts();
+    } else if (event.target.closest('.btn.edit')) {
+      if (titleEl.querySelector('input')) return;
+      var current = titleEl.textContent.trim();
+      titleEl.innerHTML = '<input type="text" aria-label="제안 제목 수정" />';
+      var editInput = titleEl.querySelector('input');
+      editInput.value = current;
+      editInput.focus();
+      editInput.addEventListener('keydown', function (keyEvent) {
+        if (keyEvent.key === 'Enter') { titleEl.textContent = editInput.value.trim() || current; }
+        if (keyEvent.key === 'Escape') { titleEl.textContent = current; }
+      });
+      editInput.addEventListener('blur', function () { titleEl.textContent = editInput.value.trim() || current; });
+    }
+  });
+
+  function delegate() {
+    var input = document.getElementById('delegateInput');
+    var who = document.getElementById('delegateWho').value;
+    var task = input.value.trim();
+    if (!task) { input.focus(); return; }
+    var assigned = who === '자동 배정' ? '위키큐레이터' : who;
+    var id = 'new-' + Date.now();
+    TASKS[id] = {
+      who: assigned, whoClass: assigned === '비즈컨설턴트' ? 'lavender' : 'blue', origin: '· 방금 위임됨',
+      title: task, status: '진행 중', statusDot: 'run', due: '오늘', elapsed: '방금', artifact: false,
+      thread: [
+        { from: 'me', at: nowLabel(), text: task },
+        { from: 'agent', at: nowLabel(), text: '접수했습니다. 범위와 산출물 형식을 정리해서 곧 계획을 공유할게요.' },
+        { from: 'system', at: '', text: '작업 시작 · 캘린더에 기록됨' }
+      ]
+    };
+    var card = document.createElement('article');
+    card.className = 'runcard';
+    card.dataset.task = id;
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.innerHTML = '<div class="run-top"><p class="run-title"></p><span class="run-open">스레드 열기<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></span></div>'
+      + '<p class="run-sub"><span class="who ' + (assigned === '비즈컨설턴트' ? 'lavender' : 'blue') + '">' + assigned + '</span> · 방금 위임됨</p>'
+      + '<div class="progress"><i style="width: 6%"></i></div>';
+    card.querySelector('.run-title').textContent = task;
+    card.addEventListener('click', function () { openDrawer(id); });
+    card.addEventListener('keydown', function (event) { if (event.key === 'Enter') openDrawer(id); });
+    document.getElementById('running').prepend(card);
+    addTimeline('run', task + ' 시작', assigned + (who === '자동 배정' ? ' (자동 배정)' : '') + ' · 방금 위임됨 · 완료 시 캘린더에 기록됩니다');
+    counts.running += 1;
+    refreshCounts();
+    input.value = '';
+  }
+  document.getElementById('delegateBtn').addEventListener('click', delegate);
+  document.getElementById('delegateInput').addEventListener('keydown', function (event) { if (event.key === 'Enter') delegate(); });
+  refreshCounts();
+</script>

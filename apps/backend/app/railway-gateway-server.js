@@ -9,6 +9,8 @@ const { routeWebCommand } = require('./lib/commands');
 const { routeAgentOperations } = require('./lib/agent-operations-api');
 const { AgentOperationsScheduler } = require('./lib/agent-operations-scheduler');
 const { AgentOperationsService } = require('./lib/agent-operations-service');
+const { resolveExecutionEngine } = require('./lib/agent-operations-execution');
+const { resolveLiveWorkAgentAvailability } = require('./lib/agent-work-availability');
 const { SchedulerDaemon } = require('./lib/daemon');
 const { normalizeMailAccount, syncMailAccounts } = require('./lib/connectors/mail');
 const {
@@ -59,7 +61,10 @@ const {
   publicSessionRecord,
 } = require('./lib/public-agent-records');
 const { HermesRailwayRelay, isRelayAuthorized, relayEnabled } = require('./lib/railway-relay');
-const { runRelayChatCompletion } = require('./lib/relay-chat-completion');
+const {
+  runRelayChatCompletion,
+  runRelayProfileChatCompletion,
+} = require('./lib/relay-chat-completion');
 const {
   agentOperationsProfileTimeout,
   runRelayProfileCompletion,
@@ -1627,6 +1632,7 @@ function publicOfficialProfileAgents(agents = []) {
       role: `Mac mini Hermes profile ${name}`,
       persona: `Mac mini Hermes profile ${name}.`,
       status: allowedStatuses.has(status) ? status : 'Idle',
+      enabled: agent.enabled !== false,
       tools: ['hermes-cli'],
       skills: publicCapabilityMetadataList(agent.skills),
     });
@@ -3951,7 +3957,7 @@ async function streamRailwayRelayChat({
   };
 
   try {
-    const completion = await runRelayProfileCompletion({
+    const completion = await runRelayProfileChatCompletion({
       relay,
       env,
       payload: profilePayload,
@@ -6773,9 +6779,34 @@ async function handleApi(
     method,
     pathSegments,
     body: requestBody,
+    query: Object.fromEntries(requestUrl.searchParams.entries()),
     service: agentOperationsService,
   });
   if (agentOperationsResponse) {
+    if (typeof agentOperationsResponse.stream === 'function') {
+      res.writeHead(agentOperationsResponse.status || 200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-store',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      });
+      res.flushHeaders?.();
+      try {
+        await agentOperationsResponse.stream(async (event) => {
+          const type = String(event?.type || 'progress');
+          const { type: _type, ...data } = event || {};
+          writeSseEvent(res, type, data);
+        });
+      } catch (error) {
+        writeSseEvent(res, 'error', {
+          code: String(error?.code || 'live_turn_failed'),
+          message: '실시간 작업 응답을 시작하지 못했습니다. 다시 시도해 주세요.',
+        });
+        writeSseEvent(res, 'done', { idempotentReplay: false });
+      }
+      res.end();
+      return;
+    }
     sendJson(res, agentOperationsResponse.status, agentOperationsResponse.body);
     return;
   }
@@ -7933,14 +7964,67 @@ function createRailwayGatewayServer({
     })
     : null);
   const operationClock = agentOperationsClock || (() => new Date());
-  const executeAgentCompletion = ({ payload, meta, onEvent }) => runRelayProfileCompletion({
-    relay,
-    env,
-    payload,
-    meta,
-    onEvent,
-    timeoutMs: agentOperationsProfileTimeout(env),
-  });
+  const executeAgentCompletion = async ({ payload = {}, meta = {}, onEvent }) => {
+    const requestedExecutionEngine = String(
+      payload.executionEngine || meta.executionEngine || 'hermes',
+    ).trim() || 'hermes';
+    const deliverable = payload.deliverable || meta.deliverable || {};
+    const executionEngine = resolveExecutionEngine(requestedExecutionEngine, deliverable);
+    const completion = executionEngine === 'local_llm'
+      ? await runRelayChatCompletion({
+        relay,
+        env,
+        payload: {
+          model: localLlmModel(env),
+          profile: payload.profile || meta.agentId || 'default',
+          stream: true,
+          messages: Array.isArray(payload.messages) ? payload.messages : [],
+        },
+        meta: { ...meta, requestedExecutionEngine, executionEngine },
+        onEvent,
+        timeoutMs: agentOperationsProfileTimeout(env),
+      })
+      : await runRelayProfileCompletion({
+        relay,
+        env,
+        payload: {
+          ...payload,
+          executionEngine,
+          ...(executionEngine === 'codex' ? { runnerAdapterId: 'codex-cli' } : {}),
+        },
+        meta: { ...meta, requestedExecutionEngine, executionEngine },
+        onEvent,
+        timeoutMs: agentOperationsProfileTimeout(env),
+      });
+    return { ...completion, requestedExecutionEngine, executionEngine };
+  };
+  const executeLiveAgentCompletion = async ({ payload = {}, meta = {}, onEvent }) => {
+    const requestedExecutionEngine = String(
+      payload.executionEngine || meta.executionEngine || 'hermes',
+    ).trim() || 'hermes';
+    const deliverable = payload.deliverable || meta.deliverable || {};
+    const executionEngine = resolveExecutionEngine(requestedExecutionEngine, deliverable);
+    if (executionEngine === 'codex') {
+      return executeAgentCompletion({ payload, meta, onEvent });
+    }
+    const completionRunner = executionEngine === 'hermes'
+      ? runRelayProfileChatCompletion
+      : runRelayChatCompletion;
+    const completion = await completionRunner({
+      relay,
+      env,
+      payload: {
+        ...(executionEngine === 'local_llm' ? { model: localLlmModel(env) } : {}),
+        profile: payload.profile || meta.agentId || 'default',
+        stream: true,
+        messages: Array.isArray(payload.messages) ? payload.messages : [],
+      },
+      meta: { ...meta, requestedExecutionEngine, executionEngine },
+      onEvent,
+      timeoutMs: agentOperationsProfileTimeout(env),
+    });
+    return { ...completion, requestedExecutionEngine, executionEngine };
+  };
   const agentReportChatId = String(env.HERMES_TELEGRAM_ALLOWED_CHAT_IDS || '')
     .split(',')
     .map((chatId) => chatId.trim())
@@ -7978,6 +8062,17 @@ function createRailwayGatewayServer({
       clock: operationClock,
       planCompletion: executeAgentCompletion,
       taskCompletion: executeAgentCompletion,
+      liveTurnCompletion: executeLiveAgentCompletion,
+      resolveAgentAvailability: ({ mission }) => {
+        const snapshot = relayLiveSnapshot(relay, env);
+        if (!snapshot) return { available: true };
+        const state = runtimeStateFromResponseBody(snapshot);
+        return resolveLiveWorkAgentAvailability({
+          agentId: mission?.agentId,
+          agents: state.agents,
+          profileReadiness: state.profileReadiness,
+        });
+      },
       scheduler: agentOperationsScheduler,
       daemon: agentOperationsDaemon,
     })

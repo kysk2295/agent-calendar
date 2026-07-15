@@ -1,11 +1,15 @@
 import type {
   AgentMission,
+  AgentDeliverable,
+  AgentDeliverableKind,
+  AgentExecutionEngine,
   AgentMissionState,
   AgentOperationsState,
   AgentSession,
   AgentSessionDetail,
   AgentSessionEvent,
   AgentTask,
+  AgentTaskFailureCode,
   AgentTaskState,
   SessionEventKind,
 } from './types';
@@ -92,6 +96,37 @@ function eventKind(value: unknown): SessionEventKind {
   }
 }
 
+function executionEngine(value: unknown): AgentExecutionEngine {
+  switch (value) {
+    case 'auto':
+    case 'local_llm':
+    case 'codex':
+      return value;
+    default:
+      return 'hermes';
+  }
+}
+
+function deliverableKind(value: unknown): AgentDeliverableKind {
+  switch (value) {
+    case 'document':
+    case 'image':
+    case 'file':
+      return value;
+    default:
+      return 'report';
+  }
+}
+
+function parseDeliverable(value: unknown): AgentDeliverable {
+  const record = recordValue(value);
+  const kind = deliverableKind(record.kind);
+  return {
+    kind,
+    format: stringValue(record.format, kind === 'report' ? 'markdown' : ''),
+  };
+}
+
 function parseMission(value: unknown): AgentMission | null {
   if (!isRecord(value) || !stringValue(value.id)) return null;
   const schedule = recordValue(value.reportSchedule);
@@ -104,6 +139,8 @@ function parseMission(value: unknown): AgentMission | null {
     objective: stringValue(value.objective),
     successCriteria: stringArray(value.successCriteria),
     agentId: stringValue(value.agentId, 'bizconsultant'),
+    executionEngine: executionEngine(value.executionEngine),
+    deliverable: parseDeliverable(value.deliverable),
     status: missionState(value.status),
     timezone: stringValue(value.timezone, 'Asia/Seoul'),
     sources: stringArray(value.sources),
@@ -132,6 +169,7 @@ function parseMission(value: unknown): AgentMission | null {
 
 function parseTask(value: unknown): AgentTask | null {
   if (!isRecord(value) || !stringValue(value.id) || value.origin !== 'agent') return null;
+  const failureCode: AgentTaskFailureCode | undefined = value.failureCode === 'budget_exhausted' || value.failureCode === 'relay_cancel_unconfirmed' ? value.failureCode : undefined;
   return {
     id: stringValue(value.id),
     missionId: stringValue(value.missionId),
@@ -149,8 +187,11 @@ function parseTask(value: unknown): AgentTask | null {
     estimatedMinutes: numberValue(value.estimatedMinutes),
     actionClass: stringValue(value.actionClass),
     sourceRefs: stringArray(value.sourceRefs),
+    executionEngine: executionEngine(value.executionEngine),
+    deliverable: parseDeliverable(value.deliverable),
     blockedReason: stringValue(value.blockedReason),
     pauseMode: stringValue(value.pauseMode),
+    ...(failureCode ? { failureCode } : {}),
     attempt: numberValue(value.attempt),
     reportId: stringValue(value.reportId),
   };
@@ -165,6 +206,8 @@ function parseSession(value: unknown): AgentSession | null {
     type: value.type === 'mission-thread' ? 'mission-thread' : 'task',
     title: stringValue(value.title, 'Task Session'),
     status: stringValue(value.status),
+    executionEngine: executionEngine(value.executionEngine),
+    deliverable: parseDeliverable(value.deliverable),
     pendingInstructions: stringArray(value.pendingInstructions),
     createdAt: stringValue(value.createdAt),
     updatedAt: stringValue(value.updatedAt),

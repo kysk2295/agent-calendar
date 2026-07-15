@@ -88,12 +88,13 @@ async function runRelayChatCompletion({
   meta = {},
   onEvent = () => {},
   timeoutMs,
+  jobKind = 'chat.completions',
 } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) {
     throw relayError('runtime_unavailable', 'Mac mini Hermes Relay is offline');
   }
   const job = relay.enqueue({
-    kind: 'chat.completions',
+    kind: jobKind,
     payload,
     meta: {
       view: 'agent-operations',
@@ -110,6 +111,7 @@ async function runRelayChatCompletion({
   const textParts = [];
   const events = [];
   let bridgeCompletionText = '';
+  let bridgeCompletion = {};
   let cursor = 0;
 
   while (Date.now() < deadline) {
@@ -121,7 +123,10 @@ async function runRelayChatCompletion({
       events.push(event);
       await onEvent(event);
       if (event.kind === 'agent_message' && event.text) textParts.push(event.text);
-      if (record.event === 'bridge-complete') bridgeCompletionText = relayCompletionText(record.data);
+      if (record.event === 'bridge-complete') {
+        bridgeCompletion = record.data && typeof record.data === 'object' ? record.data : {};
+        bridgeCompletionText = relayCompletionText(record.data);
+      }
       if (record.event === 'error') {
         throw relayError(
           'relay_failed',
@@ -135,6 +140,10 @@ async function runRelayChatCompletion({
         text: (textParts.join('') || bridgeCompletionText).trim(),
         jobId: job.id,
         events,
+        runner: String(bridgeCompletion.runner || ''),
+        profile: String(bridgeCompletion.profile || payload?.profile || ''),
+        usage: bridgeCompletion.usage || null,
+        provenance: bridgeCompletion.provenance || null,
       };
     }
   }
@@ -148,8 +157,18 @@ async function runRelayChatCompletion({
   throw timeoutError;
 }
 
+function runRelayProfileChatCompletion(options = {}) {
+  const { model: _model, ...payload } = options.payload || {};
+  return runRelayChatCompletion({
+    ...options,
+    payload,
+    jobKind: 'profile.chat',
+  });
+}
+
 module.exports = {
   relayCompletionText,
   runRelayChatCompletion,
+  runRelayProfileChatCompletion,
   sessionEventFromRelayRecord,
 };

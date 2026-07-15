@@ -62,7 +62,14 @@
   border-bottom: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
   font-size: 11.5px;
   font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
+
+.agent-operations-error button { min-height: 44px; padding: 0 16px; flex: 0 0 auto; }
+.agent-operations-error span { word-break: keep-all; overflow-wrap: anywhere; }
 
 .agent-missions-layout {
   min-height: 0;
@@ -353,6 +360,76 @@
 .agent-report-row footer button { height: 26px; padding: 0 8px; color: var(--muted-dark); background: var(--main); border: 1px solid var(--line); border-radius: 5px; font-size: 10px; }
 .agent-report-row footer button[data-active="true"] { color: var(--accent-dark); background: var(--accent-soft); border-color: var(--accent-line); }
 
+.agent-mission-composer-backdrop {
+  position: fixed;
+  z-index: 125;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: color-mix(in srgb, var(--text) 28%, transparent);
+}
+
+.agent-mission-composer {
+  width: min(680px, 100%);
+  max-height: min(780px, 100%);
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  overflow: auto;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--text) 24%, transparent);
+}
+
+.agent-mission-composer > header { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line-soft); }
+.agent-mission-composer > header div { min-width: 0; flex: 1; }
+.agent-mission-composer > header span,
+.agent-mission-composer label > span,
+.agent-engine-selector legend { color: var(--muted); font-size: 9.5px; font-weight: 800; }
+.agent-mission-composer > header h2 { margin: 3px 0 0; font-size: 15.5px; }
+.agent-mission-composer > header button { width: 30px; height: 30px; color: var(--muted-dark); background: transparent; border: 0; border-radius: 5px; font-size: 20px; }
+
+.agent-mission-composer-fields { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 12px; }
+.agent-mission-composer-fields label,
+.agent-deliverable-fields label { display: grid; gap: 6px; }
+.agent-mission-composer-fields label:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+.agent-mission-composer input,
+.agent-mission-composer textarea,
+.agent-mission-composer select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11.5px;
+}
+.agent-mission-composer textarea { min-height: 82px; resize: vertical; line-height: 1.5; }
+
+.agent-engine-selector { min-width: 0; margin: 0; padding: 0; border: 0; }
+.agent-engine-selector legend { margin-bottom: 7px; }
+.agent-engine-selector > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line-strong); border-radius: 6px; }
+.agent-engine-selector button { min-width: 0; min-height: 54px; display: grid; align-content: center; gap: 3px; padding: 7px 8px; color: var(--muted-dark); background: var(--main); border: 0; border-right: 1px solid var(--line-strong); }
+.agent-engine-selector button:first-child { border-radius: 5px 0 0 5px; }
+.agent-engine-selector button:last-child { border-right: 0; border-radius: 0 5px 5px 0; }
+.agent-engine-selector button[data-active="true"] { color: var(--accent-dark); background: var(--accent-soft); box-shadow: inset 0 -2px var(--accent); }
+.agent-engine-selector button strong { font-size: 10.5px; }
+.agent-engine-selector button span { overflow: hidden; color: var(--muted); font-size: 8.5px; text-overflow: ellipsis; white-space: nowrap; }
+
+.agent-deliverable-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.agent-mission-composer > footer { display: flex; justify-content: flex-end; gap: 7px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.agent-mission-composer > footer button { height: 32px; padding: 0 12px; color: var(--muted-dark); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 6px; font-size: 10.5px; font-weight: 800; }
+.agent-mission-composer > footer button.primary { color: var(--input); background: var(--accent); border-color: var(--accent); }
+.agent-mission-composer button:focus-visible,
+.agent-mission-composer input:focus-visible,
+.agent-mission-composer textarea:focus-visible,
+.agent-mission-composer select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .task-session-backdrop {
   position: fixed;
   z-index: 120;
@@ -458,7 +535,8 @@
 .task-session-result ul { display: grid; gap: 7px; margin: 0; padding-left: 17px; }
 .task-session-result li { color: var(--text); font-size: 11.5px; line-height: 1.55; word-break: keep-all; overflow-wrap: anywhere; }
 .task-session-result-links { display: flex; flex-wrap: wrap; gap: 5px; }
-.task-session-result-links a { padding: 4px 6px; background: color-mix(in srgb, var(--blue) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--blue) 26%, transparent); border-radius: 4px; word-break: keep-all; overflow-wrap: anywhere; text-decoration: none; }
+.task-session-result-links a, .task-session-result-links span { padding: 4px 6px; background: color-mix(in srgb, var(--blue) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--blue) 26%, transparent); border-radius: 4px; word-break: keep-all; overflow-wrap: anywhere; text-decoration: none; }
+.task-session-result-links span { color: var(--muted); background: var(--main); border-color: var(--line); }
 .task-session-result-followups { display: grid; gap: 8px; }
 .task-session-result-followups > div { display: grid; gap: 2px; }
 .task-session-result-followups b { font-size: 11px; line-height: 1.4; word-break: keep-all; overflow-wrap: anywhere; }
@@ -498,7 +576,220 @@
 .task-session-panel a:focus-visible,
 .task-session-composer textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+.agent-command-center {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 16px 18px 24px;
+  overflow: auto;
+}
+
+.agent-command-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+}
+
+.agent-command-metrics > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px 8px;
+  padding: 10px 12px;
+  border-right: 1px solid var(--line-soft);
+}
+.agent-command-metrics > div:last-child { border-right: 0; }
+.agent-command-metrics span { color: var(--muted); font-size: 9.5px; font-weight: 800; }
+.agent-command-metrics strong { grid-row: 1 / 3; grid-column: 2; color: var(--text); font-size: 20px; font-variant-numeric: tabular-nums; }
+.agent-command-metrics small { min-width: 0; overflow: hidden; color: var(--muted-dark); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+
+.agent-command-request {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: var(--bar);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+}
+.agent-command-request > header { display: flex; align-items: flex-start; gap: 12px; }
+.agent-command-request > header > div { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.agent-command-request > header strong { font-size: 12.5px; }
+.agent-command-request > header span { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.agent-command-request > header b { flex-shrink: 0; color: var(--muted); font-size: 9px; }
+.agent-command-request > label { display: grid; gap: 5px; }
+.agent-command-request > label > span { color: var(--muted); font-size: 9px; font-weight: 800; }
+.agent-command-request textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  padding: 10px 11px;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.agent-command-request > footer { display: flex; align-items: center; gap: 8px; }
+.agent-command-request > footer > div { min-width: 0; flex: 1; display: flex; flex-wrap: wrap; gap: 5px; }
+.agent-command-request button,
+.hermes-automation-next button {
+  height: 29px;
+  padding: 0 9px;
+  color: var(--muted-dark);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 800;
+}
+.agent-command-request button.primary { color: var(--input); background: var(--accent); border-color: var(--accent); }
+
+.agent-command-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.agent-command-grid > section { min-width: 0; }
+.agent-command-grid > section > header {
+  min-height: 40px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid var(--line-strong);
+}
+.agent-command-grid > section > header > div { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.agent-command-grid > section > header strong { font-size: 11.5px; }
+.agent-command-grid > section > header span { color: var(--muted); font-size: 9.5px; }
+.agent-command-grid > section > header b { color: var(--muted); font-size: 9.5px; }
+.agent-command-grid > section > div { display: grid; }
+.agent-command-grid > section > div > button {
+  min-width: 0;
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 4px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: left;
+}
+.agent-command-grid > section > div > button:hover { background: color-mix(in srgb, var(--sidebar) 55%, transparent); }
+.agent-command-grid > section > div > button > i,
+.hermes-automation-row > i { width: 7px; height: 7px; background: var(--muted); border-radius: 50%; }
+.agent-command-grid i[data-status="active"],
+.hermes-automation-row i[data-status="active"] { background: var(--green); }
+.agent-command-grid i[data-status="paused"],
+.hermes-automation-row i[data-status="paused"] { background: var(--amber); }
+.agent-command-grid i[data-status="failed"],
+.hermes-automation-row i[data-status="failed"] { background: var(--red); }
+.agent-command-grid i[data-tone="blue"] { background: var(--blue); }
+.agent-command-grid i[data-tone="amber"] { background: var(--amber); }
+.agent-command-grid i[data-tone="green"] { background: var(--green); }
+.agent-command-grid i[data-tone="red"] { background: var(--red); }
+.agent-command-grid button > span,
+.hermes-automation-row > span { min-width: 0; display: grid; gap: 3px; }
+.agent-command-grid button > span strong,
+.hermes-automation-row > span strong { overflow: hidden; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.agent-command-grid button > span small,
+.hermes-automation-row > span small { overflow: hidden; color: var(--muted); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+.agent-command-grid button > b,
+.hermes-automation-row > b { color: var(--muted-dark); font-size: 9px; }
+.agent-command-grid p { margin: 0; padding: 18px 2px; color: var(--muted); font-size: 10px; }
+
+.hermes-automations-layout {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  overflow: hidden;
+}
+.hermes-automation-list {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  overflow: auto;
+  background: var(--sidebar);
+  border-right: 1px solid var(--line);
+}
+.hermes-automation-list > header { min-height: 42px; display: flex; align-items: flex-start; gap: 8px; padding: 2px 4px 8px; }
+.hermes-automation-list > header > div { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.hermes-automation-list > header strong { font-size: 12px; }
+.hermes-automation-list > header span { color: var(--muted); font-size: 9.5px; }
+.hermes-automation-list > header b { color: var(--muted); font-size: 10px; }
+.hermes-automation-row {
+  min-width: 0;
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  text-align: left;
+}
+.hermes-automation-row:hover { background: color-mix(in srgb, var(--panel) 65%, transparent); }
+.hermes-automation-row[data-active="true"] { background: var(--panel); border-color: var(--line-strong); }
+
+.hermes-automation-inspector {
+  min-width: 0;
+  min-height: 0;
+  padding: 18px 22px 28px;
+  overflow: auto;
+}
+.hermes-automation-inspector > header { display: flex; align-items: flex-start; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line-soft); }
+.hermes-automation-inspector > header > div { min-width: 0; flex: 1; }
+.hermes-automation-inspector > header span { color: var(--muted); font-size: 9px; font-weight: 800; }
+.hermes-automation-inspector > header h2 { margin: 5px 0 4px; font-size: 16px; }
+.hermes-automation-inspector > header p { max-width: 720px; margin: 0; color: var(--muted-dark); font-size: 11px; line-height: 1.55; }
+.hermes-automation-inspector > header > strong { color: var(--muted-dark); font-size: 10px; }
+.hermes-automation-inspector > header > strong[data-status="active"] { color: var(--green); }
+.hermes-automation-inspector > header > strong[data-status="failed"] { color: var(--red); }
+.hermes-automation-inspector > header > strong[data-status="paused"] { color: var(--amber); }
+.hermes-automation-runtime { display: grid; gap: 4px; padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
+.hermes-automation-runtime span,
+.hermes-automation-facts span,
+.hermes-automation-next > span { color: var(--muted); font-size: 9px; font-weight: 800; }
+.hermes-automation-runtime strong { font-size: 11.5px; }
+.hermes-automation-runtime small { color: var(--muted); font-size: 9.5px; }
+.hermes-automation-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid var(--line-soft); }
+.hermes-automation-facts > section { min-width: 0; display: grid; gap: 5px; padding: 13px 14px 13px 0; border-bottom: 1px solid var(--line-soft); }
+.hermes-automation-facts > section:nth-child(2n) { padding-left: 14px; border-left: 1px solid var(--line-soft); }
+.hermes-automation-facts > section:nth-last-child(-n + 2) { border-bottom: 0; }
+.hermes-automation-facts strong { font-size: 11px; line-height: 1.4; word-break: keep-all; overflow-wrap: anywhere; }
+.hermes-automation-facts small { color: var(--muted-dark); font-size: 9.5px; }
+.hermes-automation-next { display: grid; justify-items: start; gap: 6px; padding: 15px 0; }
+.hermes-automation-next p { margin: 0; color: var(--muted-dark); font-size: 10.5px; line-height: 1.5; }
+.hermes-automation-next button { color: var(--accent-dark); background: var(--accent-soft); border-color: var(--accent-line); }
+
+.agent-command-center button:focus-visible,
+.agent-command-center textarea:focus-visible,
+.hermes-automations-layout button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 @media (max-width: 980px) {
+  .agent-command-center { padding: 14px; }
+  .agent-command-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agent-command-metrics > div:nth-child(2) { border-right: 0; }
+  .agent-command-metrics > div:nth-child(-n + 2) { border-bottom: 1px solid var(--line-soft); }
+  .agent-command-grid { gap: 14px; }
+  .hermes-automations-layout { grid-template-columns: 238px minmax(0, 1fr); }
   .agent-missions-layout { grid-template-columns: 188px minmax(0, 1fr); }
   .mission-contract { padding: 16px; }
   .mission-live-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -517,6 +808,13 @@
 }
 
 @media (max-width: 720px) {
+  .agent-operations-tabs { min-height: 68px; flex-wrap: wrap; align-content: flex-start; align-items: center; gap: 0; padding: 0 8px; overflow: visible; }
+  .agent-operations-tabs > button { height: 40px; min-width: 0; flex: 1 1 20%; padding: 0 4px; }
+  .agent-daemon { width: 100%; height: 28px; flex: 0 0 100%; order: -1; display: flex; align-items: center; justify-content: flex-end; margin-left: 0; padding-right: 4px; }
+  .agent-command-grid { grid-template-columns: 1fr; }
+  .hermes-automations-layout { display: block; overflow: auto; }
+  .hermes-automation-list { max-height: 212px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .hermes-automation-inspector { overflow: visible; padding: 16px; }
   .agent-missions-layout { display: block; overflow: auto; }
   .agent-mission-list { max-height: 152px; border-right: 0; border-bottom: 1px solid var(--line); }
   .mission-contract { overflow: visible; }
@@ -539,13 +837,34 @@
   .task-session-list > button { min-width: 156px; }
   .task-session-conversation { height: calc(100vh - 106px); min-height: 0; flex: 0 0 calc(100dvh - 106px); }
   .task-session-contract { min-height: 42vh; flex-shrink: 0; overflow: visible; border-top: 1px solid var(--line); border-left: 0; }
+  .agent-mission-composer-backdrop { padding: 0; }
+  .agent-mission-composer { width: 100%; height: 100%; max-height: none; align-content: start; border: 0; border-radius: 0; }
+  .agent-mission-composer-fields { grid-template-columns: 1fr; }
+  .agent-mission-composer-fields label:nth-child(2) { grid-column: auto; grid-row: auto; }
+  .agent-engine-selector > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agent-engine-selector button:nth-child(2) { border-right: 0; }
+  .agent-engine-selector button:nth-child(-n + 2) { border-bottom: 1px solid var(--line-strong); }
+  .agent-engine-selector button:first-child { border-radius: 5px 0 0; }
+  .agent-engine-selector button:nth-child(2) { border-radius: 0 5px 0 0; }
+  .agent-engine-selector button:nth-child(3) { border-radius: 0 0 0 5px; }
+  .agent-engine-selector button:last-child { border-radius: 0 0 5px; }
 }
 
 @media (max-width: 560px) {
+  .agent-command-center { gap: 12px; padding: 10px; }
+  .agent-command-request > header { display: grid; }
+  .agent-command-request > footer { align-items: flex-end; }
+  .agent-command-metrics > div { padding: 9px; }
+  .agent-command-metrics strong { font-size: 17px; }
+  .hermes-automation-facts { grid-template-columns: 1fr; }
+  .hermes-automation-facts > section,
+  .hermes-automation-facts > section:nth-child(2n) { padding: 11px 0; border-bottom: 1px solid var(--line-soft); border-left: 0; }
+  .hermes-automation-facts > section:last-child { border-bottom: 0; }
   .task-session-composer { grid-template-columns: 1fr; }
   .task-session-composer button { justify-self: end; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agent-operations-workspace { animation: none !important; transition: none !important; }
   .agent-operations-workspace * { scroll-behavior: auto; }
 }

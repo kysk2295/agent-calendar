@@ -1,4 +1,5 @@
 const { sanitizeSessionEvent, transitionAgentTask } = require('./agent-operations-domain');
+const { isUnsupportedExternalRequest } = require('./agent-work-delivery');
 
 class AgentOperationsInterventionError extends Error {
   constructor(code, message, status) {
@@ -47,6 +48,13 @@ function addAgentSessionMessage({ store, sessionId, input = {}, clock = () => ne
       422,
     );
   }
+  if (isUnsupportedExternalRequest(text)) {
+    throw new AgentOperationsInterventionError(
+      'unsupported_external_request',
+      'External side effects are not supported by Task Session messages',
+      422,
+    );
+  }
   const applicationMode = task ? sessionMode(task.status) : 'mission_context';
   const event = sanitizeSessionEvent({
     kind: 'user_message',
@@ -92,6 +100,16 @@ function transitionAgentTaskWithIntervention({
   const task = agentTask(store, taskId);
   if (task.status === 'running' && ['pause', 'cancel'].includes(action)) {
     return transitionRunningTask(store, task, action, clock);
+  }
+  if (
+    action === 'resume'
+    && (task.failureCode === 'budget_exhausted' || task.blockedReason === 'budget_exhausted')
+  ) {
+    throw new AgentOperationsInterventionError(
+      'budget_approval_required',
+      'Explicit budget approval is required before this task can resume',
+      409,
+    );
   }
   if (task.failureCode === 'relay_cancel_unconfirmed' && action === 'resume') {
     throw new AgentOperationsInterventionError(

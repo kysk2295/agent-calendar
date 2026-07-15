@@ -7,11 +7,20 @@ const REPORT_SCHEMA = {
   budget: { usedRuns: 'number', usedMinutes: 'number' },
 };
 
+function resolveExecutionEngine(requestedEngine, deliverable = {}) {
+  const requested = String(requestedEngine || 'hermes').trim() || 'hermes';
+  if (requested !== 'auto') return requested;
+  return deliverable?.kind === 'file' ? 'codex' : 'hermes';
+}
+
 function taskExecutionMessages(mission, task, session, priorMissionEvidence = []) {
   const userMessages = session.events
     .filter((event) => event.kind === 'user_message')
     .map((event) => event.text)
     .filter(Boolean);
+  const requestedDeliverable = task.deliverable
+    || mission.deliverable
+    || { kind: 'report', format: 'markdown' };
   return [
     {
       role: 'system',
@@ -25,6 +34,8 @@ function taskExecutionMessages(mission, task, session, priorMissionEvidence = []
           successCriteria: mission.successCriteria,
           forbiddenActions: mission.policy?.forbiddenActions || [],
         },
+        requestedDeliverable,
+        artifactRule: 'Produce the requested deliverable when the runtime supports it. Never claim that a file exists unless the final output includes a real accessible artifact reference.',
         ...(task.actionClass === 'report' ? { reportSchema: REPORT_SCHEMA } : {}),
       }),
     },
@@ -38,6 +49,8 @@ function taskExecutionMessages(mission, task, session, priorMissionEvidence = []
           actionClass: task.actionClass,
           sourceRefs: task.sourceRefs,
           dueAt: task.dueAt,
+          executionEngine: task.executionEngine || mission.executionEngine || 'hermes',
+          deliverable: requestedDeliverable,
         },
         userMessages,
         priorMissionEvidence,
@@ -47,5 +60,6 @@ function taskExecutionMessages(mission, task, session, priorMissionEvidence = []
 }
 
 module.exports = {
+  resolveExecutionEngine,
   taskExecutionMessages,
 };

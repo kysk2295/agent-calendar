@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createApiProxyServer } from '../dist-electron/proxy.js';
 
+const PROXY_CREDENTIAL = 'schedule-ask-test-credential';
+const PROXY_HEADERS = {
+  'content-type': 'application/json',
+  'x-agent-calendar-proxy-credential': PROXY_CREDENTIAL,
+};
+
 function listen(server) {
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
@@ -37,6 +43,7 @@ test('proxy handles /api/assistant/ask locally with schedule vector retrieval an
   };
 
   const server = createApiProxyServer({
+    credential: PROXY_CREDENTIAL,
     getSettings: () => ({ apiBaseUrl: 'https://railway.example', apiToken: 'secret' }),
     fetchImpl,
   });
@@ -45,7 +52,7 @@ test('proxy handles /api/assistant/ask locally with schedule vector retrieval an
   try {
     const response = await fetch(`${baseUrl}/api/assistant/ask`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: PROXY_HEADERS,
       body: JSON.stringify({ question: '3달간 알바 총 몇 시간 했지?' }),
     });
     const payload = await response.json();

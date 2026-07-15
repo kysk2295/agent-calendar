@@ -19,6 +19,8 @@ const weeklyMission = {
   objective: '현재 사업과 제품에 도움이 되는 기회를 근거와 함께 매주 찾는다.',
   successCriteria: ['근거가 있는 기회 3개', '이번 주 추천 행동 1개'],
   agentId: 'bizconsultant',
+  executionEngine: 'auto',
+  deliverable: { kind: 'report', format: 'markdown' },
   status: 'draft',
   timezone: 'America/New_York',
   sources: ['wiki', 'web', 'prior_reports'],
@@ -29,6 +31,9 @@ const weeklyMission = {
     forbiddenActions: ['external_message', 'publish', 'purchase', 'trade'],
   },
   budget: { usedRuns: 2, usedMinutes: 42, weekStartedAt: '2026-07-13T00:00:00.000Z' },
+  missionThreadId: 'thread-weekly',
+  planSummary: '',
+  plannedAt: '',
   createdAt: '2026-07-13T00:00:00.000Z',
   updatedAt: '2026-07-13T09:00:00.000Z',
 };
@@ -109,6 +114,30 @@ function plannedSessions() {
   }));
 }
 
+function conversationFor(mission) {
+  const checkpoints = [{ id: 'initial-weekly', sessionId: mission.missionThreadId, sequence: 1, kind: 'user_message', text: mission.objective, metadata: {}, createdAt: mission.createdAt }];
+  if (mission.plannedAt) checkpoints.push({ id: 'plan-weekly', sessionId: mission.missionThreadId, sequence: 2, kind: 'plan', text: mission.planSummary || '세 단계 실행 계획을 만들었습니다.', metadata: {}, createdAt: mission.plannedAt });
+  return {
+    ok: true,
+    work: {
+      id: mission.id, templateId: mission.templateId, title: mission.title, objective: mission.objective,
+      status: mission.status, agentId: mission.agentId, assignmentReason: `explicit:${mission.agentId}`,
+      executionEngine: mission.executionEngine, deliverable: mission.deliverable,
+      missionThreadId: mission.missionThreadId, workConversationId: mission.missionThreadId,
+      revisionCounter: 0, pendingRevisionId: '', currentResultReportId: '',
+      createdAt: mission.createdAt, updatedAt: mission.updatedAt,
+    },
+    conversation: {
+      id: mission.missionThreadId, missionId: mission.id, taskId: '', type: 'mission-thread', title: mission.title,
+      status: mission.plannedAt ? 'waiting_for_approval' : 'draft', pendingInstructions: [],
+      executionEngine: mission.executionEngine, deliverable: mission.deliverable,
+      createdAt: mission.createdAt, updatedAt: mission.updatedAt,
+    },
+    checkpoints,
+    nextCursor: null,
+  };
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -129,15 +158,23 @@ async function main() {
       await route.fulfill({ json: operationState });
       return;
     }
-    if (request.method() === 'POST' && path === '/api/agent-operations/missions') {
+    if (request.method() === 'POST' && path === '/api/agent-operations/work') {
       operationState = { ...operationState, missions: [weeklyMission] };
-      await route.fulfill({ json: { ok: true, mission: weeklyMission } });
+      const payload = conversationFor(weeklyMission);
+      await route.fulfill({ status: 201, json: { ok: true, work: payload.work, conversation: payload.conversation, message: payload.checkpoints[0], idempotentReplay: false } });
+      return;
+    }
+    const conversationMatch = path.match(/^\/api\/agent-operations\/work\/([^/]+)\/conversation$/);
+    if (request.method() === 'GET' && conversationMatch) {
+      const mission = operationState.missions.find((item) => item.id === decodeURIComponent(conversationMatch[1]));
+      if (!mission) { await route.fulfill({ status: 404, json: { ok: false, error: 'work_not_found' } }); return; }
+      await route.fulfill({ json: conversationFor(mission) });
       return;
     }
     if (request.method() === 'POST' && path === '/api/agent-operations/missions/mission-weekly/plan') {
       operationState = {
         ...operationState,
-        missions: [{ ...weeklyMission, plannedAt: '2026-07-13T09:00:00.000Z' }],
+        missions: [{ ...weeklyMission, planSummary: '세 단계 실행 계획을 만들었습니다.', plannedAt: '2026-07-13T09:00:00.000Z' }],
         tasks: apiOrderedTasks,
         sessions: plannedSessions(),
       };
@@ -232,72 +269,54 @@ async function main() {
 
   await page.goto(target);
   await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
-  await page.waitForSelector('.agent-operations-tabs');
+  await page.waitForSelector('.agent-control-room');
 
   assert.equal(operationRequests >= 1, true);
-  assert.deepEqual(
-    await page.locator('.agent-operations-tabs button').allTextContents(),
-    ['미션', '에이전트', '보고서'],
-  );
-  assert.match(await page.locator('.agent-operations-workspace').textContent() || '', /Weekly Opportunity Brief/);
-  await page.getByRole('button', { name: '미션 만들기', exact: true }).click();
-  await page.locator('.mission-contract h2', { hasText: 'Weekly Opportunity Brief' }).waitFor();
-  assert.match(await page.locator('.agent-operations-workspace').textContent() || '', /42 \/ 120분/);
+  assert.equal(await page.locator('.agent-operations-tabs').count(), 0);
+  const prompt = page.getByLabel('에이전트에게 작업 지시');
+  await prompt.fill('Weekly Opportunity Brief\n현재 사업과 제품에 도움이 되는 기회를 근거와 함께 매주 찾는다.');
+  await page.getByText('고급 설정').click();
+  await page.getByLabel('담당 에이전트').selectOption('bizconsultant');
+  await prompt.press('Enter');
+  await page.locator('.agent-work-header h1', { hasText: 'Weekly Opportunity Brief' }).waitFor();
   await page.getByRole('button', { name: '계획 만들기', exact: true }).click();
-  await page.locator('.agent-operation-task').first().waitFor();
-  assert.equal(await page.locator('.agent-operation-task').count(), 3);
-  assert.equal(await page.locator('.mission-live-summary').count(), 1);
-  assert.match(await page.locator('.mission-live-summary').textContent() || '', /다음 작업.*경쟁사 변화 수집/);
-  assert.equal(await page.locator('.mission-task-timeline').count(), 1);
-  assert.deepEqual(await page.locator('.agent-operation-task-index').allTextContents(), ['1', '2', '3']);
-  assert.deepEqual(await page.locator('.agent-operation-task-main > header strong').allTextContents(), ['경쟁사 변화 수집', '기회 가설 검증', '주간 기회 보고']);
-  assert.match(await page.locator('.agent-operation-task').first().textContent() || '', /7\. 13\. 05:00/);
-  assert.equal(await page.getByRole('button', { name: /세션 열기$/ }).count(), 3);
-  assert.deepEqual(await page.getByRole('button', { name: /세션 열기$/ }).evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label'))), ['경쟁사 변화 수집 세션 열기', '기회 가설 검증 세션 열기', '주간 기회 보고 세션 열기']);
-  assert.equal(await page.locator('.agent-operation-task-rail').first().getAttribute('aria-hidden'), null);
-  assert.match(await page.locator('.agent-mission-item[data-active="true"]').textContent() || '', /0\/3 완료/);
-  assert.match(await page.locator('.mission-task-list').textContent() || '', /가격 변화 근거가 부족하다/);
+  await page.locator('.agent-work-task').first().waitFor();
+  assert.equal(await page.locator('.agent-work-task').count(), 3);
+  assert.deepEqual(await page.locator('.agent-work-task header strong').allTextContents(), ['경쟁사 변화 수집', '기회 가설 검증', '주간 기회 보고']);
+  assert.equal(await page.getByRole('button', { name: 'Task Session 열기' }).count(), 3);
+  assert.match(await page.locator('.agent-work-details').textContent() || '', /0\/3/);
+  assert.match(await page.locator('.agent-work-details').textContent() || '', /가격 변화 근거가 부족하다/);
   await page.setViewportSize({ width: 768, height: 900 });
-  const tabletTitleStyles = await page.locator('.agent-operation-task-main > header strong').evaluateAll((elements) => elements.map((element) => {
-    const style = getComputedStyle(element);
-    return { whiteSpace: style.whiteSpace, textOverflow: style.textOverflow, wordBreak: style.wordBreak };
-  }));
-  assert.equal(tabletTitleStyles.every((style) => style.whiteSpace === 'normal' && style.textOverflow === 'clip' && style.wordBreak === 'keep-all'), true);
-  const tabletMissionWidths = await page.locator('.mission-contract, .mission-live-summary').evaluateAll((elements) => elements.map((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })));
+  const tabletMissionWidths = await page.locator('.agent-work-conversation, .agent-work-timeline').evaluateAll((elements) => elements.map((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })));
   assert.equal(tabletMissionWidths.every((width) => width.scrollWidth <= width.clientWidth), true);
   await page.setViewportSize({ width: 1440, height: 900 });
   slowUnrelatedRequests = true;
   const approveStartedAt = Date.now();
-  await page.getByRole('button', { name: '계획 승인', exact: true }).click();
-  await page.locator('.mission-state', { hasText: '운영 중' }).waitFor({ timeout: 2000 });
+  await page.getByRole('button', { name: '전체 승인', exact: true }).click();
+  await page.locator('.agent-work-header b', { hasText: '운영 중' }).waitFor({ timeout: 2000 });
   assert.equal(Date.now() - approveStartedAt < 2000, true);
   slowUnrelatedRequests = false;
-  assert.match(await page.locator('.mission-contract').textContent() || '', /담당 에이전트.*bizconsultant/);
-  assert.match(await page.locator('.mission-contract').textContent() || '', /근거가 있는 기회 3개/);
-  assert.equal(await page.getByRole('button', { name: '미션 일시정지' }).count(), 1);
-  assert.equal(await page.getByRole('button', { name: '미션 중단' }).count(), 1);
+  assert.match(await page.locator('.agent-work-header').textContent() || '', /Business Consultant/);
+  assert.equal(await page.getByRole('button', { name: '전체 일시정지' }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: '작업 중단' }).count(), 1);
   assert.equal(await page.getByRole('button', { name: '지금 실행' }).count(), 3);
   await page.getByRole('button', { name: '지금 실행' }).first().click();
-  await page.locator('.agent-operation-task').first().locator('.agent-operation-task-status', { hasText: '완료' }).waitFor();
+  await page.locator('.agent-work-task').first().locator('header span', { hasText: '완료' }).waitFor();
   assert.equal(calls.some((call) => call.path === '/api/agent-operations/tasks/task-scan/run-now'), true);
   await capture(page, 'mission-active-desktop');
-  await page.getByRole('tab', { name: '에이전트' }).click();
-  assert.match(await page.locator('.agent-roster-row').textContent() || '', /Mac mini Hermes/);
-  assert.match(await page.locator('.agent-roster-row').textContent() || '', /신뢰 · 개인 승인/);
-  assert.match(await page.locator('.agent-roster-row').textContent() || '', /research/);
-  assert.match(await page.locator('.agent-roster-row').textContent() || '', /보고 유용성 평가 없음/);
-  await page.waitForTimeout(150);
-  await capture(page, 'agent-roster-desktop');
-  await page.getByRole('tab', { name: '보고서' }).click();
-  assert.match(await page.locator('.agent-operations-workspace').textContent() || '', /첫 보고가 생성되면/);
-  await page.getByRole('tab', { name: '미션' }).click();
-  await page.getByRole('button', { name: '미션 일시정지' }).click();
-  await page.locator('.mission-state', { hasText: '일시정지' }).waitFor();
-  assert.match(await page.locator('.mission-live-summary').textContent() || '', /확인 필요/);
-  await page.getByRole('button', { name: '미션 중단' }).click();
-  await page.locator('.mission-state', { hasText: '중단됨' }).waitFor();
-  assert.match(await page.locator('.mission-live-summary').textContent() || '', /1개 완료 · 2개 취소/);
-  assert.doesNotMatch(await page.locator('.mission-live-summary').textContent() || '', /모든 작업 완료/);
+  assert.match(await page.locator('.agent-work-header').textContent() || '', /Business Consultant/);
+  await page.getByRole('button', { name: '전체 일시정지' }).click();
+  await page.locator('.agent-work-header b', { hasText: '일시정지' }).waitFor();
+  const missionActions = page.locator('.agent-work-mission-actions');
+  assert.equal(await missionActions.getByRole('button', { name: '재개', exact: true }).count(), 1);
+  await missionActions.getByRole('button', { name: '재개', exact: true }).click();
+  await page.locator('.agent-work-header b', { hasText: '운영 중' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '전체 일시정지' }).count(), 1);
+  await page.getByRole('button', { name: '전체 일시정지' }).click();
+  await page.locator('.agent-work-header b', { hasText: '일시정지' }).waitFor();
+  await page.getByRole('button', { name: '작업 중단' }).click();
+  await page.locator('.agent-work-header b', { hasText: '중단됨' }).waitFor();
+  assert.match(await page.locator('.agent-work-details').textContent() || '', /1\/3/);
   assert.equal(calls.filter((call) => call.path.includes('/tasks/') && call.path.endsWith('/approve')).length, 3);
   assert.equal(calls.some((call) => call.path.endsWith('/activate')), true);
   assert.equal(calls.some((call) => call.path.endsWith('/pause')), true);

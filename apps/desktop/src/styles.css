@@ -24,7 +24,8 @@
   --amber-soft: #F5E9CF;
   --red: #B55245;
   --red-soft: #F6E3DF;
-  font-family: 'Pretendard', 'Pretendard Variable', -apple-system, system-ui, sans-serif;
+  --font-sans: 'Pretendard', 'Pretendard Variable', 'Apple SD Gothic Neo', -apple-system, system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-feature-settings: 'cv01', 'ss01';
   letter-spacing: 0;
   color: var(--text);

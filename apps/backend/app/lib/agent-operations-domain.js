@@ -20,9 +20,19 @@ const SESSION_EVENT_KINDS = Object.freeze([
   'artifact',
   'error',
   'completion',
+  'revision_started',
+  'revision_completed',
+  'blocked',
 ]);
 
 const ALLOWED_ACTION_CLASSES = Object.freeze(['research', 'analysis', 'report']);
+const EXECUTION_ENGINES = Object.freeze(['auto', 'hermes', 'local_llm', 'codex']);
+const EXECUTION_ENGINE_METADATA_KEYS = new Set([
+  'executionEngine',
+  'requestedExecutionEngine',
+  'resolvedExecutionEngine',
+]);
+const DELIVERABLE_KINDS = Object.freeze(['report', 'document', 'image', 'file']);
 
 const TASK_ACTIONS = Object.freeze({
   approve: { proposed: 'scheduled' },
@@ -50,6 +60,57 @@ function createWeeklyOpportunityMission({ id, clock = () => new Date() } = {}) {
       '한계와 다음 검증 작업',
     ],
     agentId: 'bizconsultant',
+    executionEngine: 'hermes',
+    deliverable: { kind: 'report', format: 'markdown' },
+    status: 'draft',
+    timezone: 'Asia/Seoul',
+    reportSchedule: { weekday: 5, hour: 16, minute: 0 },
+    sources: ['wiki', 'web', 'prior_reports'],
+    policy: {
+      maxRunsPerWeek: 6,
+      maxRuntimeMinutesPerWeek: 120,
+      firstPlanRequiresApproval: true,
+      newActionClassRequiresApproval: true,
+      externalSideEffectsRequireApproval: true,
+      forbiddenActions: [
+        'external_message',
+        'publish',
+        'purchase',
+        'trade',
+        'delete_source',
+      ],
+    },
+    budget: { usedRuns: 0, usedMinutes: 0, weekStartedAt: now },
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function createGeneralAgentMission({
+  id,
+  title,
+  objective,
+  agentId = 'default',
+  executionEngine,
+  deliverable,
+  clock = () => new Date(),
+} = {}) {
+  if (!String(id || '').trim()) throw new Error('mission id is required');
+  const normalizedObjective = String(objective || '').trim();
+  if (!normalizedObjective) throw new Error('mission objective is required');
+  const now = clock().toISOString();
+  return {
+    id: String(id),
+    templateId: 'general-agent-work',
+    title: String(title || '').trim() || normalizedObjective.slice(0, 80),
+    objective: normalizedObjective,
+    successCriteria: [
+      '요청한 산출물이 실제 근거와 함께 완성됨',
+      '한계와 다음 확인 작업이 명시됨',
+    ],
+    agentId: String(agentId || 'default').trim() || 'default',
+    executionEngine,
+    deliverable,
     status: 'draft',
     timezone: 'Asia/Seoul',
     reportSchedule: { weekday: 5, hour: 16, minute: 0 },
@@ -180,6 +241,12 @@ function redactSessionValue(value, key = '') {
   if (/api.?key|authorization|command|credential|cwd|password|path|profile.?root|raw|secret|token|chain.?of.?thought|reasoning/i.test(key)) {
     return '[redacted]';
   }
+  if (
+    EXECUTION_ENGINE_METADATA_KEYS.has(key)
+    && EXECUTION_ENGINES.includes(String(value || '').trim())
+  ) {
+    return String(value).trim();
+  }
   if (typeof value === 'string') {
     const redacted = value
       .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
@@ -268,10 +335,13 @@ function validateReport(report = {}) {
 
 module.exports = {
   ALLOWED_ACTION_CLASSES,
+  DELIVERABLE_KINDS,
+  EXECUTION_ENGINES,
   SESSION_EVENT_KINDS,
   TASK_ACTIONS,
   TASK_STATES,
   buildMissionPlanPrompt,
+  createGeneralAgentMission,
   createWeeklyOpportunityMission,
   parseMissionPlan,
   sanitizeAgentReport,

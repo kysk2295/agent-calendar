@@ -30,8 +30,12 @@ async function main() {
       await route.fulfill({ json: { ok: true, agents } });
       return;
     }
-    if (method === 'POST' && path === '/api/agents') {
-      await route.fulfill({ status: 500, json: { ok: false, error: 'agent create failed' } });
+    if (method === 'POST' && path === '/api/agent-operations/work') {
+      await route.fulfill({ status: 500, json: { ok: false, error: 'work create failed' } });
+      return;
+    }
+    if (method === 'GET' && path === '/api/agent-operations') {
+      await route.fulfill({ json: { ok: true, missions: [], tasks: [], sessions: [], reports: [], daemon: { running: true, lastRun: null, lastError: null } } });
       return;
     }
 
@@ -59,22 +63,19 @@ async function main() {
 
   await page.goto(target);
   await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
-  await page.waitForSelector('.agent-card');
-  const beforeCards = await page.locator('.agent-card').count();
+  await page.waitForSelector('.agent-control-room');
+  const workCards = page.locator('[data-work-mission]');
+  const beforeCards = await workCards.count();
+  const prompt = page.getByLabel('에이전트에게 작업 지시');
+  await prompt.fill('생성 실패 후에도 이 작업 지시는 남아야 합니다.');
+  await page.getByRole('button', { name: '위임' }).click();
 
-  await page.getByRole('button', { name: '+ 새 에이전트' }).click();
-  await page.waitForSelector('.agent-modal');
-  await page.locator('.agent-modal input').fill('실패해도 남는 에이전트');
-  await page.locator('.agent-modal textarea').fill('생성 실패 후에도 이 역할 설명은 남아야 합니다.');
-  await page.locator('.agent-modal').getByRole('button', { name: '만들기', exact: true }).click();
-
-  await page.waitForSelector('.api-banner');
-  assert.equal(await page.locator('.agent-modal').count(), 1);
-  assert.equal(await page.locator('.agent-modal input').inputValue(), '실패해도 남는 에이전트');
-  assert.equal(await page.locator('.agent-modal textarea').inputValue(), '생성 실패 후에도 이 역할 설명은 남아야 합니다.');
-  assert.equal(await page.locator('.agent-card').count(), beforeCards);
-  assert.equal(await page.locator('.agent-card', { hasText: '실패해도 남는 에이전트' }).count(), 0);
-  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/agents'), true);
+  await page.waitForSelector('.agent-operations-error');
+  assert.equal(await prompt.inputValue(), '생성 실패 후에도 이 작업 지시는 남아야 합니다.');
+  assert.equal(await workCards.count(), beforeCards);
+  assert.equal(await page.locator('.agent-work-conversation').count(), 0);
+  assert.equal(await page.getByRole('button', { name: '다시 시도' }).count(), 1);
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/agent-operations/work'), true);
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, postCalls: calls.filter((call) => call.method === 'POST').map((call) => call.path) }, null, 2));

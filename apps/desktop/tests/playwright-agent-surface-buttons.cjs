@@ -72,28 +72,22 @@ async function main() {
 
   await page.goto(target);
   await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
-  await page.waitForSelector('.agent-operations-tabs');
+  await page.waitForSelector('.agent-control-room');
 
-  assert.deepEqual(
-    await page.locator('.agent-operations-tabs button').allTextContents(),
-    ['미션', '에이전트', '보고서'],
-  );
-
-  await page.getByRole('tab', { name: '에이전트' }).click();
-  await page.waitForSelector('.agent-roster-row');
-  assert.equal(await page.locator('.agent-roster-row').count(), 2);
-  assert.match(await page.locator('.agent-roster-list').textContent() || '', /Default Hermes/);
-  assert.match(await page.locator('.agent-roster-list').textContent() || '', /Business Consultant/);
-  assert.doesNotMatch(await page.locator('.agent-roster-list').textContent() || '', /marketflow/i);
+  assert.equal(await page.locator('.agent-operations-tabs').count(), 0);
+  assert.equal(await page.locator('.agent-status-card').count(), 2);
+  assert.match(await page.locator('.agent-status-grid').textContent() || '', /Default Hermes/);
+  assert.match(await page.locator('.agent-status-grid').textContent() || '', /Business Consultant/);
+  assert.doesNotMatch(await page.locator('.agent-status-grid').textContent() || '', /marketflow/i);
   assert.equal(await page.getByRole('button', { name: '+ 새 에이전트' }).count(), 0);
 
-  await page.getByRole('tab', { name: '보고서' }).click();
-  assert.match(await page.locator('.agent-operations-workspace').textContent() || '', /첫 보고가 생성되면/);
-  await page.getByRole('tab', { name: '미션' }).click();
-  assert.match(await page.locator('.agent-operations-workspace').textContent() || '', /미션 만들기/);
+  assert.equal(await page.getByRole('button', { name: '새 작업' }).count(), 0);
+  assert.equal(await page.getByLabel('에이전트에게 작업 지시').count(), 1);
+  assert.equal(await page.getByRole('tab', { name: '보고서' }).count(), 0);
+  assert.equal(await page.getByRole('tab', { name: '미션' }).count(), 0);
 
   await browser.close();
-  console.log(JSON.stringify({ ok: true, tabs: 3, agents: agents.map((agent) => agent.id) }, null, 2));
+  console.log(JSON.stringify({ ok: true, tabs: 0, agents: agents.map((agent) => agent.id) }, null, 2));
 }
 
 main().catch((error) => {

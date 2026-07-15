@@ -59,9 +59,12 @@ async function main() {
   });
 
   await page.goto(target);
+  await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
+  await page.waitForSelector('.agent-operations-workspace');
   await page.waitForSelector('.chat-fab');
   await page.locator('.chat-fab').click();
   await page.waitForSelector('.chat');
+  assert.equal(await page.locator('.chat').isVisible(), true);
 
   await page.locator('.chat-chips button', { hasText: 'UniPort 백로그 분배' }).click();
   assert.equal(await page.locator('.chat textarea').inputValue(), 'UniPort 백로그 분배');

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 
 import { agentTaskAppearance } from './agentTaskAppearance';
+import { deliverableLabel, executionEngineLabel } from './executionContracts';
+import { safeEvidenceHref } from './workResultPresentation';
 import type {
   AgentMission,
   AgentSession,
@@ -20,7 +22,7 @@ type TaskSessionPanelProps = {
   readonly onClose: () => void;
   readonly onOpenSession: (sessionId: string) => void;
   readonly onSendMessage: (text: string) => Promise<boolean>;
-  readonly onTaskAction: (taskId: string, action: AgentTaskAction) => Promise<void>;
+  readonly onTaskAction: (taskId: string, action: AgentTaskAction) => Promise<boolean>;
 };
 
 type AgentResult = {
@@ -128,7 +130,7 @@ function AgentResultView({ result }: Readonly<{ result: AgentResult }>) {
     <div className="task-session-result">
       <h3>{result.title}</h3>
       {!!result.findings.length && <section><strong>핵심 결과</strong><ul>{result.findings.map((finding, index) => <li key={`${index}-${finding}`}>{finding}</li>)}</ul></section>}
-      {!!result.evidence.length && <section><strong>근거</strong><div className="task-session-result-links">{result.evidence.map((evidence, index) => <a href={evidence.url} target="_blank" rel="noreferrer" key={`${index}-${evidence.label}-${evidence.url}`}>{evidence.label}</a>)}</div></section>}
+      {!!result.evidence.length && <section><strong>근거</strong><div className="task-session-result-links">{result.evidence.map((evidence, index) => { const href = safeEvidenceHref(evidence.url); return href ? <a href={href} target="_blank" rel="noopener noreferrer" key={`${index}-${evidence.label}-${evidence.url}`}>{evidence.label}</a> : <span key={`${index}-${evidence.label}-${evidence.url}`}>{evidence.label}</span>; })}</div></section>}
       {!!result.limitations.length && <section><strong>한계</strong><ul>{result.limitations.map((limitation, index) => <li key={`${index}-${limitation}`}>{limitation}</li>)}</ul></section>}
       {!!result.followUps.length && <section><strong>다음 작업</strong><div className="task-session-result-followups">{result.followUps.map((followUp, index) => <div key={`${index}-${followUp.title}-${followUp.reason}`}><b>{followUp.title}</b>{followUp.reason && <span>{followUp.reason}</span>}</div>)}</div></section>}
     </div>
@@ -220,6 +222,10 @@ export function TaskSessionPanel(props: TaskSessionPanelProps) {
           <section><span>미션</span><strong>{props.mission?.title || '연결된 미션 없음'}</strong><p>{props.mission?.objective}</p></section>
           <section><span>이 작업을 만든 이유</span><p>{props.task?.reason || '이유가 기록되지 않았습니다.'}</p></section>
           <section><span>기대 결과</span><strong>{props.task?.expectedOutput || '정의되지 않음'}</strong></section>
+          <section className="task-session-contract-grid">
+            <div><span>실행 엔진</span><strong>{executionEngineLabel(props.task?.executionEngine || props.detail.executionEngine)}</strong></div>
+            <div><span>요청 산출물</span><strong>{deliverableLabel(props.task?.deliverable || props.detail.deliverable)}</strong></div>
+          </section>
           <section className="task-session-schedule"><span>캘린더</span><div><b>시작</b><strong>{contractDateTime(props.task?.scheduledAt || '', props.mission?.timezone)}</strong></div><div><b>마감</b><strong>{contractDateTime(props.task?.dueAt || '', props.mission?.timezone)}</strong></div></section>
           <section className="task-session-contract-grid">
             <div><span>예상 시간</span><strong>{props.task?.estimatedMinutes || 0}분</strong></div>

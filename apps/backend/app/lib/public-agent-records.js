@@ -2,7 +2,7 @@ const { sanitizeAgentReport } = require('./agent-operations-domain');
 const { resolveRequestedOfficialProfile } = require('./official-profiles');
 const { safePublicText } = require('./runtime-gateway');
 
-const DANGEROUS_KEY = /(?:^|_)(?:api.?key|authorization|command|credential|cwd|debug|password|path|profile.?root|raw|reasoning|secret|token|yolo)(?:$|_)/i;
+const DANGEROUS_KEY = /(?:^|_)(?:api.?key|authorization|command|credential|cwd|debug|password|passphrase|passwd|pwd|path|profile.?root|raw|reasoning|secret|token|yolo)(?:$|_)/i;
 const PUBLIC_SCALAR_KEYS = new Set([
   'action', 'agent', 'agentId', 'approved', 'cancelled', 'category', 'complete', 'completed',
   'content', 'created', 'createdAt', 'date', 'decision', 'deleted', 'description', 'detail', 'due',
@@ -14,13 +14,36 @@ const PUBLIC_SCALAR_KEYS = new Set([
 ]);
 const PUBLIC_SESSION_METADATA_KEYS = new Set([
   'action', 'actionClass', 'agent', 'applicationMode', 'attempt', 'budget', 'checkpoint', 'code',
-  'completedAt', 'decision', 'detail', 'dueAt', 'estimatedMinutes', 'evidenceCount',
+  'completedAt', 'decision', 'deliveryStatus', 'detail', 'dueAt', 'estimatedMinutes', 'evidenceCount',
   'externalSideEffectsRequireApproval', 'firstPlanRequiresApproval', 'followUpIndex', 'forbiddenActions',
   'jobId', 'maxRunsPerWeek', 'maxRuntimeMinutesPerWeek', 'missionId', 'model',
   'newActionClassRequiresApproval', 'objective', 'previousStatus', 'progress', 'receivedAt', 'recordedAt',
   'reportId', 'requestedAt', 'runId', 'scheduledAt', 'sessionId', 'sourceRefs', 'startedAt', 'state',
-  'status', 'successCriteria', 'taskId', 'tool',
+  'status', 'successCriteria', 'taskId', 'tool', 'executionEngine', 'requestedExecutionEngine',
+  'deliverable', 'format', 'acceptedAt', 'appliedAt', 'targetTaskId', 'revisionId', 'revisionNumber',
+  'resolvedExecutionEngine',
 ]);
+
+const PUBLIC_EXECUTION_ENGINES = new Set(['auto', 'hermes', 'local_llm', 'codex']);
+const PUBLIC_RESOLVED_EXECUTION_ENGINES = new Set(['hermes', 'codex']);
+const PUBLIC_DELIVERABLE_KINDS = new Set(['report', 'document', 'image', 'file']);
+
+function projectExecutionContract(source = {}, projected = {}) {
+  const executionEngine = String(source.executionEngine || '').trim();
+  if (PUBLIC_EXECUTION_ENGINES.has(executionEngine)) projected.executionEngine = executionEngine;
+  const resolvedExecutionEngine = String(source.resolvedExecutionEngine || '').trim();
+  if (PUBLIC_RESOLVED_EXECUTION_ENGINES.has(resolvedExecutionEngine)) {
+    projected.resolvedExecutionEngine = resolvedExecutionEngine;
+  }
+  const kind = String(source.deliverable?.kind || '').trim();
+  if (PUBLIC_DELIVERABLE_KINDS.has(kind)) {
+    projected.deliverable = {
+      kind,
+      format: publicText(source.deliverable?.format, '', 80),
+    };
+  }
+  return projected;
+}
 
 function publicIdentifier(value) {
   const id = String(value || '').trim();
@@ -28,8 +51,8 @@ function publicIdentifier(value) {
   return publicText(id, '', 160) === id ? id : '';
 }
 
-function publicText(value, fallback = '', maximumLength = 6_000) {
-  return safePublicText(value, fallback, maximumLength);
+function publicText(value, fallback = '', maximumLength = 6_000, options = {}) {
+  return safePublicText(value, fallback, maximumLength, options);
 }
 
 function publicStringArray(values, maximumLength = 2_000) {
@@ -63,15 +86,18 @@ function publicMissionRecord(mission = {}) {
   const id = publicIdentifier(mission.id);
   if (!id) return null;
   const projected = { id };
-  for (const key of ['templateId', 'missionThreadId']) {
+  for (const key of ['templateId', 'missionThreadId', 'workConversationId']) {
     const value = publicIdentifier(mission[key]);
     if (value) projected[key] = value;
   }
-  for (const key of ['title', 'objective', 'status', 'timezone', 'planSummary']) {
+  projected.pendingRevisionId = publicIdentifier(mission.pendingRevisionId) || '';
+  projected.currentResultReportId = publicIdentifier(mission.currentResultReportId) || '';
+  for (const key of ['title', 'objective', 'status', 'timezone', 'planSummary', 'assignmentReason']) {
     const value = publicText(mission[key], '');
     if (value) projected[key] = value;
   }
   projected.agentId = resolveRequestedOfficialProfile({ agentId: mission.agentId });
+  projectExecutionContract(mission, projected);
   projected.successCriteria = publicStringArray(mission.successCriteria);
   projected.sources = publicStringArray(mission.sources, 200);
   projected.reportSchedule = {
@@ -92,6 +118,7 @@ function publicMissionRecord(mission = {}) {
     usedMinutes: Math.max(0, Number(mission.budget?.usedMinutes) || 0),
     weekStartedAt: publicTimestamp(mission.budget?.weekStartedAt),
   };
+  projected.revisionCounter = Math.max(0, Number(mission.revisionCounter) || 0);
   for (const key of ['plannedAt', 'activatedAt', 'pausedAt', 'cancelledAt', 'createdAt', 'updatedAt']) {
     const value = publicTimestamp(mission[key]);
     if (value) projected[key] = value;
@@ -103,7 +130,10 @@ function publicTaskRecord(task = {}) {
   const id = publicIdentifier(task.id);
   if (!id) return null;
   const projected = { id };
-  for (const key of ['missionId', 'sessionId', 'createdByAgentId', 'runId', 'reportId', 'lastRunId']) {
+  for (const key of [
+    'missionId', 'sessionId', 'createdByAgentId', 'runId', 'reportId', 'lastRunId',
+    'revisionId', 'revisesTaskId', 'revisesReportId',
+  ]) {
     const value = publicIdentifier(task[key]);
     if (value) projected[key] = value;
   }
@@ -111,17 +141,18 @@ function publicTaskRecord(task = {}) {
     'title', 'original', 'owner', 'status', 'due', 'date', 'time', 'endDate', 'endTime',
     'startDate', 'dueDate', 'lane', 'tag', 'agent', 'model', 'priority', 'project', 'category',
     'list', 'body', 'notes', 'content', 'recurrence', 'repeat', 'repeatUntil', 'source', 'origin',
-    'reason', 'expectedOutput', 'actionClass', 'approvalMode', 'blockedReason', 'pauseMode', 'kind', 'type',
+    'reason', 'expectedOutput', 'actionClass', 'approvalMode', 'blockedReason', 'failureCode', 'pauseMode', 'kind', 'type',
   ]) {
     const value = publicText(task[key], '');
     if (value) projected[key] = value;
   }
   if (projected.agent) projected.agent = resolveRequestedOfficialProfile({ agent: projected.agent });
+  projectExecutionContract(task, projected);
   for (const key of ['scheduledAt', 'dueAt', 'createdAt', 'updatedAt', 'startedAt', 'finishedAt', 'retryScheduledAt']) {
     const value = publicTimestamp(task[key]);
     if (value) projected[key] = value;
   }
-  for (const key of ['estimatedMinutes', 'attempt']) {
+  for (const key of ['estimatedMinutes', 'attempt', 'revisionNumber']) {
     if (task[key] !== undefined && task[key] !== null) projected[key] = Math.max(0, Number(task[key]) || 0);
   }
   for (const key of ['executable', 'allDay']) {
@@ -140,14 +171,20 @@ function publicSessionEventRecord(event = {}) {
     const value = publicIdentifier(event[key]);
     if (value) projected[key] = value;
   }
-  for (const key of ['kind', 'text']) {
-    const value = publicText(event[key], '');
-    if (value) projected[key] = value;
-  }
+  const kind = publicText(event.kind, '', 80);
+  if (kind) projected.kind = kind;
+  const text = publicText(event.text, '', 8_000, { preserveRedactions: true });
+  if (text) projected.text = text;
   if (event.sequence !== undefined) projected.sequence = Math.max(0, Number(event.sequence) || 0);
   const createdAt = publicTimestamp(event.createdAt);
   if (createdAt) projected.createdAt = createdAt;
   const metadata = publicMetadata(event.metadata);
+  const actualEventEngine = ['agent_message', 'completion'].includes(event.kind)
+    ? String(event.metadata?.resolvedExecutionEngine || event.metadata?.executionEngine || '').trim()
+    : '';
+  if (metadata && PUBLIC_RESOLVED_EXECUTION_ENGINES.has(actualEventEngine)) {
+    metadata.resolvedExecutionEngine = actualEventEngine;
+  }
   if (metadata && Object.keys(metadata).length) projected.metadata = metadata;
   return Object.keys(projected).length ? projected : null;
 }
@@ -156,7 +193,7 @@ function publicSessionRecord(session = {}) {
   const id = publicIdentifier(session.id);
   if (!id) return null;
   const projected = { id };
-  for (const key of ['missionId', 'taskId']) {
+  for (const key of ['missionId', 'taskId', 'revisionId', 'revisesTaskId', 'revisesReportId']) {
     const value = publicIdentifier(session[key]);
     if (value) projected[key] = value;
   }
@@ -165,6 +202,10 @@ function publicSessionRecord(session = {}) {
     if (value) projected[key] = value;
   }
   projected.pendingInstructions = publicStringArray(session.pendingInstructions);
+  if (session.revisionNumber !== undefined) {
+    projected.revisionNumber = Math.max(0, Number(session.revisionNumber) || 0);
+  }
+  projectExecutionContract(session, projected);
   for (const key of ['createdAt', 'updatedAt', 'lastEventAt']) {
     const value = publicTimestamp(session[key]);
     if (value) projected[key] = value;
@@ -178,7 +219,11 @@ function publicReportRecord(report = {}) {
   const id = publicIdentifier(safe.id);
   if (!id) return null;
   const projected = { id };
-  for (const key of ['missionId', 'sessionId', 'taskId']) {
+  projectExecutionContract(safe, projected);
+  for (const key of [
+    'missionId', 'sessionId', 'taskId', 'revisionId', 'revisesTaskId', 'revisesReportId',
+    'supersedesReportId', 'supersededByReportId',
+  ]) {
     const value = publicIdentifier(safe[key]);
     if (value) projected[key] = value;
   }
@@ -208,6 +253,9 @@ function publicReportRecord(report = {}) {
     usedMinutes: Math.max(0, Number(safe.budget?.usedMinutes) || 0),
   };
   projected.useful = typeof safe.useful === 'boolean' ? safe.useful : null;
+  if (safe.revisionNumber !== undefined) {
+    projected.revisionNumber = Math.max(0, Number(safe.revisionNumber) || 0);
+  }
   for (const key of ['createdAt', 'updatedAt', 'deliveredAt', 'deliveryFailedAt']) {
     const value = publicTimestamp(safe[key]);
     if (value) projected[key] = value;
@@ -324,17 +372,51 @@ function publicDaemonRecord(daemon = {}) {
   return projected;
 }
 
+function publicDeliveryRecord(delivery = {}) {
+  const projected = {};
+  for (const key of ['status', 'applicationMode']) {
+    const value = publicText(delivery[key], '', 100);
+    if (value) projected[key] = value;
+  }
+  for (const key of ['acceptedAt', 'appliedAt']) {
+    const value = publicTimestamp(delivery[key]);
+    if (value) projected[key] = value;
+  }
+  for (const key of ['targetTaskId', 'revisionId']) {
+    const value = publicIdentifier(delivery[key]);
+    if (value) projected[key] = value;
+  }
+  return projected;
+}
+
 function projectAgentOperationsResponse(body = {}) {
   const source = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
   const projected = {};
   if (typeof source.ok === 'boolean') projected.ok = source.ok;
   for (const key of ['error', 'message']) {
+    if (key === 'message' && typeof source[key] === 'object') continue;
     const value = publicText(source[key], '');
     if (value) projected[key] = value;
   }
   if (source.mission) projected.mission = publicMissionRecord(source.mission);
+  if (source.work) projected.work = publicMissionRecord(source.work);
   if (source.task) projected.task = publicTaskRecord(source.task);
   if (source.session) projected.session = publicSessionRecord(source.session);
+  if (source.conversation) projected.conversation = publicSessionRecord(source.conversation);
+  if (source.message && typeof source.message === 'object') {
+    projected.message = publicSessionEventRecord(source.message);
+  }
+  if (source.delivery) projected.delivery = publicDeliveryRecord(source.delivery);
+  if (Array.isArray(source.checkpoints)) {
+    projected.checkpoints = source.checkpoints.map(publicSessionEventRecord).filter(Boolean);
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'nextCursor')) {
+    projected.nextCursor = source.nextCursor === null
+      ? null
+      : (/^[A-Za-z0-9_-]{1,1000}$/.test(String(source.nextCursor || ''))
+        ? String(source.nextCursor)
+        : '');
+  }
   if (source.report) projected.report = publicReportRecord(source.report);
   if (Array.isArray(source.missions)) projected.missions = source.missions.map(publicMissionRecord).filter(Boolean);
   if (Array.isArray(source.tasks)) projected.tasks = source.tasks.map(publicTaskRecord).filter(Boolean);
@@ -343,6 +425,9 @@ function projectAgentOperationsResponse(body = {}) {
   if (source.daemon) projected.daemon = publicDaemonRecord(source.daemon);
   if (source.tick) projected.tick = publicSchedulerResult(source.tick);
   if (source.run) projected.run = publicSchedulerResult(source.run);
+  if (typeof source.idempotentReplay === 'boolean') {
+    projected.idempotentReplay = source.idempotentReplay;
+  }
   return projected;
 }
 

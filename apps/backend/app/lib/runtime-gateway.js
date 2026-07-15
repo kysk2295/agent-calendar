@@ -5,8 +5,11 @@ function normalizeRuntimeUrl(runtimeUrl) {
 }
 
 function redactPublicText(value) {
-  return String(value || '')
+  return String(value || '').normalize('NFKC')
+    .replace(/\[redacted\]/gi, '[REDACTED]')
     .replace(/Bearer\s+[A-Za-z0-9._~+/-]+/gi, 'Bearer [REDACTED]')
+    .replace(/"((?:(?:db|database)[\s_-]*)?(?:password|passwd|pwd)|passphrase)"\s*:\s*"[^"]*"/gi, '"$1":"[REDACTED]"')
+    .replace(/\b((?:(?:db|database)[\s_-]*)?(?:password|passwd|pwd)|passphrase)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^&\s,"'}]+)/gi, '$1=[REDACTED]')
     .replace(/\b(HERMES_RUNTIME_TOKEN|accessToken|runtimeToken|apiKey|api_key|clientSecret|accessKey|access_key|credential|token)\s*[:=]\s*([^&\s,"'}]+)/gi, '$1=[REDACTED]')
     .replace(/\bauthorization\s*[:=]\s*[^,\n\r]+/gi, 'authorization=[REDACTED]')
     .replace(/"authorization"\s*:\s*"[^"]*"/gi, '"authorization":"[REDACTED]"')
@@ -18,10 +21,10 @@ function redactPublicText(value) {
     .replace(/\bmarket[\s_-]*flow\b/gi, '[REDACTED_PROFILE]');
 }
 
-function safePublicText(value, fallback = '', maximumLength = 6_000) {
+function safePublicText(value, fallback = '', maximumLength = 6_000, options = {}) {
   const text = redactPublicText(value).trim();
   if (!text) return fallback;
-  if (/\[(?:REDACTED|PRIVATE_PATH|REDACTED_PROFILE)\]/i.test(text)) return fallback;
+  if (!options.preserveRedactions && /\[(?:REDACTED|PRIVATE_PATH|REDACTED_PROFILE)\]/i.test(text)) return fallback;
   if (/\b(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|hf_[A-Za-z0-9]{16,}|(?:gh[pousr]_|sk-|xox[baprs]-)[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,})\b/i.test(text)) return fallback;
   if (/\b[a-f0-9]{48,}\b/i.test(text)) return fallback;
   if (/\b(?=[A-Za-z0-9_-]{32,}\b)(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b/.test(text)) return fallback;

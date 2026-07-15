@@ -36,6 +36,11 @@ const mission = {
   objective: '현재 사업과 제품에 도움이 되는 기회를 근거와 함께 매주 찾는다.',
   successCriteria: ['근거가 있는 기회 3개'],
   agentId: 'bizconsultant',
+  executionEngine: 'auto',
+  deliverable: { kind: 'report', format: 'markdown' },
+  missionThreadId: 'thread-weekly',
+  planSummary: '공식 출처를 비교해 가격 변화와 후속 검증 작업을 정리합니다.',
+  plannedAt: '2026-07-13T08:55:00.000Z',
   status: 'active',
   timezone: 'Asia/Seoul',
   sources: ['wiki', 'web'],
@@ -114,6 +119,46 @@ async function main() {
     calls.push({ method: request.method(), path });
     if (!path.startsWith('/api/')) return route.continue();
     if (request.method() === 'GET' && path === '/api/agent-operations') return route.fulfill({ json: operationState });
+    if (request.method() === 'GET' && path === '/api/agent-operations/work/mission-weekly/conversation') {
+      return route.fulfill({ json: {
+        ok: true,
+        work: {
+          id: mission.id,
+          title: mission.title,
+          objective: mission.objective,
+          status: mission.status,
+          agentId: mission.agentId,
+          assignmentReason: 'explicit:bizconsultant',
+          executionEngine: mission.executionEngine,
+          deliverable: mission.deliverable,
+          missionThreadId: mission.missionThreadId,
+          workConversationId: mission.missionThreadId,
+          revisionCounter: 0,
+          pendingRevisionId: '',
+          currentResultReportId: report.id,
+          createdAt: mission.createdAt,
+          updatedAt: mission.updatedAt,
+        },
+        conversation: {
+          id: mission.missionThreadId,
+          missionId: mission.id,
+          taskId: '',
+          type: 'mission-thread',
+          title: mission.title,
+          status: 'waiting_for_approval',
+          pendingInstructions: [],
+          executionEngine: mission.executionEngine,
+          deliverable: mission.deliverable,
+          createdAt: mission.createdAt,
+          updatedAt: mission.updatedAt,
+        },
+        checkpoints: [
+          { id: 'initial', sessionId: mission.missionThreadId, sequence: 1, kind: 'user_message', text: mission.objective, metadata: {}, createdAt: mission.createdAt },
+          { id: 'completion', sessionId: session.id, sequence: 2, kind: 'completion', text: report.title, metadata: { reportId: report.id, taskId: task.id }, createdAt: report.createdAt },
+        ],
+        nextCursor: null,
+      } });
+    }
     if (request.method() === 'GET' && path === '/api/agent-operations/sessions/session-scan') {
       return route.fulfill({ json: { ok: true, session: { ...session, events } } });
     }
@@ -190,18 +235,23 @@ async function main() {
   await page.getByRole('button', { name: 'Task Session 닫기' }).click();
   await page.locator('.task-session-panel').waitFor({ state: 'detached' });
   await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
-  await page.getByRole('tab', { name: '보고서' }).click();
-  assert.match(await page.locator('.agent-report-row').textContent() || '', /경쟁사 두 곳이 팀 요금제를 인상했습니다/);
-  assert.match(await page.locator('.agent-report-row').textContent() || '', /공식 가격 페이지/);
-  assert.match(await page.locator('.agent-report-row').textContent() || '', /사용자 인터뷰/);
+  await page.waitForSelector('.agent-control-room');
+  await page.locator('.agent-activity-timeline > button', { hasText: '경쟁사 가격 변화 보고' }).click();
+  await page.locator('.agent-work-conversation').waitFor();
+  const conversationResult = page.locator('.agent-checkpoint-result');
+  assert.match(await conversationResult.textContent() || '', /경쟁사 두 곳이 팀 요금제를 인상했습니다/);
+  assert.match(await conversationResult.textContent() || '', /공식 가격 페이지/);
+  assert.match(await conversationResult.textContent() || '', /사용자 인터뷰/);
   await page.getByRole('button', { name: '사용자 인터뷰 승인' }).click();
-  await page.locator('.agent-report-followup', { hasText: '승인됨' }).waitFor();
+  await page.waitForFunction(() => document.querySelector('button[aria-label="사용자 인터뷰 승인"]')?.getAttribute('aria-pressed') === 'true');
+  assert.equal(await page.getByRole('button', { name: '사용자 인터뷰 승인' }).getAttribute('aria-pressed'), 'true');
   await page.getByRole('button', { name: '사용자 인터뷰 거절' }).click();
-  await page.locator('.agent-report-followup', { hasText: '거절됨' }).waitFor();
+  await page.waitForFunction(() => document.querySelector('button[aria-label="사용자 인터뷰 거절"]')?.getAttribute('aria-pressed') === 'true');
+  assert.equal(await page.getByRole('button', { name: '사용자 인터뷰 거절' }).getAttribute('aria-pressed'), 'true');
   assert.equal(calls.some((call) => call.path.endsWith('/reports/report-scan/follow-ups') && call.method === 'POST'), true);
   await page.waitForTimeout(150);
   await capture(page, 'reports-desktop');
-  await page.getByRole('button', { name: '세션 보기' }).click();
+  await conversationResult.getByRole('button', { name: 'Task Session 열기' }).click();
   await page.locator('.task-session-panel').waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('.task-session-list').waitFor();

@@ -1,0 +1,3 @@
+# Keep the responsible agent visible and the execution engine secondary
+
+The system assigns a visible Responsible Agent from the user's requested outcome and records the assignment reason. The current release also honors an explicit advanced agent override at delegation; reassignment of existing work is deferred until it has a safe persisted contract. Execution Engine selection is omitted from the primary flow: advanced details distinguish the requested automatic/override value from the strict optional actual resolved engine, which is shown only when execution evidence supplies it. This preserves meaningful accountability without asking users to understand runtime infrastructure before starting work.

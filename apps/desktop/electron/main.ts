@@ -1,11 +1,12 @@
 import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loginWithPassword, signUpWithPassword, startProviderLogin, type AuthProvider } from './auth.js';
-import { createApiProxyServer } from './proxy.js';
+import { createApiProxyServer, isTrustedProxyRendererUrl } from './proxy.js';
 import { migrateLegacyUserDataFiles, publicSettings, readSettings, saveSettings } from './settings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -13,9 +14,18 @@ const APP_NAME = 'Agent Calendar';
 const WIDGET_APP_GROUP_ID = 'group.com.agents.calendar';
 const WIDGET_SNAPSHOT_FILE = 'HermesWidgetSnapshot.json';
 const WIDGET_ACTIONS_FILE = 'HermesWidgetActions.json';
+
+class UntrustedProxyRendererError extends Error {
+  constructor() {
+    super('Untrusted renderer cannot access the Agent Calendar API proxy');
+    this.name = 'UntrustedProxyRendererError';
+  }
+}
+
 let mainWindow: BrowserWindow | null = null;
 let widgetOverlayWindow: BrowserWindow | null = null;
 let proxyBaseUrl = '';
+const proxyCredential = randomBytes(32).toString('base64url');
 let widgetActionPoller: NodeJS.Timeout | null = null;
 
 app.setName(APP_NAME);
@@ -82,8 +92,17 @@ function appIconPath() {
   return path.join(__dirname, '..', 'dist', 'agent-calendar-logo.png');
 }
 
+function packagedRendererIndexPath() {
+  return path.join(__dirname, '..', 'dist', 'index.html');
+}
+
 async function startProxy() {
-  const server = createApiProxyServer({ getSettings: readSettings });
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  const server = createApiProxyServer({
+    allowedDevOrigin: devServerUrl ? new URL(devServerUrl).origin : undefined,
+    credential: proxyCredential,
+    getSettings: readSettings,
+  });
   await new Promise<void>((resolve) => {
     server.listen(0, '127.0.0.1', resolve);
   });
@@ -148,7 +167,7 @@ function createWindow() {
     void mainWindow.loadURL(devServerUrl);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    void mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    void mainWindow.loadFile(packagedRendererIndexPath());
   }
   startWidgetActionBridge();
   if (shouldCreateWidgetOverlay()) createWidgetOverlayWindow();
@@ -213,7 +232,7 @@ function createWidgetOverlayWindow() {
   if (devServerUrl) {
     void widgetOverlayWindow.loadURL(overlayUrl(devServerUrl));
   } else {
-    void widgetOverlayWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { overlay: 'widgets' } });
+    void widgetOverlayWindow.loadFile(packagedRendererIndexPath(), { query: { overlay: 'widgets' } });
   }
 }
 
@@ -262,7 +281,17 @@ ipcMain.handle('auth:password-login', async (_event, payload: unknown) => {
   return publicSettings(saveSettings({ auth: profile }));
 });
 ipcMain.handle('auth:logout', () => publicSettings(saveSettings({ auth: null })));
-ipcMain.handle('proxy:get-base-url', () => proxyBaseUrl);
+ipcMain.handle('hermes:get-connection', (event) => {
+  const senderFrame = event.senderFrame;
+  if (!senderFrame) throw new UntrustedProxyRendererError();
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  const trusted = isTrustedProxyRendererUrl(senderFrame.url, {
+    allowedDevOrigin: devServerUrl ? new URL(devServerUrl).origin : undefined,
+    packagedIndexPath: packagedRendererIndexPath(),
+  });
+  if (!trusted) throw new UntrustedProxyRendererError();
+  return { baseUrl: proxyBaseUrl, credential: proxyCredential };
+});
 ipcMain.handle('widget:snapshot-save', async (_event, snapshot: unknown) => {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
     throw new Error('Invalid Agent Calendar widget snapshot');

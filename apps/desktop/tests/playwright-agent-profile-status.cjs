@@ -5,6 +5,7 @@ const target = process.env.HERMES_UI_URL || 'http://127.0.0.1:5173/';
 
 const agents = [
   { id: 'default', name: 'default', displayName: 'Default Hermes', status: 'Idle', model: 'grok-4.3', profile: { name: 'default', gateway: 'running' } },
+  { id: 'bizconsultant', name: 'bizconsultant', displayName: 'Business Consultant', status: 'Idle', enabled: false, model: 'gpt-5.5', profile: { name: 'bizconsultant', gateway: 'stopped' } },
   { id: 'stockagent', name: 'stockagent', displayName: 'Stock Agent', status: 'Idle', model: 'gpt-5.5', profile: { name: 'stockagent', gateway: 'running' } },
 ];
 
@@ -12,6 +13,7 @@ const profileReadiness = {
   allReady: false,
   requiredProfiles: [
     { profile: 'default', present: true, status: 'ready', setup: { profile: 'default', dashboard: { localUrl: 'http://127.0.0.1:9119/' } } },
+    { profile: 'bizconsultant', present: true, status: 'ready', setup: { profile: 'bizconsultant' } },
     { profile: 'stockagent', present: true, status: 'ready', setup: { profile: 'stockagent' } },
     { profile: 'marketflow', present: false, status: 'missing', setup: { profile: 'marketflow' } },
   ],
@@ -48,19 +50,19 @@ async function main() {
   await page.goto(target);
   await page.waitForSelector('.app-root');
   await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
-  await page.waitForSelector('.agent-operations-workspace');
-  await page.getByRole('tab', { name: '에이전트' }).click();
-  await page.waitForSelector('.agent-roster-row');
+  await page.waitForSelector('.agent-status-card');
 
-  const gridText = await page.locator('.agent-roster-list').textContent();
+  const gridText = await page.locator('.agent-status-grid').textContent();
   assert.match(gridText || '', /Default Hermes/);
   assert.match(gridText || '', /준비됨/);
+  assert.match(gridText || '', /Business Consultant/);
+  assert.match(gridText || '', /중지됨/);
   assert.doesNotMatch(gridText || '', /marketflow/);
   assert.doesNotMatch(gridText || '', /누락/);
   assert.doesNotMatch(gridText || '', /대기/);
 
   await browser.close();
-  console.log(JSON.stringify({ ok: true, statuses: ['준비됨'], hiddenMissingProfiles: ['marketflow'] }, null, 2));
+  console.log(JSON.stringify({ ok: true, statuses: ['준비됨', '중지됨'], hiddenMissingProfiles: ['marketflow'] }, null, 2));
 }
 
 main().catch((error) => {

@@ -1,8 +1,60 @@
-import type { AgentTaskAction } from '../features/agent-operations/types';
+import type { AgentMissionCreateInput, AgentTaskAction } from '../features/agent-operations/types';
+import {
+  parseAgentWorkConversationPage,
+  parseAgentWorkCreateResponse,
+  parseAgentWorkMessageResponse,
+} from '../features/agent-operations/workConversationParser';
+import type {
+  AgentWorkConversationPage,
+  AgentWorkCreateRequest,
+  AgentWorkCreateResponse,
+  AgentWorkLiveTurnRequest,
+  AgentWorkMessageRequest,
+  AgentWorkMessageResponse,
+} from '../features/agent-operations/workConversationTypes';
+
+export {
+  AgentWorkPaginationError,
+  agentWorkPollDelay,
+  createAgentWorkClient,
+  createdWorkIdentity,
+  loadCompleteAgentWorkConversation,
+} from '../features/agent-operations/workConversationClient';
+export { executionEngineLabel } from '../features/agent-operations/executionContracts';
+export {
+  AgentWorkParseError,
+  compareAgentWorkCheckpoints,
+  parseAgentWorkConversationPage,
+  parseAgentWorkCreateResponse,
+  parseAgentWorkMessageResponse,
+} from '../features/agent-operations/workConversationParser';
+export {
+  deliveryApplicationLabel,
+  deliveryStatusLabel,
+  responsibleAgentAssignmentCopy,
+  responsibleAgentLabel,
+} from '../features/agent-operations/workConversationPresentation';
+export type * from '../features/agent-operations/workConversationTypes';
 
 export type ApiEnvelope = Record<string, unknown>;
 
+export class HermesApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly path: string;
+
+  constructor(status: number, code: string, message: string, path: string) {
+    super(message);
+    this.name = 'HermesApiError';
+    this.status = status;
+    this.code = code;
+    this.path = path;
+  }
+}
+
 let apiBaseUrl = '';
+let proxyCredential = '';
+const PROXY_CREDENTIAL_HEADER = 'x-agent-calendar-proxy-credential';
 const API_TIMEOUT_MS = 6500;
 const SCHEDULE_ASK_TIMEOUT_MS = 45_000;
 const AGENT_OPERATIONS_TIMEOUT_MS = 400_000;
@@ -11,10 +63,41 @@ const WIKI_ASK_TIMEOUT_MS = 150_000;
 
 export function setApiBaseUrl(baseUrl: string) {
   apiBaseUrl = String(baseUrl || '').replace(/\/+$/g, '');
+  proxyCredential = '';
+}
+
+export function setApiProxyConnection(connection: Readonly<{ baseUrl: string; credential: string }>) {
+  apiBaseUrl = connection.baseUrl.replace(/\/+$/g, '');
+  proxyCredential = connection.credential;
 }
 
 function url(path: string) {
   return `${apiBaseUrl}${path}`;
+}
+
+function proxyFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (proxyCredential) headers.set(PROXY_CREDENTIAL_HEADER, proxyCredential);
+  return fetch(url(path), { ...init, headers });
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function responseError(response: Response, path: string): Promise<HermesApiError> {
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+  }
+  const source = isRecord(payload) ? payload : {};
+  const code = typeof source.error === 'string' ? source.error : 'api_request_failed';
+  const message = typeof source.message === 'string'
+    ? source.message
+    : `Agents Calendar API ${response.status} ${path}`;
+  return new HermesApiError(response.status, code, message, path);
 }
 
 async function hermesJson<T>(path: string, init?: RequestInit, timeoutMs = API_TIMEOUT_MS): Promise<T> {
@@ -22,18 +105,20 @@ async function hermesJson<T>(path: string, init?: RequestInit, timeoutMs = API_T
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
   try {
-    const response = await fetch(url(path), {
-      headers: {
-        ...(isFormData ? {} : { 'content-type': 'application/json' }),
-        ...(init?.headers || {}),
-      },
+    const headers = new Headers(init?.headers);
+    if (!isFormData && !headers.has('content-type')) headers.set('content-type', 'application/json');
+    const response = await proxyFetch(path, {
       ...init,
+      headers,
       signal: init?.signal || controller.signal,
     });
-    if (!response.ok) throw new Error(`Agents Calendar API ${response.status} ${path}`);
+    if (!response.ok) throw await responseError(response, path);
     return response.json() as Promise<T>;
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw new Error(`Agents Calendar API timeout ${path}`);
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      if (init?.signal?.aborted) throw error;
+      throw new HermesApiError(0, 'api_timeout', `Agents Calendar API timeout ${path}`, path);
+    }
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -77,8 +162,33 @@ export const hermesApi = {
   askSchedule: (body: Record<string, unknown>) => jsonPost('/api/assistant/ask', body, SCHEDULE_ASK_TIMEOUT_MS),
   ingestSchedule: (body: FormData) => hermesJson<ApiEnvelope>('/api/assistant/ingest', { method: 'POST', body }, SCHEDULE_ASK_TIMEOUT_MS),
   getAgents: () => hermesJson<ApiEnvelope>('/api/agents'),
-  getAgentOperations: () => hermesJson<unknown>('/api/agent-operations'),
-  createAgentMission: (body: Readonly<{ templateId: 'weekly-opportunity-brief'; title?: string }>) => hermesJson<unknown>('/api/agent-operations/missions', {
+  getAgentOperations: () => hermesJson<unknown>('/api/agent-operations', undefined, AGENT_OPERATIONS_TIMEOUT_MS),
+  createAgentWork: (body: AgentWorkCreateRequest): Promise<AgentWorkCreateResponse> => hermesJson<unknown>('/api/agent-operations/work', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }, AGENT_OPERATIONS_TIMEOUT_MS).then(parseAgentWorkCreateResponse),
+  getAgentWorkConversation: (missionId: string, options: Readonly<{ cursor?: string; limit?: number; signal?: AbortSignal }> = {}): Promise<AgentWorkConversationPage> => {
+    const params = new URLSearchParams();
+    if (options.cursor) params.set('cursor', options.cursor);
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    const query = params.toString();
+    return hermesJson<unknown>(`/api/agent-operations/work/${encodeURIComponent(missionId)}/conversation${query ? `?${query}` : ''}`, options.signal ? { signal: options.signal } : undefined, AGENT_OPERATIONS_TIMEOUT_MS).then(parseAgentWorkConversationPage);
+  },
+  sendAgentWorkMessage: (missionId: string, body: AgentWorkMessageRequest): Promise<AgentWorkMessageResponse> => hermesJson<unknown>(`/api/agent-operations/work/${encodeURIComponent(missionId)}/messages`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }, AGENT_OPERATIONS_TIMEOUT_MS).then(parseAgentWorkMessageResponse),
+  streamAgentWorkTurn: async (missionId: string, body: AgentWorkLiveTurnRequest, signal?: AbortSignal): Promise<Response> => {
+    const response = await proxyFetch(`/api/agent-operations/work/${encodeURIComponent(missionId)}/live`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!response.ok) throw await responseError(response, `/api/agent-operations/work/${encodeURIComponent(missionId)}/live`);
+    return response;
+  },
+  createAgentMission: (body: AgentMissionCreateInput) => hermesJson<unknown>('/api/agent-operations/missions', {
     method: 'POST',
     body: JSON.stringify(body),
   }),
@@ -111,7 +221,7 @@ export const hermesApi = {
   getSettings: () => hermesJson<ApiEnvelope>('/api/settings'),
   saveSettings: (body: Record<string, unknown>) => jsonPost('/api/settings', body),
   getChatMessages: (target?: string) => hermesJson<ApiEnvelope>(`/api/chat/messages${target ? `?target=${encodeURIComponent(target)}` : ''}`),
-  getEvents: () => fetch(url('/api/events'), { headers: { accept: 'text/event-stream' } }),
+  getEvents: () => proxyFetch('/api/events', { headers: { accept: 'text/event-stream' } }),
   createRun: (body: Record<string, unknown>) => jsonPost('/api/runs', body),
   launchMission: (body: Record<string, unknown>) => jsonPost('/api/missions/launch', body),
   getRun: (id: string) => hermesJson<ApiEnvelope>(`/api/runs/${encodeURIComponent(id)}`),
@@ -119,7 +229,7 @@ export const hermesApi = {
   draftCalendarWork: (body: Record<string, unknown>) => jsonPost('/api/calendar/draft', body),
   quickAddCalendarWork: (body: Record<string, unknown>) => jsonPost('/api/calendar/quick-add', body),
   convertWorkboard: (body: Record<string, unknown>) => jsonPost('/api/workboard/convert', body),
-  streamChat: (body: Record<string, unknown>) => fetch(url('/api/chat/stream'), {
+  streamChat: (body: Record<string, unknown>) => proxyFetch('/api/chat/stream', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

@@ -2,6 +2,7 @@ const { once } = require('node:events');
 const { mkdir, writeFile } = require('node:fs/promises');
 const path = require('node:path');
 const { createApiProxyServer } = require('../dist-electron/proxy.js');
+const PROXY_CREDENTIAL = 'wiki-qa-process-credential';
 
 const DEFAULT_VAULT = '/Users/koyunseo/Library/Mobile Documents/com~apple~CloudDocs/LLM-Wiki';
 const DEFAULT_RAILWAY = 'https://hermes-os-production-e174.up.railway.app';
@@ -175,7 +176,10 @@ async function askOne(endpoint, item, index) {
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        'x-agent-calendar-proxy-credential': PROXY_CREDENTIAL,
+      },
       signal: controller.signal,
       body: JSON.stringify({ question, limit: 8, includeJournal: false, includeRaw: false, mode: 'smart' }),
     });
@@ -307,6 +311,7 @@ async function main() {
   process.env.HERMES_WIKI_AGENT = process.env.HERMES_WIKI_AGENT || 'wiki-curator';
 
   const server = createApiProxyServer({
+    credential: PROXY_CREDENTIAL,
     getSettings: () => ({
       apiBaseUrl: process.env.HERMES_RAILWAY_BASE_URL || DEFAULT_RAILWAY,
       apiToken: process.env.HERMES_RAILWAY_API_TOKEN || '',

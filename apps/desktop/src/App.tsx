@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { hermesApi, setApiBaseUrl, type ApiEnvelope } from './api/hermesApi';
+import { hermesApi, setApiBaseUrl, setApiProxyConnection, type ApiEnvelope } from './api/hermesApi';
+import { createAgentWork } from './api/agentWorkApiClient';
 import { AgentOperationsScreen } from './features/agent-operations/AgentOperationsScreen';
 import {
   EMPTY_AGENT_OPERATIONS_STATE,
@@ -7,14 +8,17 @@ import {
   parseAgentSessionEnvelope,
 } from './features/agent-operations/agentOperations';
 import { agentTaskCalendarRecord } from './features/agent-operations/agentTaskAppearance';
+import { parseHermesAutomationJobs } from './features/agent-operations/hermesAutomation';
 import { TaskSessionPanel } from './features/agent-operations/TaskSessionPanel';
 import type {
   AgentOperationsState,
+  AgentMissionCreateInput,
   AgentRosterEntry,
   AgentSessionDetail,
   AgentTaskAction,
 } from './features/agent-operations/types';
 import './features/agent-operations/agent-operations.css';
+import './features/agent-operations/agent-workspace.css';
 
 type ScreenId = 'calendar' | 'today' | 'next7' | 'tasks' | 'kanban' | 'mail' | 'notes' | 'someday' | 'review' | 'wiki' | 'diary' | 'search' | 'agents' | 'widgets' | 'settings' | 'login';
 type ModalId = 'task' | 'new' | 'delegate' | 'run' | 'agent' | 'settings' | 'taxonomy' | null;
@@ -59,6 +63,43 @@ type NewTaskControls = {
   endTime: string;
   setEndTime: (value: string) => void;
 };
+
+async function consumeConsoleChatStream(response: Response, onText: (text: string) => void): Promise<string> {
+  if (!response.ok || !response.body) throw new Error(`console stream ${response.status}`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = '';
+  let answer = '';
+  const consume = (block: string) => {
+    const lines = block.split('\n');
+    const event = lines.find((line) => line.startsWith('event:'))?.slice('event:'.length).trim() || 'message';
+    const raw = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice('data:'.length).trimStart()).join('\n');
+    if (!raw || raw === '[DONE]') return;
+    const payload = JSON.parse(raw) as { text?: unknown; error?: unknown };
+    if (typeof payload.error === 'string' && payload.error) throw new Error(payload.error);
+    if (typeof payload.text !== 'string' || !payload.text) return;
+    if (event === 'done') {
+      if (!answer) answer = payload.text;
+    } else {
+      answer += payload.text;
+    }
+    onText(answer);
+  };
+  while (true) {
+    const { done, value } = await reader.read();
+    pending += decoder.decode(value, { stream: !done }).replace(/\r\n/g, '\n');
+    let separator = pending.indexOf('\n\n');
+    while (separator >= 0) {
+      consume(pending.slice(0, separator));
+      pending = pending.slice(separator + 2);
+      separator = pending.indexOf('\n\n');
+    }
+    if (done) break;
+  }
+  if (pending.trim()) consume(pending);
+  if (!answer.trim()) throw new Error('console stream returned no answer');
+  return answer;
+}
 
 type AppState = {
   tasks: Item[];
@@ -378,6 +419,7 @@ function mergeAgentsWithProfileReadiness(agents: Item[], readiness: ApiEnvelope)
 }
 
 function agentStatusLabel(agent: Item) {
+  if (agent.enabled === false) return '중지됨';
   const raw = text(agent.hermesProfileStatus || agent.profileStatus || agent.status, '').toLowerCase();
   const present = agent.hermesProfilePresent;
   if (present === false || /missing|not-found|absent|누락|없음/.test(raw)) return '누락';
@@ -972,6 +1014,7 @@ export function App() {
   const [agentOperations, setAgentOperations] = useState<AgentOperationsState>(EMPTY_AGENT_OPERATIONS_STATE);
   const [agentOperationsError, setAgentOperationsError] = useState('');
   const [agentOperationsBusy, setAgentOperationsBusy] = useState('');
+  const agentOperationsRefreshPromiseRef = useRef<Promise<void> | null>(null);
   const [selectedAgentSessionId, setSelectedAgentSessionId] = useState('');
   const [agentSessionDetail, setAgentSessionDetail] = useState<AgentSessionDetail | null>(null);
   const [agentSessionLoading, setAgentSessionLoading] = useState(false);
@@ -1068,18 +1111,21 @@ export function App() {
     id: itemId(agent, `agent-${index}`),
     displayName: agentDisplayName(agent),
     status: agentStatusLabel(agent),
+    enabled: agent.enabled !== false,
     model: text(agent.model, 'Recommended'),
     role: text(agent.role || agent.persona),
     provider: text(agent.provider || agent.runtime || agent.source, '연결 정보 없음'),
     trustLevel: text(agent.trustLevel || agent.trust, '확인 필요'),
     allowedTaskClasses: stringList(agent, 'allowedTaskClasses'),
   })), [agents]);
+  const hermesAutomationJobs = useMemo(() => parseHermesAutomationJobs(state.automation), [state.automation]);
   const runs = state.runs;
   const selectedRun = runs.find((run, index) => itemId(run, `run-${index}`) === selectedRunId) || runs[0];
   const accountName = settings.authProfile?.name || 'Yunseo';
   const accountEmail = settings.authProfile?.email || 'yunseo@agent.calendar';
   const accountInitial = (accountName || accountEmail || 'A').trim().slice(0, 1).toUpperCase();
   const accountProviderLabel = settings.authProfile?.provider === 'google' ? 'Google 로그인' : settings.authProfile?.provider === 'password' ? '이메일 로그인' : 'Railway 연결';
+  const showGlobalApiBanner = Boolean(apiError && screen !== 'agents');
   const taxonomy = useMemo(() => {
     const byId = new Map<string, TaxonomyItem>();
     const metadata = state.taxonomy.map(parseTaxonomyRecord).filter(Boolean) as TaxonomyItem[];
@@ -1161,13 +1207,13 @@ export function App() {
           return;
         }
         const desktopSettings = await window.hermesDesktop?.getSettings();
-        const proxyBase = await window.hermesDesktop?.getProxyBaseUrl();
+        const proxyConnection = await window.hermesDesktop.getHermesConnection();
         if (desktopSettings && !cancelled) {
           setSettings(desktopSettingsState(desktopSettings));
           setLoggedIn(Boolean(desktopSettings.authProfile));
           if (desktopSettings.authProfile?.email) setLoginEmail(desktopSettings.authProfile.email);
         }
-        setApiBaseUrl(proxyBase || desktopSettings?.apiBaseUrl || 'https://hermes-os-production-e174.up.railway.app');
+        setApiProxyConnection(proxyConnection);
         await hydrate();
       } catch (error) {
         if (!cancelled) {
@@ -1205,11 +1251,16 @@ export function App() {
       const chatRequest = optionalRequest('채팅', hermesApi.getChatMessages());
       const agentOperationsRequest = hermesApi.getAgentOperations()
         .then(parseAgentOperationsEnvelope)
+        .then((next) => {
+          setAgentOperations(next);
+          return next;
+        })
         .catch((error) => {
           setAgentOperationsError(error instanceof Error ? error.message : 'Agent Operations 불러오기 실패');
-          return agentOperations;
+          return null;
         });
-      const [dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, usage, tools, settingsPayload, channels, documentsPayload, chatPayload, nextAgentOperations] = await Promise.all([
+      void agentOperationsRequest;
+      const [dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, usage, tools, settingsPayload, channels, documentsPayload, chatPayload] = await Promise.all([
         dashboardRequest,
         tasksRequest,
         eventsRequest,
@@ -1223,7 +1274,6 @@ export function App() {
         channelsRequest,
         documentsRequest,
         chatRequest,
-        agentOperationsRequest,
       ]);
       const rawTasks = arr(tasksPayload, 'tasks');
       const taxonomyRecords = rawTasks.filter(isTaxonomyRecord);
@@ -1264,7 +1314,6 @@ export function App() {
         profileReadiness: obj(dashboard, 'profileReadiness'),
         agentSourceStatus: obj(dashboard, 'agentSourceStatus'),
       });
-      setAgentOperations(nextAgentOperations);
       setPrefs(settingsPreferences(settingsPayload));
       setSettings((current) => ({ ...current, uiPreferences: settingsPreferences(settingsPayload) }));
       if (remoteChat.length) {
@@ -1768,19 +1817,50 @@ export function App() {
   }
 
   async function refreshAgentOperations() {
-    const next = parseAgentOperationsEnvelope(await hermesApi.getAgentOperations());
-    setAgentOperations(next);
-    return next;
+    if (agentOperationsRefreshPromiseRef.current) return agentOperationsRefreshPromiseRef.current;
+    const request = (async () => {
+      const next = parseAgentOperationsEnvelope(await hermesApi.getAgentOperations());
+      setAgentOperations(next);
+    })();
+    agentOperationsRefreshPromiseRef.current = request;
+    try {
+      await request;
+    } finally {
+      if (agentOperationsRefreshPromiseRef.current === request) agentOperationsRefreshPromiseRef.current = null;
+    }
   }
 
-  async function runAgentOperation(busyKey: string, operation: () => Promise<unknown>) {
+  async function retryAgentOperations(): Promise<boolean> {
+    setAgentOperationsBusy('refresh');
+    try {
+      await refreshAgentOperations();
+      setAgentOperationsError('');
+      return true;
+    } catch {
+      setAgentOperationsError('최신 작업 상태를 불러오지 못했습니다.');
+      return false;
+    } finally {
+      setAgentOperationsBusy('');
+    }
+  }
+
+  async function runAgentOperation<T>(busyKey: string, operation: () => Promise<T>): Promise<T | null> {
     setAgentOperationsBusy(busyKey);
     setAgentOperationsError('');
     try {
-      await operation();
-      await refreshAgentOperations();
-    } catch (error) {
-      setAgentOperationsError(error instanceof Error ? error.message : 'Agent Operations 요청 실패');
+      try {
+        const result = await operation();
+        try {
+          await refreshAgentOperations();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '화면 새로고침 실패';
+          setAgentOperationsError(`작업은 완료됐지만 화면 새로고침에 실패했습니다 · ${message}`);
+        }
+        return result;
+      } catch (error) {
+        setAgentOperationsError(error instanceof Error ? error.message : 'Agent Operations 요청 실패');
+        return null;
+      }
     } finally {
       setAgentOperationsBusy('');
     }
@@ -1803,15 +1883,15 @@ export function App() {
     }
   }
 
-  async function sendAgentSessionMessage(message: string) {
-    if (!selectedAgentSessionId) return false;
+  async function continueAgentSession(sessionId: string, message: string) {
+    if (!sessionId) return false;
     setAgentSessionMessageBusy(true);
     setAgentOperationsError('');
     try {
-      await hermesApi.sendAgentSessionMessage(selectedAgentSessionId, message);
+      await hermesApi.sendAgentSessionMessage(sessionId, message);
       await Promise.all([
         refreshAgentOperations(),
-        openAgentSession(selectedAgentSessionId),
+        openAgentSession(sessionId),
       ]);
       return true;
     } catch (error) {
@@ -1827,10 +1907,8 @@ export function App() {
     setAgentSessionDetail(null);
   }
 
-  async function createAgentMission() {
-    await runAgentOperation('create', () => hermesApi.createAgentMission({
-      templateId: 'weekly-opportunity-brief',
-    }));
+  async function createAgentMission(input: AgentMissionCreateInput) {
+    return runAgentOperation('create', () => createAgentWork(input));
   }
 
   async function planAgentMission(missionId: string) {
@@ -1848,11 +1926,12 @@ export function App() {
   }
 
   async function transitionAgentOperationTask(taskId: string, action: AgentTaskAction) {
-    await runAgentOperation(taskId, () => hermesApi.transitionAgentTask(taskId, action));
+    const succeeded = (await runAgentOperation(taskId, () => hermesApi.transitionAgentTask(taskId, action))) !== null;
     const selectedTask = agentOperations.tasks.find((task) => task.id === taskId);
     if (selectedTask?.sessionId === selectedAgentSessionId) {
       await openAgentSession(selectedAgentSessionId);
     }
+    return succeeded;
   }
 
   async function runAgentOperationTaskNow(taskId: string) {
@@ -1863,8 +1942,10 @@ export function App() {
     }
   }
 
-  async function transitionAgentMissionWork(missionId: string, action: 'pause' | 'cancel') {
-    await runAgentOperation(missionId, () => hermesApi.transitionAgentMission(missionId, action));
+  async function transitionAgentMissionWork(missionId: string, action: 'activate' | 'pause' | 'cancel') {
+    await runAgentOperation(missionId, () => action === 'activate'
+      ? hermesApi.activateAgentMission(missionId)
+      : hermesApi.transitionAgentMission(missionId, action));
   }
 
   async function recordAgentReportFeedback(reportId: string, useful: boolean) {
@@ -1994,7 +2075,31 @@ export function App() {
   async function sendChat() {
     const message = chatInput.trim();
     if (!message && !chatAttachment) return;
-    await askData(message);
+    if (chatAttachment) {
+      await askData(message, chatAttachment);
+      return;
+    }
+    setChatInput('');
+    setChatMessages((current) => [...current, { role: 'user', text: message }, { role: 'assistant', text: '' }]);
+    try {
+      const response = await hermesApi.streamChat({
+        message,
+        view: 'console',
+        agent: 'default',
+        agentId: 'default',
+      });
+      await consumeConsoleChatStream(response, (answer) => {
+        setChatMessages((current) => current.map((item, index) => (
+          index === current.length - 1 ? { ...item, text: answer } : item
+        )));
+      });
+    } catch {
+      setChatMessages((current) => current.map((item, index) => (
+        index === current.length - 1
+          ? { ...item, text: '실시간 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.' }
+          : item
+      )));
+    }
   }
 
   async function askWiki() {
@@ -2684,7 +2789,7 @@ export function App() {
         </nav>
         <button className="profile" onClick={() => setModal('settings')}>
           {settings.authProfile?.picture ? <img className="avatar" src={settings.authProfile.picture} alt="" /> : <span className="avatar">{accountInitial}</span>}
-          <span><strong>{accountName}</strong><small>{apiError ? 'Railway 확인 필요' : accountProviderLabel}</small></span>
+          <span><strong>{accountName}</strong><small>{showGlobalApiBanner ? 'Railway 확인 필요' : accountProviderLabel}</small></span>
           <span>⚙</span>
         </button>
       </aside>
@@ -2693,7 +2798,7 @@ export function App() {
         <header className="topbar">
           <div className="screen-heading"><strong>{selectedMeta.title}</strong><span>{selectedMeta.sub}</span></div>
         </header>
-        {apiError && <div className="api-banner"><strong>Railway API 확인 필요</strong><span>{apiError}</span><button onClick={() => void hydrate()}>재시도</button></div>}
+        {showGlobalApiBanner && <div className="api-banner"><strong>Railway API 확인 필요</strong><span>{apiError}</span><button onClick={() => void hydrate()}>재시도</button></div>}
         {loading ? <Loading /> : (
           <section className="content">
             {screen === 'calendar' && <CalendarScreen tasks={scheduledTaskItems} events={events} openNewTask={openNewTask} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} calView={calView} setCalView={setCalView} calDate={calDate} setCalDate={setCalDate} placingTaskId={placingTaskId} setPlacingTaskId={setPlacingTaskId} />}
@@ -2710,7 +2815,7 @@ export function App() {
             {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} />}
             {screen === 'diary' && <DiaryScreen docs={diaryDocs} diaryText={diaryText} setDiaryText={setDiaryText} diaryMood={diaryMood} setDiaryMood={setDiaryMood} saveDiary={saveDiary} />}
             {screen === 'search' && <SearchScreen query={query} setQuery={setQuery} tasks={tasks} docs={docs} openTask={openTask} openDoc={openDoc} />}
-            {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} error={agentOperationsError} busy={agentOperationsBusy} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
+            {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} automationJobs={hermesAutomationJobs} error={agentOperationsError} busy={agentOperationsBusy} onRetry={retryAgentOperations} onRefreshAgentOperations={retryAgentOperations} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onContinueSession={continueAgentSession} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
             {screen === 'widgets' && <WidgetsScreen tasks={tasks} events={events} runs={runs} />}
             {screen === 'settings' && <SettingsScreen settings={settings} setSettings={setSettings} refresh={hydrate} />}
             {screen === 'login' && <LoginScreen email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} authenticateWithPassword={authenticateWithPassword} />}
@@ -2744,7 +2849,7 @@ export function App() {
           sending={agentSessionMessageBusy || agentSessionLoading}
           onClose={closeAgentSession}
           onOpenSession={(sessionId) => void openAgentSession(sessionId)}
-          onSendMessage={sendAgentSessionMessage}
+          onSendMessage={(message) => continueAgentSession(selectedAgentSessionId, message)}
           onTaskAction={transitionAgentOperationTask}
         />
       )}
@@ -2959,13 +3064,14 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     const showTitle = !range || rangeStart;
     const showTime = !!timeValue && (!range || rangeEnd);
     const agentLabel = text(item.agentTaskLabel);
-    const visibleAgentLabel = [agentLabel, text(item.agent)].filter(Boolean).join(' · ');
+    const visibleAgentLabel = [agentLabel, text(item.agent), text(item.agentTaskEngineLabel)].filter(Boolean).join(' · ');
     return <><span>{showTitle ? itemTitle(item, fallback) : '\u00A0'}</span>{showTitle && visibleAgentLabel && <i>{visibleAgentLabel}</i>}{showTime && <b>{formatTime(timeValue)}</b>}</>;
   };
   const calendarItemDescription = (item: Item) => [
     itemTitle(item, '에이전트 작업'),
     text(item.agentTaskLabel),
     text(item.agent) && `담당 ${text(item.agent)}`,
+    text(item.agentTaskEngineLabel) && `실행 엔진 ${text(item.agentTaskEngineLabel)}`,
     text(item.agentMissionTitle) && `미션 ${text(item.agentMissionTitle)}`,
     text(item.expectedOutput) && `기대 결과 ${text(item.expectedOutput)}`,
     text(item.dueAt) && `마감 ${text(item.dueAt)}`,
@@ -3055,7 +3161,7 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
       {weekCells.map((cell) => <section className="week-col" data-today={cell.today} data-selected={cell.selected} key={cell.date}>
         <button className="week-head" onClick={() => { setCalDate(cell.date); setCalView('day'); }}><span>{cell.weekday}</span><strong>{cell.day}</strong></button>
         <div className="week-events" onDragOver={allowCalendarDrop} onDrop={(event) => dropOnCalendar(event, cell.date)} onClick={() => openNewTask(cell.date)}>
-          {cell.items.map((item, index) => <button className={`week-event ${calendarItemClass(item)}`} draggable={text(item.origin) !== 'agent'} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${cell.date}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><small>{[text(item.agentTaskLabel), text(item.agent), text(item.time || item.t, index % 2 ? '오후 2:00' : '오전 9:00')].filter(Boolean).join(' · ')}</small>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</button>)}
+          {cell.items.map((item, index) => <button className={`week-event ${calendarItemClass(item)}`} draggable={text(item.origin) !== 'agent'} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${cell.date}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><small>{[text(item.agentTaskLabel), text(item.agent), text(item.agentTaskEngineLabel), text(item.time || item.t, index % 2 ? '오후 2:00' : '오전 9:00')].filter(Boolean).join(' · ')}</small>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</button>)}
         </div>
       </section>)}
     </div>}
@@ -3070,7 +3176,7 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
           }
         }}>
           <span>{formatTime(row.time).replace(':00', '시')}</span>
-          <div>{row.items.map((item, index) => <em className={calendarItemClass(item)} draggable={text(item.origin) !== 'agent'} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${row.time}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><b>{formatTime(text(item.time || item.t, row.time))}</b> {itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}{text(item.agentTaskLabel) && <small> · {text(item.agentTaskLabel)} · {text(item.agent)}</small>}</em>)}</div>
+          <div>{row.items.map((item, index) => <em className={calendarItemClass(item)} draggable={text(item.origin) !== 'agent'} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${row.time}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><b>{formatTime(text(item.time || item.t, row.time))}</b> {itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}{text(item.agentTaskLabel) && <small> · {[text(item.agentTaskLabel), text(item.agent), text(item.agentTaskEngineLabel)].filter(Boolean).join(' · ')}</small>}</em>)}</div>
         </button>)}
       </div>
       <aside className="day-side">

@@ -3,6 +3,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { runMigrations } = require('../db/migrate');
+const { AgentWorkContractError } = require('./agent-work-contract');
+const { deliveryFromEvent, deliveryMetadata } = require('./agent-work-delivery');
 const { chunksFromDocument, chunksFromWikiNotes, rankWikiChunks } = require('./wiki-rag');
 const { HermesStore, createDefaultState } = require('./store');
 
@@ -47,6 +49,8 @@ class PostgresHermesStore extends HermesStore {
     this.pool = pool || createPool({ env });
     this.persistErrors = [];
     this.taskPersistChains = new Map();
+    this.delegatedWorkChains = new Map();
+    this.suppressAgentWorkPersistence = false;
     const migrationReady = autoMigrate
       ? runMigrations({ pool: this.pool }).catch((error) => {
         this.persistErrors.push(error.message);
@@ -101,6 +105,223 @@ class PostgresHermesStore extends HermesStore {
     return agent;
   }
 
+  createDelegatedWork(records = {}) {
+    const key = String(records.mission?.clientRequestId || records.mission?.id || 'work');
+    const previous = this.delegatedWorkChains.get(key) || Promise.resolve();
+    const operation = previous.then(async () => {
+      const persisted = await this.#persistDelegatedWork(records);
+      const local = super.createDelegatedWork(persisted.records);
+      return { ...local, idempotentReplay: persisted.idempotentReplay };
+    });
+    const tracked = operation.catch(() => null);
+    this.delegatedWorkChains.set(key, tracked);
+    tracked.finally(() => {
+      if (this.delegatedWorkChains.get(key) === tracked) this.delegatedWorkChains.delete(key);
+    });
+    return operation;
+  }
+
+  async addDelegatedWorkMessage(input = {}) {
+    const state = super.getState();
+    const mission = state.agentMissions.find((item) => item.id === input.missionId);
+    if (!mission) return super.addDelegatedWorkMessage(input);
+    const conversation = state.agentSessions.find((item) => item.id === mission.missionThreadId);
+    const existing = state.agentSessionEvents.find((event) => (
+      event.sessionId === conversation?.id
+      && event.metadata?.clientMessageId === input.clientMessageId
+    ));
+    if (existing) return super.addDelegatedWorkMessage(input);
+    const sequence = state.agentSessionEvents
+      .filter((event) => event.sessionId === conversation?.id)
+      .reduce((maximum, event) => Math.max(maximum, Number(event.sequence) || 0), 0) + 1;
+    const event = {
+      id: input.eventId,
+      sessionId: conversation?.id || '',
+      sequence,
+      kind: 'user_message',
+      text: input.text,
+      createdAt: input.acceptedAt,
+      metadata: {
+        clientMessageId: input.clientMessageId,
+        ...deliveryMetadata(input.delivery || {
+          status: 'accepted',
+          applicationMode: 'mission_context',
+        }, input.acceptedAt),
+      },
+    };
+    const persisted = await this.#persistDelegatedWorkMessage({ conversation, event });
+    const local = super.addDelegatedWorkMessage({
+      ...input,
+      authoritativeEvent: persisted.event,
+    });
+    return {
+      message: local.message,
+      delivery: deliveryFromEvent(local.message),
+      idempotentReplay: persisted.idempotentReplay,
+    };
+  }
+
+  async applyDelegatedWorkCommand(input = {}, apply) {
+    await this.ready;
+    await this.#hydrateFromPostgres();
+    const localState = super.getState();
+    const mission = localState.agentMissions.find((item) => item.id === input.missionId);
+    const conversation = localState.agentSessions.find((item) => (
+      item.id === mission?.missionThreadId && item.type === 'mission-thread'
+    ));
+    if (!mission || !conversation) {
+      throw new AgentWorkContractError('work_not_found', 'Delegated work was not found', 404);
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [mission.id]);
+      const existingResult = await client.query(
+        'select payload from agent_session_events where id = $1 for update',
+        [input.eventId],
+      );
+      const existing = safeJson(existingResult?.rows?.[0]?.payload);
+      if (Object.keys(existing).length) {
+        if (
+          existing.sessionId !== conversation.id
+          || existing.text !== input.text
+          || existing.metadata?.clientMessageId !== input.clientMessageId
+        ) {
+          throw new AgentWorkContractError(
+            'work_message_idempotency_conflict',
+            'clientMessageId was already used for different text',
+            409,
+          );
+        }
+        await client.query('commit');
+        await this.#hydrateFromPostgres();
+        return {
+          message: existing,
+          delivery: deliveryFromEvent(existing),
+          idempotentReplay: true,
+        };
+      }
+      const targetTaskId = String(input.delivery?.targetTaskId || '').trim();
+      if (targetTaskId) {
+        const taskResult = await client.query(
+          'select payload from tasks where id = $1 for update',
+          [targetTaskId],
+        );
+        const authoritativeTask = safeJson(taskResult?.rows?.[0]?.payload);
+        if (!Object.keys(authoritativeTask).length) {
+          throw new AgentWorkContractError('task_not_found', 'Agent Task was not found', 404);
+        }
+        HermesStore.prototype.updateTask.call(this, targetTaskId, authoritativeTask);
+      }
+      const before = structuredClone(super.getState());
+      this.suppressAgentWorkPersistence = true;
+      let applied;
+      try {
+        applied = super.applyDelegatedWorkCommand(input, apply);
+      } finally {
+        this.suppressAgentWorkPersistence = false;
+      }
+      const after = super.getState();
+      const beforeTasks = new Map(before.tasks.map((item) => [item.id, JSON.stringify(item)]));
+      const beforeSessions = new Map(before.agentSessions.map((item) => [item.id, JSON.stringify(item)]));
+      const beforeEvents = new Map(before.agentSessionEvents.map((item) => [item.id, JSON.stringify(item)]));
+      const changedTasks = after.tasks.filter((item) => beforeTasks.get(item.id) !== JSON.stringify(item));
+      const changedSessions = after.agentSessions.filter((item) => beforeSessions.get(item.id) !== JSON.stringify(item));
+      const changedEvents = after.agentSessionEvents.filter((item) => beforeEvents.get(item.id) !== JSON.stringify(item));
+      for (const task of changedTasks) {
+        await client.query(
+          `insert into tasks (id, title, status, owner, due_at, mission_id, session_id, payload, created_at, updated_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::timestamptz, now())
+           on conflict (id) do update set
+             status = excluded.status,
+             payload = excluded.payload,
+             updated_at = now()`,
+          [task.id, task.title, task.status, task.owner, task.dueAt || '', task.missionId, task.sessionId, JSON.stringify(safeJson(task)), task.createdAt],
+        );
+      }
+      for (const session of changedSessions) {
+        await client.query(
+          `insert into agent_sessions (id, mission_id, task_id, status, payload, created_at, updated_at)
+           values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, now())
+           on conflict (id) do update set
+             status = excluded.status,
+             payload = excluded.payload,
+             updated_at = now()`,
+          [session.id, session.missionId, session.taskId || '', session.status, JSON.stringify(safeJson(session)), session.createdAt],
+        );
+      }
+      for (const event of changedEvents) {
+        await client.query(
+          `insert into agent_session_events (id, session_id, sequence, kind, payload, created_at)
+           values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz)
+           on conflict (id) do update set payload = excluded.payload`,
+          [event.id, event.sessionId, event.sequence, event.kind, JSON.stringify(safeJson(event)), event.createdAt],
+        );
+      }
+      await client.query('commit');
+      return applied;
+    } catch (error) {
+      this.suppressAgentWorkPersistence = false;
+      try {
+        await client.query('rollback');
+      } catch (rollbackError) {
+        const combined = new Error(`PostgreSQL rollback failed: ${rollbackError.message}`);
+        combined.cause = error;
+        throw combined;
+      }
+      await this.#hydrateFromPostgres();
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async createRevisionCycle(input = {}) {
+    const persisted = await this.#persistRevisionCycle(input);
+    await this.#hydrateFromPostgres();
+    const message = super.getDelegatedWorkMessage(
+      input.message?.missionId,
+      input.message?.clientMessageId,
+    );
+    if (!message) throw new Error('PostgreSQL revision message was not hydrated after commit');
+    const state = super.getState();
+    const task = state.tasks.find((item) => item.id === input.task?.id) || null;
+    const session = state.agentSessions.find((item) => item.id === input.session?.id) || null;
+    const mission = state.agentMissions.find((item) => item.id === input.message?.missionId) || null;
+    return {
+      message,
+      delivery: deliveryFromEvent(message),
+      idempotentReplay: persisted.idempotentReplay,
+      mission,
+      task,
+      session,
+      revisionId: task?.revisionId || message.metadata?.revisionId || '',
+      revisionNumber: task?.revisionNumber || 0,
+    };
+  }
+
+  async completeRevisionCycle(input = {}) {
+    await this.ready;
+    await this.#persistRevisionCompletion(input);
+    await this.#hydrateFromPostgres();
+    const state = super.getState();
+    return {
+      mission: state.agentMissions.find((item) => item.id === input.missionId) || null,
+      report: state.agentReports.find((item) => item.id === input.report?.id) || null,
+      previousReport: state.agentReports.find((item) => item.id === input.task?.revisesReportId) || null,
+      event: state.agentSessionEvents.find((item) => item.id === input.event?.id) || null,
+    };
+  }
+
+  async refreshAgentOperations() {
+    await this.ready;
+    await this.#hydrateFromPostgres();
+  }
+
+  async refreshAgentWork() {
+    return this.refreshAgentOperations();
+  }
+
   restoreAgent(agentId) {
     const result = super.restoreAgent(agentId);
     if (result) this.#upsertStateMeta('deletedAgentIds', this.getState().deletedAgentIds || []);
@@ -131,15 +352,21 @@ class PostgresHermesStore extends HermesStore {
 
   updateAgentSession(sessionId, patch = {}) {
     const session = super.updateAgentSession(sessionId, patch);
-    if (session) this.#upsertAgentSession(session);
+    if (session && !this.suppressAgentWorkPersistence) this.#upsertAgentSession(session);
     return session;
   }
 
   appendAgentSessionEvent(sessionId, input = {}) {
     const event = super.appendAgentSessionEvent(sessionId, input);
-    this.#insertAgentSessionEvent(event);
+    if (!this.suppressAgentWorkPersistence) this.#insertAgentSessionEvent(event);
     const session = super.getAgentSession(sessionId);
-    if (session) this.#upsertAgentSession(session);
+    if (session && !this.suppressAgentWorkPersistence) this.#upsertAgentSession(session);
+    return event;
+  }
+
+  updateAgentSessionEvent(eventId, patch = {}) {
+    const event = super.updateAgentSessionEvent(eventId, patch);
+    if (event && !this.suppressAgentWorkPersistence) this.#insertAgentSessionEvent(event);
     return event;
   }
 
@@ -163,7 +390,7 @@ class PostgresHermesStore extends HermesStore {
 
   updateTask(taskId, patch = {}) {
     const task = super.updateTask(taskId, patch);
-    if (task) {
+    if (task && !this.suppressAgentWorkPersistence) {
       this.#upsertTask(task);
     }
     return task;
@@ -460,6 +687,482 @@ class PostgresHermesStore extends HermesStore {
     const result = await this.#query('select key, payload from state_meta');
     const rows = result && Array.isArray(result.rows) ? result.rows : [];
     return Object.fromEntries(rows.map((row) => [String(row.key || ''), safeJson(row.payload)]).filter(([key]) => key));
+  }
+
+  async #persistDelegatedWork({ mission, conversation, message } = {}) {
+    if (!this.pool || typeof this.pool.connect !== 'function') {
+      throw new Error('PostgreSQL pool does not support awaited transactions');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [mission.clientRequestId]);
+      const existing = await client.query(
+        'select payload from agent_missions where id = $1 for update',
+        [mission.id],
+      );
+      const existingMission = safeJson(existing?.rows?.[0]?.payload);
+      const idempotentReplay = Object.keys(existingMission).length > 0;
+      if (idempotentReplay) {
+        if (existingMission.requestFingerprint !== mission.requestFingerprint) {
+          throw new AgentWorkContractError(
+            'work_idempotency_conflict',
+            'clientRequestId was already used for different work',
+            409,
+          );
+        }
+        if (existingMission.missionThreadId !== conversation.id) {
+          throw new AgentWorkContractError(
+            'work_persistence_incomplete',
+            'Delegated work points to a different Work Conversation',
+            500,
+          );
+        }
+      } else {
+        await client.query(
+          `insert into agent_missions (id, status, agent_id, report_due_at, payload, created_at, updated_at)
+           values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, now())`,
+          [
+            mission.id,
+            mission.status || 'draft',
+            mission.agentId || '',
+            mission.reportDueAt || '',
+            JSON.stringify(safeJson(mission)),
+            mission.createdAt,
+          ],
+        );
+      }
+      const existingSessionResult = await client.query(
+        'select payload from agent_sessions where id = $1 for update',
+        [conversation.id],
+      );
+      const existingConversation = safeJson(existingSessionResult?.rows?.[0]?.payload);
+      const hasConversation = Object.keys(existingConversation).length > 0;
+      if (
+        hasConversation
+        && (
+          existingConversation.missionId !== mission.id
+          || existingConversation.type !== 'mission-thread'
+        )
+      ) {
+        throw new AgentWorkContractError(
+          'work_persistence_incomplete',
+          'Stored Work Conversation does not match the Delegated Work',
+          500,
+        );
+      }
+      if (!hasConversation) {
+        await client.query(
+          `insert into agent_sessions (id, mission_id, task_id, status, payload, created_at, updated_at)
+           values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, now())`,
+          [
+            conversation.id,
+            conversation.missionId,
+            conversation.taskId || '',
+            conversation.status || 'draft',
+            JSON.stringify(safeJson(conversation)),
+            conversation.createdAt,
+          ],
+        );
+      }
+      const existingEventResult = await client.query(
+        'select payload from agent_session_events where id = $1 for update',
+        [message.id],
+      );
+      const existingMessage = safeJson(existingEventResult?.rows?.[0]?.payload);
+      const hasMessage = Object.keys(existingMessage).length > 0;
+      if (
+        hasMessage
+        && (
+          existingMessage.sessionId !== conversation.id
+          || existingMessage.kind !== 'user_message'
+          || existingMessage.text !== message.text
+        )
+      ) {
+        throw new AgentWorkContractError(
+          'work_persistence_incomplete',
+          'Stored initial message does not match the Delegated Work',
+          500,
+        );
+      }
+      if (!hasMessage) {
+        await client.query(
+          `insert into agent_session_events (id, session_id, sequence, kind, payload, created_at)
+           values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz)`,
+          [
+            message.id,
+            message.sessionId,
+            Number(message.sequence),
+            message.kind,
+            JSON.stringify(safeJson(message)),
+            message.createdAt,
+          ],
+        );
+      }
+      await client.query('commit');
+      return {
+        idempotentReplay,
+        records: {
+          mission: idempotentReplay ? existingMission : mission,
+          conversation: hasConversation ? existingConversation : conversation,
+          message: hasMessage ? existingMessage : message,
+        },
+      };
+    } catch (error) {
+      try {
+        await client.query('rollback');
+      } catch (rollbackError) {
+        const combined = new Error(`PostgreSQL rollback failed: ${rollbackError.message}`);
+        combined.cause = error;
+        throw combined;
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async #persistDelegatedWorkMessage({ conversation, event } = {}) {
+    if (!conversation || !this.pool || typeof this.pool.connect !== 'function') {
+      throw new Error('PostgreSQL Work Conversation persistence is unavailable');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [conversation.id]);
+      const existingResult = await client.query(
+        'select payload from agent_session_events where id = $1 for update',
+        [event.id],
+      );
+      const existing = safeJson(existingResult?.rows?.[0]?.payload);
+      if (Object.keys(existing).length > 0) {
+        if (
+          existing.sessionId !== conversation.id
+          || existing.kind !== 'user_message'
+          || existing.text !== event.text
+          || existing.metadata?.clientMessageId !== event.metadata?.clientMessageId
+        ) {
+          throw new AgentWorkContractError(
+            'work_message_idempotency_conflict',
+            'clientMessageId was already used for different text',
+            409,
+          );
+        }
+        await client.query('commit');
+        return { event: existing, idempotentReplay: true };
+      }
+      const sequenceResult = await client.query(
+        `select coalesce(max(sequence), 0) as max_sequence
+           from agent_session_events
+          where session_id = $1`,
+        [conversation.id],
+      );
+      const maximumSequence = Number(sequenceResult?.rows?.[0]?.max_sequence);
+      const authoritativeEvent = {
+        ...event,
+        sequence: Number.isFinite(maximumSequence)
+          ? maximumSequence + 1
+          : Number(event.sequence),
+      };
+      await client.query(
+        `insert into agent_session_events (id, session_id, sequence, kind, payload, created_at)
+         values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz)
+         returning payload`,
+        [
+          authoritativeEvent.id,
+          authoritativeEvent.sessionId,
+          Number(authoritativeEvent.sequence),
+          authoritativeEvent.kind,
+          JSON.stringify(safeJson(authoritativeEvent)),
+          authoritativeEvent.createdAt,
+        ],
+      );
+      await client.query('commit');
+      return { event: authoritativeEvent, idempotentReplay: false };
+    } catch (error) {
+      try {
+        await client.query('rollback');
+      } catch (rollbackError) {
+        const combined = new Error(`PostgreSQL rollback failed: ${rollbackError.message}`);
+        combined.cause = error;
+        throw combined;
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async #persistRevisionCycle(input = {}) {
+    if (!this.pool || typeof this.pool.connect !== 'function') {
+      throw new Error('PostgreSQL revision transaction is unavailable');
+    }
+    const messageInput = input.message || {};
+    const localState = super.getState();
+    const localMission = localState.agentMissions.find((item) => item.id === messageInput.missionId);
+    const conversation = localState.agentSessions.find((item) => (
+      item.id === localMission?.missionThreadId && item.type === 'mission-thread'
+    ));
+    if (!localMission || !conversation) {
+      throw new AgentWorkContractError('work_not_found', 'Delegated work was not found', 404);
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [localMission.id]);
+      const existingMessageResult = await client.query(
+        'select payload from agent_session_events where id = $1 for update',
+        [messageInput.eventId],
+      );
+      const existingMessage = safeJson(existingMessageResult?.rows?.[0]?.payload);
+      if (Object.keys(existingMessage).length > 0) {
+        if (
+          existingMessage.sessionId !== conversation.id
+          || existingMessage.text !== messageInput.text
+          || existingMessage.metadata?.clientMessageId !== messageInput.clientMessageId
+        ) {
+          throw new AgentWorkContractError(
+            'work_message_idempotency_conflict',
+            'clientMessageId was already used for different text',
+            409,
+          );
+        }
+        await client.query('commit');
+        return { idempotentReplay: true };
+      }
+      const missionResult = await client.query(
+        'select payload from agent_missions where id = $1 for update',
+        [localMission.id],
+      );
+      const mission = safeJson(missionResult?.rows?.[0]?.payload);
+      if (!Object.keys(mission).length) {
+        throw new AgentWorkContractError('work_not_found', 'Delegated work was not found', 404);
+      }
+      if (mission.pendingRevisionId) {
+        throw new AgentWorkContractError(
+          'revision_already_pending',
+          'Complete or retry the pending revision before starting another',
+          409,
+        );
+      }
+      if (mission.currentResultReportId !== input.baseReportId) {
+        throw new AgentWorkContractError(
+          'revision_result_required',
+          'The current result changed before the revision could be created',
+          409,
+        );
+      }
+      const sequenceResult = await client.query(
+        `select coalesce(max(sequence), 0) as max_sequence
+           from agent_session_events
+          where session_id = $1`,
+        [conversation.id],
+      );
+      const maximumSequence = Number(sequenceResult?.rows?.[0]?.max_sequence);
+      const message = {
+        id: messageInput.eventId,
+        sessionId: conversation.id,
+        sequence: Number.isFinite(maximumSequence) ? maximumSequence + 1 : Number(messageInput.sequence || 2),
+        kind: 'user_message',
+        text: messageInput.text,
+        createdAt: messageInput.acceptedAt,
+        metadata: {
+          clientMessageId: messageInput.clientMessageId,
+          ...deliveryMetadata(input.delivery, messageInput.acceptedAt),
+        },
+      };
+      const now = messageInput.acceptedAt;
+      const task = { ...input.task, sessionId: input.session.id, createdAt: input.task.createdAt || now, updatedAt: now };
+      const session = { ...input.session, taskId: task.id, createdAt: input.session.createdAt || now, updatedAt: now };
+      const events = (input.events || []).map((event, index) => ({
+        ...event,
+        sessionId: session.id,
+        sequence: index + 1,
+        createdAt: event.createdAt || now,
+      }));
+      const updatedMission = { ...mission, ...input.missionPatch, updatedAt: now };
+
+      await client.query(
+        `insert into tasks (id, title, status, owner, due_at, mission_id, session_id, payload, created_at, updated_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::timestamptz, now())`,
+        [
+          task.id,
+          task.title,
+          task.status,
+          task.owner,
+          task.dueAt || '',
+          task.missionId,
+          task.sessionId,
+          JSON.stringify(safeJson(task)),
+          task.createdAt,
+        ],
+      );
+      await client.query(
+        `insert into agent_sessions (id, mission_id, task_id, status, payload, created_at, updated_at)
+         values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, now())`,
+        [session.id, session.missionId, session.taskId, session.status, JSON.stringify(safeJson(session)), session.createdAt],
+      );
+      for (const event of events) {
+        await client.query(
+          `insert into agent_session_events (id, session_id, sequence, kind, payload, created_at)
+           values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz)`,
+          [event.id, event.sessionId, event.sequence, event.kind, JSON.stringify(safeJson(event)), event.createdAt],
+        );
+      }
+      await client.query(
+        `insert into agent_session_events (id, session_id, sequence, kind, payload, created_at)
+         values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz)`,
+        [message.id, message.sessionId, message.sequence, message.kind, JSON.stringify(safeJson(message)), message.createdAt],
+      );
+      await client.query(
+        `insert into agent_missions (id, status, agent_id, report_due_at, payload, created_at, updated_at)
+         values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, now())
+         on conflict (id) do update set
+           status = excluded.status,
+           agent_id = excluded.agent_id,
+           report_due_at = excluded.report_due_at,
+           payload = excluded.payload,
+           updated_at = now()`,
+        [
+          updatedMission.id,
+          updatedMission.status,
+          updatedMission.agentId || '',
+          updatedMission.reportDueAt || '',
+          JSON.stringify(safeJson(updatedMission)),
+          updatedMission.createdAt,
+        ],
+      );
+      await client.query('commit');
+      return { idempotentReplay: false };
+    } catch (error) {
+      try {
+        await client.query('rollback');
+      } catch (rollbackError) {
+        const combined = new Error(`PostgreSQL rollback failed: ${rollbackError.message}`);
+        combined.cause = error;
+        throw combined;
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async #persistRevisionCompletion({ missionId, task, report, event } = {}) {
+    if (!this.pool || typeof this.pool.connect !== 'function') {
+      throw new Error('PostgreSQL revision completion transaction is unavailable');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [missionId]);
+      const missionResult = await client.query(
+        'select payload from agent_missions where id = $1 for update',
+        [missionId],
+      );
+      const previousResult = await client.query(
+        'select payload from agent_reports where id = $1 for update',
+        [task?.revisesReportId],
+      );
+      const mission = safeJson(missionResult?.rows?.[0]?.payload);
+      const previous = safeJson(previousResult?.rows?.[0]?.payload);
+      const current = safeJson(report);
+      if (
+        !Object.keys(mission).length
+        || !Object.keys(previous).length
+        || !Object.keys(current).length
+        || mission.pendingRevisionId !== task?.revisionId
+        || mission.currentResultReportId !== previous.id
+        || current.taskId !== task?.id
+      ) {
+        throw new AgentWorkContractError(
+          'revision_completion_invalid',
+          'Revision completion records do not match the pending revision',
+          409,
+        );
+      }
+      const completedAt = event.createdAt || this.clock().toISOString();
+      const previousReport = { ...previous, supersededByReportId: current.id, updatedAt: completedAt };
+      const updatedReport = { ...current, supersedesReportId: previous.id, updatedAt: completedAt };
+      const updatedMission = {
+        ...mission,
+        pendingRevisionId: '',
+        currentResultReportId: current.id,
+        updatedAt: completedAt,
+      };
+      const sequenceResult = await client.query(
+        `select coalesce(max(sequence), 0) as max_sequence
+           from agent_session_events
+          where session_id = $1`,
+        [task.sessionId],
+      );
+      const completionEvent = {
+        ...event,
+        sessionId: task.sessionId,
+        sequence: Number(sequenceResult?.rows?.[0]?.max_sequence || 0) + 1,
+        createdAt: completedAt,
+      };
+      for (const value of [previousReport, updatedReport]) {
+        await client.query(
+          `insert into agent_reports (id, mission_id, session_id, status, payload, created_at, updated_at)
+           values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, now())
+           on conflict (id) do update set
+             status = excluded.status,
+             payload = excluded.payload,
+             updated_at = now()`,
+          [
+            value.id,
+            value.missionId,
+            value.sessionId || '',
+            value.status || 'ready',
+            JSON.stringify(safeJson(value)),
+            value.createdAt,
+          ],
+        );
+      }
+      await client.query(
+        `insert into agent_missions (id, status, agent_id, report_due_at, payload, created_at, updated_at)
+         values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, now())
+         on conflict (id) do update set
+           status = excluded.status,
+           agent_id = excluded.agent_id,
+           report_due_at = excluded.report_due_at,
+           payload = excluded.payload,
+           updated_at = now()`,
+        [
+          updatedMission.id,
+          updatedMission.status,
+          updatedMission.agentId || '',
+          updatedMission.reportDueAt || '',
+          JSON.stringify(safeJson(updatedMission)),
+          updatedMission.createdAt,
+        ],
+      );
+      await client.query(
+        `insert into agent_session_events (id, session_id, sequence, kind, payload, created_at)
+         values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz)`,
+        [
+          completionEvent.id,
+          completionEvent.sessionId,
+          completionEvent.sequence,
+          completionEvent.kind,
+          JSON.stringify(safeJson(completionEvent)),
+          completionEvent.createdAt,
+        ],
+      );
+      await client.query('commit');
+    } catch (error) {
+      try {
+        await client.query('rollback');
+      } catch (rollbackError) {
+        const combined = new Error(`PostgreSQL rollback failed: ${rollbackError.message}`);
+        combined.cause = error;
+        throw combined;
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   #query(sql, values = []) {

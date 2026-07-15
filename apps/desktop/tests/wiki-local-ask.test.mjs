@@ -270,6 +270,9 @@ test('Railway wiki ask retries once when relay generation is terminated', async 
   assert.match(answer.answer, /로그/);
 });
 
+const PROXY_CREDENTIAL = 'wiki-local-test-credential';
+const PROXY_HEADERS = { 'x-agent-calendar-proxy-credential': PROXY_CREDENTIAL };
+
 async function withProxy(fetchImpl, env, fn) {
   const previous = {};
   for (const [key, value] of Object.entries(env)) {
@@ -277,6 +280,7 @@ async function withProxy(fetchImpl, env, fn) {
     process.env[key] = value;
   }
   const server = createApiProxyServer({
+    credential: PROXY_CREDENTIAL,
     fetchImpl,
     getSettings: () => ({ apiBaseUrl: 'https://railway.example', apiToken: '' }),
   });
@@ -321,7 +325,7 @@ test('proxy handles /api/wiki/ask locally with vault search and Hermes wiki cura
     }, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/wiki/ask`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { ...PROXY_HEADERS, 'content-type': 'application/json' },
         body: JSON.stringify({ question: '투자에서 반복하는 실수는?', limit: 8 }),
       });
       assert.equal(response.status, 200);
@@ -365,7 +369,7 @@ test('proxy marks Railway relay timeout as fallback instead of successful answer
     }, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/wiki/ask`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { ...PROXY_HEADERS, 'content-type': 'application/json' },
         body: JSON.stringify({ question: '투자에서 반복하는 실수는?', limit: 8 }),
       });
       assert.equal(response.status, 200);
@@ -396,7 +400,7 @@ test('GET /api/wiki inventories every Markdown note and preserves heading text',
       WIKI_ASK_LOCAL: '1',
       LLM_WIKI_VAULT: root,
     }, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/wiki`);
+      const response = await fetch(`${baseUrl}/api/wiki`, { headers: PROXY_HEADERS });
       const payload = await response.json();
 
       // Then
@@ -429,7 +433,7 @@ test('GET /api/wiki returns terminating JSON when the local vault cannot be scan
       WIKI_ASK_LOCAL: '1',
       LLM_WIKI_VAULT: missingVault,
     }, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/wiki`, { signal: AbortSignal.timeout(1_000) });
+      const response = await fetch(`${baseUrl}/api/wiki`, { headers: PROXY_HEADERS, signal: AbortSignal.timeout(1_000) });
       const payload = await response.json();
 
       // Then
@@ -459,7 +463,7 @@ test('GET /api/wiki rejects an in-vault note symlink that resolves outside the v
       WIKI_ASK_LOCAL: '1',
       LLM_WIKI_VAULT: root,
     }, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/wiki?path=${encodeURIComponent('2_wiki/Leak.md')}`);
+      const response = await fetch(`${baseUrl}/api/wiki?path=${encodeURIComponent('2_wiki/Leak.md')}`, { headers: PROXY_HEADERS });
       const responseText = await response.text();
 
       // Then
@@ -487,7 +491,7 @@ test('GET /api/wiki serializes one note collection and one copy of each full bod
       WIKI_ASK_LOCAL: '1',
       LLM_WIKI_VAULT: root,
     }, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/wiki`);
+      const response = await fetch(`${baseUrl}/api/wiki`, { headers: PROXY_HEADERS });
       const responseText = await response.text();
       const payload = JSON.parse(responseText);
 

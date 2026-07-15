@@ -25,7 +25,7 @@ function failure(error) {
   };
 }
 
-async function routeAgentOperations({ method, pathSegments, body = {}, service } = {}) {
+async function routeAgentOperations({ method, pathSegments, body = {}, query = {}, service } = {}) {
   const segments = (Array.isArray(pathSegments) ? pathSegments : [])
     .map((segment) => decodeURIComponent(String(segment || '')))
     .filter(Boolean);
@@ -44,10 +44,44 @@ async function routeAgentOperations({ method, pathSegments, body = {}, service }
 
   try {
     if (method === 'GET' && normalized.length === 1) {
-      return { status: 200, body: projectAgentOperationsResponse(service.listState()) };
+      return { status: 200, body: projectAgentOperationsResponse(await service.listState()) };
     }
     if (method === 'POST' && normalized[1] === 'missions' && normalized.length === 2) {
       return success(201, { mission: service.createMission(body) });
+    }
+    if (method === 'POST' && normalized[1] === 'work' && normalized.length === 2) {
+      const result = await service.createWork(body);
+      return success(result.idempotentReplay ? 200 : 201, result);
+    }
+    if (
+      method === 'POST'
+      && normalized.length === 4
+      && normalized[1] === 'work'
+      && normalized[2]
+      && normalized[3] === 'live'
+    ) {
+      return {
+        status: 200,
+        stream: (onEvent) => service.streamWorkTurn(normalized[2], body, onEvent),
+      };
+    }
+    if (
+      method === 'GET'
+      && normalized.length === 4
+      && normalized[1] === 'work'
+      && normalized[2]
+      && normalized[3] === 'conversation'
+    ) {
+      return success(200, await service.getWorkConversation(normalized[2], query));
+    }
+    if (
+      method === 'POST'
+      && normalized.length === 4
+      && normalized[1] === 'work'
+      && normalized[2]
+      && normalized[3] === 'messages'
+    ) {
+      return success(200, await service.addWorkMessage(normalized[2], body));
     }
     if (method === 'POST' && normalized.length === 4 && normalized[1] === 'missions' && normalized[2] && normalized[3] === 'plan') {
       return success(200, await service.planMission(normalized[2]));

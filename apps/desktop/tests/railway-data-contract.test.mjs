@@ -6,17 +6,37 @@ const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8
 const apiSource = readFileSync(new URL('../src/api/hermesApi.ts', import.meta.url), 'utf8');
 const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 const viteConfigSource = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
+const workspaceSource = readFileSync(new URL('../src/features/agent-operations/AgentWorkWorkspace.tsx', import.meta.url), 'utf8');
 
-test('browser preview proxy authenticates with the local desktop Railway token', () => {
-  assert.match(viteConfigSource, /AGENT_CALENDAR_DEV_API_TOKEN/);
-  assert.match(viteConfigSource, /Application Support['"],\s*['"]Agent Calendar['"],\s*['"]settings\.json/);
-  assert.match(viteConfigSource, /authorization:\s*`Bearer \$\{apiProxyToken\}`/);
+test('browser preview proxy never acts as an owner-authorized confused deputy', () => {
+  // Given / When / Then
+  assert.doesNotMatch(viteConfigSource, /AGENT_CALENDAR_DEV_API_TOKEN/);
+  assert.doesNotMatch(viteConfigSource, /Application Support['"],\s*['"]Agent Calendar['"],\s*['"]settings\.json/);
+  assert.doesNotMatch(viteConfigSource, /authorization:\s*`Bearer \$\{apiProxyToken\}`/);
 });
 
 test('Agent Operations requests allow the backend profile run to reach its terminal state', () => {
   assert.match(apiSource, /const AGENT_OPERATIONS_TIMEOUT_MS = 400_000/);
+  assert.match(apiSource, /getAgentOperations: \(\) => hermesJson<unknown>\('\/api\/agent-operations', undefined, AGENT_OPERATIONS_TIMEOUT_MS\)/);
   assert.match(apiSource, /planAgentMission:[\s\S]*AGENT_OPERATIONS_TIMEOUT_MS/);
   assert.match(apiSource, /tickAgentOperations:[\s\S]*AGENT_OPERATIONS_TIMEOUT_MS/);
+});
+
+test('agent work state refreshes independently of unrelated application hydration failures', () => {
+  assert.doesNotMatch(appSource, /return agentOperations;/);
+  assert.match(appSource, /\.then\(parseAgentOperationsEnvelope\)\s*\.then\(\(next\) => \{\s*setAgentOperations\(next\);/);
+  assert.doesNotMatch(appSource, /chatRequest,\s*agentOperationsRequest/);
+});
+
+test('unrelated optional API failures do not cover the independent Work Conversation view', () => {
+  assert.match(appSource, /const showGlobalApiBanner = Boolean\(apiError && screen !== 'agents'\);/);
+  assert.match(appSource, /\{showGlobalApiBanner && <div className="api-banner">/);
+  assert.match(appSource, /\{showGlobalApiBanner \? 'Railway 확인 필요' : accountProviderLabel\}/);
+});
+
+test('fresh aggregate mission state wins over a stale Work Conversation snapshot after a control action', () => {
+  assert.match(workspaceSource, /status:\s*selectedBaseMission\.status,/);
+  assert.doesNotMatch(workspaceSource, /status:\s*selectedConversation\.work\.status,/);
 });
 
 test('calendar renders only Railway tasks/events for a date, never fallback filler rows', () => {

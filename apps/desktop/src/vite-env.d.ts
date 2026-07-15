@@ -14,6 +14,11 @@ type HermesDesktopSettings = {
 
 type HermesAuthProvider = 'google' | 'password';
 
+type HermesConnection = {
+  readonly baseUrl: string;
+  readonly credential: string;
+};
+
 type HermesAuthProfile = {
   provider: HermesAuthProvider;
   id: string;
@@ -69,7 +74,7 @@ interface Window {
     signUpWithPassword(payload: { email: string; password: string }): Promise<HermesDesktopSettings>;
     loginWithPassword(payload: { email: string; password: string }): Promise<HermesDesktopSettings>;
     logoutAuth(): Promise<HermesDesktopSettings>;
-    getProxyBaseUrl(): Promise<string>;
+    getHermesConnection(): Promise<HermesConnection>;
     saveWidgetSnapshot(snapshot: HermesWidgetSnapshotPayload): Promise<{ ok: boolean; path: string; changed: boolean }>;
     readWidgetActions(): Promise<HermesWidgetAction[]>;
     clearWidgetActions(ids: string[]): Promise<{ ok: boolean; cleared: number }>;

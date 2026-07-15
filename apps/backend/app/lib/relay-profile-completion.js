@@ -41,27 +41,31 @@ function runOutput(run = {}) {
   return sanitizeSessionEvent({ kind: 'agent_message', text }).text;
 }
 
+function providerFailureFromOutput(value) {
+  const text = String(value || '').trim();
+  const match = /^API call failed after \d+ retries:\s*HTTP\s+(\d{3})(?:\b|:)/i.exec(text);
+  if (!match) return null;
+  const status = Number(match[1]);
+  return {
+    code: status === 429 ? 'provider_rate_limited' : 'provider_failed',
+    message: status === 429
+      ? 'Hermes provider rate limit was reached after retries. Please try again later.'
+      : `Hermes provider failed after retries with HTTP ${status}.`,
+  };
+}
+
 function sessionEventFromRunLog(line) {
   const text = String(line || '').trim();
   if (/\bstdout:\s*/i.test(text)) {
+    const output = text.replace(/^.*?\bstdout:\s*/i, '');
+    if (providerFailureFromOutput(output)) return null;
     return sanitizeSessionEvent({
       kind: 'agent_message',
-      text: text.replace(/^.*?\bstdout:\s*/i, ''),
+      text: output,
       metadata: { source: 'hermes-cli-stdout' },
     });
   }
-  if (/adapter|tool|wiki|search|browser/i.test(text)) {
-    return sanitizeSessionEvent({
-      kind: 'tool_activity',
-      text,
-      metadata: { source: 'hermes-cli-log' },
-    });
-  }
-  return sanitizeSessionEvent({
-    kind: 'progress',
-    text,
-    metadata: { source: 'hermes-cli-log' },
-  });
+  return null;
 }
 
 async function runRelayProfileCompletion({
@@ -82,6 +86,8 @@ async function runRelayProfileCompletion({
   const durationMs = Math.max(1_000, Number(timeoutMs || agentOperationsProfileTimeout(env)));
   const deadline = now() + durationMs;
   const model = String(payload.model || '').trim();
+  const runnerAdapterId = String(payload.runnerAdapterId || '').trim();
+  const executionEngine = String(payload.executionEngine || '').trim();
   const idempotencyKey = String(
     meta.idempotencyKey || meta.taskId || meta.missionId || meta.runId || '',
   ).trim();
@@ -101,12 +107,16 @@ async function runRelayProfileCompletion({
         toolsets: ['safe'],
         yolo: false,
         ...(model ? { model } : {}),
+        ...(runnerAdapterId ? { runnerAdapterId } : {}),
+        ...(executionEngine ? { executionEngine } : {}),
         ...(idempotencyKey ? { idempotencyKey } : {}),
       }),
     },
     meta: {
       source: 'agent-operations-profile-run',
       profile,
+      ...(runnerAdapterId ? { runnerAdapterId } : {}),
+      ...(executionEngine ? { executionEngine } : {}),
       ...meta,
     },
   });
@@ -156,6 +166,7 @@ async function runRelayProfileCompletion({
     const logs = Array.isArray(run.logs) ? run.logs : [];
     for (const line of logs.slice(emittedLogs)) {
       const event = sessionEventFromRunLog(line);
+      if (!event) continue;
       events.push(event);
       await onEvent(event);
     }
@@ -198,6 +209,10 @@ async function runRelayProfileCompletion({
   const text = runOutput(run);
   if (!text) {
     throw profileCompletionError('output_invalid', 'Hermes profile run returned no stdout', job.id, run.id);
+  }
+  const providerFailure = providerFailureFromOutput(text);
+  if (providerFailure) {
+    throw profileCompletionError(providerFailure.code, providerFailure.message, job.id, run.id);
   }
   return { text, jobId: job.id, runId: run.id, model: String(run.model || model), events };
 }

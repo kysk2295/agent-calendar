@@ -28,16 +28,12 @@ async function main() {
       await route.fulfill({ json: { ok: true, agents } });
       return;
     }
-    if (method === 'POST' && path === '/api/tasks') {
-      await route.fulfill({ json: { ok: true, task: { id: 'task-before-empty-run', title: body.title, status: body.status } } });
-      return;
-    }
-    if (method === 'POST' && path === '/api/missions/launch') {
+    if (method === 'POST' && path === '/api/agent-operations/work') {
       await route.fulfill({ json: { ok: true } });
       return;
     }
-    if (method === 'DELETE' && path === '/api/tasks/task-before-empty-run') {
-      await route.fulfill({ json: { ok: true, deleted: true } });
+    if (method === 'GET' && path === '/api/agent-operations') {
+      await route.fulfill({ json: { ok: true, missions: [], tasks: [], sessions: [], reports: [], daemon: { running: true, lastRun: null, lastError: null } } });
       return;
     }
 
@@ -65,17 +61,19 @@ async function main() {
 
   await page.goto(target);
   await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
-  await page.waitForSelector('.mission');
-  await page.locator('.mission textarea').fill('빈 런 응답이어도 남아야 하는 미션');
-  await page.getByRole('button', { name: /계획 세우기/ }).click();
+  await page.waitForSelector('.agent-control-room');
+  const prompt = page.getByLabel('에이전트에게 작업 지시');
+  await prompt.fill('빈 작업 응답이어도 남아야 하는 미션');
+  await page.getByRole('button', { name: '위임' }).click();
 
-  await page.waitForSelector('.api-banner');
-  assert.equal(await page.locator('.run-modal').count(), 0);
-  assert.equal(await page.locator('.mission textarea').inputValue(), '빈 런 응답이어도 남아야 하는 미션');
-  assert.match(await page.locator('.api-banner').textContent(), /미션 실행 응답이 비어 있습니다/);
-  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/tasks'), true);
-  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/missions/launch'), true);
-  assert.equal(calls.some((call) => call.method === 'DELETE' && call.path === '/api/tasks/task-before-empty-run'), true);
+  await page.waitForSelector('.agent-operations-error');
+  assert.equal(await page.locator('.agent-work-conversation').count(), 0);
+  assert.equal(await prompt.inputValue(), '빈 작업 응답이어도 남아야 하는 미션');
+  assert.equal(await page.locator('[data-work-mission]').count(), 0);
+  assert.equal(await page.getByRole('button', { name: '다시 시도' }).count(), 1);
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/agent-operations/work'), true);
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/tasks'), false);
+  assert.equal(calls.some((call) => call.method === 'DELETE'), false);
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, postCalls: calls.filter((call) => call.method === 'POST').map((call) => call.path) }, null, 2));

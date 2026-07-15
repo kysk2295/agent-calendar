@@ -11,6 +11,24 @@ export type AgentTaskState =
   | 'cancelled';
 
 export type AgentTaskAction = 'approve' | 'pause' | 'resume' | 'cancel' | 'retry';
+export type AgentTaskFailureCode = 'budget_exhausted' | 'relay_cancel_unconfirmed';
+
+export type AgentExecutionEngine = 'auto' | 'hermes' | 'local_llm' | 'codex';
+export type AgentDeliverableKind = 'report' | 'document' | 'image' | 'file';
+
+export type AgentDeliverable = {
+  readonly kind: AgentDeliverableKind;
+  readonly format: string;
+};
+
+export type AgentMissionCreateInput = {
+  readonly templateId: 'general-agent-work';
+  readonly title: string;
+  readonly objective: string;
+  readonly agentId?: string;
+  readonly executionEngine: AgentExecutionEngine;
+  readonly deliverable: AgentDeliverable;
+};
 
 export type SessionEventKind =
   | 'agent_message'
@@ -43,6 +61,8 @@ export type AgentMission = {
   readonly objective: string;
   readonly successCriteria: readonly string[];
   readonly agentId: string;
+  readonly executionEngine: AgentExecutionEngine;
+  readonly deliverable: AgentDeliverable;
   readonly status: AgentMissionState;
   readonly timezone: string;
   readonly sources: readonly string[];
@@ -77,8 +97,11 @@ export type AgentTask = {
   readonly estimatedMinutes: number;
   readonly actionClass: string;
   readonly sourceRefs: readonly string[];
+  readonly executionEngine: AgentExecutionEngine;
+  readonly deliverable: AgentDeliverable;
   readonly blockedReason: string;
   readonly pauseMode: string;
+  readonly failureCode?: AgentTaskFailureCode;
   readonly attempt: number;
   readonly reportId: string;
 };
@@ -90,6 +113,8 @@ export type AgentSession = {
   readonly type: 'mission-thread' | 'task';
   readonly title: string;
   readonly status: string;
+  readonly executionEngine: AgentExecutionEngine;
+  readonly deliverable: AgentDeliverable;
   readonly pendingInstructions: readonly string[];
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -159,6 +184,7 @@ export type AgentRosterEntry = {
   readonly id: string;
   readonly displayName: string;
   readonly status: string;
+  readonly enabled: boolean;
   readonly model: string;
   readonly role: string;
   readonly provider: string;
@@ -171,3 +197,21 @@ export type AgentTaskAppearance = {
   readonly tone: 'amber' | 'blue' | 'green' | 'red' | 'neutral';
   readonly line: 'dashed' | 'solid';
 };
+
+export type HermesAutomationStatus = 'active' | 'paused' | 'failed' | 'unknown';
+
+export type HermesAutomationJob = {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly agentId: string;
+  readonly schedule: string;
+  readonly status: HermesAutomationStatus;
+  readonly enabled: boolean | null;
+  readonly source: string;
+  readonly lastRunAt: string;
+  readonly nextRunAt: string;
+  readonly lastStatus: string;
+};
+
+export type * from './workConversationTypes';

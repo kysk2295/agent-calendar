@@ -59,7 +59,7 @@ async function main() {
       await route.fulfill({
         status: 200,
         headers: { 'content-type': 'text/event-stream' },
-        body: ['data: {"text":"일반 채팅 응답"}', ''].join('\n'),
+        body: ['event: delta', 'data: {"text":"이번 주 완료율은 67%입니다. 2/3 완료 상태이고, 근거: 이번 주 작업 3개를 사용했어요."}', '', 'event: done', 'data: {"text":"이번 주 완료율은 67%입니다. 2/3 완료 상태이고, 근거: 이번 주 작업 3개를 사용했어요."}', ''].join('\n'),
       });
       return;
     }
@@ -115,8 +115,8 @@ async function main() {
 
   const streamCalls = calls.filter((call) => call.method === 'POST' && call.path === '/api/chat/stream');
   const scheduleCalls = calls.filter((call) => call.method === 'POST' && call.path === '/api/assistant/ask');
-  assert.equal(streamCalls.length, 0);
-  assert.equal(scheduleCalls.length, 1);
+  assert.equal(streamCalls.length, 1);
+  assert.equal(scheduleCalls.length, 0);
   assert.match(result.messages, /이번 주 완료율\?/);
   assert.match(result.messages, /완료율은 67%/);
   assert.match(result.messages, /2\/3 완료/);

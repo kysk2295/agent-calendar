@@ -1628,7 +1628,7 @@ test('scheduler job reads normalize removed runtime profiles before returning th
   }
 });
 
-test('routes Hermes chat through a profile mission without inventing an API server model', async () => {
+test('routes Hermes console chat through profile streaming without inventing an API server model', async () => {
   // Given
   const server = createRailwayGatewayServer({
     env: { HERMES_RELAY_TOKEN: 'relay-token' },
@@ -1657,6 +1657,18 @@ test('routes Hermes chat through a profile mission without inventing an API serv
     const polled = await pollPromise;
     const relayJob = polled.job;
 
+    await fetch(`${baseUrl}/api/relay/jobs/${relayJob.id}/events`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({
+        event: 'delta',
+        data: { text: 'bizconsultant ready token=topsecret /Users/koyunseo/private.md' },
+      }),
+    });
+
     await fetch(`${baseUrl}/api/relay/jobs/${relayJob.id}/complete`, {
       method: 'POST',
       headers: {
@@ -1665,25 +1677,20 @@ test('routes Hermes chat through a profile mission without inventing an API serv
       },
       body: JSON.stringify({
         ok: true,
-        body: {
-          run: {
-            id: 'run-profile-chat',
-            status: 'completed',
-            agent: 'bizconsultant',
-            output: 'bizconsultant ready token=topsecret /Users/koyunseo/private.md',
-            logs: [],
-          },
-        },
+        text: 'bizconsultant ready token=topsecret /Users/koyunseo/private.md',
+        runner: 'hermes-profile-chat',
+        profile: 'bizconsultant',
+        usage: { outputChars: 64, promptChars: 80 },
+        provenance: { kind: 'mac-mini-hermes-profile', localChatCompletions: false },
       }),
     });
 
     const response = await chatPromise;
     const body = await response.text();
-    assert.equal(relayJob.kind, 'runtime.request');
-    assert.equal(relayJob.payload.path, '/api/missions/launch');
-    const runtimeBody = JSON.parse(relayJob.payload.body);
-    assert.equal(runtimeBody.agentId, 'bizconsultant');
-    assert.match(runtimeBody.idempotencyKey, /^relay-/);
+    assert.equal(relayJob.kind, 'profile.chat');
+    assert.equal(relayJob.payload.profile, 'bizconsultant');
+    assert.equal(relayJob.payload.stream, true);
+    assert.equal('model' in relayJob.payload, false);
     assert.equal(response.status, 200);
     assert.match(body, /bizconsultant ready/);
     assert.doesNotMatch(body, /hermes-agent/);

@@ -30,7 +30,7 @@ async function main() {
     window.hermesDesktop = {
       getSettings: async () => ({ apiBaseUrl: '', hasApiToken: false, theme: 'default', authProfile: { email: 'widget@example.com', name: 'Widget QA' }, uiPreferences: { notify: true, agentShare: true, weekStartMon: true } }),
       saveSettings: async (settings) => ({ apiBaseUrl: '', hasApiToken: false, theme: settings.theme || 'default', uiPreferences: settings.uiPreferences || { notify: true, agentShare: true, weekStartMon: true } }),
-      getProxyBaseUrl: async () => '',
+      getHermesConnection: async () => ({ baseUrl: '', credential: '' }),
       saveWidgetSnapshot: async () => ({ ok: true, path: '/tmp/widget.json', changed: true }),
       readWidgetActions: async () => actions,
       clearWidgetActions: async (ids) => {

@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   signUpWithPassword: (payload: unknown) => ipcRenderer.invoke('auth:password-signup', payload),
   loginWithPassword: (payload: unknown) => ipcRenderer.invoke('auth:password-login', payload),
   logoutAuth: () => ipcRenderer.invoke('auth:logout'),
-  getProxyBaseUrl: () => ipcRenderer.invoke('proxy:get-base-url'),
+  getHermesConnection: () => ipcRenderer.invoke('hermes:get-connection'),
   saveWidgetSnapshot: (snapshot: unknown) => ipcRenderer.invoke('widget:snapshot-save', snapshot),
   readWidgetActions: () => ipcRenderer.invoke('widget:actions-read'),
   clearWidgetActions: (ids: unknown) => ipcRenderer.invoke('widget:actions-clear', ids),

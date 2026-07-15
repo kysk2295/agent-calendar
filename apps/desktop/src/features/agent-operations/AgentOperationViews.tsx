@@ -1,5 +1,7 @@
 import { agentTaskAppearance } from './agentTaskAppearance';
 import { compareAgentTasksBySchedule } from './agentOperations';
+import { deliverableLabel, executionEngineLabel } from './executionContracts';
+import { safeEvidenceHref } from './workResultPresentation';
 import type { AgentMission, AgentReport, AgentTask, AgentTaskAction } from './types';
 
 export function missionStatusLabel(status: AgentMission['status']): string {
@@ -118,7 +120,7 @@ function MissionTaskRow({
         <p>{task.reason}</p>
         <div className="agent-operation-task-output"><span>기대 결과</span><strong>{task.expectedOutput}</strong></div>
         <footer className="agent-operation-task-actions">
-          <span className="agent-operation-task-agent">{task.agent}</span>
+          <span className="agent-operation-task-agent">{task.agent} · {executionEngineLabel(task.executionEngine)} · {deliverableLabel(task.deliverable)}</span>
           {task.pauseMode === 'next_checkpoint' && <span className="agent-operation-task-checkpoint">다음 체크포인트에서 일시정지</span>}
           {task.sessionId && <button aria-label={`${task.title} 세션 열기`} onClick={() => onOpenSession(task.sessionId)}>세션 열기</button>}
           {task.status === 'scheduled' && (
@@ -156,7 +158,7 @@ export function MissionDetail({
   readonly busy: string;
   readonly onPlanMission: (missionId: string) => Promise<void>;
   readonly onApprovePlan: (missionId: string) => Promise<void>;
-  readonly onMissionWorkAction: (missionId: string, action: 'pause' | 'cancel') => Promise<void>;
+  readonly onMissionWorkAction: (missionId: string, action: 'activate' | 'pause' | 'cancel') => Promise<void>;
   readonly onTaskAction: (taskId: string, action: AgentTaskAction) => Promise<void>;
   readonly onRunTaskNow: (taskId: string) => Promise<void>;
   readonly onOpenSession: (sessionId: string) => void;
@@ -195,12 +197,13 @@ export function MissionDetail({
           <span className="mission-state" data-state={mission.status}>{missionStatusLabel(mission.status)}</span>
           <h2>{mission.title}</h2>
           <p>{mission.objective}</p>
-          <small className="mission-owner">담당 에이전트 · <strong>{mission.agentId}</strong></small>
+          <small className="mission-owner">담당 에이전트 · <strong>{mission.agentId}</strong> · 실행 엔진 · <strong>{executionEngineLabel(mission.executionEngine)}</strong> · 산출물 · <strong>{deliverableLabel(mission.deliverable)}</strong></small>
         </div>
         <div className="mission-contract-actions">
           {!tasks.length && <button className="primary" disabled={busy === mission.id} onClick={() => void onPlanMission(mission.id)}>계획 만들기</button>}
           {proposedCount > 0 && <button className="primary" disabled={busy === mission.id} onClick={() => void onApprovePlan(mission.id)}>계획 승인</button>}
           {mission.status === 'active' && pausableCount > 0 && <button disabled={busy === mission.id} onClick={() => void onMissionWorkAction(mission.id, 'pause')}>미션 일시정지</button>}
+          {mission.status === 'paused' && <button disabled={busy === mission.id} onClick={() => void onMissionWorkAction(mission.id, 'activate')}>미션 재개</button>}
           {!['completed', 'cancelled'].includes(mission.status) && cancellableCount > 0 && <button className="danger" disabled={busy === mission.id} onClick={() => void onMissionWorkAction(mission.id, 'cancel')}>미션 중단</button>}
         </div>
       </header>
@@ -225,6 +228,8 @@ export function MissionDetail({
             <small>{mission.budget.usedRuns} / {mission.policy.maxRunsPerWeek}회 실행</small>
           </section>
           <section><span>보고</span><strong>{missionReportCadence(mission)}</strong><small>{mission.timezone}</small></section>
+          <section><span>실행 엔진</span><strong>{executionEngineLabel(mission.executionEngine)}</strong><small>작업과 세션에 동일하게 유지</small></section>
+          <section><span>산출물</span><strong>{deliverableLabel(mission.deliverable)}</strong><small>완료 시 세션에서 확인</small></section>
           <section><span>컨텍스트</span><div className="mission-tags">{mission.sources.map((source) => <b key={source}>{source}</b>)}</div></section>
           <section className="mission-success-criteria"><span>성공 기준</span><ul>{mission.successCriteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ul></section>
           <section><span>금지 작업</span><div className="mission-tags danger">{mission.policy.forbiddenActions.map((forbiddenAction) => <b key={forbiddenAction}>{forbiddenAction}</b>)}</div></section>
@@ -246,9 +251,9 @@ export function ReportsView({ reports, busy, onFeedback, onFollowUpDecision, onO
             <section>
               <span>근거</span>
               <div className="agent-report-evidence">
-                {report.evidence.map((evidence) => /^https?:\/\//.test(evidence.url)
-                  ? <a href={evidence.url} target="_blank" rel="noreferrer" key={`${evidence.label}-${evidence.url}`}>{evidence.label}</a>
-                  : <b key={evidence.label}>{evidence.label}</b>)}
+                {report.evidence.map((evidence) => { const href = safeEvidenceHref(evidence.url); return href
+                  ? <a href={href} target="_blank" rel="noopener noreferrer" key={`${evidence.label}-${evidence.url}`}>{evidence.label}</a>
+                  : <b key={`${evidence.label}-${evidence.url}`}>{evidence.label}</b>; })}
               </div>
             </section>
             <section>
