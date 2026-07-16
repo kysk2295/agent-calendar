@@ -1,8 +1,6 @@
 import { useState } from 'react';
 
 import {
-  hermesAutomationLastStatusLabel,
-  hermesAutomationRuntimeLabel,
   hermesAutomationStatusLabel,
 } from './hermesAutomation';
 import { agentTaskAppearance } from './agentTaskAppearance';
@@ -20,24 +18,6 @@ type AgentCommandCenterProps = {
   readonly onOpenAutomation: (jobId: string) => void;
   readonly onStartRequest: (objective: string) => void;
 };
-
-type HermesAutomationsViewProps = {
-  readonly jobs: readonly HermesAutomationJob[];
-  readonly selectedJobId: string;
-  readonly onSelect: (jobId: string) => void;
-  readonly onStartRequest: (objective: string) => void;
-};
-
-function formatRunAt(value: string): string {
-  if (!value) return '확인 필요';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('ko-KR', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'Asia/Seoul',
-  }).format(date);
-}
 
 function reviewPendingCount(state: AgentOperationsState): number {
   return state.reports.filter((report) => (
@@ -103,41 +83,6 @@ export function AgentCommandCenter(props: AgentCommandCenterProps) {
           </div>
         </section>
       </div>
-    </div>
-  );
-}
-
-export function HermesAutomationsView(props: HermesAutomationsViewProps) {
-  const selectedJob = props.jobs.find((job) => job.id === props.selectedJobId) || props.jobs[0];
-
-  return (
-    <div className="hermes-automations-layout">
-      <aside className="hermes-automation-list">
-        <header><div><strong>Hermes 자동화</strong><span>연결된 scheduler jobs</span></div><b>{props.jobs.length}</b></header>
-        {props.jobs.map((job) => (
-          <button className="hermes-automation-row" type="button" aria-label={`${job.name} 자동화 열기`} data-active={selectedJob?.id === job.id} key={job.id} onClick={() => props.onSelect(job.id)}>
-            <i data-status={job.status} /><span><strong>{job.name}</strong><small>{job.agentId} · {job.schedule}</small><small>다음 실행 {formatRunAt(job.nextRunAt)}</small></span><b>{hermesAutomationStatusLabel(job.status)}</b>
-          </button>
-        ))}
-        {!props.jobs.length && <div className="agent-operation-empty">연결된 Hermes 자동화가 없습니다.</div>}
-      </aside>
-      {selectedJob ? (
-        <section className="hermes-automation-inspector">
-          <header><div><span>Hermes cron job</span><h2>{selectedJob.name}</h2><p>{selectedJob.description || '이 자동화의 목적 설명이 아직 없습니다.'}</p></div><strong data-status={selectedJob.status}>{hermesAutomationStatusLabel(selectedJob.status)}</strong></header>
-          <div className="hermes-automation-runtime"><span>실행 위치</span><strong>{hermesAutomationRuntimeLabel(selectedJob.source)}</strong><small>{selectedJob.source}</small></div>
-          <div className="hermes-automation-facts">
-            <section><span>담당 프로필</span><strong>{selectedJob.agentId}</strong></section>
-            <section><span>실행 일정</span><strong>{selectedJob.schedule}</strong></section>
-            <section><span>마지막 실행</span><strong>{formatRunAt(selectedJob.lastRunAt)}</strong><small>{hermesAutomationLastStatusLabel(selectedJob.lastStatus)}</small></section>
-            <section><span>다음 실행</span><strong>{formatRunAt(selectedJob.nextRunAt)}</strong><small>{selectedJob.enabled === true ? '자동 실행 예정' : selectedJob.enabled === false ? '현재 일시정지' : '활성 여부 확인 필요'}</small></section>
-          </div>
-          <section className="hermes-automation-next">
-            <span>이 자동화로 새 작업</span>
-            <p>반복 실행은 그대로 유지하고, 결과를 바탕으로 별도의 상세 미션을 시작할 수 있습니다.</p>
-            <button type="button" onClick={() => props.onStartRequest(`${selectedJob.name} 자동화의 최근 결과를 검토하고 다음 행동을 제안해줘.`)}>상세 작업 만들기</button>
-          </section>
-        </section>
-      ) : <div className="agent-operation-empty large">자동화를 선택하면 실행 계약이 여기에 표시됩니다.</div>}
     </div>
   );
 }

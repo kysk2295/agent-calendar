@@ -1802,6 +1802,7 @@ class HermesStore {
       agent: input.agent ? String(input.agent) : '',
       model: input.model ? String(input.model) : '',
       source: input.source || 'chat',
+      target: input.target ? String(input.target) : '',
       createdAt: now,
     };
     state.chatMessages.push(message);

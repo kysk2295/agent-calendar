@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { hermesApi, setApiBaseUrl, setApiProxyConnection, type ApiEnvelope } from './api/hermesApi';
 import { createAgentWork } from './api/agentWorkApiClient';
 import { AgentOperationsScreen } from './features/agent-operations/AgentOperationsScreen';
+import { HermesAutomationDashboard } from './features/agent-operations/HermesAutomationDashboard';
 import {
   EMPTY_AGENT_OPERATIONS_STATE,
   parseAgentOperationsEnvelope,
@@ -16,6 +17,7 @@ import type {
   AgentRosterEntry,
   AgentSessionDetail,
   AgentTaskAction,
+  HermesAutomationUpdateInput,
 } from './features/agent-operations/types';
 import './features/agent-operations/agent-operations.css';
 import './features/agent-operations/agent-workspace.css';
@@ -28,7 +30,7 @@ import {
   type UiPreferences,
 } from './features/settings/uiPreferences';
 
-type ScreenId = 'calendar' | 'today' | 'next7' | 'tasks' | 'kanban' | 'mail' | 'notes' | 'someday' | 'review' | 'wiki' | 'diary' | 'search' | 'agents' | 'widgets' | 'settings' | 'login';
+type ScreenId = 'calendar' | 'today' | 'next7' | 'tasks' | 'kanban' | 'mail' | 'notes' | 'someday' | 'review' | 'wiki' | 'diary' | 'search' | 'agents' | 'automation' | 'widgets' | 'settings' | 'login';
 type ModalId = 'task' | 'new' | 'delegate' | 'run' | 'agent' | 'settings' | 'taxonomy' | null;
 type Item = Record<string, unknown>;
 type NavItem = { id: ScreenId; icon: string; label: string; navKey?: string };
@@ -127,6 +129,7 @@ const screenMeta: Record<ScreenId, { title: string; sub: string }> = {
   diary: { title: '일기', sub: '매일 쓰고 위키에 쌓기' },
   search: { title: '검색', sub: '' },
   agents: { title: '에이전트', sub: '작업 위임 · 실시간 실행' },
+  automation: { title: 'Hermes 자동화', sub: '반복 작업 · 실행 일정 관리' },
   widgets: { title: '위젯', sub: 'macOS 데스크톱 위젯 미리보기' },
   settings: { title: '설정', sub: '' },
   login: { title: '로그인', sub: '' },
@@ -195,6 +198,7 @@ const smartNavGroups: NavGroup[] = [
   ] },
   { title: 'AGENTS', items: [
     { id: 'agents', icon: '🤖', label: '에이전트' },
+    { id: 'automation', icon: '⟳', label: 'Hermes 자동화' },
     { id: 'widgets', icon: '▣', label: '위젯' },
   ] },
 ];
@@ -1254,6 +1258,7 @@ export function App() {
       const docs = arr(documentsPayload, 'documents');
       const inboxItems = arr(inbox, 'items', 'commands', 'commandRows');
       const remoteChat = arr(chatPayload, 'messages', 'chatMessages');
+      const scheduleChat = remoteChat.filter((message) => text(message.target) === 'calendar');
       setState({
         tasks,
         events,
@@ -1265,7 +1270,7 @@ export function App() {
         channels: arr(channels, 'channels'),
         sessions: arr(dashboard, 'sessions'),
         tools: arr(tools, 'tools', 'skills', 'toolsets'),
-        chatMessages: remoteChat,
+        chatMessages: scheduleChat,
         taxonomy: taxonomyRecords,
         wiki,
         settings: settingsPayload,
@@ -1276,9 +1281,7 @@ export function App() {
       const hydratedPreferences = localUiPreferencesRef.current || readUiPreferences(settingsPayload);
       setPrefs(hydratedPreferences);
       setSettings((current) => ({ ...current, uiPreferences: hydratedPreferences }));
-      if (remoteChat.length) {
-        setChatMessages(remoteChat.slice(-40).map(toChatMessage).filter((message) => message.text));
-      }
+      setChatMessages(scheduleChat.slice(-40).map(toChatMessage).filter((message) => message.text));
       hasHydratedRef.current = true;
     } catch (error) {
       setApiError(error instanceof Error ? error.message : 'Railway API 응답 실패');
@@ -1804,6 +1807,23 @@ export function App() {
     }
   }
 
+  async function refreshHermesAutomations(): Promise<void> {
+    const payload = await hermesApi.getAutomation();
+    setState((current) => ({ ...current, automation: arr(payload, 'jobs', 'schedulerJobs') }));
+  }
+
+  async function updateHermesAutomation(jobId: string, input: HermesAutomationUpdateInput): Promise<void> {
+    await hermesApi.updateSchedulerJob(jobId, input);
+  }
+
+  async function setHermesAutomationEnabled(jobId: string, enabled: boolean): Promise<void> {
+    await hermesApi.updateSchedulerJob(jobId, { enabled });
+  }
+
+  async function deleteHermesAutomation(jobId: string): Promise<void> {
+    await hermesApi.deleteSchedulerJob(jobId);
+  }
+
   async function runAgentOperation<T>(busyKey: string, operation: () => Promise<T>): Promise<T | null> {
     setAgentOperationsBusy(busyKey);
     setAgentOperationsError('');
@@ -2055,7 +2075,7 @@ export function App() {
     try {
       const response = await hermesApi.streamChat({
         message,
-        view: 'console',
+        view: 'calendar',
         agent: 'default',
         agentId: 'default',
       });
@@ -2633,6 +2653,7 @@ export function App() {
     if (key === 'next7') return tasks.filter((task) => text(task.date) && text(task.date) >= todayKey() && text(task.date) <= end && !isDone(task)).length;
     if (key === 'mail') return mailItems.length;
     if (key === 'agents') return runs.length;
+    if (key === 'automation') return hermesAutomationJobs.length;
     if (key === 'list:notes') return docs.filter((doc) => text(doc.kind, 'note') === 'note').length;
     if (key === 'tasks') return tasks.filter((task) => !isDone(task) && ['inbox', '기본함'].includes(text(task.list || task.category))).length;
     if (key.startsWith('list:')) {
@@ -2790,6 +2811,7 @@ export function App() {
             {screen === 'diary' && <DiaryScreen docs={diaryDocs} diaryText={diaryText} setDiaryText={setDiaryText} diaryMood={diaryMood} setDiaryMood={setDiaryMood} saveDiary={saveDiary} />}
             {screen === 'search' && <SearchScreen query={query} setQuery={setQuery} tasks={tasks} docs={docs} openTask={openTask} openDoc={openDoc} />}
             {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} automationJobs={hermesAutomationJobs} error={agentOperationsError} busy={agentOperationsBusy} onRetry={retryAgentOperations} onRefreshAgentOperations={retryAgentOperations} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onContinueSession={continueAgentSession} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
+            {screen === 'automation' && <HermesAutomationDashboard jobs={hermesAutomationJobs} agents={agentRoster} onRefresh={refreshHermesAutomations} onUpdate={updateHermesAutomation} onSetEnabled={setHermesAutomationEnabled} onDelete={deleteHermesAutomation} />}
             {screen === 'widgets' && <WidgetsScreen tasks={tasks} events={events} runs={runs} />}
             {screen === 'settings' && <SettingsScreen settings={settings} setSettings={setSettings} refresh={hydrate} />}
             {screen === 'login' && <LoginScreen email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} authenticateWithPassword={authenticateWithPassword} />}
@@ -2797,7 +2819,7 @@ export function App() {
         )}
       </main>
 
-      <button className="chat-fab" data-active={chatOpen} onClick={() => setChatOpen((open) => !open)} aria-label={chatOpen ? 'Agent Calendar 콘솔 닫기' : 'Agent Calendar 콘솔 열기'} title="Agent Calendar 콘솔">
+      <button className="chat-fab" data-active={chatOpen} onClick={() => setChatOpen((open) => !open)} aria-label={chatOpen ? '캘린더 AI 닫기' : '캘린더 AI 열기'} title="캘린더 AI">
         <ChatIcon />
       </button>
       {completionNotice && <CompletionToast title={completionNotice.title} undo={undoCompletion} close={() => setCompletionNotice(null)} />}
@@ -2827,7 +2849,7 @@ export function App() {
           onTaskAction={transitionAgentOperationTask}
         />
       )}
-      {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} attachment={chatAttachment} setAttachment={setChatAttachment} send={sendChat} runs={runs} setChip={setChatInput} close={() => setChatOpen(false)} openRun={openRun} registerDrafts={registerScheduleDrafts} />}
+      {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} attachment={chatAttachment} setAttachment={setChatAttachment} send={sendChat} setChip={setChatInput} close={() => setChatOpen(false)} registerDrafts={registerScheduleDrafts} />}
       {modal === 'taxonomy' && taxonomyForm && <TaxonomyModal form={taxonomyForm} name={taxonomyName} setName={setTaxonomyName} groupName={taxonomyGroupName} setGroupName={setTaxonomyGroupName} icon={taxonomyIcon} setIcon={setTaxonomyIcon} close={() => { setTaxonomyForm(null); setModal(null); }} submit={() => void createTaxonomy()} />}
       <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} approveRun={approveRun} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
     </div>
@@ -4974,7 +4996,7 @@ function ScheduleDraftCards({ drafts, warnings = [], conflicts = [], registerDra
   </div>;
 }
 
-function ChatDrawer({ messages, input, setInput, attachment, setAttachment, send, runs, setChip, close, openRun, registerDrafts }: { messages: ChatMessage[]; input: string; setInput: (value: string) => void; attachment: File | null; setAttachment: (value: File | null) => void; send: () => Promise<void>; runs: Item[]; setChip: (value: string) => void; close: () => void; openRun: (run?: Item) => void; registerDrafts: (drafts: ScheduleDraft[]) => Promise<void> }) {
+function ChatDrawer({ messages, input, setInput, attachment, setAttachment, send, setChip, close, registerDrafts }: { messages: ChatMessage[]; input: string; setInput: (value: string) => void; attachment: File | null; setAttachment: (value: File | null) => void; send: () => Promise<void>; setChip: (value: string) => void; close: () => void; registerDrafts: (drafts: ScheduleDraft[]) => Promise<void> }) {
   const [attachmentError, setAttachmentError] = useState('');
   const chooseAttachment = (file: File | undefined) => {
     if (!file) return;
@@ -4990,15 +5012,14 @@ function ChatDrawer({ messages, input, setInput, attachment, setAttachment, send
     setAttachment(file);
   };
   return <aside className="chat">
-    <header><LogoMark className="chat-mark" /><div><strong>Agent Calendar 콘솔</strong><span>일정 Q&A · Railway stream</span></div><button onClick={close} aria-label="Agent Calendar 콘솔 닫기">✕</button></header>
-    <div className="chat-runs">{runs.slice(0, 2).map((run, index) => <button className="chat-run-card" key={itemId(run, `chat-run-${index}`)} onClick={() => openRun(run)}><b>{text(run.goal || run.title, 'Run')}</b><span>{text(run.status, 'running')} · {text(run.agent, 'default')}</span></button>)}</div>
+    <header><LogoMark className="chat-mark" /><div><strong>캘린더 AI</strong><span>일정 Q&A · 추천</span></div><button onClick={close} aria-label="캘린더 AI 닫기">✕</button></header>
     <div className="messages">{messages.map((message, index) => <div className={`message ${message.role}`} key={index}><span>{message.text || '응답 수신 중...'}</span>{message.drafts?.length ? <ScheduleDraftCards drafts={message.drafts} warnings={message.warnings} conflicts={message.conflicts} registerDrafts={registerDrafts} /> : null}</div>)}</div>
-    <div className="chat-chips">{['이번 주 완료율?', '오늘 할 일 정리해줘', 'UniPort 백로그 분배'].map((chip) => <button key={chip} onClick={() => setChip(chip)}>{chip}</button>)}</div>
+    <div className="chat-chips">{['이번 주 완료율?', '오늘 할 일 정리해줘', '이번 주 빈 시간 알려줘'].map((chip) => <button key={chip} onClick={() => setChip(chip)}>{chip}</button>)}</div>
     <footer>
       <div className="chat-compose">
         {attachment && <div className="chat-attachment"><span>{attachment.name}</span><button type="button" onClick={() => setAttachment(null)} aria-label="첨부 이미지 제거">×</button></div>}
         {attachmentError && <div className="chat-attachment-error">{attachmentError}</div>}
-        <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="일정에게 묻거나 작업을 위임" />
+        <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="일정이나 할 일을 물어보세요" />
       </div>
       <div className="chat-send-stack">
         <label className="chat-attach-button" title="이미지 첨부">

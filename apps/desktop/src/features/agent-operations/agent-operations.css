@@ -779,6 +779,116 @@
 .hermes-automation-next p { margin: 0; color: var(--muted-dark); font-size: 10.5px; line-height: 1.5; }
 .hermes-automation-next button { color: var(--accent-dark); background: var(--accent-soft); border-color: var(--accent-line); }
 
+.hermes-automation-refresh {
+  min-height: 38px;
+  margin-top: auto;
+  padding: 8px 10px;
+  color: var(--muted-dark);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.hermes-automation-feedback {
+  margin-top: 12px;
+  padding: 8px 10px;
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 8%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--green) 28%, var(--line));
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.hermes-automation-feedback[data-error="true"] {
+  color: var(--red);
+  background: var(--red-soft);
+  border-color: color-mix(in srgb, var(--red) 28%, var(--line));
+}
+.hermes-automation-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.hermes-automation-form label { min-width: 0; display: grid; gap: 6px; }
+.hermes-automation-form label > span { color: var(--muted); font-size: 9px; font-weight: 800; }
+.hermes-automation-form input,
+.hermes-automation-form textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.hermes-automation-form .wide { grid-column: 1 / -1; }
+.hermes-automation-form footer { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+.hermes-automation-form .primary {
+  min-height: 38px;
+  padding: 8px 12px;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+.hermes-automation-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+}
+.hermes-automation-actions > div:first-child { min-width: 0; display: grid; gap: 4px; }
+.hermes-automation-actions > div:first-child > span { color: var(--text); font-size: 10.5px; font-weight: 800; }
+.hermes-automation-actions p { margin: 0; color: var(--muted); font-size: 9.5px; line-height: 1.45; }
+.hermes-automation-actions > button {
+  min-height: 38px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.hermes-automation-actions .danger {
+  color: var(--red);
+  background: var(--red-soft);
+  border-color: color-mix(in srgb, var(--red) 32%, var(--line));
+}
+.hermes-automation-delete-confirm {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hermes-automation-delete-confirm > span { color: var(--red); font-size: 9.5px; font-weight: 700; }
+.hermes-automation-delete-confirm button {
+  min-height: 38px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
 .agent-command-center button:focus-visible,
 .agent-command-center textarea:focus-visible,
 .hermes-automations-layout button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -805,6 +915,18 @@
   .task-session-panel { grid-template-columns: 176px minmax(0, 1fr) 236px; }
   .agent-roster-row { grid-template-columns: 36px minmax(130px, 1fr) minmax(180px, 1fr) auto; }
   .agent-roster-metrics { grid-column: 2 / -1; display: flex; justify-content: space-between; text-align: left; }
+}
+
+@media (max-width: 980px) {
+  .hermes-automations-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(180px, 34%) minmax(0, 1fr); }
+  .hermes-automation-list { border-right: 0; border-bottom: 1px solid var(--line); }
+  .hermes-automation-inspector { padding: 16px; }
+  .hermes-automation-form { grid-template-columns: minmax(0, 1fr); }
+  .hermes-automation-form .wide,
+  .hermes-automation-form footer { grid-column: auto; }
+  .hermes-automation-actions { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .hermes-automation-actions > button { justify-self: start; }
+  .hermes-automation-delete-confirm { grid-column: auto; justify-content: flex-start; }
 }
 
 @media (max-width: 720px) {

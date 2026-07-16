@@ -214,4 +214,11 @@ export type HermesAutomationJob = {
   readonly lastStatus: string;
 };
 
+export type HermesAutomationUpdateInput = {
+  readonly name: string;
+  readonly goal: string;
+  readonly agentId: string;
+  readonly schedule: string;
+};
+
 export type * from './workConversationTypes';

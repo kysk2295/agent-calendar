@@ -2761,6 +2761,7 @@ function addGatewayChatMessage(gatewayState, input = {}) {
     agent: input.agent ? String(input.agent) : '',
     model: input.model ? String(input.model) : '',
     source: input.source || 'chat',
+    target: input.target ? String(input.target) : '',
     createdAt: new Date().toISOString(),
   };
   gatewayState.chatMessages.push(message);
@@ -6592,7 +6593,7 @@ async function fallbackScheduleAssistantIngest({ res, body = {}, gatewayState, g
   return result;
 }
 
-async function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch }) {
+async function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch, relay = null }) {
   const question = String(body.question || body.message || body.query || '').trim();
   if (!question) {
     sendSseStream(res, [
@@ -6602,22 +6603,56 @@ async function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewa
     return;
   }
   const state = gatewaySnapshot(gatewayState, gatewayStore);
-  const result = await buildScheduleAssistantAnswer({
+  let result = await buildScheduleAssistantAnswer({
     question,
     filters: body.filters || {},
     state,
     env,
     fetchImpl,
   });
+  if (!result.llm?.used && relay && relayEnabled(env) && relay.isBridgeOnline()) {
+    try {
+      const relaySynthesis = await synthesizeScheduleAnswerViaRelay({
+        relay,
+        env,
+        question,
+        computed: result.computed,
+        sources: result.sources,
+      });
+      if (relaySynthesis?.answer) {
+        result = {
+          ...result,
+          answer: relaySynthesis.answer,
+          answerMode: relaySynthesis.answerMode,
+          llm: relaySynthesis.llm,
+          ...(relaySynthesis.llmAttempts ? { llmAttempts: relaySynthesis.llmAttempts } : {}),
+        };
+      }
+    } catch (error) {
+      result = {
+        ...result,
+        answerMode: 'fallback',
+        llm: {
+          provider: 'local-llm',
+          model: localLlmModel(env),
+          used: false,
+          transport: 'railway-relay',
+          error: safeRuntimeError(error.message || String(error), 'Railway Relay schedule synthesis failed'),
+        },
+      };
+    }
+  }
   const userMessage = {
     role: 'user',
     text: question,
     source: 'schedule-assistant',
+    target: 'calendar',
   };
   const assistantMessage = {
     role: 'assistant',
     text: result.answer,
     source: 'schedule-assistant',
+    target: 'calendar',
   };
   if (gatewayStore && typeof gatewayStore.addChatMessage === 'function') {
     gatewayStore.addChatMessage(userMessage);
@@ -6975,7 +7010,7 @@ async function handleApi(
     });
     return;
   }
-  if (method === 'POST' && pathSegments[0] === 'chat' && pathSegments[1] === 'stream' && isScheduleQuestion(requestBody.message || requestBody.question || requestBody.query)) {
+  if (method === 'POST' && pathSegments[0] === 'chat' && pathSegments[1] === 'stream' && (String(requestBody.view || '') === 'calendar' || isScheduleQuestion(requestBody.message || requestBody.question || requestBody.query))) {
     await streamScheduleAssistantAsk({
       res,
       body: requestBody,
@@ -6983,6 +7018,7 @@ async function handleApi(
       gatewayStore,
       env,
       fetchImpl,
+      relay,
     });
     return;
   }

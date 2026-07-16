@@ -877,7 +877,7 @@ test('assistant ask falls back to computed answer when LLM request fails', async
   }
 });
 
-test('chat stream routes schedule questions to schedule assistant instead of runtime runs', async () => {
+test('calendar chat view routes every text request to schedule assistant instead of runtime runs', async () => {
   const state = {
     tasks: [
       {
@@ -920,7 +920,8 @@ test('chat stream routes schedule questions to schedule assistant instead of run
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        message: '3달간 알바 총 몇 시간 했지?',
+        message: '주간 계획 정리',
+        view: 'calendar',
         filters: { from: '2026-04-01', to: '2026-07-01' },
       }),
     });
@@ -929,9 +930,147 @@ test('chat stream routes schedule questions to schedule assistant instead of run
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type') || '', /text\/event-stream/);
     assert.match(body, /event: delta/);
-    assert.match(body, /8\.5시간|8시간 30분/);
     assert.match(body, /backend-calendar-ai-rag/);
     assert.match(body, /"answerMode":"fallback"/);
+    const historyResponse = await fetch(`${baseUrl}/api/chat/messages`);
+    const history = await historyResponse.json();
+    assert.deepEqual(history.messages.map((message) => message.target), ['calendar', 'calendar']);
+  } finally {
+    await close(server);
+  }
+});
+
+test('calendar chat stream uses Mac mini railway relay for local LLM synthesis when bridge is online', async () => {
+  const state = {
+    tasks: [{
+      id: 'task-meeting',
+      title: '유니포트 회의 준비',
+      date: '2026-07-07',
+      status: 'Planned',
+      done: false,
+    }],
+    events: [],
+  };
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      HERMES_RELAY_TOKEN: 'relay-test-token',
+      HERMES_RELAY_SCHEDULE_LLM_TIMEOUT_MS: '1000',
+      AGENT_CALENDAR_LOCAL_LLM_MODEL: 'qwen2.5:7b',
+    },
+    gatewayStore: createStore(state),
+    fetchImpl: async () => {
+      throw new Error('calendar chat stream should use relay instead of runtime fetch');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-test-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const chatPromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: '오늘 뭐 해야 돼?',
+        view: 'calendar',
+        filters: { from: '2026-07-07', to: '2026-07-07' },
+      }),
+    });
+
+    const polled = await pollPromise;
+    assert.equal(polled.ok, true);
+    assert.equal(polled.job.kind, 'chat.completions');
+    assert.equal(polled.job.payload.model, 'qwen2.5:7b');
+    assert.match(polled.job.payload.messages[1].content, /유니포트 회의 준비/);
+
+    await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/events`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-test-token',
+      },
+      body: JSON.stringify({
+        event: 'message',
+        data: { choices: [{ delta: { content: '오늘은 유니포트 회의 준비를 먼저 처리하세요.' } }] },
+      }),
+    });
+    await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-test-token',
+      },
+      body: JSON.stringify({ ok: true }),
+    });
+
+    const response = await chatPromise;
+    const body = await response.text();
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') || '', /text\/event-stream/);
+    assert.match(body, /오늘은 유니포트 회의 준비를 먼저 처리하세요/);
+    assert.match(body, /"provider":"local-llm"/);
+    assert.match(body, /"model":"qwen2.5:7b"/);
+    assert.match(body, /"transport":"railway-relay"/);
+  } finally {
+    await close(server);
+  }
+});
+
+test('calendar chat stream returns computed fallback when Mac mini local LLM rejects the model', async () => {
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      HERMES_RELAY_TOKEN: 'relay-test-token',
+      HERMES_RELAY_SCHEDULE_LLM_TIMEOUT_MS: '1000',
+      AGENT_CALENDAR_LOCAL_LLM_MODEL: 'qwen2.5:7b',
+    },
+    gatewayStore: createStore({
+      tasks: [{ id: 'task-meeting', title: '유니포트 회의 준비', date: '2026-07-07', status: 'Planned', done: false }],
+      events: [],
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-test-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const chatPromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: '오늘 뭐 해야 돼?',
+        view: 'calendar',
+        filters: { from: '2026-07-07', to: '2026-07-07' },
+      }),
+    });
+
+    const polled = await pollPromise;
+    await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-test-token',
+      },
+      body: JSON.stringify({ ok: false, error: "model 'qwen2.5:7b' not found" }),
+    });
+
+    const response = await chatPromise;
+    const body = await response.text();
+    assert.equal(response.status, 200);
+    assert.match(body, /event: delta/);
+    assert.match(body, /유니포트 회의 준비/);
+    assert.match(body, /"answerMode":"fallback"/);
+    assert.match(body, /"used":false/);
+    assert.match(body, /"transport":"railway-relay"/);
+    assert.doesNotMatch(body, /event: error/);
   } finally {
     await close(server);
   }

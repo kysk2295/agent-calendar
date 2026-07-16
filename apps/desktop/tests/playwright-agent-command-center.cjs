@@ -290,7 +290,7 @@ async function main() {
   await assertConsoleButtonClearOfControls(page, 'desktop');
   await page.locator('.chat-fab').click();
   await page.locator('.chat').waitFor();
-  await page.locator('.chat header button[aria-label="Agent Calendar 콘솔 닫기"]').click();
+  await page.locator('.chat header button[aria-label="캘린더 AI 닫기"]').click();
   await page.locator('.chat').waitFor({ state: 'detached' });
 
   assert.equal(await page.locator('.agent-operations-tabs').count(), 0);
@@ -357,7 +357,7 @@ async function main() {
   await assertConsoleButtonClearOfControls(page, 'mobile');
   await page.locator('.chat-fab').click();
   await page.locator('.chat').waitFor();
-  await page.locator('.chat header button[aria-label="Agent Calendar 콘솔 닫기"]').click();
+  await page.locator('.chat header button[aria-label="캘린더 AI 닫기"]').click();
   await page.locator('.chat').waitFor({ state: 'detached' });
   await capture(page, 'agent-work-mobile');
 

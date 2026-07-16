@@ -73,14 +73,10 @@ async function main() {
   await page.waitForSelector('.chat');
   assert.equal(await page.locator('.chat').isVisible(), true);
 
-  await page.locator('.chat-chips button', { hasText: 'UniPort 백로그 분배' }).click();
-  assert.equal(await page.locator('.chat textarea').inputValue(), 'UniPort 백로그 분배');
+  await page.locator('.chat-chips button', { hasText: '이번 주 빈 시간 알려줘' }).click();
+  assert.equal(await page.locator('.chat textarea').inputValue(), '이번 주 빈 시간 알려줘');
 
-  await page.locator('.chat-run-card', { hasText: 'Chat surface run goal' }).click();
-  await page.waitForSelector('.run-modal');
-  assert.match(await page.locator('.run-modal').textContent() || '', /Chat surface run/);
-  await page.locator('.run-head button').click();
-  await page.waitForFunction(() => !document.querySelector('.run-modal'));
+  assert.equal(await page.locator('.chat-run-card').count(), 0);
 
   await page.locator('.chat textarea').fill('Enter로 전송');
   await page.locator('.chat textarea').press('Enter');
@@ -89,9 +85,10 @@ async function main() {
   const streamCall = calls.find((call) => call.method === 'POST' && call.path === '/api/chat/stream');
   assert.equal(Boolean(streamCall), true);
   assert.equal(streamCall.body.message, 'Enter로 전송');
+  assert.equal(streamCall.body.view, 'calendar');
   assert.equal(await page.locator('.chat textarea').inputValue(), '');
 
-  await page.locator('.chat header button[aria-label="Agent Calendar 콘솔 닫기"]').click();
+  await page.locator('.chat header button[aria-label="캘린더 AI 닫기"]').click();
   await page.waitForFunction(() => !document.querySelector('.chat'));
 
   await browser.close();

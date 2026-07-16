@@ -321,7 +321,7 @@ function publicChatMessageRecord(message = {}) {
     const value = publicIdentifier(message[key]);
     if (value) projected[key] = value;
   }
-  for (const key of ['role', 'text', 'agent', 'model', 'source', 'wikiPath']) {
+  for (const key of ['role', 'text', 'agent', 'model', 'source', 'target', 'wikiPath']) {
     const value = publicText(message[key], '', 100_000);
     if (value) projected[key] = value;
   }
