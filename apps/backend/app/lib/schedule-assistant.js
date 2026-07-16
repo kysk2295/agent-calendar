@@ -1048,8 +1048,17 @@ async function buildScheduleAssistantContext({ question, filters = {}, state = {
   const scopedScheduleItems = applyFilters(scheduleItemsFromState(state), filters, range);
   const scopedRecords = applyRecordFilters(calendarAiRecordsFromState(state), filters, range);
   const { records, embeddingModel } = await relevantContextRecords(q, scopedRecords, scopedScheduleItems, { env, fetchImpl, range });
-  const sources = records.map(normalizeSource);
   const computed = buildComputed(q, range, scopedScheduleItems);
+  const exactCompletionRecords = computed.questionType === 'completion-rate'
+    ? scopedScheduleItems
+      .filter(isDone)
+      .map((item, index) => recordFromScheduleItem(
+        item,
+        index,
+        canonicalScheduleSourceType([item.kind, item.type], 'schedule'),
+      ))
+    : [];
+  const sources = dedupeItems([...exactCompletionRecords, ...records]).map(normalizeSource);
   return {
     ok: true,
     answer: fallbackAnswer(q, computed, sources),

@@ -65,6 +65,44 @@ test('completion questions send only completed records to the LLM while retainin
   assert.doesNotMatch(messages[1].content, /상세 설명은 목록 답변에 필요하지 않다/);
 });
 
+test('completion list keeps every completed schedule item beyond the vector-search cutoff', async () => {
+  const tasks = Array.from({ length: 21 }, (_, index) => ({
+    id: `task-${index}`,
+    title: index === 20 ? '아직 남은 일정' : `완료 일정 ${index + 1}`,
+    date: '2026-07-17',
+    status: index === 20 ? 'Planned' : 'Done',
+    done: index !== 20,
+  }));
+  const server = createRailwayGatewayServer({
+    env: { DATABASE_URL: '', HERMES_RUNTIME_URL: '' },
+    gatewayStore: createStore({ tasks, events: [] }),
+    fetchImpl: async () => {
+      throw new Error('use deterministic embedding fallback');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        question: '이번 주 완료한 일정이 뭐야?',
+        filters: { from: '2026-07-13', to: '2026-07-19' },
+      }),
+    });
+    const payload = await response.json();
+    const completedSources = payload.sources.filter((source) => source.done);
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.computed.done, 20);
+    assert.equal(completedSources.length, 20);
+    assert.equal(completedSources.some((source) => source.id === 'task-19'), true);
+  } finally {
+    await close(server);
+  }
+});
+
 test('assistant ask computes work hours from backend tasks and calendar events', async () => {
   const state = {
     tasks: [
