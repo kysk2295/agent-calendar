@@ -259,9 +259,12 @@ test('wiki chat stream fallback uses local LLM answer when Hermes runtime is abs
   }
 });
 
-test('wiki relay routes retrieval into the canonical wikicurator profile', async () => {
+test('wiki relay synthesizes retrieval with the configured local model under wikicurator accountability', async () => {
   const server = createRailwayGatewayServer({
-    env: { HERMES_RELAY_TOKEN: 'relay-token' },
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+      AGENT_CALENDAR_LOCAL_LLM_MODEL: 'qwen2.5:7b',
+    },
     gatewayStore: createEmptyStore(),
     fetchImpl: async () => {
       throw new Error('wiki relay test must not call a direct runtime');
@@ -320,29 +323,34 @@ test('wiki relay routes retrieval into the canonical wikicurator profile', async
       body: JSON.stringify({
         ok: true,
         text: '운영 원칙은 배포 전에 테스트와 프리뷰 검증을 완료하는 것입니다. (출처: 운영 원칙)',
-        runner: 'hermes-profile-chat',
-        profile: 'wikicurator',
-        model: 'profile-default',
+        runner: 'local-llm',
+        model: 'qwen2.5:7b',
       }),
     });
 
     const response = await responsePromise;
     const body = await response.text();
     assert.equal(profileJob.kind, 'chat.completions');
-    assert.equal(profileJob.payload.profile, 'wikicurator');
+    assert.equal(profileJob.payload.model, 'qwen2.5:7b');
+    assert.equal(profileJob.payload.profile, undefined);
     assert.match(JSON.stringify(profileJob.payload.messages), /배포 전에는 테스트와 프리뷰 검증/);
     assert.equal(response.status, 200);
     assert.match(body, /운영 원칙은 배포 전에 테스트와 프리뷰 검증/);
     assert.match(body, /"agent":"wikicurator"/);
+    assert.match(body, /"provider":"local-llm"/);
+    assert.match(body, /"model":"qwen2.5:7b"/);
     assert.match(body, /"answerMode":"llm"/);
   } finally {
     await close(server);
   }
 });
 
-test('wiki relay clearly marks retrieval-only fallback when profile synthesis fails', async () => {
+test('wiki relay clearly marks retrieval-only fallback when local model synthesis fails', async () => {
   const server = createRailwayGatewayServer({
-    env: { HERMES_RELAY_TOKEN: 'relay-token' },
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+      AGENT_CALENDAR_LOCAL_LLM_MODEL: 'qwen2.5:7b',
+    },
     gatewayStore: createEmptyStore(),
     fetchImpl: async () => {
       throw new Error('wiki relay test must not call a direct runtime');
@@ -402,12 +410,14 @@ test('wiki relay clearly marks retrieval-only fallback when profile synthesis fa
     const body = await response.text();
 
     assert.equal(profileJob.kind, 'chat.completions');
-    assert.equal(profileJob.payload.profile, 'wikicurator');
+    assert.equal(profileJob.payload.model, 'qwen2.5:7b');
+    assert.equal(profileJob.payload.profile, undefined);
     assert.equal(response.status, 200);
     assert.match(body, /배포 전에는 테스트와 프리뷰 검증을 완료한다/);
     assert.match(body, /"answerMode":"retrieval-degraded"/);
     assert.match(body, /"degraded":true/);
-    assert.match(body, /"provider":"profile"/);
+    assert.match(body, /"provider":"local-llm"/);
+    assert.match(body, /"model":"qwen2.5:7b"/);
     assert.match(body, /"agent":"wikicurator"/);
     assert.doesNotMatch(body, /"answerMode":"llm"/);
   } finally {

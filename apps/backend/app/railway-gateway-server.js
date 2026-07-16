@@ -3532,11 +3532,11 @@ async function runRailwayRelayWikiChat({ relay, env = process.env, question, sou
   const context = sources.slice(0, 6).map((source, index) => (
     `[${index + 1}] ${source.title || source.path || '위키 문서'}\n${String(source.excerpt || source.content || '').slice(0, 900)}`
   )).join('\n\n');
-  const completion = await runRelayProfileChatCompletion({
+  const completion = await runRelayChatCompletion({
     relay,
     env,
     payload: {
-      profile: 'wikicurator',
+      model: model || localLlmModel(env),
       stream: true,
       messages: [
         {
@@ -3554,15 +3554,16 @@ async function runRailwayRelayWikiChat({ relay, env = process.env, question, sou
     meta: {
       view: 'wiki-ai',
       agent: 'wikicurator',
+      agentId: 'wikicurator',
       answerMode: 'llm',
-      source: 'railway-relay-wiki-profile-chat',
+      source: 'railway-relay-wiki-local-llm',
     },
     timeoutMs: Number(env.HERMES_RELAY_WIKI_CHAT_TIMEOUT_MS || env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000),
   });
   return {
     text: completion.text,
     runner: completion.runner || '',
-    agent: completion.profile || 'wikicurator',
+    agent: 'wikicurator',
     model: completion.model || model || '',
     jobId: completion.jobId,
   };
@@ -3645,8 +3646,8 @@ async function synthesizeWikiAnswerViaRelay({ relay, env = process.env, question
   return {
     answer: completion.text,
     answerMode: 'llm',
-    llm: { provider: 'profile', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '' },
-    llmAttempts: [{ provider: 'profile', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '', jobId: completion.jobId }],
+    llm: { provider: 'local-llm', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '' },
+    llmAttempts: [{ provider: 'local-llm', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '', jobId: completion.jobId }],
   };
 }
 
@@ -4799,8 +4800,8 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
         answerMode: 'retrieval-degraded',
         degraded: true,
         llm: {
-          provider: 'profile',
-          model: '',
+          provider: 'local-llm',
+          model: localLlmModel(env),
           used: false,
           transport: 'railway-relay',
           agent: 'wikicurator',
