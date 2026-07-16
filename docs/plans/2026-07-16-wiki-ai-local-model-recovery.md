@@ -3,7 +3,7 @@
 - Date: 2026-07-16
 - Owner: Codex
 - Work size: Large / Boundary
-- Status: In progress
+- Status: Verified
 
 ## Goal
 
@@ -31,7 +31,7 @@
 - [x] UI와 응답 메타데이터는 담당 에이전트를 `wikicurator`로 유지한다.
 - [x] 로컬 LLM 실패 시에도 검색 근거 기반 답변과 출처를 반환한다.
 - [x] 로컬 LLM이 멈춰도 8초 이내에 검색 근거 기반 답변으로 전환한다.
-- [ ] 실제 Electron에서 `UniPort BM 요약` 질문이 내부 404 없이 답변된다.
+- [x] 실제 Electron에서 `UniPort BM 요약` 질문이 내부 404 없이 답변된다.
 
 ## Edge Cases
 
@@ -55,14 +55,14 @@
 - [x] `npm run typecheck`
 - [x] `npm --workspace apps/desktop run test`
 - [x] `npm run build:desktop`
-- [ ] 실제 Electron 위키 질문
+- [x] 실제 Electron 위키 질문
 
 ## Implementation Checklist
 
 - [x] Step 1: 위키 스트림 모델/프로필 혼동을 RED 계약으로 고정한다.
 - [x] Step 2: 위키 합성을 실제 로컬 모델 Relay로 연결한다.
 - [x] Step 3: 실패 fallback과 전체 회귀를 검증한다.
-- [ ] Step 4: main 배포 후 Electron에서 실제 질문을 확인한다.
+- [x] Step 4: main 배포 후 Electron에서 실제 질문을 확인한다.
 
 ## Verification Notes
 
@@ -76,8 +76,14 @@
   - Result: PASS, desktop 138 tests와 production build 완료.
 - Command: `node --test --test-name-pattern='wiki relay returns retrieval fallback before' apps/backend/tests/wiki-fallback.test.cjs`
   - Result: RED 5.28초 대기 후 GREEN 1.18초. 운영 UI에서는 최대 8초 뒤 retrieval fallback으로 전환한다.
+- Railway deployments: `2015ff2e-a09c-45ba-8068-d21ecf55c550`, `2ad6ee29-e4ff-43e1-bdb9-65e2607c32a2`
+  - Result: SUCCESS. 실제 로컬 모델 라우팅과 지연 fallback을 순차 배포했다.
+- Actual Electron: `UniPort BM 요약`
+  - Result: PASS. 기존 `model 'wikicurator' not found` 404가 재발하지 않았고, 로컬 모델 지연 시 `wikicurator · 검색 fallback`과 출처 3개가 표시되며 요청이 정상 종료됐다.
 
 ## Remaining Risks
 
 - Risk: Mac mini Relay에 구성된 로컬 모델 자체가 오프라인일 수 있다.
   - Mitigation: 검색 근거 기반 degraded 답변을 정상 사용자 응답으로 유지한다.
+- Risk: 현재 운영 검증에서는 로컬 모델이 제한 안에 답하지 않아 자연어 합성 대신 검색 fallback이 사용됐다.
+  - Mitigation: 내부 오류나 무한 대기 없이 8초 내 검색 근거와 출처를 반환하며, 모델이 복구되면 동일 경로에서 자연어 합성을 사용한다.
