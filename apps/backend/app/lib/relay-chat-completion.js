@@ -190,7 +190,7 @@ function runRelayProfileChatCompletion(options = {}) {
       yolo: false,
       noApproval: false,
     },
-    jobKind: 'chat.completions',
+    jobKind: 'profile.chat',
   });
 }
 

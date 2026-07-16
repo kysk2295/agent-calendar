@@ -1903,7 +1903,7 @@ test('Hermes live Work Conversation uses profile chat streaming without a model 
     const liveResponse = await livePromise;
     const stream = await liveResponse.text();
 
-    assert.equal(relayJob.kind, 'chat.completions');
+    assert.equal(relayJob.kind, 'profile.chat');
     assert.equal(relayJob.payload.profile, 'default');
     assert.equal(relayJob.payload.stream, true);
     assert.equal('model' in relayJob.payload, false);

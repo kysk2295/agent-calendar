@@ -1780,7 +1780,7 @@ test('routes Hermes console chat through profile streaming without inventing an 
 
     const response = await chatPromise;
     const body = await response.text();
-    assert.equal(relayJob.kind, 'chat.completions');
+    assert.equal(relayJob.kind, 'profile.chat');
     assert.equal(relayJob.payload.profile, 'bizconsultant');
     assert.equal(relayJob.payload.stream, true);
     assert.equal('model' in relayJob.payload, false);
