@@ -330,7 +330,7 @@ test('wiki relay asks the canonical wikicurator profile without injecting retrie
 
     const response = await responsePromise;
     const body = await response.text();
-    assert.equal(profileJob.kind, 'profile.chat');
+    assert.equal(profileJob.kind, 'chat.completions');
     assert.equal(profileJob.payload.profile, 'wikicurator');
     assert.deepEqual(profileJob.payload.messages, [{ role: 'user', content: '운영 원칙을 알려줘' }]);
     assert.doesNotMatch(JSON.stringify(profileJob.payload.messages), /배포 전에는 테스트와 프리뷰 검증/);
@@ -421,7 +421,7 @@ test('wiki stream sends the unchanged question to wikicurator profile chat and t
     assert.equal(response.status, 200);
     assert.match(searchJob.payload.query, /비즈니스 모델/);
     assert.match(searchJob.payload.query, /CPA/);
-    assert.equal(profileJob.kind, 'profile.chat');
+    assert.equal(profileJob.kind, 'chat.completions');
     assert.equal(profileJob.payload.profile, 'wikicurator');
     assert.deepEqual(profileJob.payload.messages, [{
       role: 'user',
@@ -504,7 +504,7 @@ test('wiki relay clearly marks retrieval-only fallback when wikicurator profile 
     const response = await responsePromise;
     const body = await response.text();
 
-    assert.equal(profileJob.kind, 'profile.chat');
+    assert.equal(profileJob.kind, 'chat.completions');
     assert.equal(profileJob.payload.profile, 'wikicurator');
     assert.equal(response.status, 200);
     assert.match(body, /배포 전에는 테스트와 프리뷰 검증을 완료한다/);
@@ -569,7 +569,7 @@ test('wiki relay returns retrieval fallback before a stalled wikicurator profile
     const response = await responsePromise;
     const body = await response.text();
 
-    assert.equal(modelJob.kind, 'profile.chat');
+    assert.equal(modelJob.kind, 'chat.completions');
     assert.equal(modelJob.payload.profile, 'wikicurator');
     assert.ok(Date.now() - startedAt < 2000, 'retrieval fallback should beat the wiki UI timeout');
     assert.equal(response.status, 200);

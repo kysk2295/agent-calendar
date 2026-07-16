@@ -3538,7 +3538,7 @@ async function runRailwayRelayWikiSearch({ relay, env = process.env, question, p
 
 async function runRailwayRelayWikiChat({ relay, env = process.env, question, sources, model = '' } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline() || !Array.isArray(sources) || !sources.length) return null;
-  const completion = await runRelayChatCompletion({
+  const completion = await runRelayProfileChatCompletion({
     relay,
     env,
     payload: {
@@ -3553,7 +3553,6 @@ async function runRailwayRelayWikiChat({ relay, env = process.env, question, sou
       source: 'railway-relay-wikicurator-profile-chat',
     },
     timeoutMs: Number(env.HERMES_RELAY_WIKI_PROFILE_TIMEOUT_MS || 120_000),
-    jobKind: 'profile.chat',
   });
   return {
     text: completion.text,
