@@ -9,7 +9,10 @@ const { HermesStore } = require('../app/lib/store');
 const { OFFICIAL_PROFILE_NAMES } = require('../app/lib/official-profiles');
 const { looksLikePrivateRuntimeTranscript } = require('../app/lib/chat-runtime');
 const { relayTokensMatch } = require('../app/lib/railway-relay');
-const { interactiveRelayChatTimeout } = require('../app/lib/relay-chat-completion');
+const {
+  interactiveRelayChatTimeout,
+  scheduleRelayStreamTimeout,
+} = require('../app/lib/relay-chat-completion');
 const { safeRuntimeError } = require('../app/lib/runtime-gateway');
 const { registerTelegramWebhook } = require('../app/lib/connectors/telegram');
 
@@ -33,6 +36,12 @@ test('interactive Relay chat has a bounded timeout separate from long-running ag
   assert.equal(interactiveRelayChatTimeout({ HERMES_RELAY_CHAT_TIMEOUT_MS: '45000' }), 45_000);
   assert.equal(interactiveRelayChatTimeout({ HERMES_RELAY_STREAM_TIMEOUT_MS: '60000' }), 60_000);
   assert.equal(interactiveRelayChatTimeout({ HERMES_RELAY_CHAT_TIMEOUT_MS: 'invalid' }), 90_000);
+});
+
+test('calendar Relay synthesis allows a cold local model while staying below 30 seconds', () => {
+  assert.equal(scheduleRelayStreamTimeout({}), 28_000);
+  assert.equal(scheduleRelayStreamTimeout({ HERMES_RELAY_SCHEDULE_STREAM_TIMEOUT_MS: '24000' }), 24_000);
+  assert.equal(scheduleRelayStreamTimeout({ HERMES_RELAY_SCHEDULE_STREAM_TIMEOUT_MS: 'invalid' }), 28_000);
 });
 
 test('Console privacy filtering allows normal technical answers while blocking runtime transcripts', () => {

@@ -90,6 +90,11 @@ function interactiveRelayChatTimeout(env = process.env) {
   return Number.isFinite(configured) && configured >= 1_000 ? configured : 90_000;
 }
 
+function scheduleRelayStreamTimeout(env = process.env) {
+  const configured = Number(env.HERMES_RELAY_SCHEDULE_STREAM_TIMEOUT_MS || 28_000);
+  return Number.isFinite(configured) && configured >= 1 ? configured : 28_000;
+}
+
 async function runRelayChatCompletion({
   relay,
   env = process.env,
@@ -200,5 +205,6 @@ module.exports = {
   relayCompletionText,
   runRelayChatCompletion,
   runRelayProfileChatCompletion,
+  scheduleRelayStreamTimeout,
   sessionEventFromRelayRecord,
 };

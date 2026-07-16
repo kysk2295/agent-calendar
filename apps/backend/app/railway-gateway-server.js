@@ -73,6 +73,7 @@ const {
   interactiveRelayChatTimeout,
   runRelayChatCompletion,
   runRelayProfileChatCompletion,
+  scheduleRelayStreamTimeout,
 } = require('./lib/relay-chat-completion');
 const { runRelaySessionTurn } = require('./lib/relay-session-turn');
 const {
@@ -6826,7 +6827,7 @@ async function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewa
         question,
         computed: result.computed,
         sources: result.sources,
-        timeoutMs: Number(env.HERMES_RELAY_SCHEDULE_STREAM_TIMEOUT_MS || 8_000),
+        timeoutMs: scheduleRelayStreamTimeout(env),
       });
       if (relaySynthesis?.answer) {
         result = {
