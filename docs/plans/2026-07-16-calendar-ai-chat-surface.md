@@ -3,7 +3,7 @@
 - Date: 2026-07-16
 - Owner: Codex
 - Work size: Large
-- Status: In progress — deployed runtime recovery
+- Status: Verified — deployed and confirmed in Electron
 
 ## Goal
 
@@ -31,8 +31,8 @@
 - [x] 저장된 채팅 중 명시적으로 `target: calendar`인 기록만 패널에 복원된다.
 - [x] 질문형이 아닌 텍스트도 FAB에서 보내면 일정 어시스턴트가 처리한다.
 - [x] 기존 일정 질문과 일정 초안 등록 흐름이 유지된다.
-- [ ] 실제 FAB의 `/api/chat/stream` 경로가 Mac mini Relay의 캘린더 로컬 LLM을 사용한다.
-- [ ] 로컬 LLM 또는 Relay 실패 시에도 계산된 일정 답변을 반환한다.
+- [x] 실제 FAB의 `/api/chat/stream` 경로가 Mac mini Relay의 캘린더 로컬 LLM을 사용한다.
+- [x] 로컬 LLM 또는 Relay 실패 시에도 계산된 일정 답변을 반환한다.
 
 ## Edge Cases
 
@@ -48,7 +48,8 @@
   - [x] 일반 실행 기록과 run 카드가 캘린더 채팅에 보이면 실패하는 Playwright 테스트
   - [x] FAB 요청의 view가 캘린더 전용이 아니면 실패하는 계약 테스트
   - [x] 비질문형 캘린더 view 요청이 런타임으로 전달되면 실패하는 백엔드 테스트
-  - [ ] FAB 스트림 경로가 Relay 캘린더 로컬 LLM 작업을 만들지 않으면 실패하는 백엔드 테스트
+  - [x] FAB 스트림 경로가 Relay 캘린더 로컬 LLM 작업을 만들지 않으면 실패하는 백엔드 테스트
+  - [x] Relay가 데스크톱 제한보다 오래 대기하면 실패하는 백엔드 테스트
 - GREEN:
   - [x] ChatDrawer에서 runs 의존성을 제거하고 일정 기록만 hydrate한다.
   - [x] FAB 스트림 body와 게이트웨이 라우터에 `calendar` view 계약을 연결한다.
@@ -72,8 +73,8 @@
 - [x] Step 3: Railway 스트림 라우팅을 명시적 캘린더 view로 연결한다.
 - [x] Step 4: 실제 Electron에서 패널과 일정 응답을 확인한다.
 - [x] Step 5: 검증 결과와 남은 위험을 기록한다.
-- [ ] Step 6: FAB 스트림과 일정 JSON API의 로컬 LLM Relay 경로를 통합한다.
-- [ ] Step 7: 메인 배포 후 실제 Railway 캘린더 질문을 검증한다.
+- [x] Step 6: FAB 스트림과 일정 JSON API의 로컬 LLM Relay 경로를 통합한다.
+- [x] Step 7: 메인 배포 후 실제 Railway 캘린더 질문을 검증한다.
 
 ## Verification Notes
 
@@ -105,6 +106,14 @@
   - Result: PASS. 채팅 패널에서 Mission/wiki/runtime 기록 비노출, 캘린더 질문 칩·입력·전송 컨트롤 확인.
 - 독립 시각 QA
   - Result: 기능 무결성 PASS, 한국어/CJK 가독성 PASS.
+- RED: `node --test --test-name-pattern='calendar chat stream returns computed fallback before' apps/backend/tests/schedule-assistant.test.cjs`
+  - Result: 스트림이 일반 Relay 제한을 따라 약 5초 이상 대기하는 계약을 고정한 뒤, 캘린더 스트림 전용 제한으로 GREEN(약 1.07초).
+- `npm run test:backend`
+  - Result: PASS, 248 tests.
+- Railway production deployment `e521cf53-7a0c-4ef5-bb9a-8dee032a50df`
+  - Result: SUCCESS, commit `73a20a67` 배포.
+- 실제 Electron의 배포 후 캘린더 질문 `이번 주 완료율?`
+  - Result: PASS. `이번 주 기준 완료율은 23.5%입니다. 전체 34건 중 8건이 완료됐고 26건이 남아 있어요.` 응답 확인.
 
 ## Remaining Risks
 
