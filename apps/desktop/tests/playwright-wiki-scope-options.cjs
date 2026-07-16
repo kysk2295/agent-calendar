@@ -101,7 +101,7 @@ async function main() {
   assert.equal(Boolean(streamCall), true);
   assert.equal(searchCall.body.includeJournal, true);
   assert.equal(searchCall.body.includeRaw, true);
-  assert.equal(streamCall.body.agent, 'wiki-curator');
+  assert.equal(streamCall.body.agent, 'wikicurator');
   assert.match(answer || '', /스코프 옵션/);
   assert.equal(await page.locator('.api-banner').count(), 0);
 

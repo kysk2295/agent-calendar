@@ -20,6 +20,14 @@ import type {
 import './features/agent-operations/agent-operations.css';
 import './features/agent-operations/agent-workspace.css';
 import { useAgentCalendarDeepLink } from './features/agent-operations/useAgentCalendarDeepLink';
+import { consumeConsoleChatStream } from './features/chat/consoleChatStream';
+import { MobileNavigation, type MobileNavigationItem } from './features/mobile/MobileNavigation';
+import {
+  DEFAULT_UI_PREFERENCES,
+  persistUiPreferences,
+  readUiPreferences,
+  type UiPreferences,
+} from './features/settings/uiPreferences';
 
 type ScreenId = 'calendar' | 'today' | 'next7' | 'tasks' | 'kanban' | 'mail' | 'notes' | 'someday' | 'review' | 'wiki' | 'diary' | 'search' | 'agents' | 'widgets' | 'settings' | 'login';
 type ModalId = 'task' | 'new' | 'delegate' | 'run' | 'agent' | 'settings' | 'taxonomy' | null;
@@ -28,7 +36,6 @@ type NavItem = { id: ScreenId; icon: string; label: string; navKey?: string };
 type NavGroup = { title: string; kind?: 'list' | 'tag'; group?: string; items: NavItem[] };
 type TaxonomyKind = 'list' | 'tag';
 type TaxonomyItem = { id: string; label: string; icon: string; group: string; kind: TaxonomyKind; recordId?: string; hidden?: boolean };
-type UiPreferences = { notify: boolean; agentShare: boolean; weekStartMon: boolean };
 type CompletionNotice = { task: Item; title: string } | null;
 type ScheduleDraft = { kind: 'event' | 'task'; title: string; date: string; start: string | null; end: string | null; location: string | null; notes: string; confidence: 'high' | 'low'; selected?: boolean };
 type ChatMessage = { role: string; text: string; drafts?: ScheduleDraft[]; warnings?: string[]; conflicts?: Item[] };
@@ -64,43 +71,6 @@ type NewTaskControls = {
   endTime: string;
   setEndTime: (value: string) => void;
 };
-
-async function consumeConsoleChatStream(response: Response, onText: (text: string) => void): Promise<string> {
-  if (!response.ok || !response.body) throw new Error(`console stream ${response.status}`);
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let pending = '';
-  let answer = '';
-  const consume = (block: string) => {
-    const lines = block.split('\n');
-    const event = lines.find((line) => line.startsWith('event:'))?.slice('event:'.length).trim() || 'message';
-    const raw = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice('data:'.length).trimStart()).join('\n');
-    if (!raw || raw === '[DONE]') return;
-    const payload = JSON.parse(raw) as { text?: unknown; error?: unknown };
-    if (typeof payload.error === 'string' && payload.error) throw new Error(payload.error);
-    if (typeof payload.text !== 'string' || !payload.text) return;
-    if (event === 'done') {
-      if (!answer) answer = payload.text;
-    } else {
-      answer += payload.text;
-    }
-    onText(answer);
-  };
-  while (true) {
-    const { done, value } = await reader.read();
-    pending += decoder.decode(value, { stream: !done }).replace(/\r\n/g, '\n');
-    let separator = pending.indexOf('\n\n');
-    while (separator >= 0) {
-      consume(pending.slice(0, separator));
-      pending = pending.slice(separator + 2);
-      separator = pending.indexOf('\n\n');
-    }
-    if (done) break;
-  }
-  if (pending.trim()) consume(pending);
-  if (!answer.trim()) throw new Error('console stream returned no answer');
-  return answer;
-}
 
 type AppState = {
   tasks: Item[];
@@ -165,7 +135,6 @@ const screenMeta: Record<ScreenId, { title: string; sub: string }> = {
 
 const TAXONOMY_SOURCE = 'hermes-desktop-taxonomy';
 const CALENDAR_META_MARKER = '[Agent Calendar]\n';
-const DEFAULT_UI_PREFERENCES: UiPreferences = { notify: true, agentShare: true, weekStartMon: true };
 const LOGO_SRC = './agent-calendar-logo.png';
 const IS_WIDGET_OVERLAY = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('overlay') === 'widgets';
 
@@ -277,7 +246,7 @@ function wikiStreamCommand(question: string, sources: Item[]) {
   }).join('\n');
   return [
     '위키 큐레이터 답변.',
-    '규칙: SOURCES만 사용. 한국어로 최소 350자 이상 충분히 답하라. 보통 2~4개 문단 또는 5~9문장으로 핵심 판단, 근거, 다음 액션/리스크를 포함하라. 중요한 문장 끝에는 [1]처럼 인용하라. 모르면 "위키 근거 부족"이라고 말하라.',
+    '규칙: SOURCES만 사용. 한국어로 질문에 필요한 만큼 자연스럽고 직접적으로 답하라. 핵심 판단과 근거를 먼저 말하고, 도움이 될 때만 다음 액션이나 리스크를 덧붙여라. 중요한 근거 문장 끝에는 [1]처럼 인용하라. 근거가 부족하면 "위키 근거 부족"이라고 솔직히 말하라.',
     '',
     `Q: ${question}`,
     '',
@@ -983,17 +952,6 @@ function stringList(payload: ApiEnvelope, key: string) {
   return Array.isArray(nested) ? nested.map(String) : [];
 }
 
-function settingsPreferences(payload: ApiEnvelope | undefined): UiPreferences {
-  const direct = obj(payload, 'uiPreferences');
-  const nested = obj(obj(payload, 'settings'), 'uiPreferences');
-  const source = Object.keys(direct).length ? direct : nested;
-  return {
-    notify: typeof source.notify === 'boolean' ? source.notify : DEFAULT_UI_PREFERENCES.notify,
-    agentShare: typeof source.agentShare === 'boolean' ? source.agentShare : DEFAULT_UI_PREFERENCES.agentShare,
-    weekStartMon: typeof source.weekStartMon === 'boolean' ? source.weekStartMon : DEFAULT_UI_PREFERENCES.weekStartMon,
-  };
-}
-
 function desktopSettingsState(settings: HermesDesktopSettings): DesktopSettingsState {
   return {
     apiBaseUrl: settings.apiBaseUrl,
@@ -1024,6 +982,7 @@ export function App() {
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(true);
   const hasHydratedRef = useRef(false);
+  const localUiPreferencesRef = useRef<UiPreferences | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newDate, setNewDate] = useState('');
@@ -1192,6 +1151,14 @@ export function App() {
     if (!dynamicTagGroups.length) dynamicTagGroups.push({ title: '태그', kind: 'tag', group: '태그', items: [] });
     return [smartNavGroups[0], ...dynamicListGroups, ...dynamicTagGroups, ...smartNavGroups.slice(1)];
   }, [listDefinitions, tagDefinitions]);
+  const mobileNavigationItems = useMemo<MobileNavigationItem[]>(() => navGroups.flatMap((group) => (
+    group.items.map((item) => ({
+      key: item.navKey || item.id,
+      screen: item.id,
+      icon: item.icon,
+      label: item.label,
+    }))
+  )), [navGroups]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1210,6 +1177,7 @@ export function App() {
         const desktopSettings = await window.hermesDesktop?.getSettings();
         const proxyConnection = await window.hermesDesktop.getHermesConnection();
         if (desktopSettings && !cancelled) {
+          localUiPreferencesRef.current = readUiPreferences(desktopSettings);
           setSettings(desktopSettingsState(desktopSettings));
           setLoggedIn(Boolean(desktopSettings.authProfile));
           if (desktopSettings.authProfile?.email) setLoginEmail(desktopSettings.authProfile.email);
@@ -1315,8 +1283,9 @@ export function App() {
         profileReadiness: obj(dashboard, 'profileReadiness'),
         agentSourceStatus: obj(dashboard, 'agentSourceStatus'),
       });
-      setPrefs(settingsPreferences(settingsPayload));
-      setSettings((current) => ({ ...current, uiPreferences: settingsPreferences(settingsPayload) }));
+      const hydratedPreferences = localUiPreferencesRef.current || readUiPreferences(settingsPayload);
+      setPrefs(hydratedPreferences);
+      setSettings((current) => ({ ...current, uiPreferences: hydratedPreferences }));
       if (remoteChat.length) {
         setChatMessages(remoteChat.slice(-40).map(toChatMessage).filter((message) => message.text));
       }
@@ -2029,9 +1998,12 @@ export function App() {
     const scheduleItems = [...tasks, ...events.map((event) => ({ ...event, kind: 'calendar-event', type: 'calendar-event' }))];
     const computed = taskDataSummary(question, scheduleItems);
     const userText = attachment ? `${question || '사진에서 일정 추출해줘'}\n첨부: ${attachment.name}` : question;
+    const waitingText = attachment
+      ? '이미지에서 일정과 시간을 분석하고 있어요. 최대 3분 정도 걸릴 수 있습니다.'
+      : '';
     setChatInput('');
     setChatAttachment(null);
-    setChatMessages((current) => [...current, { role: 'user', text: userText }, { role: 'assistant', text: '' }]);
+    setChatMessages((current) => [...current, { role: 'user', text: userText }, { role: 'assistant', text: waitingText }]);
     const localAnswer = fallbackAnswer(question, computed);
     try {
       let payload: ApiEnvelope;
@@ -2069,7 +2041,14 @@ export function App() {
       )));
     } catch {
       setChatMessages((current) => current.map((message, index) => (
-        index === current.length - 1 ? { ...message, text: localAnswer } : message
+        index === current.length - 1
+          ? {
+            ...message,
+            text: attachment
+              ? '이미지 분석을 완료하지 못했어요. 잠시 후 다시 시도하거나 더 선명한 이미지를 첨부해 주세요.'
+              : localAnswer,
+          }
+          : message
       )));
     }
   }
@@ -2123,14 +2102,14 @@ export function App() {
         ? arr(searchPayload, 'results', 'sources', 'citations')
         : arr(searchData, 'results', 'sources', 'citations');
       setWikiAnswerSources(sources);
-      setWikiAnswerMeta({ provider: 'railway-hermes', agent: 'wiki-curator', model: 'wiki-curator', source: 'stream', gatewayFallback: false });
+      setWikiAnswerMeta({ provider: 'railway-hermes', agent: 'wikicurator', model: 'wikicurator', source: 'stream', gatewayFallback: false });
 
       const response = await hermesApi.streamChat({
         message: wikiStreamCommand(question, sources),
         view: 'wiki',
-        agent: 'wiki-curator',
-        agentId: 'wiki-curator',
-        model: 'wiki-curator',
+        agent: 'wikicurator',
+        agentId: 'wikicurator',
+        model: 'wikicurator',
         mode: 'wiki_qa_fast',
       });
       if (!response.ok || !response.body) throw new Error(`wiki stream ${response.status}`);
@@ -2156,7 +2135,7 @@ export function App() {
                 ...current,
                 gatewayFallback: parsed.gatewayFallback ?? current.gatewayFallback,
                 source: parsed.source || text(current.source, 'stream'),
-                model: parsed.run?.model || text(current.model, 'wiki-curator'),
+                model: parsed.run?.model || text(current.model, 'wikicurator'),
               }));
             }
             if (parsed.error) throw new Error(parsed.error);
@@ -2459,14 +2438,15 @@ export function App() {
     setPrefs(nextPrefs);
     setSettings((current) => ({ ...current, uiPreferences: nextPrefs }));
     try {
-      const payload = await hermesApi.saveSettings({ uiPreferences: nextPrefs });
-      const directPrefs = obj(payload, 'uiPreferences');
-      const nestedPrefs = obj(obj(payload, 'settings'), 'uiPreferences');
-      if (Object.keys(directPrefs).length || Object.keys(nestedPrefs).length) {
-        const updated = settingsPreferences(payload);
-        setPrefs(updated);
-        setSettings((current) => ({ ...current, uiPreferences: updated }));
-      }
+      const desktopApi = window.hermesDesktop;
+      const updated = await persistUiPreferences({
+        preferences: nextPrefs,
+        saveLocal: desktopApi ? (payload) => desktopApi.saveSettings(payload) : undefined,
+        saveRemote: (payload) => hermesApi.saveSettings(payload),
+      });
+      localUiPreferencesRef.current = desktopApi ? updated : null;
+      setPrefs(updated);
+      setSettings((current) => ({ ...current, uiPreferences: updated }));
     } catch (error) {
       setPrefs(previousPrefs);
       setSettings((current) => ({ ...current, uiPreferences: previousPrefs }));
@@ -2826,6 +2806,16 @@ export function App() {
           </section>
         )}
       </main>
+
+      <MobileNavigation
+        items={mobileNavigationItems}
+        activeKey={activeNavKey}
+        onSelect={(key) => {
+          const item = navGroups.flatMap((group) => group.items).find((candidate) => (candidate.navKey || candidate.id) === key);
+          if (item) openScreen(item.id, item.navKey || item.id);
+        }}
+        onOpenSettings={() => setModal('settings')}
+      />
 
       <button className="chat-fab" data-active={chatOpen} onClick={() => setChatOpen((open) => !open)} aria-label={chatOpen ? 'Agent Calendar 콘솔 닫기' : 'Agent Calendar 콘솔 열기'} title="Agent Calendar 콘솔">
         <ChatIcon />
@@ -4514,7 +4504,7 @@ function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, set
       </aside>
       <section className="wiki-graph-panel">
         <header><strong>지식 그래프</strong><small>{localGraphScopeActive ? '로컬 그래프 · ' : ''}{visibleGraphNodes.length}개 노트 · {visibleGraphEdges.length}개 링크</small><i />{graphGroups.slice(0, 5).map((tag) => <span className="wiki-legend" key={tag}><b style={{ background: colors[tag] || colors.기타 }} />{tag}</span>)}</header>
-        <div ref={graphCanvasRef} className="wiki-graph-canvas view-content graph-banner-content" data-panning={graphPanning} data-interactive={graphInteractive} data-scope={localGraphScopeActive ? 'local' : 'global'} data-dense-focus={denseFocusZoomLabels} data-focus-zoom={graphFocusMode && graphZoom >= 1.35} data-timelapse={graphTimelapseActive} style={{ '--wiki-edge-opacity': graphLinkOpacity, '--wiki-edge-scale': graphLinkScale } as CSSProperties} tabIndex={0} onKeyDown={(event) => {
+        <div ref={graphCanvasRef} className="wiki-graph-canvas view-content graph-banner-content" data-panning={graphPanning} data-interactive={graphInteractive} data-scope={localGraphScopeActive ? 'local' : 'global'} data-sparse={visibleGraphNodes.length > 0 && visibleGraphNodes.length <= 6} data-dense-focus={denseFocusZoomLabels} data-focus-zoom={graphFocusMode && graphZoom >= 1.35} data-timelapse={graphTimelapseActive} style={{ '--wiki-edge-opacity': graphLinkOpacity, '--wiki-edge-scale': graphLinkScale } as CSSProperties} tabIndex={0} onKeyDown={(event) => {
           if (!event.metaKey && !event.ctrlKey) return;
           if (event.key === '+' || event.key === '=') {
             event.preventDefault();

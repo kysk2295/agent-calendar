@@ -123,7 +123,7 @@ async function main() {
     assert.equal(call.body.limit, 8);
     assert.match(String(call.body.question || ''), new RegExp(`LLM_FORMAT_${String(index).padStart(3, '0')}`));
   });
-  streamCalls.forEach((call) => assert.equal(call.body.agent, 'wiki-curator'));
+  streamCalls.forEach((call) => assert.equal(call.body.agent, 'wikicurator'));
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, iterations, wikiSearchCalls: searchCalls.length, wikiStreamCalls: streamCalls.length, answerStyle: 'conversational-gpt-like' }, null, 2));

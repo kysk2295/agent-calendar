@@ -29,7 +29,7 @@ test('Agent Work Control Space uses the documented operational type scale', () =
   assert.doesNotMatch(css, /font-size:[^;}]*!important/);
   assert.match(css, /@media\s*\(max-width:\s*1120px\)[\s\S]*?\.agent-work-layout\s*\{[^}]*display:\s*grid/);
   assert.match(css, /@media\s*\(max-width:\s*480px\)[\s\S]*?\.agent-work-composer\s*>\s*div\s*\{[^}]*grid-template-columns:\s*1fr/);
-  assert.match(css, /\.app-root:has\(\.agent-control-room\)\s+\.chat-fab\s*\{\s*display:\s*none/);
+  assert.doesNotMatch(css, /\.app-root:has\(\.agent-control-room\)\s+\.chat-fab\s*\{[^}]*display:\s*none/);
 });
 
 test('in-flow Work Conversation surfaces use borders instead of floating shadows', () => {

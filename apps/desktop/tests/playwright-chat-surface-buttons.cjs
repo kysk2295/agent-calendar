@@ -30,7 +30,14 @@ async function main() {
       await route.fulfill({
         status: 200,
         headers: { 'content-type': 'text/event-stream' },
-        body: ['data: {"text":"Enter 전송 응답"}', ''].join('\n'),
+        body: [
+          'event: delta',
+          'data: {"text":"Enter 전송 응답"}',
+          '',
+          'event: done',
+          'data: {"text":"Enter 전송 응답"}',
+          '',
+        ].join('\n'),
       });
       return;
     }

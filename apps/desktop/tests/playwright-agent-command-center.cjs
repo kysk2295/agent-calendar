@@ -9,7 +9,27 @@ const auditDir = process.env.AGENT_COMMAND_CENTER_AUDIT_DIR || '';
 async function capture(page, name) {
   if (!auditDir) return;
   await mkdir(auditDir, { recursive: true });
-  await page.screenshot({ path: path.join(auditDir, `${name}.png`), fullPage: true });
+  await page.screenshot({ path: path.join(auditDir, `${name}.png`), fullPage: false });
+}
+
+async function assertConsoleButtonClearOfControls(page, label) {
+  const overlaps = await page.evaluate(() => {
+    const fab = document.querySelector('.chat-fab');
+    if (!(fab instanceof HTMLElement)) return ['Console button missing'];
+    const fabRect = fab.getBoundingClientRect();
+    const intersects = (left, right) => (
+      left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top
+    );
+    return [...document.querySelectorAll('.agent-control-room button, .agent-control-room a, .agent-control-room input, .agent-control-room textarea, .agent-control-room select')]
+      .filter((element) => element !== fab)
+      .filter((element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0 && intersects(fabRect, rect);
+      })
+      .map((element) => element.getAttribute('aria-label') || element.textContent?.trim().slice(0, 60) || element.tagName);
+  });
+  assert.deepEqual(overlaps, [], `${label}: Console button overlaps Agent Work controls`);
 }
 
 async function main() {
@@ -266,6 +286,12 @@ async function main() {
   await page.goto(target);
   await page.locator('.nav-item').filter({ hasText: '에이전트' }).click();
   await page.waitForSelector('.agent-control-room');
+  assert.equal(await page.locator('.chat-fab').isVisible(), true);
+  await assertConsoleButtonClearOfControls(page, 'desktop');
+  await page.locator('.chat-fab').click();
+  await page.locator('.chat').waitFor();
+  await page.locator('.chat header button[aria-label="Agent Calendar 콘솔 닫기"]').click();
+  await page.locator('.chat').waitFor({ state: 'detached' });
 
   assert.equal(await page.locator('.agent-operations-tabs').count(), 0);
   assert.equal(await page.getByRole('button', { name: '리서치', exact: true }).count(), 0);
@@ -282,8 +308,9 @@ async function main() {
   await page.locator('.agent-running-card', { hasText: '경쟁사 가격표 조사' }).click();
   await page.waitForSelector('.agent-work-conversation');
   await page.locator('.agent-checkpoint', { hasText: '경쟁사 가격 변화를 확인하고 주간 보고서를 작성한다.' }).waitFor();
-  assert.match(await page.locator('.agent-work-conversation').textContent() || '', /경쟁사 가격 변화를 확인하고 주간 보고서를 작성한다\./);
-  assert.match(await page.locator('.agent-work-conversation').textContent() || '', /가격 변동 2건/);
+  const conversationText = (await page.locator('.agent-work-conversation').textContent() || '').replace(/\u00a0/g, ' ');
+  assert.match(conversationText, /경쟁사 가격 변화를 확인하고 주간 보고서를 작성한다\./);
+  assert.match(conversationText, /가격 변동 2건/);
   assert.equal(await page.locator('.agent-work-drawer, .agent-work-scrim').count(), 0);
   await capture(page, 'agent-work-conversation-desktop');
   await page.getByRole('button', { name: '관제 홈으로 돌아가기' }).click();
@@ -303,6 +330,7 @@ async function main() {
   await page.setViewportSize({ width: 768, height: 900 });
   const tabletWidths = await page.locator('.agent-control-room').evaluateAll((elements) => elements.map((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })));
   assert.equal(tabletWidths.every((width) => width.scrollWidth <= width.clientWidth), true);
+  await assertConsoleButtonClearOfControls(page, 'tablet');
   await capture(page, 'agent-work-tablet');
 
   await page.setViewportSize({ width: 375, height: 812 });
@@ -325,6 +353,12 @@ async function main() {
   assert.ok(mobileViewport.heading);
   assert.equal(mobileViewport.heading.left >= 0 && mobileViewport.heading.right <= mobileViewport.innerWidth, true);
   assert.equal(await page.getByLabel('에이전트에게 작업 지시').isVisible(), true);
+  assert.equal(await page.locator('.chat-fab').isVisible(), true);
+  await assertConsoleButtonClearOfControls(page, 'mobile');
+  await page.locator('.chat-fab').click();
+  await page.locator('.chat').waitFor();
+  await page.locator('.chat header button[aria-label="Agent Calendar 콘솔 닫기"]').click();
+  await page.locator('.chat').waitFor({ state: 'detached' });
   await capture(page, 'agent-work-mobile');
 
   await browser.close();

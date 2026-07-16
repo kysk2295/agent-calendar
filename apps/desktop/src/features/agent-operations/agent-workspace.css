@@ -1,5 +1,4 @@
 .app-root:has(.agent-control-room) .topbar { display: none; }
-.app-root:has(.agent-control-room) .chat-fab { display: none; }
 .app-root:has(.agent-control-room) .main, .app-root:has(.agent-control-room) .content { min-height: 0; }
 .app-root:has(.agent-control-room) .content { height: 100%; padding: 0; overflow: hidden; }
 
@@ -37,6 +36,7 @@
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
+  padding-right: 64px;
 }
 
 .agent-control-head > div { min-width: 0; display: flex; align-items: baseline; gap: 11px; }
@@ -205,7 +205,7 @@
 .agent-control-empty { margin: 0; padding: 17px; color: var(--muted); border: 1px dashed var(--line-strong); border-radius: var(--agent-radius-card); font-size: var(--agent-type-caption); text-align: center; }
 
 .agent-work-conversation { min-width: 0; height: 100%; display: flex; flex-direction: column; color: var(--text); background: var(--main); overflow: hidden; }
-.agent-work-header { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; padding: 17px clamp(18px, 4vw, 44px) 15px; background: color-mix(in srgb, var(--panel) 92%, var(--main)); border-bottom: 1px solid var(--line); }
+.agent-work-header { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; padding: 17px max(72px, clamp(18px, 4vw, 44px)) 15px clamp(18px, 4vw, 44px); background: color-mix(in srgb, var(--panel) 92%, var(--main)); border-bottom: 1px solid var(--line); }
 .agent-work-back { min-width: 44px; height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; color: var(--muted-dark); background: transparent; border: 1px solid var(--line); border-radius: 8px; font-size: 11px; font-weight: 800; }
 .agent-work-back svg { width: 17px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .agent-work-header-content { min-width: 0; }
@@ -349,12 +349,12 @@
   .agent-control-head { align-items: flex-start; }
   .agent-control-head > div { display: grid; gap: 2px; }
   .agent-control-live { max-width: 48%; white-space: normal; text-align: right; }
-  .agent-work-header { gap: 12px; padding-inline: 14px; }
+  .agent-work-header { gap: 12px; padding-inline: 14px 68px; }
   .agent-work-layout { padding: 18px 14px 30px; }
 }
 
 @media (max-width: 520px) {
-  .agent-work-header { gap: 8px; padding: 8px 10px; }
+  .agent-work-header { gap: 8px; padding: 8px 62px 8px 10px; }
   .agent-work-back { padding: 0; justify-content: center; }
   .agent-work-back span { display: none; }
   .agent-work-kicker { display: none; }

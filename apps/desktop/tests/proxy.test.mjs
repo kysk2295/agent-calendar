@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { request } from 'node:http';
 import { test } from 'node:test';
 import { createApiProxyServer } from '../dist-electron/proxy.js';
 
@@ -96,6 +97,60 @@ test('proxy forwards schedule assistant asks to backend by default', async () =>
   assert.equal(calls[0].url, 'https://hermes-os-production-e174.up.railway.app/api/assistant/ask');
   assert.equal(calls[0].init.headers.authorization, 'Bearer secret-token');
   assert.equal(calls[0].body, '{"question":"이번 주 완료율?"}');
+});
+
+test('proxy forwards multipart bytes and aborts upstream when renderer disconnects', async () => {
+  const boundary = '----agent-calendar-boundary';
+  const multipartBody = Buffer.from([
+    `--${boundary}`,
+    'Content-Disposition: form-data; name="text"',
+    '',
+    '사진에서 일정 추출',
+    `--${boundary}`,
+    'Content-Disposition: form-data; name="image"; filename="schedule.png"',
+    'Content-Type: image/png',
+    '',
+    'PNG_BYTES',
+    `--${boundary}--`,
+    '',
+  ].join('\r\n'));
+  let upstreamSignal;
+  let forwardedBody = Buffer.alloc(0);
+  let forwardedType = '';
+  let markStarted;
+  const started = new Promise((resolve) => { markStarted = resolve; });
+
+  await withServer(async (_url, init) => {
+    upstreamSignal = init.signal;
+    forwardedBody = Buffer.from(init.body);
+    forwardedType = init.headers['content-type'];
+    markStarted();
+    return new Promise((resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    });
+  }, {
+    apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app',
+    apiToken: 'secret-token',
+  }, async (baseUrl) => {
+    const target = new URL('/api/assistant/ingest', baseUrl);
+    const rendererRequest = request(target, {
+      method: 'POST',
+      headers: {
+        [PROXY_CREDENTIAL_HEADER]: TEST_PROXY_CREDENTIAL,
+        'content-type': `multipart/form-data; boundary=${boundary}`,
+        'content-length': String(multipartBody.length),
+      },
+    });
+    rendererRequest.on('error', () => {});
+    rendererRequest.end(multipartBody);
+    await started;
+    rendererRequest.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(forwardedType, `multipart/form-data; boundary=${boundary}`);
+  assert.deepEqual(forwardedBody, multipartBody);
+  assert.equal(upstreamSignal?.aborted, true);
 });
 
 test('proxy preserves streaming responses', async () => {

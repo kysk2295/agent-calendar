@@ -106,28 +106,26 @@ async function main() {
 
   await page.goto(target);
   await page.locator('.nav-item', { hasText: '오늘' }).click();
-  await page.waitForSelector('.task-list-screen');
-  await page.waitForSelector('.list-quick input');
+  await page.waitForSelector('.plan-screen');
+  await page.waitForSelector('.plan-quick input');
 
-  await page.locator('.list-quick input').fill('오후3시 당일화면 빠른 추가 #업무 !높음 @agent');
-  await page.locator('.list-quick button').click();
-  await page.locator('.row', { hasText: '당일화면 빠른 추가' }).waitFor();
-  assert.equal(await page.locator('.list-quick input').inputValue(), '');
+  await page.locator('.plan-quick input').fill('오후3시 당일화면 빠른 추가 #업무 !높음 @agent');
+  await page.locator('.plan-quick button').click();
+  await page.locator('.plan-row', { hasText: '당일화면 빠른 추가' }).waitFor();
+  assert.equal(await page.locator('.plan-quick input').inputValue(), '');
 
-  await page.locator('.row', { hasText: '오늘 표면 작업' }).dblclick();
+  await page.locator('.plan-row', { hasText: '오늘 표면 작업' }).click();
   await page.waitForSelector('.detail-modal');
   assert.equal(await page.locator('.detail-title-input').inputValue(), '오늘 표면 작업');
   await page.locator('.detail-close').click();
 
-  await page.locator('.nav-item', { hasText: '에이전트' }).click();
-  await page.locator('.run-row', { hasText: '오늘 표면 검토 런' }).click();
+  await page.locator('.review-row', { hasText: '오늘 표면 검토 런' }).click();
   await page.waitForSelector('.run-modal');
   assert.match(await page.locator('.run-modal').textContent(), /오늘 표면 검토 런/);
   await page.locator('.run-close').click();
 
-  await page.locator('.run-row', { hasText: '오늘 표면 검토 런' }).click();
-  await page.locator('.run-approve').click();
-  await page.waitForFunction(() => !document.querySelector('.run-row'));
+  await page.locator('.review-row', { hasText: '오늘 표면 검토 런' }).locator('.approve').click();
+  await page.waitForFunction(() => !document.querySelector('.review-row'));
 
   const createCall = calls.find((call) => call.method === 'POST' && call.path === '/api/tasks');
   const approveCall = calls.find((call) => call.method === 'POST' && call.path === '/api/runs/today-review-run/approve');

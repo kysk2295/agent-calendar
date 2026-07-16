@@ -1,0 +1,231 @@
+@media (max-width: 760px) {
+  .app-root {
+    display: block;
+  }
+
+  .main {
+    width: 100%;
+    height: 100%;
+    padding-bottom: calc(68px + env(safe-area-inset-bottom));
+  }
+
+  .topbar {
+    height: calc(48px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 64px 0 12px;
+  }
+
+  .chat-fab,
+  .app-root:has(.task-list-screen) .chat-fab,
+  .app-root:has(.detail-modal) .chat-fab {
+    top: calc(2px + env(safe-area-inset-top));
+    right: 8px;
+    bottom: auto;
+    width: 44px;
+    height: 44px;
+  }
+
+  .content {
+    width: 100%;
+    overflow-x: hidden;
+    padding: 10px 10px 28px;
+  }
+
+  .screen-toolbar {
+    align-items: stretch;
+    gap: 7px;
+  }
+
+  .screen-toolbar h2 {
+    width: 100%;
+  }
+
+  .screen-toolbar .legend {
+    display: none;
+  }
+
+  .screen-toolbar .segment,
+  .agent-calendar-filter {
+    margin-left: 0;
+  }
+
+  .screen-toolbar button,
+  .screen-toolbar .segment button {
+    min-height: 40px;
+  }
+
+  .calendar {
+    height: auto;
+    min-height: calc(100dvh - 150px);
+  }
+
+  .month-grid {
+    min-height: 570px;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .day-cell {
+    padding: 4px 2px;
+  }
+
+  .event-pill {
+    min-height: 18px;
+    font-size: 9px;
+  }
+
+  .task-list-screen {
+    width: 100%;
+    height: auto;
+    min-height: calc(100dvh - 160px);
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: none;
+    gap: 12px;
+    padding: 0;
+  }
+
+  .task-list-main {
+    width: 100%;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .repeat-chips {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .task-inspector {
+    width: 100%;
+    height: auto;
+    min-height: 360px;
+    flex: none;
+  }
+
+  .kanban {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .kanban-col {
+    width: 100%;
+    max-height: none;
+  }
+
+  .mail {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  .mail-list {
+    width: 100%;
+    height: min(46dvh, 390px);
+    flex: none;
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+  }
+
+  .mail-reader {
+    width: 100%;
+    min-height: 460px;
+    flex: none;
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+  }
+
+  .mail-head {
+    padding: 18px 16px 14px;
+  }
+
+  .mail-head h2 {
+    font-size: 18px;
+  }
+
+  .mail-actions {
+    flex-wrap: wrap;
+    padding: 10px 14px;
+  }
+
+  .mail-actions button {
+    min-height: 40px;
+  }
+
+  .mail-body {
+    padding: 18px 16px 36px;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+
+  .review-screen,
+  .review-range,
+  .review-kpis span,
+  .review-kpis small,
+  .review-goals,
+  .review-retro,
+  .theme-preview b {
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+
+  .review-kpis div {
+    min-width: 0;
+  }
+
+  .review-kpis strong {
+    white-space: nowrap;
+  }
+
+  .settings-overlay {
+    max-width: calc(100vw - 24px);
+  }
+
+  .settings-body {
+    padding: 18px 14px;
+  }
+
+  .account-box {
+    padding: 14px;
+  }
+
+  .account-box div:nth-child(2) {
+    min-width: 0;
+  }
+
+  .account-box div:nth-child(2) span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .account-box button,
+  .account-box button:not(.primary) {
+    min-width: 68px;
+    flex: 0 0 auto;
+    padding-inline: 10px;
+    white-space: nowrap;
+  }
+
+  .theme-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .theme-grid button,
+  .theme-grid b {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 340px) {
+  .review-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

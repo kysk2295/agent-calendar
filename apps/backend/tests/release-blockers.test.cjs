@@ -7,7 +7,9 @@ const { mkdtemp, rm } = require('node:fs/promises');
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
 const { HermesStore } = require('../app/lib/store');
 const { OFFICIAL_PROFILE_NAMES } = require('../app/lib/official-profiles');
+const { looksLikePrivateRuntimeTranscript } = require('../app/lib/chat-runtime');
 const { relayTokensMatch } = require('../app/lib/railway-relay');
+const { interactiveRelayChatTimeout } = require('../app/lib/relay-chat-completion');
 const { safeRuntimeError } = require('../app/lib/runtime-gateway');
 const { registerTelegramWebhook } = require('../app/lib/connectors/telegram');
 
@@ -25,6 +27,24 @@ function close(server) {
     server.close((error) => (error ? reject(error) : resolve()));
   });
 }
+
+test('interactive Relay chat has a bounded timeout separate from long-running agent work', () => {
+  assert.equal(interactiveRelayChatTimeout({}), 90_000);
+  assert.equal(interactiveRelayChatTimeout({ HERMES_RELAY_CHAT_TIMEOUT_MS: '45000' }), 45_000);
+  assert.equal(interactiveRelayChatTimeout({ HERMES_RELAY_STREAM_TIMEOUT_MS: '60000' }), 60_000);
+  assert.equal(interactiveRelayChatTimeout({ HERMES_RELAY_CHAT_TIMEOUT_MS: 'invalid' }), 90_000);
+});
+
+test('Console privacy filtering allows normal technical answers while blocking runtime transcripts', () => {
+  assert.equal(
+    looksLikePrivateRuntimeTranscript('An instruction explains intent, while stdout carries a program result.'),
+    false,
+  );
+  assert.equal(
+    looksLikePrivateRuntimeTranscript('INTERNAL_PROMPT_SENTINEL reportSchema priorMissionEvidence stdout: raw output'),
+    true,
+  );
+});
 
 test('rejects an unauthenticated API caller before forwarding the server runtime token', async () => {
   // Given
@@ -1723,8 +1743,22 @@ test('routes Hermes console chat through profile streaming without inventing an 
         'x-hermes-relay-token': 'relay-token',
       },
       body: JSON.stringify({
+        event: 'message',
+        data: {
+          text: 'INTERNAL_PROMPT_SENTINEL instruction reportSchema priorMissionEvidence stdout: railway-relay job queued',
+        },
+      }),
+    });
+
+    await fetch(`${baseUrl}/api/relay/jobs/${relayJob.id}/events`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({
         event: 'delta',
-        data: { text: 'bizconsultant ready token=topsecret /Users/koyunseo/private.md' },
+        data: { text: '선택한 담당 프로필로 답변을 준비했습니다.' },
       }),
     });
 
@@ -1736,7 +1770,7 @@ test('routes Hermes console chat through profile streaming without inventing an 
       },
       body: JSON.stringify({
         ok: true,
-        text: 'bizconsultant ready token=topsecret /Users/koyunseo/private.md',
+        text: '선택한 담당 프로필로 답변을 준비했습니다.',
         runner: 'hermes-profile-chat',
         profile: 'bizconsultant',
         usage: { outputChars: 64, promptChars: 80 },
@@ -1746,7 +1780,7 @@ test('routes Hermes console chat through profile streaming without inventing an 
 
     const response = await chatPromise;
     const body = await response.text();
-    assert.equal(relayJob.kind, 'profile.chat');
+    assert.equal(relayJob.kind, 'chat.completions');
     assert.equal(relayJob.payload.profile, 'bizconsultant');
     assert.equal(relayJob.payload.stream, true);
     assert.equal('model' in relayJob.payload, false);
@@ -1754,11 +1788,13 @@ test('routes Hermes console chat through profile streaming without inventing an 
     assert.equal(relayJob.payload.yolo, false);
     assert.equal(relayJob.payload.noApproval, false);
     assert.equal(response.status, 200);
-    assert.match(body, /bizconsultant ready/);
+    assert.match(body, /선택한 담당 프로필로 답변을 준비했습니다/);
     assert.doesNotMatch(body, /hermes-agent/);
     assert.doesNotMatch(body, /profile-default/);
     assert.match(body, /"model":"unknown"/);
-    assert.doesNotMatch(body, /topsecret|\/Users\/koyunseo/);
+    assert.doesNotMatch(body, /INTERNAL_PROMPT_SENTINEL|instruction|reportSchema|priorMissionEvidence|stdout|railway-relay job queued/);
+    assert.doesNotMatch(body, /event: (?:agent-state|timeline|tool-activity|memory|run)/);
+    assert.doesNotMatch(body, /"(?:logs|goal|visualization|stateSummary)"/);
   } finally {
     await close(server);
   }
@@ -1792,8 +1828,67 @@ test('projects fallback chat stream runs before sending SSE events', async () =>
     // Then
     assert.equal(response.status, 200);
     assert.match(body, /"status":"gateway-fallback"/);
-    assert.match(body, /gateway fallback run created/);
-    assert.doesNotMatch(body, /recoveryCommand=|residentInstallCommand|\/Users\/|commandTemplate|--[a-z]/i);
+    assert.match(body, /event: delta/);
+    assert.match(body, /event: done/);
+    assert.doesNotMatch(body, /event: (?:agent-state|timeline|tool-activity|memory|run)/);
+    assert.doesNotMatch(body, /"(?:logs|goal|visualization|stateSummary|recoveryCommand)"/);
+    assert.doesNotMatch(body, /gateway fallback run created|recoveryCommand=|residentInstallCommand|\/Users\/|commandTemplate|--[a-z]/i);
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('projects direct Hermes API Server chat to answer-only SSE events', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-hermes-api-projection-'));
+  const upstreamCalls = [];
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_API_SERVER_URL: 'https://hermes-api.test/v1',
+      HERMES_API_SERVER_KEY: 'server-only-key',
+      HERMES_API_SERVER_MODEL: 'local-model',
+    },
+    gatewayStore: new HermesStore({ dataDir }),
+    fetchImpl: async (url, options) => {
+      upstreamCalls.push({ url: String(url), options });
+      return new Response([
+        'data: {"choices":[{"delta":{"tool_calls":[{"id":"secret-tool-id","function":{"name":"shell","arguments":"{\\"command\\":\\"cat /Users/private\\"}"}}]}}]}',
+        '',
+        'data: {"choices":[{"delta":{"content":"자연스러운 최종 답변입니다."}}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'), {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: '핵심만 자연스럽게 답해줘',
+        agentId: 'default',
+        view: 'agent-operations',
+      }),
+    });
+    const body = await response.text();
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.equal(upstreamCalls.length, 1);
+    assert.match(body, /자연스러운 최종 답변입니다/);
+    assert.match(body, /event: delta/);
+    assert.match(body, /event: done/);
+    assert.doesNotMatch(body, /event: (?:agent-state|timeline|tool-activity|memory|run)/);
+    assert.doesNotMatch(body, /secret-tool-id|shell|cat \/Users\/private/);
+    assert.doesNotMatch(body, /"(?:logs|goal|visualization|stateSummary)"/);
   } finally {
     await close(server);
     await rm(dataDir, { recursive: true, force: true });
@@ -1921,6 +2016,59 @@ test('persists an accepted profileRequest across a local store restart', async (
       && request.status === 'pending'
       && request.displayName === 'Durable Agent'
     )));
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('task create remains visible when runtime reachability changes', async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-task-ledger-'));
+  const gatewayStore = new HermesStore({ dataDir });
+  const runtimeTask = {
+    id: 'task-runtime-ledger',
+    title: 'Runtime 전환 뒤에도 남는 작업',
+    owner: 'Me',
+    status: 'Planned',
+    source: 'runtime',
+  };
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-test-token',
+    },
+    gatewayStore,
+    fetchImpl: async (_url, options = {}) => {
+      if (options.method === 'POST') {
+        return new Response(JSON.stringify({ ok: true, task: runtimeTask, gatewayFallback: true }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ ok: false, error: 'runtime_offline' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: runtimeTask.title, owner: runtimeTask.owner }),
+    });
+    const created = await createResponse.json();
+    const listResponse = await fetch(`${baseUrl}/api/tasks`);
+    const listed = await listResponse.json();
+    const restartedState = new HermesStore({ dataDir }).getState();
+
+    assert.equal(createResponse.status, 200);
+    assert.ok(created.task.id);
+    assert.equal(listResponse.status, 200);
+    assert.ok(listed.tasks.some((task) => task.id === created.task.id));
+    assert.ok(restartedState.tasks.some((task) => task.id === created.task.id));
   } finally {
     await close(server);
     await rm(dataDir, { recursive: true, force: true });

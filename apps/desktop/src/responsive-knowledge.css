@@ -1,0 +1,147 @@
+@media (max-width: 760px) {
+  .wiki {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    padding: 0;
+  }
+
+  .askbar {
+    flex-wrap: wrap;
+  }
+
+  .askbar > div,
+  .askbar > button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .wiki-main {
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .wiki-graph-panel {
+    width: 100%;
+    height: 440px;
+    min-height: 440px;
+    flex: none;
+  }
+
+  .wiki-graph-panel > header {
+    flex-wrap: wrap;
+  }
+
+  .wiki-side {
+    width: 100%;
+    min-height: 300px;
+    max-height: 420px;
+    flex: none;
+  }
+
+  .wiki-graph-controls {
+    opacity: 1;
+  }
+
+  .wiki-graph-controls button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .wiki-answer p,
+  .diary-card,
+  .diary-card p,
+  .diary-card textarea,
+  .diary-prompts button {
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+
+  .wiki-graph-canvas[data-sparse="true"] .wiki-svg-node text {
+    font-size: 34px;
+    stroke-width: 6px;
+  }
+
+  .wiki-graph-canvas[data-sparse="true"] .wiki-svg-node circle {
+    transform: scale(4.4);
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .diary-screen {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  .diary-screen main {
+    width: 100%;
+    flex: none;
+    overflow: visible;
+  }
+
+  .diary-inner {
+    max-width: 100%;
+    padding: 10px 0 18px;
+  }
+
+  .diary-stats {
+    gap: 6px;
+  }
+
+  .diary-stats div {
+    min-width: 0;
+    padding: 10px 8px;
+  }
+
+  .diary-stats span {
+    font-size: 9.5px;
+  }
+
+  .diary-stats strong {
+    font-size: 18px;
+  }
+
+  .diary-card {
+    padding: 16px 14px;
+  }
+
+  .diary-moods {
+    flex-wrap: wrap;
+  }
+
+  .diary-card footer {
+    flex-wrap: wrap;
+  }
+
+  .diary-card footer span {
+    flex-basis: 100%;
+  }
+
+  .diary-screen > aside {
+    width: 100%;
+    min-height: 300px;
+    max-height: 420px;
+    flex: none;
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+  }
+
+  .widgets-layout,
+  .widgets-column,
+  .widgets-small-row {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .widgets-small-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

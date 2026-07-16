@@ -75,24 +75,27 @@ function compactStateSummary(state = {}) {
   };
 }
 
-function buildHermesChatStreamEvents({ message, command, run, state } = {}) {
-  const visual = buildHermesChatVisualization({ message, command, run });
+function looksLikePrivateRuntimeTranscript(value) {
+  return /INTERNAL_PROMPT_SENTINEL|reportSchema|priorMissionEvidence|commandTemplate|rawCommand|(?:^|\s)stdout\s*:|railway-relay job queued/i
+    .test(String(value || ''));
+}
+
+function buildHermesChatStreamEvents({ command, run } = {}) {
   const deltas = buildHermesChatDeltas({ command, run });
-  const stateSummary = compactStateSummary(state);
+  const agent = resolveOfficialProfileName(command && command.agent ? command.agent : run && run.agent);
+  const model = command && command.model ? command.model : run && run.model ? run.model : 'Codex';
   return [
-    { event: 'agent-state', data: visual.agentState },
-    { event: 'timeline', data: visual.timeline },
-    { event: 'tool-activity', data: visual.toolActivity },
-    { event: 'memory', data: visual.memory },
     ...deltas.map((delta) => ({ event: 'delta', data: { text: delta } })),
-    { event: 'run', data: { run, stateSummary } },
     {
       event: 'done',
       data: {
         text: deltas.join(''),
-        visualization: visual,
-        run,
-        stateSummary,
+        source: run && run.source ? run.source : 'chat',
+        gatewayFallback: Boolean(run && run.gatewayFallback),
+        runtimeReachable: Boolean(run && run.runtimeReachable),
+        agent,
+        model,
+        status: run && run.status ? run.status : 'completed',
       },
     },
   ];
@@ -103,4 +106,5 @@ module.exports = {
   buildHermesChatStreamEvents,
   buildHermesChatVisualization,
   compactStateSummary,
+  looksLikePrivateRuntimeTranscript,
 };

@@ -1,11 +1,35 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 const { chromium } = require('playwright');
 
 const target = process.env.HERMES_UI_URL || 'http://127.0.0.1:5173/';
+const evidenceDir = process.env.EVIDENCE_DIR || '';
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' })
   .format(new Date());
 const themes = ['Terracotta', 'Warm', 'Dark', 'Sage', 'Mono'];
 const navLabels = ['오늘', '캘린더', '다음 7일', '기본함', '메일함', '칸반 보드', '주간 회고', '위키', '일기', '에이전트', '위젯'];
+
+async function captureEvidence(page, name) {
+  if (!evidenceDir) return;
+  await fs.mkdir(evidenceDir, { recursive: true });
+  await page.screenshot({
+    path: path.join(evidenceDir, `${name}.png`),
+    fullPage: true,
+  });
+}
+
+async function assertConsoleButtonOutsideContent(page, label) {
+  const [button, content] = await Promise.all([
+    page.locator('.chat-fab').boundingBox(),
+    page.locator('.content').boundingBox(),
+  ]);
+  assert.ok(button && content, `${label}: Console button and content must be visible`);
+  assert.ok(
+    button.y + button.height <= content.y + 1,
+    `${label}: Console button overlaps content ${JSON.stringify({ button, content })}`,
+  );
+}
 
 function routeApi(page) {
   return page.route('**/*', async (route) => {
@@ -143,7 +167,8 @@ async function auditTextContrast(page, label) {
         const style = getComputedStyle(el);
         const ratio = contrast(parse(style.color), backgroundFor(el));
         const min = Number.parseFloat(style.fontSize) >= 18 || Number(style.fontWeight) >= 700 ? 3 : 4.5;
-        return ratio + 0.01 < min ? [`${context}: contrast ${ratio.toFixed(2)} < ${min} for "${text.slice(0, 40)}" (${el.className || el.tagName})`] : [];
+        const identity = el.className || el.getAttribute('aria-label') || el.outerHTML.slice(0, 160);
+        return ratio + 0.01 < min ? [`${context}: contrast ${ratio.toFixed(2)} < ${min} for "${text.slice(0, 40)}" (${identity})`] : [];
       })
       .slice(0, 30);
   }, label);
@@ -156,6 +181,7 @@ async function main() {
   await routeApi(narrowPage);
   await narrowPage.goto(target);
   await narrowPage.waitForSelector('.app-root');
+  await assertConsoleButtonOutsideContent(narrowPage, 'narrow-768');
   await narrowPage.locator('.profile').click();
   await narrowPage.waitForSelector('.settings-overlay');
   await auditVisibleLayout(narrowPage, 'settings/narrow-768');
@@ -171,10 +197,12 @@ async function main() {
   await routeApi(page);
   await page.goto(target);
   await page.waitForSelector('.app-root');
+  await assertConsoleButtonOutsideContent(page, 'desktop-1280');
 
   await page.locator('.profile').click();
   await page.waitForSelector('.settings-overlay');
   await auditVisibleLayout(page, 'settings/default');
+  await captureEvidence(page, '1280-설정');
 
   for (const theme of themes) {
     await page.getByRole('button', { name: theme }).click();
@@ -193,6 +221,7 @@ async function main() {
     await page.locator('.nav-item').filter({ hasText: label }).first().click();
     await page.waitForTimeout(60);
     await auditTextContrast(page, `screen/${label}`);
+    await captureEvidence(page, `1280-${label}`);
   }
 
   await browser.close();

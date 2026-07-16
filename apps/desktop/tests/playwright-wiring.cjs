@@ -77,15 +77,18 @@ async function main() {
     }
 
     if (method === 'POST' && apiPath === '/api/chat/stream') {
+      const answer = body.view === 'wiki'
+        ? 'UniPort는 Hermes와 Railway를 근거로 설명됩니다.'
+        : '오늘 일정은 병원 예약과 팀 주간회의입니다.';
       await route.fulfill({
         status: 200,
         headers: { 'content-type': 'text/event-stream' },
         body: [
           'event: delta',
-          'data: {"text":"UniPort는 Hermes와 Railway를 근거로 설명됩니다."}',
+          `data: ${JSON.stringify({ text: answer })}`,
           '',
           'event: done',
-          'data: {"text":"UniPort는 Hermes와 Railway를 근거로 설명됩니다.","answerMode":"llm","sources":[{"path":"2_wiki/UniPort-시스템구조.md"}]}',
+          `data: ${JSON.stringify({ text: answer, answerMode: 'llm', sources: body.view === 'wiki' ? [{ path: '2_wiki/UniPort-시스템구조.md' }] : [] })}`,
           '',
         ].join('\n'),
       });
@@ -134,12 +137,13 @@ async function main() {
     await page.locator('.askbar button').click();
     await page.waitForFunction(() => document.body.textContent?.includes('Hermes와 Railway'));
 
-    assert.equal(calls.filter((call) => call.path === '/api/assistant/ask').length, 1);
+    assert.equal(calls.filter((call) => call.path === '/api/assistant/ask').length, 0);
     assert.equal(calls.filter((call) => call.path === '/api/assistant/ingest').length, 1);
     assert.equal(calls.some((call) => call.path === '/api/calendar/events'), true);
     assert.equal(calls.filter((call) => call.path === '/api/wiki/search').length, 1);
-    assert.equal(calls.filter((call) => call.path === '/api/chat/stream').length, 1);
-    assert.equal(calls.filter((call) => call.path === '/api/chat/stream' && /오늘 일정/.test(JSON.stringify(call.body))).length, 0);
+    assert.equal(calls.filter((call) => call.path === '/api/chat/stream').length, 2);
+    assert.equal(calls.filter((call) => call.path === '/api/chat/stream' && call.body.view === 'console' && /오늘 일정/.test(call.body.message)).length, 1);
+    assert.equal(calls.filter((call) => call.path === '/api/chat/stream' && call.body.view === 'wiki' && call.body.agent === 'wikicurator').length, 1);
 
     await browser.close();
     console.log(JSON.stringify({ ok: true, calls: calls.map(({ method, path }) => ({ method, path })) }, null, 2));

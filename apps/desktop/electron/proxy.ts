@@ -52,6 +52,7 @@ function requestBody(req: IncomingMessage): Promise<Buffer> {
     const chunks: Buffer[] = [];
     req.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
     req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('aborted', () => reject(new Error('Renderer request was aborted')));
     req.on('error', reject);
   });
 }
@@ -197,6 +198,15 @@ export async function handleProxyRequest(
 
   const settings = options.getSettings();
   const headers = upstreamHeaders(req, settings.apiToken);
+  const upstreamController = new AbortController();
+  const abortUpstream = () => {
+    if (!upstreamController.signal.aborted) upstreamController.abort();
+  };
+  const abortOnResponseClose = () => {
+    if (!res.writableEnded) abortUpstream();
+  };
+  req.once('aborted', abortUpstream);
+  res.once('close', abortOnResponseClose);
 
   try {
     const body = ['GET', 'HEAD'].includes(String(req.method || 'GET').toUpperCase())
@@ -206,6 +216,7 @@ export async function handleProxyRequest(
       method: req.method,
       headers,
       body,
+      signal: upstreamController.signal,
       // Node fetch requires this when a stream-like body is passed.
       duplex: body ? 'half' : undefined,
     } as RequestInit & { duplex?: 'half' });
@@ -219,6 +230,7 @@ export async function handleProxyRequest(
     }
     await pipeline(response.body as unknown as NodeJS.ReadableStream, res);
   } catch (error) {
+    if (res.destroyed) return;
     if (res.headersSent) {
       res.end();
       return;
@@ -228,6 +240,9 @@ export async function handleProxyRequest(
       ok: false,
       error: error instanceof Error ? error.message : 'Agent Calendar Railway proxy failed',
     }));
+  } finally {
+    req.off('aborted', abortUpstream);
+    res.off('close', abortOnResponseClose);
   }
 }
 

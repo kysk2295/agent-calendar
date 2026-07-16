@@ -4,7 +4,11 @@ const http = require('node:http');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const { buildCalendarWorkDraft } = require('./lib/calendar-work');
-const { buildHermesChatDeltas, buildHermesChatStreamEvents, compactStateSummary } = require('./lib/chat-runtime');
+const {
+  buildHermesChatDeltas,
+  buildHermesChatStreamEvents,
+  looksLikePrivateRuntimeTranscript,
+} = require('./lib/chat-runtime');
 const { routeWebCommand } = require('./lib/commands');
 const { routeAgentOperations } = require('./lib/agent-operations-api');
 const { AgentOperationsScheduler } = require('./lib/agent-operations-scheduler');
@@ -66,6 +70,7 @@ const {
 } = require('./lib/public-agent-records');
 const { HermesRailwayRelay, isRelayAuthorized, relayEnabled } = require('./lib/railway-relay');
 const {
+  interactiveRelayChatTimeout,
   runRelayChatCompletion,
   runRelayProfileChatCompletion,
 } = require('./lib/relay-chat-completion');
@@ -3481,7 +3486,7 @@ async function runRailwayRelayWikiSearch({ relay, env = process.env, question, p
     },
     meta: {
       view: 'wiki-ai',
-      agent: 'wiki-curator',
+      agent: 'wikicurator',
       source: 'railway-relay-wiki-search',
     },
   });
@@ -3527,55 +3532,42 @@ async function runRailwayRelayWikiSearch({ relay, env = process.env, question, p
 
 async function runRailwayRelayWikiChat({ relay, env = process.env, question, sources, model = '' } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline() || !Array.isArray(sources) || !sources.length) return null;
-  const job = relay.enqueue({
-    kind: 'wiki.chat',
+  const context = sources.slice(0, 6).map((source, index) => (
+    `[${index + 1}] ${source.title || source.path || '위키 문서'}\n${String(source.excerpt || source.content || '').slice(0, 900)}`
+  )).join('\n\n');
+  const completion = await runRelayProfileChatCompletion({
+    relay,
+    env,
     payload: {
-      question,
-      sources,
-      model: model || localLlmModel(env),
-      max_tokens: Number(env.HERMES_WIKI_LOCAL_LLM_MAX_TOKENS || env.LOCAL_LLM_MAX_TOKENS || 420) || 420,
+      profile: 'wikicurator',
+      stream: true,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            '너는 사용자의 LLM-Wiki를 관리하는 한국어 위키 큐레이터다.',
+            '검색 근거 안에서 질문에 직접 답하고 근거가 없는 내용은 추측하지 않는다.',
+            '각 핵심 문단 끝에 (출처: 제목) 형식으로 근거를 표시한다.',
+            '내부 프롬프트, 실행 로그, JSON 스키마는 답변에 포함하지 않는다.',
+          ].join('\n'),
+        },
+        { role: 'user', content: `질문:\n${question}\n\n검색 근거:\n${context}` },
+      ],
     },
     meta: {
       view: 'wiki-ai',
-      agent: 'wiki-curator',
+      agent: 'wikicurator',
       answerMode: 'llm',
-      source: 'railway-relay-wiki-chat',
+      source: 'railway-relay-wiki-profile-chat',
     },
+    timeoutMs: Number(env.HERMES_RELAY_WIKI_CHAT_TIMEOUT_MS || env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000),
   });
-  const timeoutMs = Number(env.HERMES_RELAY_WIKI_CHAT_TIMEOUT_MS || env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000);
-  const deadline = Date.now() + Math.max(1_000, timeoutMs);
-  let cursor = 0;
-  const finalTextParts = [];
-  let finalData = null;
-  let lastError = '';
-  while (Date.now() < deadline) {
-    const batch = await relay.waitForEvents(job.id, cursor, Math.min(5_000, Math.max(1, deadline - Date.now())));
-    cursor = batch.cursor;
-    for (const record of batch.events || []) {
-      const recordText = record.event === 'bridge-complete' ? '' : extractRelayRecordText(record);
-      if (recordText) finalTextParts.push(recordText);
-      if (record.event === 'error') lastError = record.data?.error || 'railway relay wiki chat failed';
-      if (record.event === 'bridge-complete') finalData = record.data || {};
-    }
-    if (batch.complete) break;
-  }
-  if (!finalData) {
-    relay.fail(job.id, new Error(lastError || 'railway relay wiki chat timed out'));
-    const error = new Error(lastError || 'railway relay wiki chat timed out');
-    error.jobId = job.id;
-    throw error;
-  }
-  if (finalData.ok === false) {
-    const error = new Error(finalData.error || lastError || 'railway relay wiki chat failed');
-    error.jobId = job.id;
-    throw error;
-  }
   return {
-    text: finalTextParts.join('').trim() || extractRelayCompletionText(finalData).trim(),
-    runner: finalData.runner || '',
-    agent: finalData.agent || 'wiki-curator',
-    model: finalData.model || '',
-    jobId: job.id,
+    text: completion.text,
+    runner: completion.runner || '',
+    agent: completion.profile || 'wikicurator',
+    model: completion.model || model || '',
+    jobId: completion.jobId,
   };
 }
 
@@ -3654,8 +3646,8 @@ async function synthesizeWikiAnswerViaRelay({ relay, env = process.env, question
   return {
     answer: completion.text,
     answerMode: 'llm',
-    llm: { provider: 'local-llm', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wiki-curator', runner: completion.runner || '' },
-    llmAttempts: [{ provider: 'local-llm', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wiki-curator', runner: completion.runner || '', jobId: completion.jobId }],
+    llm: { provider: 'profile', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '' },
+    llmAttempts: [{ provider: 'profile', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '', jobId: completion.jobId }],
   };
 }
 
@@ -3665,7 +3657,6 @@ async function streamHermesApiServerChat({
   command,
   env,
   fetchImpl,
-  gatewayState,
   gatewayStore = null,
 } = {}) {
   const chatUrl = hermesApiServerChatUrl(env);
@@ -3710,31 +3701,6 @@ async function streamHermesApiServerChat({
     model: body.model || env.HERMES_API_SERVER_MODEL || 'unknown',
     source: 'mac-mini-hermes-api',
   });
-  const visualization = {
-    agentState: {
-      agent: run.agent,
-      model: run.model,
-      mode: 'mac-mini-hermes-api',
-      status: 'streaming',
-      runId: run.id,
-      reason: 'Mac Mini Hermes API Server OpenAI-compatible SSE stream.',
-    },
-    timeline: [
-      { label: 'Message received', detail: command.message },
-      { label: 'Legacy runtime checked', detail: 'Falling through to Hermes API Server.' },
-      { label: 'API Server stream connected', detail: 'mac-mini-hermes-api' },
-    ],
-    toolActivity: [
-      { tool: 'Hermes API Server', state: 'streaming', detail: 'OpenAI-compatible /v1/chat/completions' },
-    ],
-    memory: {
-      wikiPath: run.file,
-      savePolicy: 'chat transcript is persisted in the Railway gateway chat history',
-      next: 'Use tool-call SSE chunks to render live Hermes activity when the model invokes tools.',
-      source: 'mac-mini-hermes-api',
-    },
-  };
-  const stateSummary = compactStateSummary(gatewaySnapshot(gatewayState, gatewayStore));
   const finalTextParts = [];
   let done = false;
 
@@ -3743,17 +3709,15 @@ async function streamHermesApiServerChat({
     'cache-control': 'no-store',
     connection: 'keep-alive',
   });
-  writeSseEvent(res, 'agent-state', visualization.agentState);
-  writeSseEvent(res, 'timeline', visualization.timeline);
-  writeSseEvent(res, 'tool-activity', visualization.toolActivity);
-  writeSseEvent(res, 'memory', visualization.memory);
-
-  const finish = () => {
+  const finish = ({ error = '' } = {}) => {
     if (done) return;
     done = true;
-    run.status = 'completed';
+    run.status = error ? 'failed' : 'completed';
     run.logs = [...(run.logs || []), `assistant_text_chars=${finalTextParts.join('').length}`];
     const finalText = finalTextParts.join('');
+    const publicText = finalText || (error
+      ? '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+      : '답변을 완성하지 못했습니다. 잠시 후 다시 시도해 주세요.');
     const userMessage = {
       role: 'user',
       text: command.message,
@@ -3765,7 +3729,7 @@ async function streamHermesApiServerChat({
     };
     const assistantMessage = {
       role: 'assistant',
-      text: finalText,
+      text: publicText,
       runId: run.id,
       wikiPath: run.file,
       agent: run.agent,
@@ -3776,13 +3740,14 @@ async function streamHermesApiServerChat({
       gatewayStore.addChatMessage(userMessage);
       gatewayStore.addChatMessage(assistantMessage);
     }
-    writeSseEvent(res, 'run', { run, stateSummary });
     writeSseEvent(res, 'done', {
-      text: finalText,
-      visualization,
-      run,
-      stateSummary,
+      text: publicText,
       source: 'mac-mini-hermes-api',
+      gatewayFallback: false,
+      runtimeReachable: !error,
+      agent: run.agent,
+      model: run.model,
+      status: run.status,
     });
     res.end();
   };
@@ -3800,8 +3765,7 @@ async function streamHermesApiServerChat({
     } catch {
       return;
     }
-    const { text, tools } = extractOpenAiStreamDelta(payload);
-    if (tools.length) writeSseEvent(res, 'tool-activity', tools);
+    const { text } = extractOpenAiStreamDelta(payload);
     if (text) {
       finalTextParts.push(text);
       writeSseEvent(res, 'delta', { text });
@@ -3834,10 +3798,12 @@ async function streamHermesApiServerChat({
       consumeBuffer(await response.text(), true);
     }
   } catch (error) {
+    const safeError = safeRuntimeError(error.message || String(error), 'Hermes API Server stream failed');
     writeSseEvent(res, 'error', {
-      error: safeRuntimeError(error.message || String(error), 'Hermes API Server stream failed'),
+      error: safeError,
       source: 'mac-mini-hermes-api',
     });
+    finish({ error: safeError });
   }
   finish();
   return true;
@@ -3876,32 +3842,7 @@ async function streamRailwayRelayChat({
     model: body.model || env.HERMES_API_SERVER_MODEL || 'unknown',
     source: 'railway-relay',
   });
-  const visualization = {
-    agentState: {
-      agent: run.agent,
-      model: run.model,
-      mode: 'railway-relay',
-      status: 'streaming',
-      runId: run.id,
-      reason: 'Mac mini bridge connected outbound to Railway relay.',
-    },
-    timeline: [
-      { label: 'Message received', detail: command.message },
-      { label: 'Relay selected', detail: 'Using outbound Mac mini bridge instead of public inbound tunnel.' },
-      { label: 'Bridge job queued', detail: 'Railway relay is waiting for Mac mini execution events.' },
-    ],
-    toolActivity: [
-      { tool: 'Railway Relay', state: 'queued', detail: 'outbound bridge job' },
-    ],
-    memory: {
-      wikiPath: run.file,
-      savePolicy: 'chat transcript is persisted in the Railway gateway chat history',
-      next: 'Mac mini bridge posts streaming tool and text events back to Railway.',
-      source: 'railway-relay',
-    },
-  };
   const profilePayload = hermesApiServerPayload({ body, command, env });
-  const stateSummary = compactStateSummary(gatewaySnapshot(gatewayState, gatewayStore));
   const finalTextParts = [];
   let done = false;
 
@@ -3910,17 +3851,12 @@ async function streamRailwayRelayChat({
     'cache-control': 'no-store',
     connection: 'keep-alive',
   });
-  writeSseEvent(res, 'agent-state', visualization.agentState);
-  writeSseEvent(res, 'timeline', visualization.timeline);
-  writeSseEvent(res, 'tool-activity', visualization.toolActivity);
-  writeSseEvent(res, 'memory', visualization.memory);
 
   const finish = ({ error = null, jobId = '', profileRunId = '', actualModel = '' } = {}) => {
     if (done) return;
     done = true;
     if (actualModel) {
       run.model = actualModel;
-      visualization.agentState.model = actualModel;
     }
     run.status = error ? 'failed' : 'completed';
     run.logs = [
@@ -3931,7 +3867,7 @@ async function streamRailwayRelayChat({
     ];
     const finalText = finalTextParts.join('');
     const relayNoText = !finalText.trim() && !error
-      ? `Mac mini relay completed but did not return assistant text. Run saved: ${run.file}`
+      ? '답변을 완성하지 못했습니다. 잠시 후 다시 시도해 주세요.'
       : '';
     const userMessage = {
       role: 'user',
@@ -3944,7 +3880,7 @@ async function streamRailwayRelayChat({
     };
     const assistantMessage = {
       role: 'assistant',
-      text: finalText || (error ? `Railway relay failed: ${error}` : relayNoText),
+      text: finalText || (error ? '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.' : relayNoText),
       runId: run.id,
       wikiPath: run.file,
       agent: run.agent,
@@ -3955,36 +3891,20 @@ async function streamRailwayRelayChat({
       gatewayStore.addChatMessage(userMessage);
       gatewayStore.addChatMessage(assistantMessage);
     }
-    writeSseEvent(res, 'run', { run, stateSummary });
     writeSseEvent(res, 'done', {
       text: assistantMessage.text,
-      visualization,
-      run,
-      stateSummary,
       source: 'railway-relay',
       gatewayFallback: false,
       runtimeReachable: !error,
-      ...(error ? { error } : {}),
+      agent: run.agent,
+      model: run.model,
+      status: run.status,
     });
     res.end();
   };
 
   const forwardProfileEvent = async (event) => {
-    if (!event || !event.text) return;
-    if (event.kind === 'agent_message') {
-      finalTextParts.push(event.text);
-      writeSseEvent(res, 'delta', { text: event.text });
-      return;
-    }
-    if (event.kind === 'tool_activity') {
-      writeSseEvent(res, 'tool-activity', [{
-        tool: 'Hermes CLI',
-        state: 'running',
-        detail: event.text,
-      }]);
-      return;
-    }
-    writeSseEvent(res, 'timeline', [{ label: 'Hermes progress', detail: event.text }]);
+    void event;
   };
 
   try {
@@ -4000,11 +3920,12 @@ async function streamRailwayRelayChat({
         source: 'profile-chat',
       },
       onEvent: forwardProfileEvent,
-      timeoutMs: agentOperationsProfileTimeout(env),
+      timeoutMs: interactiveRelayChatTimeout(env),
     });
-    if (completion.text && !finalTextParts.join('').trim()) {
-      finalTextParts.push(completion.text);
-      writeSseEvent(res, 'delta', { text: completion.text });
+    const publicAnswer = safePublicText(completion.text, '', 12_000, { preserveRedactions: true });
+    if (publicAnswer && !looksLikePrivateRuntimeTranscript(publicAnswer)) {
+      finalTextParts.push(publicAnswer);
+      writeSseEvent(res, 'delta', { text: publicAnswer });
     }
     finish({
       jobId: completion.jobId,
@@ -4613,6 +4534,90 @@ function fallbackWiki({ res, gatewayState, gatewayStore = null, env = process.en
   });
 }
 
+function normalizedWeeklyReviewContext(value = {}) {
+  const context = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const count = (key) => Math.max(0, Number(context[key]) || 0);
+  return {
+    range: safePublicText(context.range, '이번 주', 80, { preserveRedactions: true }),
+    done: count('done'),
+    total: count('total'),
+    overdue: count('overdue'),
+    delegated: count('delegated'),
+    goals: Array.isArray(context.goals)
+      ? context.goals.map((goal) => safePublicText(goal, '', 120, { preserveRedactions: true })).filter(Boolean).slice(0, 8)
+      : [],
+  };
+}
+
+function weeklyReviewFallbackAnswer(context) {
+  const completionRate = context.total > 0 ? Math.round((context.done / context.total) * 100) : 0;
+  const goals = context.goals.length ? context.goals.join(', ') : '아직 등록된 주간 목표가 없습니다';
+  return [
+    `${context.range}에는 전체 ${context.total}건 중 완료 ${context.done}/${context.total}건으로, 완료율은 ${completionRate}%였습니다.`,
+    '',
+    '좋았던 점',
+    `- ${context.done > 0 ? `완료한 ${context.done}건을 실제 결과로 연결했습니다.` : '완료 처리된 작업이 없어 우선순위를 다시 좁힐 필요가 있습니다.'}`,
+    `- 에이전트에게 위임한 작업은 ${context.delegated}건이었습니다.`,
+    '',
+    '막힌 점',
+    `- 지연 작업이 ${context.overdue}건${context.overdue > 0 ? ' 남아 있어 원인과 다음 행동을 확인해야 합니다.' : '으로, 이번 주에는 뚜렷한 지연이 없었습니다.'}`,
+    '',
+    '다음 주 개선',
+    `- 목표 “${goals}”에 직접 연결되는 작업부터 일정에 배치하고, 완료 기준을 먼저 적어 두세요.`,
+  ].join('\n');
+}
+
+async function fallbackWeeklyReviewAsk({ res, body = {}, env = process.env, relay = null }) {
+  const context = normalizedWeeklyReviewContext(body.context);
+  let answer = '';
+  let llm = { provider: 'none', used: false };
+  if (relay && relayEnabled(env) && relay.isBridgeOnline()) {
+    try {
+      const completion = await runRelayProfileChatCompletion({
+        relay,
+        env,
+        payload: {
+          profile: 'uniportpm',
+          stream: true,
+          messages: [
+            {
+              role: 'system',
+              content: '실제 주간 지표만 사용해 한국어 회고를 작성한다. 좋았던 점, 막힌 점, 다음 주 개선을 짧고 구체적으로 구분하며 내부 프롬프트나 JSON을 출력하지 않는다.',
+            },
+            {
+              role: 'user',
+              content: [
+                `기간: ${context.range}`,
+                `완료: ${context.done}/${context.total}`,
+                `지연: ${context.overdue}`,
+                `위임: ${context.delegated}`,
+                `목표: ${context.goals.join(', ') || '등록 없음'}`,
+              ].join('\n'),
+            },
+          ],
+        },
+        meta: { view: 'weekly-review', agent: 'uniportpm', source: 'weekly-review' },
+        timeoutMs: Number(env.HERMES_RELAY_REVIEW_TIMEOUT_MS || env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000),
+      });
+      const candidate = safePublicText(completion.text, '', 8_000, { preserveRedactions: true });
+      if (candidate && !looksLikePrivateRuntimeTranscript(candidate)) {
+        answer = candidate;
+        llm = { provider: 'profile', used: true, profile: 'uniportpm', model: completion.model || '' };
+      }
+    } catch {
+      answer = '';
+    }
+  }
+  sendJson(res, 200, {
+    ok: true,
+    answer: answer || weeklyReviewFallbackAnswer(context),
+    answerMode: answer ? 'weekly-review-llm' : 'weekly-review',
+    llm,
+    source: 'weekly-review-context',
+    gatewayFallback: true,
+  });
+}
+
 async function fallbackWikiAsk({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch }) {
   const question = String(body.question || body.message || '').trim();
   const wikiIndex = fallbackWikiIndex({
@@ -4792,11 +4797,14 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
     } catch (error) {
       responseResult = {
         ...result,
+        answerMode: 'retrieval-degraded',
+        degraded: true,
         llm: {
-          provider: 'local-llm',
-          model: localLlmModel(env),
+          provider: 'profile',
+          model: '',
           used: false,
           transport: 'railway-relay',
+          agent: 'wikicurator',
           error: safeRuntimeError(error.message || String(error), 'Railway Relay wiki synthesis failed'),
         },
       };
@@ -4810,7 +4818,7 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
         text: answer,
         source: 'wiki-fallback',
         gatewayFallback: true,
-        run: { model: responseResult.llm?.model || 'wiki-retrieval', agent: 'wiki-curator' },
+        run: { model: responseResult.llm?.model || 'wiki-retrieval', agent: 'wikicurator' },
       },
     },
     {
@@ -4822,10 +4830,11 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
         retrieval: responseResult.retrieval || {},
         llm: responseResult.llm || { provider: 'none' },
         answerMode: responseResult.answerMode || (responseResult.llm?.used ? 'llm' : 'no-retrieval'),
+        ...(responseResult.degraded ? { degraded: true } : {}),
         ...(responseResult.llmAttempts ? { llmAttempts: responseResult.llmAttempts } : {}),
         source: 'wiki-fallback',
         gatewayFallback: true,
-        run: { model: responseResult.llm?.model || 'wiki-retrieval', agent: 'wiki-curator' },
+        run: { model: responseResult.llm?.model || 'wiki-retrieval', agent: 'wikicurator' },
       },
     },
   ]);
@@ -5665,9 +5674,12 @@ function fallbackTasksList({ res, query = {}, gatewayState, gatewayStore = null 
   });
 }
 
-function fallbackTaskCreate({ res, body = {}, gatewayState, gatewayStore = null }) {
+async function fallbackTaskCreate({ res, body = {}, gatewayState, gatewayStore = null }) {
   if (gatewayStore) {
     const task = publicTaskRecord(gatewayStore.createTask({ ...body, source: body.source || 'railway-gateway' }));
+    if (typeof gatewayStore.waitForTaskPersistence === 'function') {
+      await gatewayStore.waitForTaskPersistence(task.id);
+    }
     const tasks = publicTaskRecords(gatewayStore.searchTasks(''));
     const state = publicGatewaySnapshot(gatewayState, gatewayStore);
     sendJson(res, 200, { ok: true, data: { task, tasks, state }, task, tasks, state, gatewayFallback: true });
@@ -5751,7 +5763,7 @@ function fallbackLearningPromoteSkill({ res, body = {}, gatewayState, gatewaySto
   });
 }
 
-function fallbackTaskMutation({ res, method, taskId, body = {}, gatewayState, gatewayStore = null }) {
+async function fallbackTaskMutation({ res, method, taskId, body = {}, gatewayState, gatewayStore = null }) {
   if (gatewayStore) {
     const existingTask = gatewayStore.getState().tasks.find((task) => task.id === taskId);
     if (existingTask?.origin === 'agent') {
@@ -5769,6 +5781,9 @@ function fallbackTaskMutation({ res, method, taskId, body = {}, gatewayState, ga
     if (!storedTask) {
       sendJson(res, 404, { ok: false, error: 'Task not found in gateway Postgres state', gatewayFallback: true });
       return;
+    }
+    if (typeof gatewayStore.waitForTaskPersistence === 'function') {
+      await gatewayStore.waitForTaskPersistence(taskId);
     }
     const task = publicTaskRecord(storedTask);
     const tasks = publicTaskRecords(gatewayStore.searchTasks(''));
@@ -6936,6 +6951,15 @@ async function handleApi(
   }
   if (
     method === 'POST'
+    && pathSegments[0] === 'wiki'
+    && pathSegments[1] === 'ask'
+    && String(requestBody.mode || '') === 'weekly_review'
+  ) {
+    await fallbackWeeklyReviewAsk({ res, body: requestBody, env, relay });
+    return;
+  }
+  if (
+    method === 'POST'
     && pathSegments[0] === 'chat'
     && pathSegments[1] === 'stream'
     && (String(requestBody.view || '') === 'wiki' || String(requestBody.agent || requestBody.agentId || '').includes('wiki'))
@@ -7340,6 +7364,37 @@ async function handleApi(
       return;
     }
   }
+  if (gatewayStore && pathSegments[0] === 'tasks') {
+    const body = parseJsonBuffer(bodyBuffer);
+    if (method === 'GET' && !pathSegments[1]) {
+      fallbackTasksList({
+        res,
+        query: queryObject(requestUrl.searchParams),
+        gatewayState,
+        gatewayStore,
+      });
+      return;
+    }
+    if (method === 'POST' && !pathSegments[1]) {
+      await fallbackTaskCreate({ res, body, gatewayState, gatewayStore });
+      return;
+    }
+    if (method === 'POST' && pathSegments[1] === 'share-draft') {
+      fallbackTaskShareDraft({ res, body, gatewayState, gatewayStore });
+      return;
+    }
+    if ((method === 'PATCH' || method === 'DELETE') && pathSegments[1]) {
+      await fallbackTaskMutation({
+        res,
+        method,
+        taskId: decodeURIComponent(pathSegments[1]),
+        body,
+        gatewayState,
+        gatewayStore,
+      });
+      return;
+    }
+  }
   let runtimeRequest;
   let runtimeResponse;
   try {
@@ -7667,7 +7722,7 @@ async function handleApi(
       return;
     }
     if (method === 'POST' && pathSegments[0] === 'tasks' && !pathSegments[1]) {
-      fallbackTaskCreate({
+      await fallbackTaskCreate({
         res,
         body,
         gatewayState,
@@ -7714,7 +7769,7 @@ async function handleApi(
       return;
     }
     if ((method === 'PATCH' || method === 'DELETE') && pathSegments[0] === 'tasks' && pathSegments[1]) {
-      fallbackTaskMutation({
+      await fallbackTaskMutation({
         res,
         method,
         taskId: decodeURIComponent(pathSegments[1]),
@@ -8172,7 +8227,7 @@ function createRailwayGatewayServer({
       },
       meta: { ...meta, requestedExecutionEngine, executionEngine },
       onEvent,
-      timeoutMs: agentOperationsProfileTimeout(env),
+      timeoutMs: interactiveRelayChatTimeout(env),
     });
     return { ...completion, requestedExecutionEngine, executionEngine };
   };

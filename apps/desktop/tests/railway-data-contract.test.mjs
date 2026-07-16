@@ -7,6 +7,7 @@ const apiSource = readFileSync(new URL('../src/api/hermesApi.ts', import.meta.ur
 const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 const viteConfigSource = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
 const workspaceSource = readFileSync(new URL('../src/features/agent-operations/AgentWorkWorkspace.tsx', import.meta.url), 'utf8');
+const uiPreferencesSource = readFileSync(new URL('../src/features/settings/uiPreferences.ts', import.meta.url), 'utf8');
 
 test('browser preview proxy never acts as an owner-authorized confused deputy', () => {
   // Given / When / Then
@@ -304,6 +305,11 @@ test('desktop task ownership recognizes live Hermes profiles without the removed
   assert.match(appSource, /wikicurator/);
 });
 
+test('wiki answer prompt follows the question instead of enforcing artificial length', () => {
+  assert.match(appSource, /질문에 필요한 만큼/);
+  assert.doesNotMatch(appSource, /최소\s*350자|5~9문장/);
+});
+
 test('agent cards use Hermes dashboard profile readiness instead of idle fallback labels', () => {
   assert.match(appSource, /profileReadiness:\s*obj\(dashboard,\s*'profileReadiness'\)/);
   assert.match(appSource, /mergeAgentsWithProfileReadiness\(state\.agents,\s*state\.profileReadiness\)/);
@@ -341,12 +347,14 @@ test('agent run approval is persisted through Railway run action API', () => {
   assert.doesNotMatch(appSource, /Record<string,\s*true>/);
 });
 
-test('settings preferences are persisted through backend settings API', () => {
+test('settings preferences use Electron persistence before the remote preview fallback', () => {
   assert.match(apiSource, /saveSettings:/);
   assert.match(apiSource, /\/api\/settings/);
   assert.match(appSource, /async function updatePrefs\(/);
-  assert.match(appSource, /hermesApi\.saveSettings\(\{\s*uiPreferences:/);
-  assert.match(appSource, /setPrefs\(settingsPreferences\(settingsPayload\)\)/);
+  assert.match(appSource, /saveLocal:\s*desktopApi/);
+  assert.match(appSource, /saveRemote:\s*\(payload\) => hermesApi\.saveSettings\(payload\)/);
+  assert.match(appSource, /localUiPreferencesRef\.current \|\| readUiPreferences\(settingsPayload\)/);
+  assert.match(uiPreferencesSource, /saveLocal\s*\? await saveLocal/);
   assert.doesNotMatch(appSource, /onClick=\{\(\) => setPrefs\(\{ \.\.\.prefs, \[key\]: !prefs\[key\] \}\)\}/);
 });
 

@@ -87,14 +87,14 @@ async function main() {
   const answer = await page.locator('.wiki-answer').textContent();
   assert.match(answer || '', /기록을 보면 UniPort 전략은\?/);
   assert.match(answer || '', /UniPort 전략/);
-  assert.match(answer || '', /wiki-curator/);
+  assert.match(answer || '', /wikicurator/);
   const searchCall = calls.find((call) => call.method === 'POST' && call.path === '/api/wiki/search');
   const streamCall = calls.find((call) => call.method === 'POST' && call.path === '/api/chat/stream');
   assert.equal(Boolean(searchCall), true);
   assert.equal(Boolean(streamCall), true);
   assert.equal(searchCall.body.includeJournal, false);
   assert.equal(searchCall.body.includeRaw, false);
-  assert.equal(streamCall.body.agent, 'wiki-curator');
+  assert.equal(streamCall.body.agent, 'wikicurator');
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, before, afterZoom, wikiSearch: searchCall?.body, wikiStream: streamCall?.body }, null, 2));

@@ -23,8 +23,26 @@ async function main() {
     try { body = request.postData() ? JSON.parse(request.postData()) : {}; } catch { body = {}; }
     calls.push({ method, path, body });
 
-    if (method === 'POST' && path === '/api/assistant/ask') {
-      await route.fulfill({ json: { ok: true, answer: '채팅 응답' } });
+    if (method === 'POST' && path === '/api/chat/stream') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream; charset=utf-8',
+        body: [
+          'event: timeline',
+          'data: {"text":"INTERNAL_TIMELINE_SENTINEL"}',
+          '',
+          'event: delta',
+          'data: {"text":"채팅 응답"}',
+          '',
+          'event: run',
+          'data: {"text":"INTERNAL_RUN_SENTINEL"}',
+          '',
+          'event: done',
+          'data: {"text":"채팅 응답","run":{"logs":["INTERNAL_LOG_SENTINEL"]}}',
+          '',
+          '',
+        ].join('\n'),
+      });
       return;
     }
 
@@ -65,16 +83,17 @@ async function main() {
     apiBanner: document.querySelector('.api-banner')?.textContent?.trim() || '',
   }));
 
-  const askCall = calls.find((call) => call.method === 'POST' && call.path === '/api/assistant/ask');
-  assert.equal(Boolean(askCall), true);
-  assert.equal(askCall.body.question, '채팅 버튼 검증');
+  const streamCall = calls.find((call) => call.method === 'POST' && call.path === '/api/chat/stream');
+  assert.equal(Boolean(streamCall), true);
+  assert.equal(streamCall.body.message, '채팅 버튼 검증');
   assert.match(result.messages, /채팅 버튼 검증/);
   assert.match(result.messages, /채팅 응답/);
+  assert.doesNotMatch(result.messages, /INTERNAL_(?:TIMELINE|RUN|LOG)_SENTINEL/);
   assert.equal(result.input, '');
   assert.equal(result.apiBanner, '');
 
   await browser.close();
-  console.log(JSON.stringify({ ok: true, result, askCall }, null, 2));
+  console.log(JSON.stringify({ ok: true, result, streamCall }, null, 2));
 }
 
 main().catch((error) => {

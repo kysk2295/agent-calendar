@@ -81,6 +81,15 @@ function relayError(code, message, jobId = '') {
   return error;
 }
 
+function interactiveRelayChatTimeout(env = process.env) {
+  const configured = Number(
+    env.HERMES_RELAY_CHAT_TIMEOUT_MS
+      || env.HERMES_RELAY_STREAM_TIMEOUT_MS
+      || 90_000,
+  );
+  return Number.isFinite(configured) && configured >= 1_000 ? configured : 90_000;
+}
+
 async function runRelayChatCompletion({
   relay,
   env = process.env,
@@ -136,12 +145,20 @@ async function runRelayChatCompletion({
       }
     }
     if (batch.complete) {
+      if (bridgeCompletion.ok === false) {
+        throw relayError(
+          'relay_failed',
+          String(bridgeCompletion.error || 'Mac mini Hermes Relay failed'),
+          job.id,
+        );
+      }
       return {
-        text: (textParts.join('') || bridgeCompletionText).trim(),
+        text: (bridgeCompletionText || textParts.join('')).trim(),
         jobId: job.id,
         events,
         runner: String(bridgeCompletion.runner || ''),
         profile: String(bridgeCompletion.profile || payload?.profile || ''),
+        model: String(bridgeCompletion.model || payload?.model || ''),
         usage: bridgeCompletion.usage || null,
         provenance: bridgeCompletion.provenance || null,
       };
@@ -173,11 +190,12 @@ function runRelayProfileChatCompletion(options = {}) {
       yolo: false,
       noApproval: false,
     },
-    jobKind: 'profile.chat',
+    jobKind: 'chat.completions',
   });
 }
 
 module.exports = {
+  interactiveRelayChatTimeout,
   relayCompletionText,
   runRelayChatCompletion,
   runRelayProfileChatCompletion,

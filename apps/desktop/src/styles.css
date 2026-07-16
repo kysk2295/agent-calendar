@@ -92,6 +92,11 @@ input:focus, textarea:focus, select:focus { outline: none; }
   --green: #6AD69E;
 }
 
+.app-root[data-theme="dark"] .nav-item:hover,
+.app-root[data-theme="dark"] .profile:hover {
+  background: color-mix(in srgb, var(--panel) 72%, var(--sidebar));
+}
+
 .app-root[data-theme="sage"] { --accent: #4F7D68; --accent-dark: #315D4B; --accent-soft: #EAF2EB; --accent-line: #BED3C6; --accent-shadow: rgba(49, 93, 75, .3); --accent-shadow-strong: rgba(49, 93, 75, .36); }
 .app-root[data-theme="mono"] { --accent: #3F3A34; --accent-dark: #25211D; --accent-soft: #ECE9E4; --accent-line: #CFC7BA; --accent-shadow: rgba(37, 33, 29, .3); --accent-shadow-strong: rgba(37, 33, 29, .36); }
 .app-root[data-theme="warm"] { --accent: #C95035; --accent-dark: #9D3828; --accent-shadow: rgba(157, 56, 40, .3); --accent-shadow-strong: rgba(157, 56, 40, .36); --canvas: #ECE1D2; --sidebar: #F0E3D2; }
@@ -304,7 +309,7 @@ img.avatar {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 18px;
+  padding: 0 68px 0 18px;
   background: var(--bar);
   border-bottom: 1px solid var(--line-strong);
 }
@@ -339,11 +344,12 @@ img.avatar {
 
 .chat-fab {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
+  top: 4px;
+  right: 8px;
+  bottom: auto;
   z-index: 16;
-  width: 54px;
-  height: 54px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border: 1px solid color-mix(in srgb, #fff 58%, var(--accent-line));
@@ -362,11 +368,11 @@ img.avatar {
     0 5px 12px color-mix(in srgb, var(--text) 18%, transparent);
 }
 .chat-fab[data-active="true"] {
-  right: 358px;
+  display: none;
 }
 .app-root:has(.task-list-screen) .chat-fab,
 .app-root:has(.detail-modal) .chat-fab {
-  bottom: 82px;
+  bottom: auto;
 }
 .app-root:has(.wiki[data-graph-focus="true"]) .chat-fab {
   display: none;
@@ -1124,7 +1130,7 @@ img.avatar {
 .legend .me { background: #E7ECF4; border: 1px solid #C9D2E2; }
 .legend .agent { background: #E3EFE4; border: 1px solid #C2DAC6; }
 .legend .hybrid { background: #ECE6F4; border: 1px solid #D5C9E6; }
-.segment { display: inline-flex; gap: 2px; padding: 3px; background: #EAE3D4; border-radius: 8px; margin-left: auto; }
+.segment { display: inline-flex; gap: 2px; padding: 3px; background: var(--line); border-radius: 8px; margin-left: auto; }
 .segment button { height: 23px; min-width: 34px; border: 0; background: transparent; }
 .segment button[data-active="true"] { background: var(--panel); color: var(--accent-dark); box-shadow: 0 1px 2px rgba(43,38,32,.08); }
 .agent-calendar-filter { margin-left: auto; }
@@ -5316,6 +5322,7 @@ textarea { resize: vertical; min-height: 72px; }
   cursor: pointer;
 }
 .chat-runs { margin: 10px; padding: 9px; display: grid; gap: 6px; }
+.chat-runs:empty { display: none; }
 .chat-run-card {
   display: grid;
   gap: 2px;

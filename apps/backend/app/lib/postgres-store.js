@@ -393,6 +393,11 @@ class PostgresHermesStore extends HermesStore {
     return task;
   }
 
+  async waitForTaskPersistence(taskId) {
+    const pending = this.taskPersistChains.get(taskId);
+    if (pending) await pending;
+  }
+
   updateTask(taskId, patch = {}) {
     const task = super.updateTask(taskId, patch);
     if (task && !this.suppressAgentWorkPersistence) {
@@ -1308,14 +1313,13 @@ class PostgresHermesStore extends HermesStore {
     const pending = previous
       ? previous.then(operation, operation)
       : Promise.resolve(operation());
-    const tracked = pending.catch(() => null);
-    this.taskPersistChains.set(taskId, tracked);
-    tracked.then(() => {
-      if (this.taskPersistChains.get(taskId) === tracked) {
+    this.taskPersistChains.set(taskId, pending);
+    pending.catch(() => null).then(() => {
+      if (this.taskPersistChains.get(taskId) === pending) {
         this.taskPersistChains.delete(taskId);
       }
     });
-    return tracked;
+    return pending;
   }
 
   #writeTask(task) {
