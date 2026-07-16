@@ -30,6 +30,7 @@
 - [x] 위키 Relay 합성은 `wikicurator`가 아닌 실제 로컬 LLM 모델을 전송한다.
 - [x] UI와 응답 메타데이터는 담당 에이전트를 `wikicurator`로 유지한다.
 - [x] 로컬 LLM 실패 시에도 검색 근거 기반 답변과 출처를 반환한다.
+- [x] 로컬 LLM이 멈춰도 8초 이내에 검색 근거 기반 답변으로 전환한다.
 - [ ] 실제 Electron에서 `UniPort BM 요약` 질문이 내부 404 없이 답변된다.
 
 ## Edge Cases
@@ -70,9 +71,11 @@
 - Command: `node --test apps/backend/tests/wiki-fallback.test.cjs`
   - Result: PASS, 9 tests.
 - Command: `npm run backend:check && npm run test:backend`
-  - Result: PASS, backend 248 tests.
+  - Result: PASS, backend 249 tests.
 - Command: `npm run typecheck`; `npm --workspace apps/desktop run test`; `npm run build:desktop`
   - Result: PASS, desktop 138 tests와 production build 완료.
+- Command: `node --test --test-name-pattern='wiki relay returns retrieval fallback before' apps/backend/tests/wiki-fallback.test.cjs`
+  - Result: RED 5.28초 대기 후 GREEN 1.18초. 운영 UI에서는 최대 8초 뒤 retrieval fallback으로 전환한다.
 
 ## Remaining Risks
 

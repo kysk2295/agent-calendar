@@ -3558,7 +3558,7 @@ async function runRailwayRelayWikiChat({ relay, env = process.env, question, sou
       answerMode: 'llm',
       source: 'railway-relay-wiki-local-llm',
     },
-    timeoutMs: Number(env.HERMES_RELAY_WIKI_CHAT_TIMEOUT_MS || env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000),
+    timeoutMs: Number(env.HERMES_RELAY_WIKI_STREAM_TIMEOUT_MS || 8_000),
   });
   return {
     text: completion.text,

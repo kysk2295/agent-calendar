@@ -425,6 +425,70 @@ test('wiki relay clearly marks retrieval-only fallback when local model synthesi
   }
 });
 
+test('wiki relay returns retrieval fallback before a stalled local model blocks the UI', async () => {
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+      HERMES_RELAY_WIKI_CHAT_TIMEOUT_MS: '5000',
+      HERMES_RELAY_WIKI_STREAM_TIMEOUT_MS: '25',
+      AGENT_CALENDAR_LOCAL_LLM_MODEL: 'qwen2.5:7b',
+    },
+    gatewayStore: createEmptyStore(),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const searchPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const responsePromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        view: 'wiki',
+        agent: 'wikicurator',
+        message: 'Q: UniPort BM 요약',
+      }),
+    });
+    const searchJob = (await searchPoll).job;
+    const modelPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await fetch(`${baseUrl}/api/relay/jobs/${searchJob.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({
+        ok: true,
+        query: 'UniPort BM 요약',
+        sources: [{
+          id: 'wiki-source-1',
+          path: '2_wiki/UniPort-BM.md',
+          title: 'UniPort BM',
+          excerpt: 'UniPort는 교육기관과 학습자를 연결하는 운영 플랫폼이다.',
+          score: 0.9,
+        }],
+      }),
+    });
+    const modelJob = (await modelPoll).job;
+    const startedAt = Date.now();
+    const response = await responsePromise;
+    const body = await response.text();
+
+    assert.equal(modelJob.payload.model, 'qwen2.5:7b');
+    assert.ok(Date.now() - startedAt < 2000, 'retrieval fallback should beat the wiki UI timeout');
+    assert.equal(response.status, 200);
+    assert.match(body, /UniPort는 교육기관과 학습자를 연결/);
+    assert.match(body, /"answerMode":"retrieval-degraded"/);
+    assert.doesNotMatch(body, /event: error/);
+  } finally {
+    await close(server);
+  }
+});
+
 test('weekly review uses the supplied review context instead of wiki retrieval', async () => {
   const server = createRailwayGatewayServer({
     env: {},
