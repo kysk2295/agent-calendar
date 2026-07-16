@@ -1076,6 +1076,54 @@ test('calendar chat stream returns computed fallback when Mac mini local LLM rej
   }
 });
 
+test('calendar chat stream returns computed fallback before the desktop request times out', async () => {
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      HERMES_RELAY_TOKEN: 'relay-test-token',
+      HERMES_RELAY_SCHEDULE_STREAM_TIMEOUT_MS: '25',
+      HERMES_RELAY_SCHEDULE_LLM_TIMEOUT_MS: '5000',
+      AGENT_CALENDAR_LOCAL_LLM_MODEL: 'qwen2.5:7b',
+    },
+    gatewayStore: createStore({
+      tasks: [{ id: 'task-meeting', title: '유니포트 회의 준비', date: '2026-07-07', status: 'Planned', done: false }],
+      events: [],
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-test-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const startedAt = Date.now();
+    const response = await fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: '오늘 뭐 해야 돼?',
+        view: 'calendar',
+        filters: { from: '2026-07-07', to: '2026-07-07' },
+      }),
+    });
+    const body = await response.text();
+    const polled = await pollPromise;
+
+    assert.equal(polled.job.kind, 'chat.completions');
+    assert.equal(response.status, 200);
+    assert.ok(Date.now() - startedAt < 2000, 'computed fallback should beat the desktop timeout');
+    assert.match(body, /event: delta/);
+    assert.match(body, /유니포트 회의 준비/);
+    assert.match(body, /"answerMode":"fallback"/);
+    assert.match(body, /"transport":"railway-relay"/);
+    assert.doesNotMatch(body, /event: error/);
+  } finally {
+    await close(server);
+  }
+});
+
 test('assistant ask uses Mac mini railway relay for local LLM synthesis when bridge is online', async () => {
   const state = {
     tasks: [

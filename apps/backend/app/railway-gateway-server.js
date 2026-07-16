@@ -3461,18 +3461,14 @@ function extractRelayRecordText(record) {
   return '';
 }
 
-async function runRailwayRelayChatCompletion({ relay, env = process.env, payload, meta = {} } = {}) {
+async function runRailwayRelayChatCompletion({ relay, env = process.env, payload, meta = {}, timeoutMs = null } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) return null;
   return runRelayChatCompletion({
     relay,
     env,
     payload,
     meta: { view: 'calendar-ai', ...meta },
-    timeoutMs: Number(
-      env.HERMES_RELAY_SCHEDULE_LLM_TIMEOUT_MS
-      || env.HERMES_RELAY_STREAM_TIMEOUT_MS
-      || 90_000,
-    ),
+    timeoutMs: Number(timeoutMs || env.HERMES_RELAY_SCHEDULE_LLM_TIMEOUT_MS || env.HERMES_RELAY_STREAM_TIMEOUT_MS || 90_000),
   });
 }
 
@@ -3572,7 +3568,7 @@ async function runRailwayRelayWikiChat({ relay, env = process.env, question, sou
   };
 }
 
-async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, question, computed, sources } = {}) {
+async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, question, computed, sources, timeoutMs = null } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) return null;
   const model = localLlmModel(env);
   const maxTokens = Number(env.AGENT_CALENDAR_LOCAL_LLM_MAX_TOKENS || env.HERMES_LOCAL_LLM_MAX_TOKENS || env.LOCAL_LLM_MAX_TOKENS || 220) || 220;
@@ -3594,6 +3590,7 @@ async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, ques
     env,
     payload: buildPayload(),
     meta: { answerMode: 'llm' },
+    timeoutMs,
   });
   attempts.push({ provider: 'local-llm', model, used: Boolean(first?.text), transport: 'railway-relay', ...(first?.jobId ? { jobId: first.jobId } : {}) });
   if (first?.text && !noItemsContradiction(first.text, sources)) {
@@ -3609,6 +3606,7 @@ async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, ques
     env,
     payload: buildPayload(`sources가 ${sources.length}건 존재한다. 없다고 말하지 말고 다시 답하라.`),
     meta: { answerMode: 'llm-retry' },
+    timeoutMs,
   });
   attempts.push({ provider: 'local-llm', model, used: Boolean(retry?.text), transport: 'railway-relay', ...(retry?.jobId ? { jobId: retry.jobId } : {}) });
   if (retry?.text && !noItemsContradiction(retry.text, sources)) {
@@ -6618,6 +6616,7 @@ async function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewa
         question,
         computed: result.computed,
         sources: result.sources,
+        timeoutMs: Number(env.HERMES_RELAY_SCHEDULE_STREAM_TIMEOUT_MS || 8_000),
       });
       if (relaySynthesis?.answer) {
         result = {
