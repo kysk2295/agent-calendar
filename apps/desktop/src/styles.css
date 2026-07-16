@@ -7496,52 +7496,7 @@ textarea { resize: vertical; min-height: 72px; }
 }
 
 @media (max-width: 760px) {
-  .app-root { display: grid; grid-template-columns: 1fr; }
-  .sidebar { display: none; }
-  .chat { display: none; }
-  .topbar { padding: 0 10px; }
-  .screen-heading span { display: none; }
-  .content { padding: 10px; }
-  .month-grid { grid-template-columns: repeat(7, minmax(42px, 1fr)); }
-  .event-pill {
-    min-height: 14px;
-    padding: 1px 2px;
-    font-size: 8px;
-    line-height: 1.15;
+  .month-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
-  .event-pill b { display: none; }
-  .kpis { grid-template-columns: repeat(2, 1fr); }
-  .login { min-height: auto; padding: 0; overflow: auto; }
-  .login-overlay { place-items: start center; padding: 14px; overflow: auto; }
-  .login-card {
-    width: 100%;
-    height: auto;
-    min-height: 0;
-    grid-template-columns: 1fr;
-  }
-  .login-splash {
-    min-height: 300px;
-    padding: 156px 28px 30px;
-  }
-  .splash-orbit {
-    top: 20px;
-    width: 170px;
-    height: 170px;
-  }
-  .orbit-node.large { top: 11px; left: 92px; width: 12px; height: 12px; }
-  .orbit-node.medium { top: 78px; right: -2px; width: 9px; height: 9px; }
-  .orbit-node.small { left: 20px; bottom: 31px; width: 6px; height: 6px; }
-  .orbit-center { inset: 69px auto auto 73px; width: 26px; height: 26px; }
-  .orbit-logo { width: 18px; height: 18px; border-radius: 6px; }
-  .splash-kicker { margin-bottom: 14px; font-size: 10px; }
-  .login-splash h1 { font-size: 27px; }
-  .login-splash p { margin-top: 12px; font-size: 13px; }
-  .login-form { padding: 30px 24px 28px; }
-  .login-form-brand { margin-bottom: 28px; }
-  .login-form h2 { font-size: 23px; }
-  .login-field { height: 50px; }
-  .widgets-showcase { padding: 22px 14px 28px; border-radius: 12px; }
-  .widgets-layout, .widgets-column, .widgets-small-row { gap: 14px; }
-  .widget-month, .widget-today { width: 100%; min-width: 0; }
-  .widgets-small-row { display: grid; grid-template-columns: repeat(2, minmax(0, 159px)); }
 }

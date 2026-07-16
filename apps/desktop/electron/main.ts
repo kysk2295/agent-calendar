@@ -143,6 +143,11 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  const desktopWindow = mainWindow;
+  desktopWindow.webContents.on('did-finish-load', () => {
+    desktopWindow.webContents.setZoomFactor(1);
+  });
+
   mainWindow.on('closed', () => {
     logLifecycle('main-window-closed');
     mainWindow = null;

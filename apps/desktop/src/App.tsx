@@ -21,7 +21,6 @@ import './features/agent-operations/agent-operations.css';
 import './features/agent-operations/agent-workspace.css';
 import { useAgentCalendarDeepLink } from './features/agent-operations/useAgentCalendarDeepLink';
 import { consumeConsoleChatStream } from './features/chat/consoleChatStream';
-import { MobileNavigation, type MobileNavigationItem } from './features/mobile/MobileNavigation';
 import {
   DEFAULT_UI_PREFERENCES,
   persistUiPreferences,
@@ -1151,15 +1150,6 @@ export function App() {
     if (!dynamicTagGroups.length) dynamicTagGroups.push({ title: '태그', kind: 'tag', group: '태그', items: [] });
     return [smartNavGroups[0], ...dynamicListGroups, ...dynamicTagGroups, ...smartNavGroups.slice(1)];
   }, [listDefinitions, tagDefinitions]);
-  const mobileNavigationItems = useMemo<MobileNavigationItem[]>(() => navGroups.flatMap((group) => (
-    group.items.map((item) => ({
-      key: item.navKey || item.id,
-      screen: item.id,
-      icon: item.icon,
-      label: item.label,
-    }))
-  )), [navGroups]);
-
   useEffect(() => {
     let cancelled = false;
     async function boot() {
@@ -2806,16 +2796,6 @@ export function App() {
           </section>
         )}
       </main>
-
-      <MobileNavigation
-        items={mobileNavigationItems}
-        activeKey={activeNavKey}
-        onSelect={(key) => {
-          const item = navGroups.flatMap((group) => group.items).find((candidate) => (candidate.navKey || candidate.id) === key);
-          if (item) openScreen(item.id, item.navKey || item.id);
-        }}
-        onOpenSettings={() => setModal('settings')}
-      />
 
       <button className="chat-fab" data-active={chatOpen} onClick={() => setChatOpen((open) => !open)} aria-label={chatOpen ? 'Agent Calendar 콘솔 닫기' : 'Agent Calendar 콘솔 열기'} title="Agent Calendar 콘솔">
         <ChatIcon />

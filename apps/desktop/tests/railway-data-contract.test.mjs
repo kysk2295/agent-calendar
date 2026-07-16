@@ -47,9 +47,9 @@ test('calendar renders only Railway tasks/events for a date, never fallback fill
   assert.equal(appSource.includes('matched.length ? matched : calendarItems.slice'), false);
 });
 
-test('narrow calendar keeps persisted event pills visible for inspection and editing', () => {
-  assert.doesNotMatch(styleSource, /@media\s*\(max-width:\s*760px\)[\s\S]*?\.event-pill\s*\{\s*display:\s*none/);
-  assert.match(styleSource, /@media\s*\(max-width:\s*760px\)[\s\S]*?\.event-pill\s*\{[\s\S]*?font-size:/);
+test('desktop calendar keeps event details instead of switching to compressed mobile pills', () => {
+  assert.match(styleSource, /@media\s*\(max-width:\s*760px\)[\s\S]*?\.month-grid\s*\{[\s\S]*?repeat\(7,\s*minmax\(0,\s*1fr\)\)/);
+  assert.doesNotMatch(styleSource, /\.event-pill b\s*\{\s*display:\s*none/);
 });
 
 test('wiki answers expose each cited source as an openable document control', () => {
