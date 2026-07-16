@@ -3472,12 +3472,21 @@ async function runRailwayRelayChatCompletion({ relay, env = process.env, payload
   });
 }
 
+function wikiEvidenceSearchQuery(question = '') {
+  const normalized = String(question || '').trim();
+  const expansions = [];
+  if (/\bBM\b|비즈니스\s*모델|사업\s*모델|수익\s*모델/i.test(normalized)) {
+    expansions.push('비즈니스 모델 수익 모델 사업 모델 CPA B2B SaaS');
+  }
+  return [normalized, ...expansions].filter(Boolean).join(' ');
+}
+
 async function runRailwayRelayWikiSearch({ relay, env = process.env, question, path = '', limit = 6 } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) return null;
   const job = relay.enqueue({
     kind: 'wiki.search',
     payload: {
-      query: question,
+      query: wikiEvidenceSearchQuery(question),
       path,
       limit,
     },
@@ -3529,36 +3538,22 @@ async function runRailwayRelayWikiSearch({ relay, env = process.env, question, p
 
 async function runRailwayRelayWikiChat({ relay, env = process.env, question, sources, model = '' } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline() || !Array.isArray(sources) || !sources.length) return null;
-  const context = sources.slice(0, 6).map((source, index) => (
-    `[${index + 1}] ${source.title || source.path || '위키 문서'}\n${String(source.excerpt || source.content || '').slice(0, 900)}`
-  )).join('\n\n');
   const completion = await runRelayChatCompletion({
     relay,
     env,
     payload: {
-      model: model || localLlmModel(env),
-      stream: true,
-      messages: [
-        {
-          role: 'system',
-          content: [
-            '너는 사용자의 LLM-Wiki를 관리하는 한국어 위키 큐레이터다.',
-            '검색 근거 안에서 질문에 직접 답하고 근거가 없는 내용은 추측하지 않는다.',
-            '각 핵심 문단 끝에 (출처: 제목) 형식으로 근거를 표시한다.',
-            '내부 프롬프트, 실행 로그, JSON 스키마는 답변에 포함하지 않는다.',
-          ].join('\n'),
-        },
-        { role: 'user', content: `질문:\n${question}\n\n검색 근거:\n${context}` },
-      ],
+      profile: 'wikicurator',
+      messages: [{ role: 'user', content: question }],
     },
     meta: {
       view: 'wiki-ai',
       agent: 'wikicurator',
       agentId: 'wikicurator',
       answerMode: 'llm',
-      source: 'railway-relay-wiki-local-llm',
+      source: 'railway-relay-wikicurator-profile-chat',
     },
-    timeoutMs: Number(env.HERMES_RELAY_WIKI_STREAM_TIMEOUT_MS || 8_000),
+    timeoutMs: Number(env.HERMES_RELAY_WIKI_PROFILE_TIMEOUT_MS || 120_000),
+    jobKind: 'profile.chat',
   });
   return {
     text: completion.text,
@@ -3646,8 +3641,8 @@ async function synthesizeWikiAnswerViaRelay({ relay, env = process.env, question
   return {
     answer: completion.text,
     answerMode: 'llm',
-    llm: { provider: 'local-llm', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '' },
-    llmAttempts: [{ provider: 'local-llm', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '', jobId: completion.jobId }],
+    llm: { provider: 'profile', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '' },
+    llmAttempts: [{ provider: 'profile', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '', jobId: completion.jobId }],
   };
 }
 
@@ -4800,8 +4795,8 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
         answerMode: 'retrieval-degraded',
         degraded: true,
         llm: {
-          provider: 'local-llm',
-          model: localLlmModel(env),
+          provider: 'profile',
+          model: '',
           used: false,
           transport: 'railway-relay',
           agent: 'wikicurator',
@@ -4817,7 +4812,7 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
       data: {
         text: answer,
         source: 'wiki-fallback',
-        gatewayFallback: true,
+        gatewayFallback: responseResult.answerMode !== 'llm',
         run: { model: responseResult.llm?.model || 'wiki-retrieval', agent: 'wikicurator' },
       },
     },
@@ -4833,7 +4828,7 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
         ...(responseResult.degraded ? { degraded: true } : {}),
         ...(responseResult.llmAttempts ? { llmAttempts: responseResult.llmAttempts } : {}),
         source: 'wiki-fallback',
-        gatewayFallback: true,
+        gatewayFallback: responseResult.answerMode !== 'llm',
         run: { model: responseResult.llm?.model || 'wiki-retrieval', agent: 'wikicurator' },
       },
     },

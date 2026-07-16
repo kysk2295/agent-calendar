@@ -235,28 +235,6 @@ function text(value: unknown, fallback = '') {
   return String(value || fallback);
 }
 
-function compactWikiSnippet(value: unknown, maxLength = 180) {
-  const normalized = text(value).replace(/\s+/g, ' ').trim();
-  return normalized.length > maxLength ? `${normalized.slice(0, maxLength).trim()}...` : normalized;
-}
-
-function wikiStreamCommand(question: string, sources: Item[]) {
-  const context = sources.slice(0, 2).map((source, index) => {
-    const title = text(source.title || source.path, '위키 문서');
-    const heading = text(source.heading || source.headingPath, '근거');
-    const snippet = compactWikiSnippet(source.snippet || source.text || source.excerpt);
-    return `[${index + 1}] ${title} / ${heading}: ${snippet}`;
-  }).join('\n');
-  return [
-    '위키 큐레이터 답변.',
-    '규칙: SOURCES만 사용. 한국어로 질문에 필요한 만큼 자연스럽고 직접적으로 답하라. 핵심 판단과 근거를 먼저 말하고, 도움이 될 때만 다음 액션이나 리스크를 덧붙여라. 중요한 근거 문장 끝에는 [1]처럼 인용하라. 근거가 부족하면 "위키 근거 부족"이라고 솔직히 말하라.',
-    '',
-    `Q: ${question}`,
-    '',
-    `SOURCES:\n${context || '(검색된 근거 없음)'}`,
-  ].join('\n');
-}
-
 function itemTitle(item: Item, fallback = '항목') {
   return text(item.title || item.goal || item.name || item.subject || item.label || item.text || item.path, fallback);
 }
@@ -2115,11 +2093,10 @@ export function App() {
       setWikiAnswerMeta({ provider: 'railway-hermes', agent: 'wikicurator', model: 'wikicurator', source: 'stream', gatewayFallback: false });
 
       const response = await hermesApi.streamChat({
-        message: wikiStreamCommand(question, sources),
+        message: question,
         view: 'wiki',
         agent: 'wikicurator',
         agentId: 'wikicurator',
-        model: 'wikicurator',
         mode: 'wiki_qa_fast',
       });
       if (!response.ok || !response.body) throw new Error(`wiki stream ${response.status}`);
@@ -2139,13 +2116,28 @@ export function App() {
           const data = block.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.replace(/^data:\s?/, '')).join('\n').trim();
           if (!data) continue;
           try {
-            const parsed = JSON.parse(data) as { text?: string; error?: string; gatewayFallback?: boolean; source?: string; run?: { model?: string; agent?: string } };
-            if (parsed.gatewayFallback !== undefined || parsed.source || parsed.run?.model) {
+            const parsed = JSON.parse(data) as {
+              text?: string;
+              error?: string;
+              gatewayFallback?: boolean;
+              source?: string;
+              sources?: Item[];
+              retrieval?: Item;
+              llm?: Item;
+              run?: { model?: string; agent?: string };
+            };
+            if (Array.isArray(parsed.sources) && parsed.sources.length) {
+              setWikiAnswerSources(parsed.sources);
+            }
+            if (parsed.gatewayFallback !== undefined || parsed.source || parsed.run?.model || parsed.llm || parsed.retrieval) {
               setWikiAnswerMeta((current) => ({
                 ...current,
                 gatewayFallback: parsed.gatewayFallback ?? current.gatewayFallback,
                 source: parsed.source || text(current.source, 'stream'),
                 model: parsed.run?.model || text(current.model, 'wikicurator'),
+                agent: text(parsed.llm?.agent || parsed.run?.agent, text(current.agent, 'wikicurator')),
+                provider: text(parsed.llm?.provider, text(current.provider, 'profile')),
+                embeddingModel: text(parsed.retrieval?.embeddingModel, text(current.embeddingModel)),
               }));
             }
             if (parsed.error) throw new Error(parsed.error);

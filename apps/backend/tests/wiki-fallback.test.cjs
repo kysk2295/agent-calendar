@@ -259,11 +259,11 @@ test('wiki chat stream fallback uses local LLM answer when Hermes runtime is abs
   }
 });
 
-test('wiki relay synthesizes retrieval with the configured local model under wikicurator accountability', async () => {
+test('wiki relay asks the canonical wikicurator profile without injecting retrieved text', async () => {
   const server = createRailwayGatewayServer({
     env: {
       HERMES_RELAY_TOKEN: 'relay-token',
-      AGENT_CALENDAR_LOCAL_LLM_MODEL: 'qwen2.5:7b',
+      HERMES_RELAY_WIKI_PROFILE_TIMEOUT_MS: '1000',
     },
     gatewayStore: createEmptyStore(),
     fetchImpl: async () => {
@@ -323,33 +323,128 @@ test('wiki relay synthesizes retrieval with the configured local model under wik
       body: JSON.stringify({
         ok: true,
         text: '운영 원칙은 배포 전에 테스트와 프리뷰 검증을 완료하는 것입니다. (출처: 운영 원칙)',
-        runner: 'local-llm',
-        model: 'qwen2.5:7b',
+        profile: 'wikicurator',
+        runner: 'hermes-profile-chat',
       }),
     });
 
     const response = await responsePromise;
     const body = await response.text();
-    assert.equal(profileJob.kind, 'chat.completions');
-    assert.equal(profileJob.payload.model, 'qwen2.5:7b');
-    assert.equal(profileJob.payload.profile, undefined);
-    assert.match(JSON.stringify(profileJob.payload.messages), /배포 전에는 테스트와 프리뷰 검증/);
+    assert.equal(profileJob.kind, 'profile.chat');
+    assert.equal(profileJob.payload.profile, 'wikicurator');
+    assert.deepEqual(profileJob.payload.messages, [{ role: 'user', content: '운영 원칙을 알려줘' }]);
+    assert.doesNotMatch(JSON.stringify(profileJob.payload.messages), /배포 전에는 테스트와 프리뷰 검증/);
     assert.equal(response.status, 200);
     assert.match(body, /운영 원칙은 배포 전에 테스트와 프리뷰 검증/);
     assert.match(body, /"agent":"wikicurator"/);
-    assert.match(body, /"provider":"local-llm"/);
-    assert.match(body, /"model":"qwen2.5:7b"/);
+    assert.match(body, /"provider":"profile"/);
     assert.match(body, /"answerMode":"llm"/);
   } finally {
     await close(server);
   }
 });
 
-test('wiki relay clearly marks retrieval-only fallback when local model synthesis fails', async () => {
+test('wiki stream sends the unchanged question to wikicurator profile chat and tags vector evidence', async () => {
   const server = createRailwayGatewayServer({
     env: {
       HERMES_RELAY_TOKEN: 'relay-token',
-      AGENT_CALENDAR_LOCAL_LLM_MODEL: 'qwen2.5:7b',
+      HERMES_RELAY_WIKI_PROFILE_TIMEOUT_MS: '1000',
+    },
+    gatewayStore: createEmptyStore(),
+    fetchImpl: async () => {
+      throw new Error('wikicurator profile chat must not call a direct model API');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const searchPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const responsePromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        view: 'wiki',
+        agent: 'wikicurator',
+        message: 'UniPort BM 정본 기준으로 현재 BM과 우선순위를 알려줘',
+      }),
+    });
+    const searchJob = (await searchPoll).job;
+    await fetch(`${baseUrl}/api/relay/jobs/${searchJob.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({
+        ok: true,
+        query: 'UniPort BM 정본 기준으로 현재 BM과 우선순위를 알려줘',
+        sources: [{
+          id: 'wiki-source-1',
+          path: '2_wiki/UniPort.md',
+          title: 'UniPort',
+          excerpt: '집단지성 데이터 B2B, CPA 제휴, 금융기관 B2B SaaS로 확장한다.',
+          score: 0.92,
+          vectorScore: 0.88,
+          textScore: 0.71,
+        }],
+        retrieval: {
+          source: 'wiki-vector-db',
+          mode: 'vector-hybrid',
+          embeddingModel: 'bge-m3',
+          chunkCount: 1,
+        },
+      }),
+    });
+    const profilePoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    const profileJob = (await profilePoll).job;
+    await fetch(`${baseUrl}/api/relay/jobs/${profileJob.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({
+        ok: true,
+        text: '현재는 무료 B2C로 판단 데이터를 축적하고 CPA로 초기 수익을 검증하며, 장기적으로 B2B 데이터와 SaaS로 확장하는 구조입니다.',
+        profile: 'wikicurator',
+        runner: 'hermes-profile-chat',
+      }),
+    });
+
+    const response = await responsePromise;
+    const body = await response.text();
+    assert.equal(response.status, 200);
+    assert.match(searchJob.payload.query, /비즈니스 모델/);
+    assert.match(searchJob.payload.query, /CPA/);
+    assert.equal(profileJob.kind, 'profile.chat');
+    assert.equal(profileJob.payload.profile, 'wikicurator');
+    assert.deepEqual(profileJob.payload.messages, [{
+      role: 'user',
+      content: 'UniPort BM 정본 기준으로 현재 BM과 우선순위를 알려줘',
+    }]);
+    assert.equal(profileJob.payload.model, undefined);
+    assert.match(body, /현재는 무료 B2C로 판단 데이터를 축적하고 CPA로 초기 수익을 검증/);
+    assert.match(body, /"answerMode":"llm"/);
+    assert.match(body, /"provider":"profile"/);
+    assert.match(body, /"agent":"wikicurator"/);
+    assert.match(body, /"embeddingModel":"bge-m3"/);
+    assert.match(body, /"vectorScore":0\.88/);
+    assert.match(body, /2_wiki\/UniPort\.md/);
+  } finally {
+    await close(server);
+  }
+});
+
+test('wiki relay clearly marks retrieval-only fallback when wikicurator profile chat fails', async () => {
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+      HERMES_RELAY_WIKI_PROFILE_TIMEOUT_MS: '1000',
     },
     gatewayStore: createEmptyStore(),
     fetchImpl: async () => {
@@ -409,15 +504,13 @@ test('wiki relay clearly marks retrieval-only fallback when local model synthesi
     const response = await responsePromise;
     const body = await response.text();
 
-    assert.equal(profileJob.kind, 'chat.completions');
-    assert.equal(profileJob.payload.model, 'qwen2.5:7b');
-    assert.equal(profileJob.payload.profile, undefined);
+    assert.equal(profileJob.kind, 'profile.chat');
+    assert.equal(profileJob.payload.profile, 'wikicurator');
     assert.equal(response.status, 200);
     assert.match(body, /배포 전에는 테스트와 프리뷰 검증을 완료한다/);
     assert.match(body, /"answerMode":"retrieval-degraded"/);
     assert.match(body, /"degraded":true/);
-    assert.match(body, /"provider":"local-llm"/);
-    assert.match(body, /"model":"qwen2.5:7b"/);
+    assert.match(body, /"provider":"profile"/);
     assert.match(body, /"agent":"wikicurator"/);
     assert.doesNotMatch(body, /"answerMode":"llm"/);
   } finally {
@@ -425,13 +518,11 @@ test('wiki relay clearly marks retrieval-only fallback when local model synthesi
   }
 });
 
-test('wiki relay returns retrieval fallback before a stalled local model blocks the UI', async () => {
+test('wiki relay returns retrieval fallback before a stalled wikicurator profile blocks the UI', async () => {
   const server = createRailwayGatewayServer({
     env: {
       HERMES_RELAY_TOKEN: 'relay-token',
-      HERMES_RELAY_WIKI_CHAT_TIMEOUT_MS: '5000',
-      HERMES_RELAY_WIKI_STREAM_TIMEOUT_MS: '25',
-      AGENT_CALENDAR_LOCAL_LLM_MODEL: 'qwen2.5:7b',
+      HERMES_RELAY_WIKI_PROFILE_TIMEOUT_MS: '25',
     },
     gatewayStore: createEmptyStore(),
   });
@@ -478,7 +569,8 @@ test('wiki relay returns retrieval fallback before a stalled local model blocks 
     const response = await responsePromise;
     const body = await response.text();
 
-    assert.equal(modelJob.payload.model, 'qwen2.5:7b');
+    assert.equal(modelJob.kind, 'profile.chat');
+    assert.equal(modelJob.payload.profile, 'wikicurator');
     assert.ok(Date.now() - startedAt < 2000, 'retrieval fallback should beat the wiki UI timeout');
     assert.equal(response.status, 200);
     assert.match(body, /UniPort는 교육기관과 학습자를 연결/);

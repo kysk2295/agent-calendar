@@ -61,7 +61,8 @@ async function main() {
           `data: {"text":"기록을 보면 UniPort 전략은?는 UniPort 전략 문서와 연결됩니다."}`,
           '',
           'event: done',
-          `data: {"text":"기록을 보면 UniPort 전략은?는 UniPort 전략 문서와 연결됩니다.","source":"railway-relay","gatewayFallback":false,"run":{"model":"wiki-curator"}}`,
+          `data: {"text":"기록을 보면 UniPort 전략은?는 UniPort 전략 문서와 연결됩니다.","source":"railway-relay","gatewayFallback":false,"answerMode":"llm","sources":[{"path":"2_wiki/uniport-canonical.md","title":"UniPort 정본","excerpt":"큐레이터가 사용한 벡터 근거"}],"retrieval":{"embeddingModel":"bge-m3","mode":"vector-hybrid"},"llm":{"provider":"profile","agent":"wikicurator"},"run":{"model":"wiki-curator","agent":"wikicurator"}}`,
+          '',
           '',
         ].join('\n'),
       });
@@ -88,6 +89,8 @@ async function main() {
   assert.match(answer || '', /기록을 보면 UniPort 전략은\?/);
   assert.match(answer || '', /UniPort 전략/);
   assert.match(answer || '', /wikicurator/);
+  await page.getByRole('button', { name: '출처 열기: UniPort 정본' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '출처 열기: UniPort 전략' }).count(), 0);
   const searchCall = calls.find((call) => call.method === 'POST' && call.path === '/api/wiki/search');
   const streamCall = calls.find((call) => call.method === 'POST' && call.path === '/api/chat/stream');
   assert.equal(Boolean(searchCall), true);
@@ -95,6 +98,9 @@ async function main() {
   assert.equal(searchCall.body.includeJournal, false);
   assert.equal(searchCall.body.includeRaw, false);
   assert.equal(streamCall.body.agent, 'wikicurator');
+  assert.equal(streamCall.body.message, 'UniPort 전략은?');
+  assert.equal(streamCall.body.model, undefined);
+  assert.doesNotMatch(JSON.stringify(streamCall.body), /SOURCES:/);
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, before, afterZoom, wikiSearch: searchCall?.body, wikiStream: streamCall?.body }, null, 2));

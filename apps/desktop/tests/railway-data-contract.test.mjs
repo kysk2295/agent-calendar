@@ -305,9 +305,9 @@ test('desktop task ownership recognizes live Hermes profiles without the removed
   assert.match(appSource, /wikicurator/);
 });
 
-test('wiki answer prompt follows the question instead of enforcing artificial length', () => {
-  assert.match(appSource, /질문에 필요한 만큼/);
-  assert.doesNotMatch(appSource, /최소\s*350자|5~9문장/);
+test('wiki answer sends the unchanged question to wikicurator without a client prompt', () => {
+  assert.match(appSource, /message:\s*question/);
+  assert.doesNotMatch(appSource, /wikiStreamCommand|SOURCES만 사용|최소\s*350자|5~9문장/);
 });
 
 test('agent cards use Hermes dashboard profile readiness instead of idle fallback labels', () => {
