@@ -26,6 +26,26 @@ process 종료, complete 전송을 순차적으로 기다린다. 실제 패키�
 현재 구현은 Telegram transcript에서 답변을 가져오지 않으며, 별도 실행이므로
 Telegram에서 같은 질문을 했을 때와 답변 내용도 달라질 수 있다.
 
+## Existing API Roles
+
+Hermes의 두 HTTP surface는 서로 역할이 다르며 이번 기능에서 합치지 않는다.
+
+| Surface | 현재 역할 | 이번 기능의 역할 |
+| --- | --- | --- |
+| Dashboard API `:9121` | 세션 목록·검색·메시지 조회·삭제, Gateway 상태와 관제 | session discovery와 health/capability 확인만 담당 |
+| Gateway API `:8642` | Gateway health와 API Server agent chat | 라이브 `GatewayRunner`로 위임하는 capture turn을 담당 |
+
+Dashboard API에는 현재 질문을 실행하는 POST route가 없다. Gateway의 기존
+`/api/sessions/{id}/chat/stream`은 persisted session을 읽지만 API Server 전용
+`AIAgent` 실행 경로를 사용하므로 Telegram의 cached agent, per-session model override,
+busy lock과 delivery suppression을 함께 보장하지 않는다. 따라서 Dashboard API를
+새 LLM execution plane으로 만들거나 generic session chat의 의미를 바꾸지 않는다.
+
+새 `/api/gateway/session-turns/stream`은 별도 AI 서버가 아니라 기존 Gateway API의
+얇은 adapter다. 이미 bind된 `GatewayRunner`에만 위임하고, Dashboard API는 기존처럼
+control plane으로 유지한다. Mac mini Relay는 Dashboard에서 상태를 확인하고 실제
+turn은 session owner인 Gateway API에 요청한다.
+
 ## Non-Goals
 
 - Telegram Bot API를 통해 봇이 자기 자신에게 메시지를 보내지 않는다.

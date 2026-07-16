@@ -6,6 +6,8 @@
 
 **Architecture:** Hermes Gateway owns the session-turn contract because it alone has the active Telegram session key, transcript, model override, cached agent, and busy state. A capture sink replaces Telegram delivery for Desktop-originated turns while preserving the same runner and transcript. The Mac mini Relay bridge forwards Hermes turn events, Railway starts the turn and vector search in parallel, and the existing Desktop SSE consumer progressively renders deltas and evidence.
 
+**API role decision:** The Hermes Dashboard API on `:9121` remains the control plane for session discovery, health, and observability. It has no chat execution route. The existing Gateway API on `:8642` is the execution plane; the new capture endpoint is a thin adapter to its already-bound live `GatewayRunner`, not a separate AI service. The generic `/api/sessions/{id}/chat/stream` route remains unchanged because it runs the API Server agent rather than the live Telegram cached agent.
+
 **Tech Stack:** Python 3.11 asyncio/FastAPI Hermes Gateway, Node.js CommonJS Relay bridge and Railway backend, React 18/TypeScript Desktop renderer, Node test runner, pytest, Playwright, SSE.
 
 **Status:** Ready for implementation.
