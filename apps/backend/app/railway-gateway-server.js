@@ -74,6 +74,7 @@ const {
   runRelayChatCompletion,
   runRelayProfileChatCompletion,
 } = require('./lib/relay-chat-completion');
+const { runRelaySessionTurn } = require('./lib/relay-session-turn');
 const {
   agentOperationsProfileTimeout,
   runRelayProfileCompletion,
@@ -4719,9 +4720,218 @@ function extractFallbackWikiQuestion(rawMessage = '') {
     .trim() || raw;
 }
 
+function uniqueWikiSources(sources = []) {
+  const seen = new Set();
+  return (Array.isArray(sources) ? sources : []).filter((source) => {
+    const key = String(
+      source?.id
+      || `${source?.path || ''}#${source?.headingPath || source?.title || ''}`,
+    ).trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function wikiSessionTurnRequestId(body = {}) {
+  const supplied = String(body.requestId || '').trim();
+  if (/^[a-zA-Z0-9._:-]{1,128}$/.test(supplied)) return supplied;
+  return `wiki-turn-${crypto.randomUUID()}`;
+}
+
+async function streamRelayWikiSessionTurn({
+  res,
+  body,
+  question,
+  relay,
+  env,
+} = {}) {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  });
+  res.flushHeaders?.();
+
+  const requestId = wikiSessionTurnRequestId(body);
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  res.once('close', abort);
+  let streamedText = '';
+  let completedText = '';
+  let provider = 'session-turn';
+  let model = '';
+
+  const evidencePromise = runRailwayRelayWikiSearch({
+    relay,
+    env,
+    question,
+    path: body.path || '',
+    limit: body.limit || 6,
+  });
+  const turnEnabled = envFlag(env.HERMES_WIKI_SESSION_TURN_ENABLED);
+  const turnPromise = turnEnabled
+    ? runRelaySessionTurn({
+      relay,
+      payload: {
+        profile: 'wikicurator',
+        source: 'telegram',
+        message: question,
+        requestId,
+        delivery: 'capture',
+        policy: 'wiki-read-only',
+      },
+      timeoutMs: Number(env.HERMES_RELAY_WIKI_SESSION_TURN_TIMEOUT_MS || 90_000),
+      signal: controller.signal,
+      onEvent: async (event) => {
+        if (res.writableEnded || res.destroyed) return;
+        if (event.type === 'accepted') {
+          provider = event.provider || provider;
+          model = event.model || model;
+          writeSseEvent(res, 'accepted', {
+            requestId,
+            provider,
+            model,
+            queued: event.queued,
+            responsibleAgent: 'wiki-curator',
+          });
+        } else if (event.type === 'delta') {
+          streamedText += event.text;
+          writeSseEvent(res, 'delta', {
+            text: event.text,
+            sequence: event.sequence,
+            requestId,
+            source: 'wikicurator-session',
+            gatewayFallback: false,
+            responsibleAgent: 'wiki-curator',
+            run: { model: model || 'wikicurator', agent: 'wikicurator' },
+          });
+        } else if (event.type === 'tool-status') {
+          writeSseEvent(res, 'status', {
+            label: event.label,
+            requestId,
+            responsibleAgent: 'wiki-curator',
+          });
+        } else if (event.type === 'completed') {
+          completedText = event.text;
+          provider = event.provider || provider;
+          model = event.model || model;
+          writeSseEvent(res, 'completed', {
+            requestId,
+            provider,
+            model,
+            responsibleAgent: 'wiki-curator',
+          });
+        } else if (event.type === 'failed') {
+          writeSseEvent(res, 'status', {
+            requestId,
+            code: event.code,
+            retryable: event.retryable,
+            responsibleAgent: 'wiki-curator',
+          });
+        }
+      },
+    })
+    : Promise.reject(Object.assign(new Error('session_turn_disabled'), {
+      code: 'session_turn_disabled',
+      retryable: false,
+    }));
+
+  const [turnResult, evidenceResult] = await Promise.allSettled([
+    turnPromise,
+    evidencePromise,
+  ]);
+  res.removeListener('close', abort);
+  if (res.writableEnded || res.destroyed) return;
+
+  const search = evidenceResult.status === 'fulfilled' ? evidenceResult.value : null;
+  const sources = uniqueWikiSources(search?.sources || []);
+  const retrieval = search?.retrieval || {
+    source: 'wiki-vector-db',
+    mode: 'unavailable',
+    chunkCount: 0,
+  };
+  writeSseEvent(res, 'evidence', {
+    requestId,
+    sources,
+    retrieval,
+    responsibleAgent: 'wiki-curator',
+    ...(evidenceResult.status === 'rejected' ? { code: 'wiki_evidence_unavailable' } : {}),
+  });
+
+  if (turnResult.status === 'fulfilled') {
+    completedText = turnResult.value.text || completedText;
+    provider = turnResult.value.provider || provider;
+    model = turnResult.value.model || model;
+    if (completedText && completedText !== streamedText) {
+      const remainder = completedText.startsWith(streamedText)
+        ? completedText.slice(streamedText.length)
+        : (!streamedText ? completedText : '');
+      if (remainder) {
+        streamedText += remainder;
+        writeSseEvent(res, 'delta', {
+          text: remainder,
+          requestId,
+          source: 'wikicurator-session',
+          gatewayFallback: false,
+          responsibleAgent: 'wiki-curator',
+          run: { model: model || 'wikicurator', agent: 'wikicurator' },
+        });
+      }
+    }
+  }
+
+  const failed = turnResult.status === 'rejected';
+  const disabled = failed && turnResult.reason?.code === 'session_turn_disabled';
+  const hadPartialAnswer = Boolean(streamedText || completedText);
+  if (!streamedText) {
+    streamedText = disabled
+      ? '위키 큐레이터 연결 기능이 현재 꺼져 있습니다.'
+      : '위키 큐레이터의 답변을 받지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    writeSseEvent(res, 'delta', {
+      text: streamedText,
+      requestId,
+      source: 'wikicurator-session',
+      gatewayFallback: true,
+      responsibleAgent: 'wiki-curator',
+      run: { model: model || 'wikicurator', agent: 'wikicurator' },
+    });
+  }
+
+  const answerMode = disabled
+    ? 'session-turn-disabled'
+    : (failed ? (hadPartialAnswer ? 'partial-degraded' : 'retrieval-degraded') : 'llm');
+  writeSseEvent(res, 'done', {
+    ok: !failed,
+    text: completedText || streamedText,
+    requestId,
+    sources,
+    retrieval,
+    llm: {
+      provider,
+      model,
+      used: !failed || hadPartialAnswer,
+      transport: 'railway-relay',
+      agent: 'wikicurator',
+    },
+    answerMode,
+    ...(failed ? { degraded: true, code: String(turnResult.reason?.code || 'session_turn_failed') } : {}),
+    source: 'wikicurator-session',
+    gatewayFallback: failed,
+    responsibleAgent: 'wiki-curator',
+    run: { model: model || 'wikicurator', agent: 'wikicurator' },
+  });
+  res.end();
+}
+
 async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch, relay = null }) {
   const rawMessage = String(body.question || body.message || body.query || '').trim();
   const question = extractFallbackWikiQuestion(rawMessage);
+  if (question && relay && relayEnabled(env) && relay.isBridgeOnline()) {
+    await streamRelayWikiSessionTurn({ res, body, question, relay, env });
+    return;
+  }
   let wikiIndex = fallbackWikiIndex({
     gatewayState,
     gatewayStore,

@@ -34,6 +34,126 @@ function createEmptyStore() {
   };
 }
 
+async function postRelayEvent(baseUrl, jobId, event, data) {
+  const response = await fetch(`${baseUrl}/api/relay/jobs/${jobId}/events`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-hermes-relay-token': 'relay-token',
+    },
+    body: JSON.stringify({ event, data }),
+  });
+  assert.equal(response.status, 200);
+}
+
+async function completeRelayJob(baseUrl, jobId, data) {
+  const response = await fetch(`${baseUrl}/api/relay/jobs/${jobId}/complete`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-hermes-relay-token': 'relay-token',
+    },
+    body: JSON.stringify(data),
+  });
+  assert.equal(response.status, 200);
+}
+
+async function completeSessionTurn(baseUrl, job, { text = '', failed = null, deltas = null } = {}) {
+  const requestId = job.payload.requestId;
+  if (failed) {
+    if (Array.isArray(deltas) && deltas.length) {
+      await postRelayEvent(baseUrl, job.id, 'accepted', {
+        type: 'accepted',
+        requestId,
+        provider: 'openai-codex',
+        model: 'gpt-5.5',
+        sessionVersion: 'opaque-version',
+        queued: false,
+      });
+      for (const [index, chunk] of deltas.entries()) {
+        await postRelayEvent(baseUrl, job.id, 'delta', {
+          type: 'delta',
+          requestId,
+          sequence: index + 1,
+          text: chunk,
+        });
+      }
+    }
+    await postRelayEvent(baseUrl, job.id, 'failed', {
+      type: 'failed',
+      requestId,
+      code: failed.code,
+      retryable: Boolean(failed.retryable),
+    });
+    await completeRelayJob(baseUrl, job.id, {
+      ok: false,
+      requestId,
+      code: failed.code,
+      retryable: Boolean(failed.retryable),
+    });
+    return;
+  }
+  await postRelayEvent(baseUrl, job.id, 'accepted', {
+    type: 'accepted',
+    requestId,
+    provider: 'openai-codex',
+    model: 'gpt-5.5',
+    sessionVersion: 'opaque-version',
+    queued: false,
+  });
+  const chunks = deltas || [text];
+  for (const [index, chunk] of chunks.entries()) {
+    await postRelayEvent(baseUrl, job.id, 'delta', {
+      type: 'delta',
+      requestId,
+      sequence: index + 1,
+      text: chunk,
+    });
+  }
+  await postRelayEvent(baseUrl, job.id, 'completed', {
+    type: 'completed',
+    requestId,
+    text: text || chunks.join(''),
+    provider: 'openai-codex',
+    model: 'gpt-5.5',
+    sessionVersion: 'opaque-version',
+  });
+  await completeRelayJob(baseUrl, job.id, {
+    ok: true,
+    requestId,
+    text: text || chunks.join(''),
+    provider: 'openai-codex',
+    model: 'gpt-5.5',
+    sessionVersion: 'opaque-version',
+  });
+}
+
+function parseSseEvents(body) {
+  return String(body || '').trim().split(/\n\n+/).filter(Boolean).map((block) => {
+    const lines = block.split('\n');
+    const name = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() || '';
+    const data = lines
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trimStart())
+      .join('\n');
+    return { name, data: data ? JSON.parse(data) : {} };
+  });
+}
+
+async function readResponseUntil(reader, decoder, current, predicate) {
+  let body = current;
+  while (!predicate(body)) {
+    const read = reader.read();
+    const result = await Promise.race([
+      read,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('stream read timeout')), 1000)),
+    ]);
+    if (result.done) break;
+    body += decoder.decode(result.value, { stream: true });
+  }
+  return body;
+}
+
 async function createWikiRoot() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-wiki-'));
   await mkdir(path.join(root, '2_wiki'), { recursive: true });
@@ -263,7 +383,8 @@ test('wiki relay asks the current Telegram wikicurator session without injecting
   const server = createRailwayGatewayServer({
     env: {
       HERMES_RELAY_TOKEN: 'relay-token',
-      HERMES_RELAY_WIKI_PROFILE_TIMEOUT_MS: '1000',
+      HERMES_WIKI_SESSION_TURN_ENABLED: '1',
+      HERMES_RELAY_WIKI_SESSION_TURN_TIMEOUT_MS: '1000',
     },
     gatewayStore: createEmptyStore(),
     fetchImpl: async () => {
@@ -290,56 +411,42 @@ test('wiki relay asks the current Telegram wikicurator session without injecting
     const searchJob = (await searchPoll).job;
     assert.equal(searchJob.kind, 'wiki.search');
 
-    const profilePoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+    const turnPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
       headers: { 'x-hermes-relay-token': 'relay-token' },
     }).then((response) => response.json());
-    await fetch(`${baseUrl}/api/relay/jobs/${searchJob.id}/complete`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-hermes-relay-token': 'relay-token',
-      },
-      body: JSON.stringify({
-        ok: true,
-        query: '운영 원칙',
-        sources: [{
-          id: 'wiki-source-1',
-          path: '2_wiki/운영.md',
-          title: '운영 원칙',
-          excerpt: '배포 전에는 테스트와 프리뷰 검증을 완료한다.',
-          score: 0.9,
-        }],
-        retrieval: { mode: 'retrieval_only' },
-      }),
+    const turnJob = (await turnPoll).job;
+    assert.equal(turnJob.kind, 'session.turn');
+    await completeRelayJob(baseUrl, searchJob.id, {
+      ok: true,
+      query: '운영 원칙',
+      sources: [{
+        id: 'wiki-source-1',
+        path: '2_wiki/운영.md',
+        title: '운영 원칙',
+        excerpt: '배포 전에는 테스트와 프리뷰 검증을 완료한다.',
+        score: 0.9,
+      }],
+      retrieval: { mode: 'retrieval_only' },
     });
-
-    const profileJob = (await profilePoll).job;
-    await fetch(`${baseUrl}/api/relay/jobs/${profileJob.id}/complete`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-hermes-relay-token': 'relay-token',
-      },
-      body: JSON.stringify({
-        ok: true,
-        text: '운영 원칙은 배포 전에 테스트와 프리뷰 검증을 완료하는 것입니다. (출처: 운영 원칙)',
-        profile: 'wikicurator',
-        runner: 'hermes-profile-chat',
-      }),
+    await completeSessionTurn(baseUrl, turnJob, {
+      text: '운영 원칙은 배포 전에 테스트와 프리뷰 검증을 완료하는 것입니다. (출처: 운영 원칙)',
     });
 
     const response = await responsePromise;
     const body = await response.text();
-    assert.equal(profileJob.kind, 'profile.chat');
-    assert.equal(profileJob.payload.profile, 'wikicurator');
-    assert.equal(profileJob.payload.resumeSource, 'telegram');
-    assert.equal(profileJob.payload.stream, true);
-    assert.deepEqual(profileJob.payload.messages, [{ role: 'user', content: '운영 원칙을 알려줘' }]);
-    assert.doesNotMatch(JSON.stringify(profileJob.payload.messages), /배포 전에는 테스트와 프리뷰 검증/);
+    assert.deepEqual(turnJob.payload, {
+      profile: 'wikicurator',
+      source: 'telegram',
+      message: '운영 원칙을 알려줘',
+      requestId: turnJob.payload.requestId,
+      delivery: 'capture',
+      policy: 'wiki-read-only',
+    });
+    assert.doesNotMatch(JSON.stringify(turnJob.payload), /배포 전에는 테스트와 프리뷰 검증/);
     assert.equal(response.status, 200);
     assert.match(body, /운영 원칙은 배포 전에 테스트와 프리뷰 검증/);
     assert.match(body, /"agent":"wikicurator"/);
-    assert.match(body, /"provider":"profile"/);
+    assert.match(body, /"provider":"openai-codex"/);
     assert.match(body, /"answerMode":"llm"/);
     assert.doesNotMatch(body, /qwen2\.5:7b/);
   } finally {
@@ -347,11 +454,188 @@ test('wiki relay asks the current Telegram wikicurator session without injecting
   }
 });
 
-test('wiki stream sends the unchanged question to wikicurator profile chat and tags vector evidence', async () => {
+test('wiki session deltas arrive before vector evidence completes', async () => {
   const server = createRailwayGatewayServer({
     env: {
       HERMES_RELAY_TOKEN: 'relay-token',
-      HERMES_RELAY_WIKI_PROFILE_TIMEOUT_MS: '1000',
+      HERMES_WIKI_SESSION_TURN_ENABLED: '1',
+      HERMES_RELAY_WIKI_SESSION_TURN_TIMEOUT_MS: '1000',
+    },
+    gatewayStore: createEmptyStore(),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const firstPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const responsePromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        view: 'wiki',
+        agent: 'wikicurator',
+        message: '병렬 처리 질문',
+        requestId: 'wiki-turn-parallel-1',
+      }),
+    });
+    const firstJob = (await firstPoll).job;
+    const secondJob = (await fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json())).job;
+    const searchJob = [firstJob, secondJob].find((job) => job.kind === 'wiki.search');
+    const turnJob = [firstJob, secondJob].find((job) => job.kind === 'session.turn');
+    assert.ok(searchJob);
+    assert.ok(turnJob);
+    assert.equal(turnJob.payload.message, '병렬 처리 질문');
+    assert.equal(turnJob.payload.requestId, 'wiki-turn-parallel-1');
+    assert.equal(turnJob.payload.sources, undefined);
+    assert.equal(turnJob.payload.retrieval, undefined);
+
+    const response = await responsePromise;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    await completeSessionTurn(baseUrl, turnJob, {
+      text: '첫 토큰과 두 번째 토큰',
+      deltas: ['첫 토큰과 ', '두 번째 토큰'],
+    });
+    let body = await readResponseUntil(
+      reader,
+      decoder,
+      '',
+      (value) => value.includes('두 번째 토큰'),
+    );
+    assert.doesNotMatch(body, /event: evidence|event: done/);
+
+    await completeRelayJob(baseUrl, searchJob.id, {
+      ok: true,
+      query: '병렬 처리 질문',
+      sources: [
+        { id: 'same', path: '2_wiki/근거.md', title: '근거', excerpt: '민감 검색 청크', score: 0.9 },
+        { id: 'same', path: '2_wiki/근거.md', title: '근거', excerpt: '민감 검색 청크', score: 0.9 },
+      ],
+      retrieval: { source: 'wiki-vector-db', mode: 'vector-hybrid', embeddingModel: 'bge-m3' },
+    });
+    body = await readResponseUntil(reader, decoder, body, (value) => value.includes('event: done'));
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      body += decoder.decode(value, { stream: true });
+    }
+    body += decoder.decode();
+
+    const events = parseSseEvents(body);
+    assert.deepEqual(events.map((item) => item.name), [
+      'accepted',
+      'delta',
+      'delta',
+      'completed',
+      'evidence',
+      'done',
+    ]);
+    assert.equal(events.find((item) => item.name === 'evidence').data.sources.length, 1);
+    assert.equal(events.at(-1).data.responsibleAgent, 'wiki-curator');
+    assert.equal(events.at(-1).data.llm.provider, 'openai-codex');
+    assert.doesNotMatch(
+      events.filter((item) => item.name === 'delta').map((item) => item.data.text).join(''),
+      /민감 검색 청크/,
+    );
+  } finally {
+    await close(server);
+  }
+});
+
+test('wiki session-turn flag off returns evidence without launching profile chat', async () => {
+  const server = createRailwayGatewayServer({
+    env: { HERMES_RELAY_TOKEN: 'relay-token' },
+    gatewayStore: createEmptyStore(),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const searchPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const responsePromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ view: 'wiki', agent: 'wikicurator', message: '기능 플래그 질문' }),
+    });
+    const searchJob = (await searchPoll).job;
+    assert.equal(searchJob.kind, 'wiki.search');
+    await completeRelayJob(baseUrl, searchJob.id, {
+      ok: true,
+      sources: [{ id: 'source-1', path: '2_wiki/근거.md', title: '근거', score: 0.9 }],
+      retrieval: { mode: 'vector-hybrid' },
+    });
+
+    const response = await responsePromise;
+    const body = await response.text();
+    const emptyPoll = await fetch(`${baseUrl}/api/relay/poll?timeout=20`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((item) => item.json());
+    assert.equal(emptyPoll.job, null);
+    assert.match(body, /위키 큐레이터 연결 기능이 현재 꺼져 있습니다/);
+    assert.match(body, /"answerMode":"session-turn-disabled"/);
+    assert.match(body, /2_wiki\/근거\.md/);
+    assert.doesNotMatch(body, /profile\.chat|hermes-profile-chat/);
+  } finally {
+    await close(server);
+  }
+});
+
+test('wiki evidence failure does not discard a completed natural-language answer', async () => {
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+      HERMES_WIKI_SESSION_TURN_ENABLED: '1',
+      HERMES_RELAY_WIKI_SESSION_TURN_TIMEOUT_MS: '1000',
+    },
+    gatewayStore: createEmptyStore(),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const firstPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const responsePromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ view: 'wiki', agent: 'wikicurator', message: '근거 실패 질문' }),
+    });
+    const jobs = [(await firstPoll).job];
+    jobs.push((await fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json())).job);
+    const searchJob = jobs.find((job) => job.kind === 'wiki.search');
+    const turnJob = jobs.find((job) => job.kind === 'session.turn');
+    await completeSessionTurn(baseUrl, turnJob, { text: '근거 검색과 무관하게 유지되는 자연어 답변' });
+    await completeRelayJob(baseUrl, searchJob.id, {
+      ok: false,
+      error: 'SECRET_SEARCH_TRACE private raw error',
+    });
+
+    const response = await responsePromise;
+    const body = await response.text();
+    assert.match(body, /근거 검색과 무관하게 유지되는 자연어 답변/);
+    assert.match(body, /"answerMode":"llm"/);
+    assert.match(body, /"code":"wiki_evidence_unavailable"/);
+    assert.doesNotMatch(body, /SECRET_SEARCH_TRACE|private raw error/);
+  } finally {
+    await close(server);
+  }
+});
+
+test('wiki stream sends the unchanged question to the live session and tags vector evidence', async () => {
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+      HERMES_WIKI_SESSION_TURN_ENABLED: '1',
+      HERMES_RELAY_WIKI_SESSION_TURN_TIMEOUT_MS: '1000',
     },
     gatewayStore: createEmptyStore(),
     fetchImpl: async () => {
@@ -372,51 +656,36 @@ test('wiki stream sends the unchanged question to wikicurator profile chat and t
         view: 'wiki',
         agent: 'wikicurator',
         message: 'UniPort BM 정본 기준으로 현재 BM과 우선순위를 알려줘',
+        requestId: 'wiki-turn-fixed-1',
       }),
     });
     const searchJob = (await searchPoll).job;
-    await fetch(`${baseUrl}/api/relay/jobs/${searchJob.id}/complete`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-hermes-relay-token': 'relay-token',
+    await completeRelayJob(baseUrl, searchJob.id, {
+      ok: true,
+      query: 'UniPort BM 정본 기준으로 현재 BM과 우선순위를 알려줘',
+      sources: [{
+        id: 'wiki-source-1',
+        path: '2_wiki/UniPort.md',
+        title: 'UniPort',
+        excerpt: '집단지성 데이터 B2B, CPA 제휴, 금융기관 B2B SaaS로 확장한다.',
+        score: 0.92,
+        vectorScore: 0.88,
+        textScore: 0.71,
+      }],
+      retrieval: {
+        source: 'wiki-vector-db',
+        mode: 'vector-hybrid',
+        embeddingModel: 'bge-m3',
+        chunkCount: 1,
       },
-      body: JSON.stringify({
-        ok: true,
-        query: 'UniPort BM 정본 기준으로 현재 BM과 우선순위를 알려줘',
-        sources: [{
-          id: 'wiki-source-1',
-          path: '2_wiki/UniPort.md',
-          title: 'UniPort',
-          excerpt: '집단지성 데이터 B2B, CPA 제휴, 금융기관 B2B SaaS로 확장한다.',
-          score: 0.92,
-          vectorScore: 0.88,
-          textScore: 0.71,
-        }],
-        retrieval: {
-          source: 'wiki-vector-db',
-          mode: 'vector-hybrid',
-          embeddingModel: 'bge-m3',
-          chunkCount: 1,
-        },
-      }),
     });
-    const profilePoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+    const turnPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
       headers: { 'x-hermes-relay-token': 'relay-token' },
     }).then((response) => response.json());
-    const profileJob = (await profilePoll).job;
-    await fetch(`${baseUrl}/api/relay/jobs/${profileJob.id}/complete`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-hermes-relay-token': 'relay-token',
-      },
-      body: JSON.stringify({
-        ok: true,
-        text: '현재는 무료 B2C로 판단 데이터를 축적하고 CPA로 초기 수익을 검증하며, 장기적으로 B2B 데이터와 SaaS로 확장하는 구조입니다.',
-        profile: 'wikicurator',
-        runner: 'hermes-profile-chat',
-      }),
+    const turnJob = (await turnPoll).job;
+    await completeSessionTurn(baseUrl, turnJob, {
+      text: '현재는 무료 B2C로 판단 데이터를 축적하고 CPA로 초기 수익을 검증하며, 장기적으로 B2B 데이터와 SaaS로 확장하는 구조입니다.',
+      deltas: ['현재는 무료 B2C로 판단 데이터를 축적하고 ', 'CPA로 초기 수익을 검증하며, 장기적으로 B2B 데이터와 SaaS로 확장하는 구조입니다.'],
     });
 
     const response = await responsePromise;
@@ -424,16 +693,13 @@ test('wiki stream sends the unchanged question to wikicurator profile chat and t
     assert.equal(response.status, 200);
     assert.match(searchJob.payload.query, /비즈니스 모델/);
     assert.match(searchJob.payload.query, /CPA/);
-    assert.equal(profileJob.kind, 'profile.chat');
-    assert.equal(profileJob.payload.profile, 'wikicurator');
-    assert.deepEqual(profileJob.payload.messages, [{
-      role: 'user',
-      content: 'UniPort BM 정본 기준으로 현재 BM과 우선순위를 알려줘',
-    }]);
-    assert.equal(profileJob.payload.model, undefined);
+    assert.equal(turnJob.kind, 'session.turn');
+    assert.equal(turnJob.payload.message, 'UniPort BM 정본 기준으로 현재 BM과 우선순위를 알려줘');
+    assert.equal(turnJob.payload.requestId, 'wiki-turn-fixed-1');
+    assert.equal(turnJob.payload.retrieval, undefined);
     assert.match(body, /현재는 무료 B2C로 판단 데이터를 축적하고 CPA로 초기 수익을 검증/);
     assert.match(body, /"answerMode":"llm"/);
-    assert.match(body, /"provider":"profile"/);
+    assert.match(body, /"provider":"openai-codex"/);
     assert.match(body, /"agent":"wikicurator"/);
     assert.match(body, /"embeddingModel":"bge-m3"/);
     assert.match(body, /"vectorScore":0\.88/);
@@ -443,11 +709,12 @@ test('wiki stream sends the unchanged question to wikicurator profile chat and t
   }
 });
 
-test('wiki relay clearly marks retrieval-only fallback when wikicurator profile chat fails', async () => {
+test('wiki relay keeps vector evidence when the live session turn fails', async () => {
   const server = createRailwayGatewayServer({
     env: {
       HERMES_RELAY_TOKEN: 'relay-token',
-      HERMES_RELAY_WIKI_PROFILE_TIMEOUT_MS: '1000',
+      HERMES_WIKI_SESSION_TURN_ENABLED: '1',
+      HERMES_RELAY_WIKI_SESSION_TURN_TIMEOUT_MS: '1000',
     },
     gatewayStore: createEmptyStore(),
     fetchImpl: async () => {
@@ -472,49 +739,39 @@ test('wiki relay clearly marks retrieval-only fallback when wikicurator profile 
       }),
     });
     const searchJob = (await searchPoll).job;
-    const profilePoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+    const turnPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
       headers: { 'x-hermes-relay-token': 'relay-token' },
     }).then((response) => response.json());
-    await fetch(`${baseUrl}/api/relay/jobs/${searchJob.id}/complete`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-hermes-relay-token': 'relay-token',
-      },
-      body: JSON.stringify({
-        ok: true,
-        query: '배포 전 확인할 것은?',
-        sources: [{
-          id: 'wiki-source-1',
-          path: '2_wiki/운영.md',
-          title: '운영 원칙',
-          excerpt: '배포 전에는 테스트와 프리뷰 검증을 완료한다.',
-          score: 0.9,
-        }],
-        retrieval: { mode: 'retrieval_only' },
-      }),
+    await completeRelayJob(baseUrl, searchJob.id, {
+      ok: true,
+      query: '배포 전 확인할 것은?',
+      sources: [{
+        id: 'wiki-source-1',
+        path: '2_wiki/운영.md',
+        title: '운영 원칙',
+        excerpt: '배포 전에는 테스트와 프리뷰 검증을 완료한다.',
+        score: 0.9,
+      }],
+      retrieval: { mode: 'retrieval_only' },
     });
-    const profileJob = (await profilePoll).job;
-    await fetch(`${baseUrl}/api/relay/jobs/${profileJob.id}/complete`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-hermes-relay-token': 'relay-token',
-      },
-      body: JSON.stringify({ ok: false, error: 'profile temporarily unavailable' }),
+    const turnJob = (await turnPoll).job;
+    await completeSessionTurn(baseUrl, turnJob, {
+      failed: { code: 'curator_session_unavailable', retryable: true },
+      deltas: ['부분 자연어 답변'],
     });
 
     const response = await responsePromise;
     const body = await response.text();
 
-    assert.equal(profileJob.kind, 'profile.chat');
-    assert.equal(profileJob.payload.profile, 'wikicurator');
+    assert.equal(turnJob.kind, 'session.turn');
+    assert.equal(turnJob.payload.profile, 'wikicurator');
     assert.equal(response.status, 200);
-    assert.match(body, /위키 큐레이터의 답변을 받지 못했습니다/);
+    assert.match(body, /부분 자연어 답변/);
+    assert.doesNotMatch(body, /위키 큐레이터의 답변을 받지 못했습니다/);
     assert.doesNotMatch(body, /\"text\":\"서버 DB 검색 기준으로 답변합니다/);
-    assert.match(body, /"answerMode":"retrieval-degraded"/);
+    assert.match(body, /"answerMode":"partial-degraded"/);
     assert.match(body, /"degraded":true/);
-    assert.match(body, /"provider":"profile"/);
+    assert.match(body, /"provider":"openai-codex"/);
     assert.match(body, /"agent":"wikicurator"/);
     assert.doesNotMatch(body, /"answerMode":"llm"/);
   } finally {
@@ -522,11 +779,12 @@ test('wiki relay clearly marks retrieval-only fallback when wikicurator profile 
   }
 });
 
-test('wiki relay returns retrieval fallback before a stalled wikicurator profile blocks the UI', async () => {
+test('wiki relay returns evidence fallback before a stalled live session blocks the UI', async () => {
   const server = createRailwayGatewayServer({
     env: {
       HERMES_RELAY_TOKEN: 'relay-token',
-      HERMES_RELAY_WIKI_PROFILE_TIMEOUT_MS: '25',
+      HERMES_WIKI_SESSION_TURN_ENABLED: '1',
+      HERMES_RELAY_WIKI_SESSION_TURN_TIMEOUT_MS: '25',
     },
     gatewayStore: createEmptyStore(),
   });
@@ -550,30 +808,23 @@ test('wiki relay returns retrieval fallback before a stalled wikicurator profile
     const modelPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
       headers: { 'x-hermes-relay-token': 'relay-token' },
     }).then((response) => response.json());
-    await fetch(`${baseUrl}/api/relay/jobs/${searchJob.id}/complete`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-hermes-relay-token': 'relay-token',
-      },
-      body: JSON.stringify({
-        ok: true,
-        query: 'UniPort BM 요약',
-        sources: [{
-          id: 'wiki-source-1',
-          path: '2_wiki/UniPort-BM.md',
-          title: 'UniPort BM',
-          excerpt: 'UniPort는 교육기관과 학습자를 연결하는 운영 플랫폼이다.',
-          score: 0.9,
-        }],
-      }),
+    await completeRelayJob(baseUrl, searchJob.id, {
+      ok: true,
+      query: 'UniPort BM 요약',
+      sources: [{
+        id: 'wiki-source-1',
+        path: '2_wiki/UniPort-BM.md',
+        title: 'UniPort BM',
+        excerpt: 'UniPort는 교육기관과 학습자를 연결하는 운영 플랫폼이다.',
+        score: 0.9,
+      }],
     });
     const modelJob = (await modelPoll).job;
     const startedAt = Date.now();
     const response = await responsePromise;
     const body = await response.text();
 
-    assert.equal(modelJob.kind, 'profile.chat');
+    assert.equal(modelJob.kind, 'session.turn');
     assert.equal(modelJob.payload.profile, 'wikicurator');
     assert.ok(Date.now() - startedAt < 2000, 'retrieval fallback should beat the wiki UI timeout');
     assert.equal(response.status, 200);
