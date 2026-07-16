@@ -60,9 +60,12 @@ test('completion questions send only completed records to the LLM while retainin
 
   assert.match(messages[1].content, /일정\/작업 전체: 2/);
   assert.match(messages[1].content, /완료: 1/);
+  assert.match(messages[0].content, /완료 기록을 모두/);
+  assert.match(messages[1].content, /완료 DB 기록/);
   assert.match(messages[1].content, /완료한 리포트/);
   assert.doesNotMatch(messages[1].content, /아직 남은 회의/);
   assert.doesNotMatch(messages[1].content, /상세 설명은 목록 답변에 필요하지 않다/);
+  assert.doesNotMatch(messages[1].content, /근무\/알바|답변 요구/);
 });
 
 test('completion list keeps every completed schedule item beyond the vector-search cutoff', async () => {

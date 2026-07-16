@@ -851,17 +851,26 @@ function scheduleLlmContextSources({ question, computed, sources }) {
 
 function scheduleContextText({ question, computed, sources }) {
   const contextSources = scheduleLlmContextSources({ question, computed, sources });
-  const compactListContext = computed.questionType === 'completion-rate';
+  if (computed.questionType === 'completion-rate') {
+    const completedLines = contextSources
+      .map((source) => `- ${source.title} (${source.date || '날짜 없음'})`)
+      .join('\n');
+    return [
+      `질문: ${question}`,
+      `정확 계산: 기간 ${computed.range.label}, 일정/작업 전체: ${computed.total}, 완료: ${computed.done}, 미완료: ${computed.undone}, 완료율: ${computed.completionRate}%`,
+      '완료 DB 기록(모두 포함):',
+      completedLines || '- 없음',
+      '응답 형식: 계산 요약 한 문장 뒤, 위 완료 기록을 제목과 날짜까지 모두 한 번씩 포함한 짧은 한 문단으로 답하라.',
+    ].join('\n');
+  }
   const sourceLines = contextSources.map((source, index) => [
     `[${index + 1}] (${source.type || source.source || 'record'}) ${source.title}`,
     `date: ${source.date || 'unknown'}`,
     `done: ${source.done ? 'true' : 'false'}`,
-    ...(!compactListContext ? [
-      `time: ${source.time || ''}${source.endTime ? `-${source.endTime}` : ''}`,
-      `list: ${source.list || ''}`,
-      `tags: ${(source.tags || []).join(', ')}`,
-      source.snippet ? `snippet: ${source.snippet}` : '',
-    ] : []),
+    `time: ${source.time || ''}${source.endTime ? `-${source.endTime}` : ''}`,
+    `list: ${source.list || ''}`,
+    `tags: ${(source.tags || []).join(', ')}`,
+    source.snippet ? `snippet: ${source.snippet}` : '',
   ].filter(Boolean).join('\n')).join('\n\n');
   return [
     `질문: ${question}`,
@@ -928,7 +937,14 @@ async function callScheduleLlm({ llm, messages, fetchImpl }) {
   return text(payload?.choices?.[0]?.message?.content).trim();
 }
 
-function scheduleSystemPrompt() {
+function scheduleSystemPrompt(computed = {}) {
+  if (computed.questionType === 'completion-rate') {
+    return [
+      '너는 사용자의 개인 캘린더 AI다. 제공된 DB 기록과 정확 계산만 근거로 자연스러운 한국어로 답하라.',
+      '완료 기록을 모두 제목과 날짜까지 정확히 한 번씩 포함하라.',
+      '근거 문구, 해석, 추천, 다음 액션은 덧붙이지 말고 짧은 한 문단으로 끝내라.',
+    ].join('\n');
+  }
   return [
     '너는 사용자의 개인 캘린더 AI다.',
     '할 일, 일정, 캘린더 이벤트 등 제공된 DB 기록만 근거로 답하라.',
@@ -947,7 +963,7 @@ function scheduleLlmMessages({ question, computed, sources, retryInstruction = '
   return [
     {
       role: 'system',
-      content: scheduleSystemPrompt(),
+      content: scheduleSystemPrompt(computed),
     },
     {
       role: 'user',
