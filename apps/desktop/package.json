@@ -16,6 +16,7 @@
     "test": "npm run build:electron && node --test tests/*.test.mjs",
     "test:ui:calendar": "node tests/playwright-calendar-crud.cjs",
     "test:ui:wiki": "node tests/playwright-wiki-graph-ask.cjs",
+    "test:ui:wiki-session-turn": "node tests/playwright-wiki-session-turn-stream.cjs",
     "test:packaged:deep-link": "node tests/packaged-deep-link-smoke.cjs",
     "dist:mac": "npm run build && electron-builder --mac dmg zip --arm64"
   },

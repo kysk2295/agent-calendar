@@ -2079,25 +2079,18 @@ export function App() {
     setWikiAnswerSources([]);
     setWikiAnswerMeta({});
     try {
-      const searchPayload = await hermesApi.searchWiki({
-        question,
-        limit: 8,
-        includeJournal: wikiIncludeJournal,
-        includeRaw: wikiIncludeRaw,
-      });
-      const searchData = obj(searchPayload, 'data');
-      const sources = arr(searchPayload, 'results', 'sources', 'citations').length
-        ? arr(searchPayload, 'results', 'sources', 'citations')
-        : arr(searchData, 'results', 'sources', 'citations');
-      setWikiAnswerSources(sources);
       setWikiAnswerMeta({ provider: 'railway-hermes', agent: 'wikicurator', model: 'wikicurator', source: 'stream', gatewayFallback: false });
 
       const response = await hermesApi.streamChat({
         message: question,
+        requestId: crypto.randomUUID(),
         view: 'wiki',
         agent: 'wikicurator',
         agentId: 'wikicurator',
         mode: 'wiki_qa_fast',
+        limit: 8,
+        includeJournal: wikiIncludeJournal,
+        includeRaw: wikiIncludeRaw,
       });
       if (!response.ok || !response.body) throw new Error(`wiki stream ${response.status}`);
 
