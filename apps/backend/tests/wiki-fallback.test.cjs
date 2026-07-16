@@ -332,6 +332,7 @@ test('wiki relay asks the canonical wikicurator profile without injecting retrie
     const body = await response.text();
     assert.equal(profileJob.kind, 'profile.chat');
     assert.equal(profileJob.payload.profile, 'wikicurator');
+    assert.equal(profileJob.payload.stream, true);
     assert.deepEqual(profileJob.payload.messages, [{ role: 'user', content: '운영 원칙을 알려줘' }]);
     assert.doesNotMatch(JSON.stringify(profileJob.payload.messages), /배포 전에는 테스트와 프리뷰 검증/);
     assert.equal(response.status, 200);

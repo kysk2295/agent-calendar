@@ -186,6 +186,7 @@ function runRelayProfileChatCompletion(options = {}) {
     ...options,
     payload: {
       ...payload,
+      stream: true,
       toolsets: ['safe'],
       yolo: false,
       noApproval: false,
