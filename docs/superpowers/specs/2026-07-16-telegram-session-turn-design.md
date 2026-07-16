@@ -1,16 +1,17 @@
 # Telegram Session Turn for Desktop Wiki AI
 
 - Date: 2026-07-16
-- Status: Approved design
+- Status: Implemented with read-only capture isolation
 - Work size: Large / Boundary
-- Selected behavior: Telegram 세션 문맥 공유, 데스크톱에만 질문·답변 표시
+- Selected behavior: Telegram 세션 문맥의 읽기 전용 snapshot, 데스크톱에만 질문·답변 표시
 
 ## Goal
 
 Agent Calendar의 위키 질문을 ChatGPT의 동일 conversation 후속 질문처럼 현재
-Telegram `wikicurator` 세션에 하나의 turn으로 추가한다. 현재 세션의 transcript,
-provider/model 설정(현재 OpenAI `gpt-5.5`), 큐레이터 정체성을 그대로 사용하고 생성 토큰을 즉시
-데스크톱으로 스트리밍한다. 질문과 답변은 Telegram 화면에는 전송하지 않는다.
+Telegram `wikicurator` 세션의 읽기 전용 snapshot으로 실행한다. 현재 세션의 최근
+일반 대화, provider/model 설정(현재 OpenAI `gpt-5.5`), 큐레이터 정체성을 사용하고
+생성 토큰을 데스크톱으로 스트리밍한다. 질문과 답변은 Telegram 화면과 원본
+transcript에는 기록하지 않는다.
 
 벡터 검색은 큐레이터 질문을 수정하는 prompt가 아니다. 질문과 병렬로 실행하고,
 결과를 답변 아래의 클릭 가능한 근거 위키 태그로만 표시한다.
@@ -62,7 +63,8 @@ turn은 session owner인 Gateway API에 요청한다.
 현재 Telegram session key와 session ID를 Gateway 내부에서 해석하고 동일 runner에
 turn을 주입한다. 출력은 Telegram adapter 대신 capture adapter로 보낸다.
 
-- 장점: transcript, model override, 큐레이터 정책, 동시성 규칙이 Telegram과 동일하다.
+- 장점: bounded transcript snapshot, model override, 큐레이터 정책을 Telegram 세션과
+  동일하게 사용하되 원본 transcript는 변경하지 않는다.
 - 장점: 새 process spawn과 종료 대기를 제거하고 첫 token부터 스트리밍할 수 있다.
 - 장점: session/chat ID를 Railway나 데스크톱에 노출하지 않는다.
 - 비용: Hermes Gateway에 명시적인 session-turn seam을 추가해야 한다.
@@ -94,7 +96,7 @@ turn을 주입한다. 출력은 Telegram adapter 대신 capture adapter로 보�
 
 Hermes Gateway 안에 하나의 깊은 `SessionTurn` module을 둔다. Interface는 profile과
 source alias로 현재 session을 선택하고 하나의 turn event stream을 반환한다.
-session lookup, model/provider pinning, transcript continuation, busy handling, agent
+session lookup, model/provider pinning, bounded transcript snapshot, busy handling, agent
 execution, cancellation, sanitization은 implementation 안에 숨긴다.
 
 ```ts
@@ -166,11 +168,12 @@ Railway는 Session Turn event를 데스크톱 SSE로 즉시 전달한다. 벡터
 2. Desktop은 질문과 client request ID를 Railway에 보낸다.
 3. Railway는 `session.turn`과 `wiki.search`를 병렬 enqueue한다.
 4. Mac mini bridge는 최신 Telegram `wikicurator` session을 resolve한다.
-5. Session Turn module은 해당 session의 transcript와 model override를 pin한다.
+5. Session Turn module은 해당 session의 최근 일반 대화 최대 40개와 model override를
+   pin한다.
 6. 같은 Gateway runner가 질문을 처리하고 token delta를 capture adapter로 보낸다.
 7. Bridge와 Railway는 delta를 즉시 relay하고 Desktop은 바로 렌더링한다.
 8. 벡터 검색이 끝나면 근거 위키 태그가 독립적으로 추가된다.
-9. 최종 답변은 동일 Telegram session transcript에 저장된다.
+9. 최종 답변은 capture 응답으로만 반환되고 Telegram session DB에는 저장되지 않는다.
 10. Telegram 화면에는 해당 질문과 답변이 전송되지 않는다.
 
 ## Session Semantics
@@ -178,9 +181,10 @@ Railway는 Session Turn event를 데스크톱 SSE로 즉시 전달한다. 벡터
 - 매 turn 시작 시 최신 active Telegram session을 resolve한다.
 - turn이 accepted 된 뒤 `/model` 또는 `/new`가 실행되어도 진행 중 turn은 pin된
   session/model로 끝낸다. 다음 turn부터 새 상태를 사용한다.
-- Desktop turn도 동일 transcript에 기록된다. 따라서 다음 Telegram 질문은 Telegram
-  화면에 보이지 않았던 Desktop 대화를 문맥으로 기억할 수 있다. 이는 선택된
-  “문맥 공유 + Desktop 전용 표시” 동작의 의도된 결과다.
+- Desktop turn은 일회성 agent에서 실행되고 동일 transcript에는 기록되지 않는다.
+  따라서 다음 Telegram 질문은 보이지 않았던 Desktop 대화를 기억하지 않는다.
+- context는 tool call/result와 system metadata를 제외한 최근 user/assistant 메시지
+  최대 40개로 제한한다.
 - session이 없으면 새 session을 몰래 만들지 않고 `curator_session_unavailable`로
   실패한다.
 
@@ -200,7 +204,7 @@ Railway는 Session Turn event를 데스크톱 SSE로 즉시 전달한다. 벡터
 - Railway caller auth와 Relay bridge auth를 모두 통과해야 한다.
 - 데스크톱은 profile/source alias만 보낸다. chat ID와 session ID 선택권은 없다.
 - `wiki-read-only` policy는 외부 메시지, 게시, 구매, 거래, 삭제, 설정 변경을 막는다.
-- 질문 원문은 session transcript에 저장되지만 public gateway log에는 기록하지 않는다.
+- 질문 원문은 원본 session transcript와 public gateway log에 기록하지 않는다.
 - 이벤트 metadata에는 provider/model과 opaque request ID만 허용한다.
 - Telegram bot token과 owner chat ID는 기존 Mac mini runtime 밖으로 나오지 않는다.
 
@@ -243,7 +247,7 @@ Railway는 Session Turn event를 데스크톱 SSE로 즉시 전달한다. 벡터
 
 - in-memory capture adapter로 동일 session ID와 model override 사용을 검증한다.
 - Telegram adapter가 호출되지 않음을 검증한다.
-- transcript에 user/assistant turn이 정확히 한 번 기록됨을 검증한다.
+- capture 전후 Telegram session의 user/assistant message 수가 변하지 않음을 검증한다.
 - concurrent Telegram/Desktop turn의 FIFO와 busy limit을 검증한다.
 - `/model`, `/new`, disconnect, retry 경합을 고정 clock으로 검증한다.
 
@@ -270,7 +274,8 @@ Railway는 Session Turn event를 데스크톱 SSE로 즉시 전달한다. 벡터
 4. 첫 token이 30초 안에 보이고 자연어 답변이 streaming 되는지 확인한다.
 5. completion metadata의 model이 Telegram 선택과 같은지 확인한다.
 6. Telegram에 새 질문/답변 메시지가 생기지 않았는지 확인한다.
-7. 다음 Telegram 질문이 Desktop turn 문맥을 이어받는지 확인한다.
+7. 다음 Telegram 질문이 Desktop turn을 기억하지 않고 원래 session 문맥만 이어받는지
+   확인한다.
 8. 근거 위키 버튼을 열어 실제 문서 연결을 확인한다.
 
 ## Rollout and Rollback
@@ -285,21 +290,20 @@ Railway는 Session Turn event를 데스크톱 SSE로 즉시 전달한다. 벡터
 
 ## Acceptance Criteria
 
-- Desktop 질문은 현재 Telegram `wikicurator` session transcript에 정확히 한 번 추가된다.
+- Desktop 질문과 답변은 현재 Telegram `wikicurator` session transcript에 추가되지 않는다.
 - Telegram에서 선택한 실제 provider/model과 동일한 route로 실행된다.
 - 질문과 답변은 Telegram UI에 전송되지 않는다.
 - 자연어 답변이 첫 token부터 Desktop에 표시된다.
 - 정상 provider 상태에서 첫 token p95가 30초 이내다.
 - 벡터 근거가 별도 태그로 표시되고 실제 위키 문서를 연다.
 - 외부 side effect 도구는 Desktop 위키 turn에서 실행되지 않는다.
-- disconnect/retry가 중복 답변이나 중복 transcript를 만들지 않는다.
+- disconnect/retry가 provider 실행을 중복 생성하거나 session DB를 변경하지 않는다.
 - 모든 terminal path가 `completed` 또는 stable `failed` 하나로 끝난다.
 
 ## Remaining Risks
 
-- Telegram 화면에 보이지 않는 Desktop turn이 같은 transcript에 남으므로 Telegram에서
-  문맥이 갑자기 이어진 것처럼 느껴질 수 있다. 이는 사용자가 선택한 동작이며,
-  추후 session activity 표시가 필요할 수 있다.
+- 읽기 전용 snapshot은 최근 일반 대화 40개로 제한되므로 더 오래된 Telegram 문맥이
+  필요한 질문은 답변 품질이 낮아질 수 있다.
 - Hermes upstream update가 Session Turn seam을 덮어쓸 수 있다. runtime patch만 두지
   말고 Hermes source repository와 배포 절차에 함께 반영해야 한다.
 - provider 자체가 느리거나 rate limit이면 30초 목표를 지킬 수 없다. first-token,

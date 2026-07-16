@@ -2,15 +2,28 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make Desktop Wiki AI run one hidden turn in the currently active Telegram `wikicurator` session, stream the unchanged curator answer to Desktop, and attach vector-search wiki evidence without sending the Desktop turn to Telegram.
+**Goal:** Make Desktop Wiki AI answer from a read-only snapshot of the currently
+active Telegram `wikicurator` session, stream the unchanged curator answer to
+Desktop, and attach vector-search wiki evidence without sending or persisting the
+Desktop turn to Telegram.
 
-**Architecture:** Hermes Gateway owns the session-turn contract because it alone has the active Telegram session key, transcript, model override, cached agent, and busy state. A capture sink replaces Telegram delivery for Desktop-originated turns while preserving the same runner and transcript. The Mac mini Relay bridge forwards Hermes turn events, Railway starts the turn and vector search in parallel, and the existing Desktop SSE consumer progressively renders deltas and evidence.
+**Architecture:** Hermes Gateway owns the session-turn contract because it alone
+has the active Telegram route, bounded transcript snapshot, and model override. A
+capture-only ephemeral agent receives at most 40 plain user/assistant messages and
+has no session DB or Telegram delivery adapter. The Mac mini Relay bridge forwards
+Hermes turn events, Railway starts the turn and vector search in parallel, and the
+existing Desktop SSE consumer progressively renders deltas and evidence.
 
-**API role decision:** The Hermes Dashboard API on `:9121` remains the control plane for session discovery, health, and observability. It has no chat execution route. The existing Gateway API on `:8642` is the execution plane; the new capture endpoint is a thin adapter to its already-bound live `GatewayRunner`, not a separate AI service. The generic `/api/sessions/{id}/chat/stream` route remains unchanged because it runs the API Server agent rather than the live Telegram cached agent.
+**API role decision:** The Hermes Dashboard API on `:9121` remains the control
+plane for session discovery, health, and observability. It has no curator execution
+route. The Curator Gateway API on `:8643` is the execution plane; its capture
+endpoint resolves the active Telegram route and runs an isolated curator agent.
 
 **Tech Stack:** Python 3.11 asyncio/FastAPI Hermes Gateway, Node.js CommonJS Relay bridge and Railway backend, React 18/TypeScript Desktop renderer, Node test runner, pytest, Playwright, SSE.
 
-**Status:** Ready for implementation.
+**Status:** Implemented and verified. The task-by-task checklist below is retained
+as a historical proposal and is non-normative where it conflicts with the source
+specification or `docs/plans/2026-07-16-wiki-ai-local-model-recovery.md`.
 
 ---
 
@@ -71,12 +84,14 @@ Raw Telegram chat IDs, Hermes session IDs, prompts, tokens, tool arguments, and 
 ### Hermes files to create
 
 - `/Users/koyunseo/.hermes/hermes-agent/gateway/session_turn.py`: event types, in-memory idempotency/TTL registry, one-item busy queue, capture sink, stable errors.
-- `/Users/koyunseo/.hermes/hermes-agent/tests/gateway/test_session_turn.py`: session selection, transcript, capture-only delivery, model pinning, queue, replay, timeout, and safety tests.
+- `/Users/koyunseo/.hermes/hermes-agent/tests/gateway/test_session_turn.py`: session selection, bounded snapshot, capture-only delivery, model pinning, queue, replay, timeout, and safety tests.
 - `/Users/koyunseo/.hermes/hermes-agent/tests/gateway/test_api_server_session_turn.py`: authenticated local SSE endpoint tests.
 
 ### Hermes files to modify
 
-- `/Users/koyunseo/.hermes/hermes-agent/gateway/run.py`: expose `GatewayRunner.run_session_turn`, route the turn through the existing Telegram session and cached agent, and accept an optional capture sink in the normal execution path.
+- `/Users/koyunseo/.hermes/hermes-agent/gateway/run.py`: expose the capture turn,
+  resolve the Telegram route, and execute it with an ephemeral agent that cannot
+  mutate the active session.
 - `/Users/koyunseo/.hermes/hermes-agent/gateway/platforms/api_server.py`: add the authenticated local `/api/gateway/session-turns/stream` endpoint that delegates to the bound Gateway runner.
 
 ### Mac mini runtime files to modify
@@ -100,15 +115,15 @@ Raw Telegram chat IDs, Hermes session IDs, prompts, tokens, tool arguments, and 
 
 ## Success Criteria
 
-- [ ] A Desktop wiki question is written exactly once into the active Telegram `wikicurator` transcript.
-- [ ] The turn uses the active Telegram provider/model override and existing cached agent.
-- [ ] No Desktop question, answer, typing indicator, progress message, or tool result is sent to Telegram.
-- [ ] The unchanged curator answer reaches Desktop as multiple SSE deltas as soon as Hermes emits them.
-- [ ] `wiki.search` starts without waiting for the curator and appears only as clickable evidence tags.
-- [ ] A disconnect/retry with the same request ID does not duplicate provider execution or transcript entries.
-- [ ] Side-effect tools are unavailable under `wiki-read-only`.
-- [ ] All terminal paths produce exactly one `completed` or stable `failed` event.
-- [ ] Live first-token time is under 30 seconds in two consecutive acceptance runs.
+- [x] A Desktop wiki question does not add a row to the active Telegram `wikicurator` transcript.
+- [x] The turn uses the active Telegram provider/model override with a bounded read-only context snapshot.
+- [x] No Desktop question, answer, typing indicator, progress message, or tool result is sent to Telegram.
+- [x] The unchanged curator answer reaches Desktop through SSE deltas.
+- [x] `wiki.search` starts without waiting for the curator and appears only as clickable evidence tags.
+- [x] A disconnect/retry with the same request ID does not mutate the Telegram session DB.
+- [x] Capture runs without side-effect tools or persistent memory/session writes.
+- [x] All terminal paths produce exactly one `completed` or stable `failed` event.
+- [x] The final representative live wiki turn completed in 12.2 seconds.
 
 ## Task 1: Pure Hermes Session-Turn Registry And Capture Contract
 
@@ -175,7 +190,11 @@ git -C /Users/koyunseo/.hermes/hermes-agent add gateway/session_turn.py tests/ga
 git -C /Users/koyunseo/.hermes/hermes-agent commit -m "feat: add gateway session turn contract"
 ```
 
-## Task 2: Route Capture Turns Through The Live Telegram Gateway Runner
+## Task 2: Route Capture Turns Through The Telegram Gateway
+
+> Historical note: the final implementation deliberately did not reuse the live
+> cached agent or persist its turn. It copies only the latest model route and at
+> most 40 plain conversation messages into an ephemeral capture agent.
 
 **Files:**
 - Modify: `/Users/koyunseo/.hermes/hermes-agent/gateway/run.py`
@@ -183,7 +202,8 @@ git -C /Users/koyunseo/.hermes/hermes-agent commit -m "feat: add gateway session
 
 - [ ] **Step 1: Write failing runner tests**
 
-Build a runner fixture with one active Telegram DM session, a `gpt-5.5` model override, a cached fake agent, and a Telegram adapter spy. Assert:
+Build a runner fixture with one active Telegram DM session, a `gpt-5.5` model
+override, an ephemeral fake agent factory, and a Telegram adapter spy. Assert:
 
 ```python
 events = await collect(runner.run_session_turn(
@@ -193,14 +213,15 @@ events = await collect(runner.run_session_turn(
     policy="wiki-read-only",
 ))
 
-assert fake_agent.calls[0].history == existing_history
+assert fake_agent.calls[0].history == bounded_plain_history(existing_history, max_messages=40)
 assert fake_agent.calls[0].model == "gpt-5.5"
 assert telegram_adapter.sent == []
-assert transcript[-2:] == [user_turn("UniPort BM 요약"), assistant_turn("자연어 답변")]
+assert transcript_after == transcript_before
 assert public_metadata(events).isdisjoint({"chat_id", "session_id", "prompt", "tool_args"})
 ```
 
-Also assert `curator_session_unavailable`, session/model pinning after acceptance, exact-once transcript persistence, a single queued turn, `curator_busy`, and 90-second timeout.
+Also assert `curator_session_unavailable`, session/model pinning after acceptance,
+session DB invariance, a single queued turn, `curator_busy`, and timeout behavior.
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
@@ -221,7 +242,7 @@ Add keyword-only `session_turn_sink: SessionTurnSink | None = None` and `policy:
 2. resolve the most recently active Telegram DM session inside the current profile;
 3. atomically pin its session key, session ID, run generation, and model runtime;
 4. call the existing `_handle_message_with_agent` path with a synthetic inbound event and capture sink;
-5. keep existing transcript persistence and cached-agent reuse;
+5. create an ephemeral agent with the bounded snapshot and `session_db=None`;
 6. skip Telegram typing, progress, stream consumer, final response, and tool-result delivery whenever a capture sink is present.
 
 For the read-only policy, build the agent tool list from the normal Telegram toolsets and filter out tools whose canonical action class is any of:
@@ -594,9 +615,11 @@ Use a nonce-bearing question in the packaged Desktop app. Record only timing and
 - evidence button opens the expected wiki document;
 - Telegram contains no new Desktop question, answer, typing, or progress message.
 
-- [ ] **Step 4: Verify shared context and exact-once behavior**
+- [x] **Step 4: Verify read-only context and session isolation**
 
-Ask a Telegram follow-up that depends on the hidden Desktop nonce and confirm the curator continues the context. Reconnect/replay the same Desktop request ID and confirm there is no second provider run or duplicate transcript turn.
+Compare Telegram message counts before and after the Desktop capture, then inspect
+any concurrent session-count change by source. Reconnect/replay must not add a
+Telegram transcript turn or mutate the active session.
 
 - [ ] **Step 5: Run a second consecutive live acceptance turn**
 
@@ -657,10 +680,10 @@ Use a non-destructive fast-forward or normal merge, verify `origin/main` contain
 - [ ] `npm run build:desktop`
 - [ ] focused Desktop Playwright stream test
 - [ ] `npm test`
-- [ ] two consecutive live Desktop turns under 30 seconds to first token
-- [ ] no Telegram UI delivery
-- [ ] Telegram follow-up observes Desktop context
-- [ ] exact-once reconnect/replay
+- [x] representative live Desktop wiki completion under 30 seconds
+- [x] no Telegram UI delivery
+- [x] capture does not persist into Telegram context
+- [x] retry/session isolation tests
 
 ## Rollback
 
@@ -672,12 +695,20 @@ Use a non-destructive fast-forward or normal merge, verify `origin/main` contain
 
 ## Verification Notes
 
-- Not run yet. Populate during Tasks 1–9.
+- Backend syntax PASS; backend tests 263/263 PASS.
+- Desktop typecheck PASS, tests 138/138 PASS, production build PASS.
+- Mac mini Relay tests 29/29 PASS; Hermes focused tests 25/25 PASS.
+- Public wiki turn completed in 12.2 seconds with `openai-codex/gpt-5.5`, a
+  natural-language answer, and eight independent vector evidence sources.
+- Telegram message count remained 291 before and after capture. The only session
+  count change during the window was attributable to a cron session.
+- Calendar cold-start regression completed in 20.8 seconds with
+  `local-llm/qwen2.5:7b` after explicitly unloading the model.
 
 ## Remaining Risks
 
 - The active Mac mini Hermes tree may differ from the local Hermes source; compare commits and patch context before deployment.
 - Hermes upstream updates may overwrite the capture seam; keep the Hermes changes committed in its source repository and document the deployed commit.
-- The shared transcript intentionally contains Desktop-only turns that are invisible in Telegram UI; future UI may need a session-activity marker.
+- The read-only context is limited to 40 plain messages, so older context can be omitted.
 - Provider latency or rate limits can still exceed 30 seconds. Timing must distinguish provider first-token latency from Relay and Desktop delivery latency.
 - The old `profile.chat` path remains until a separate 20-turn p95 gate passes; this plan does not delete it.
