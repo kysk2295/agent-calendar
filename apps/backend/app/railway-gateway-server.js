@@ -82,6 +82,7 @@ const {
 const { projectStateWithAgents, resolveHermesAgent } = require('./lib/agent-registry');
 const {
   buildScheduleAssistantAnswer,
+  ensureCompletionAnswerCoverage,
   fallbackAnswer: fallbackScheduleAnswer,
   isScheduleQuestion,
   localLlmModel,
@@ -3592,7 +3593,7 @@ async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, ques
   attempts.push({ provider: 'local-llm', model, used: Boolean(first?.text), transport: 'railway-relay', ...(first?.jobId ? { jobId: first.jobId } : {}) });
   if (first?.text && !noItemsContradiction(first.text, sources)) {
     return {
-      answer: first.text,
+      answer: ensureCompletionAnswerCoverage({ answer: first.text, computed, sources }),
       answerMode: 'llm',
       llm: { provider: 'local-llm', model, used: true, transport: 'railway-relay' },
       llmAttempts: attempts,
@@ -3608,14 +3609,18 @@ async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, ques
   attempts.push({ provider: 'local-llm', model, used: Boolean(retry?.text), transport: 'railway-relay', ...(retry?.jobId ? { jobId: retry.jobId } : {}) });
   if (retry?.text && !noItemsContradiction(retry.text, sources)) {
     return {
-      answer: retry.text,
+      answer: ensureCompletionAnswerCoverage({ answer: retry.text, computed, sources }),
       answerMode: 'llm-retry',
       llm: { provider: 'local-llm', model, used: true, transport: 'railway-relay' },
       llmAttempts: attempts,
     };
   }
   return {
-    answer: fallbackScheduleAnswer(question, computed, sources),
+    answer: ensureCompletionAnswerCoverage({
+      answer: fallbackScheduleAnswer(question, computed, sources),
+      computed,
+      sources,
+    }),
     answerMode: 'fallback',
     llm: {
       provider: 'local-llm',

@@ -713,6 +713,25 @@ function noItemsContradiction(answer, sources) {
   return /일정과\s*할\s*일이\s*(?:모두\s*)?없|일정\/할\s*일이\s*(?:모두\s*)?없|할\s*일이\s*(?:모두\s*)?없습니다|기록이\s*없어|기록\s*없음/.test(text(answer));
 }
 
+function ensureCompletionAnswerCoverage({ answer, computed = {}, sources = [] } = {}) {
+  const normalizedAnswer = text(answer).trim();
+  if (!normalizedAnswer || computed.questionType !== 'completion-rate') return normalizedAnswer;
+  const seen = new Set();
+  const completedSources = array(sources).filter((source) => {
+    if (!source?.done || !text(source.title).trim()) return false;
+    const key = text(source.id || `${source.title}:${source.date}`).trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const missing = completedSources.filter((source) => !normalizedAnswer.includes(text(source.title).trim()));
+  if (!missing.length) return normalizedAnswer;
+  const groundedList = missing
+    .map((source) => `${text(source.title).trim()} (${source.date || '날짜 없음'})`)
+    .join(', ');
+  return `${normalizedAnswer}\n\n확인된 나머지 완료 기록은 ${groundedList}입니다.`;
+}
+
 function openAiKey(env = process.env) {
   return text(env.OPENAI_API_KEY || env.HERMES_OPENAI_API_KEY || env.AGENT_CALENDAR_OPENAI_API_KEY).trim();
 }
@@ -1106,7 +1125,11 @@ async function buildScheduleAssistantAnswer({ question, filters = {}, state = {}
     if (synthesis?.answer) {
       return {
         ...result,
-        answer: synthesis.answer,
+        answer: ensureCompletionAnswerCoverage({
+          answer: synthesis.answer,
+          computed: result.computed,
+          sources: result.sources,
+        }),
         answerMode: synthesis.answerMode || 'llm',
         llm: synthesis.llm,
         ...(synthesis.attempts ? { llmAttempts: synthesis.attempts } : {}),
@@ -1147,6 +1170,7 @@ function isScheduleQuestion(value) {
 
 module.exports = {
   buildScheduleAssistantAnswer,
+  ensureCompletionAnswerCoverage,
   fallbackAnswer,
   isScheduleQuestion,
   localLlmModel,

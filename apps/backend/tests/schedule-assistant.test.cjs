@@ -1,7 +1,10 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
-const { scheduleLlmMessages } = require('../app/lib/schedule-assistant');
+const {
+  ensureCompletionAnswerCoverage,
+  scheduleLlmMessages,
+} = require('../app/lib/schedule-assistant');
 
 function listen(server) {
   return new Promise((resolve) => {
@@ -66,6 +69,23 @@ test('completion questions send only completed records to the LLM while retainin
   assert.doesNotMatch(messages[1].content, /아직 남은 회의/);
   assert.doesNotMatch(messages[1].content, /상세 설명은 목록 답변에 필요하지 않다/);
   assert.doesNotMatch(messages[1].content, /근무\/알바|답변 요구/);
+});
+
+test('completion answer coverage appends only grounded records omitted by the LLM', () => {
+  const answer = ensureCompletionAnswerCoverage({
+    answer: '이번 주에는 리포트 작성(2026-07-17)을 완료했습니다.',
+    computed: { questionType: 'completion-rate' },
+    sources: [
+      { id: 'done-1', title: '리포트 작성', date: '2026-07-17', done: true },
+      { id: 'done-2', title: '회의 정리', date: '2026-07-16', done: true },
+      { id: 'open-1', title: '다음 주 계획', date: '2026-07-18', done: false },
+    ],
+  });
+
+  assert.equal((answer.match(/리포트 작성/g) || []).length, 1);
+  assert.match(answer, /확인된 나머지 완료 기록/);
+  assert.match(answer, /회의 정리 \(2026-07-16\)/);
+  assert.doesNotMatch(answer, /다음 주 계획/);
 });
 
 test('completion list keeps every completed schedule item beyond the vector-search cutoff', async () => {
