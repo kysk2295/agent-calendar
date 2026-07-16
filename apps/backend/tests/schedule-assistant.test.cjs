@@ -205,6 +205,9 @@ test('assistant ask uses OpenAI-compatible LLM when an API key is configured', a
     assert.equal(requestBody.model, 'gpt-test-calendar');
     assert.equal(requestBody.messages[0].role, 'system');
     assert.match(requestBody.messages[0].content, /DB 기록만 근거/);
+    assert.match(requestBody.messages[0].content, /목록.*제목.*날짜/);
+    assert.match(requestBody.messages[0].content, /근거.*반복하지 마라/);
+    assert.match(requestBody.messages[0].content, /요청하지 않은.*다음 액션/);
     assert.match(requestBody.messages[1].content, /8\.5/);
     assert.match(requestBody.messages[1].content, /카페 알바 오픈/);
     assert.match(requestBody.messages[1].content, /카페 알바 마감/);
