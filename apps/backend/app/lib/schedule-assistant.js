@@ -838,16 +838,30 @@ function scheduleLlmConfigs(env = process.env) {
   return configs;
 }
 
+function scheduleLlmContextSources({ question, computed, sources }) {
+  const records = Array.isArray(sources) ? sources : [];
+  if (computed.questionType === 'completion-rate') {
+    return records.filter((source) => source.done);
+  }
+  if (/미완료|남은|해야|할\s*일|할일/.test(question)) {
+    return records.filter((source) => !source.done);
+  }
+  return records;
+}
+
 function scheduleContextText({ question, computed, sources }) {
-  const sourceLines = sources.map((source, index) => [
+  const contextSources = scheduleLlmContextSources({ question, computed, sources });
+  const compactListContext = computed.questionType === 'completion-rate';
+  const sourceLines = contextSources.map((source, index) => [
     `[${index + 1}] (${source.type || source.source || 'record'}) ${source.title}`,
-    `id: ${source.id}`,
     `date: ${source.date || 'unknown'}`,
-    `time: ${source.time || ''}${source.endTime ? `-${source.endTime}` : ''}`,
     `done: ${source.done ? 'true' : 'false'}`,
-    `list: ${source.list || ''}`,
-    `tags: ${(source.tags || []).join(', ')}`,
-    source.snippet ? `snippet: ${source.snippet}` : '',
+    ...(!compactListContext ? [
+      `time: ${source.time || ''}${source.endTime ? `-${source.endTime}` : ''}`,
+      `list: ${source.list || ''}`,
+      `tags: ${(source.tags || []).join(', ')}`,
+      source.snippet ? `snippet: ${source.snippet}` : '',
+    ] : []),
   ].filter(Boolean).join('\n')).join('\n\n');
   return [
     `질문: ${question}`,

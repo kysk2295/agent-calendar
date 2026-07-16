@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
+const { scheduleLlmMessages } = require('../app/lib/schedule-assistant');
 
 function listen(server) {
   return new Promise((resolve) => {
@@ -30,6 +31,39 @@ function createStore(state) {
     listChatMessages: () => messages,
   };
 }
+
+test('completion questions send only completed records to the LLM while retaining exact totals', () => {
+  const messages = scheduleLlmMessages({
+    question: '이번 주 완료한 일정이 뭐야?',
+    computed: {
+      range: { label: '이번 주', from: '2026-07-13', to: '2026-07-19' },
+      total: 2,
+      done: 1,
+      undone: 1,
+      completionRate: 50,
+      workCount: 0,
+      workHours: 0,
+      questionType: 'completion-rate',
+    },
+    sources: [
+      {
+        id: 'done-1',
+        type: 'task',
+        title: '완료한 리포트',
+        date: '2026-07-17',
+        done: true,
+        snippet: '완료한 리포트 상세 설명은 목록 답변에 필요하지 않다.',
+      },
+      { id: 'open-1', type: 'task', title: '아직 남은 회의', date: '2026-07-18', done: false },
+    ],
+  });
+
+  assert.match(messages[1].content, /일정\/작업 전체: 2/);
+  assert.match(messages[1].content, /완료: 1/);
+  assert.match(messages[1].content, /완료한 리포트/);
+  assert.doesNotMatch(messages[1].content, /아직 남은 회의/);
+  assert.doesNotMatch(messages[1].content, /상세 설명은 목록 답변에 필요하지 않다/);
+});
 
 test('assistant ask computes work hours from backend tasks and calendar events', async () => {
   const state = {
