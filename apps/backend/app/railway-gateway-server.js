@@ -3543,6 +3543,7 @@ async function runRailwayRelayWikiChat({ relay, env = process.env, question, sou
     env,
     payload: {
       profile: 'wikicurator',
+      resumeSource: 'telegram',
       messages: [{ role: 'user', content: question }],
     },
     meta: {
@@ -3628,20 +3629,18 @@ async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, ques
 
 async function synthesizeWikiAnswerViaRelay({ relay, env = process.env, question, sources } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline() || !Array.isArray(sources) || !sources.length) return null;
-  const model = localLlmModel(env);
   const completion = await runRailwayRelayWikiChat({
     relay,
     env,
     question,
     sources,
-    model,
   });
   if (!completion?.text) return null;
   return {
     answer: completion.text,
     answerMode: 'llm',
-    llm: { provider: 'profile', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '' },
-    llmAttempts: [{ provider: 'profile', model: completion.model || model, used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '', jobId: completion.jobId }],
+    llm: { provider: 'profile', model: completion.model || '', used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '' },
+    llmAttempts: [{ provider: 'profile', model: completion.model || '', used: true, transport: 'railway-relay', agent: completion.agent || 'wikicurator', runner: completion.runner || '', jobId: completion.jobId }],
   };
 }
 
@@ -4791,6 +4790,7 @@ async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewaySto
     } catch (error) {
       responseResult = {
         ...result,
+        answer: '위키 큐레이터의 답변을 받지 못했습니다. 잠시 후 다시 시도해 주세요. 관련 근거 문서는 아래에서 확인할 수 있습니다.',
         answerMode: 'retrieval-degraded',
         degraded: true,
         llm: {

@@ -1,58 +1,62 @@
-# Plan: 위키 AI 벡터 RAG 자연어 응답 복구
+# Plan: 위키 큐레이터 자연어 응답 복구
 
 - Date: 2026-07-16
 - Owner: Codex
 - Work size: Large / Boundary
-- Status: In progress — vector RAG synthesis
+- Status: Complete
 
 ## Goal
 
-사용자의 위키 질문 원문을 `wikicurator` 프로필에 그대로 전달하고, 큐레이터가 생성한 답변을 수정 없이 표시한다. 별도 벡터 검색 결과는 답변을 바꾸는 프롬프트가 아니라 근거 태그와 클릭 가능한 원본 위키로만 연결한다.
+데스크톱 위키 질문 원문을 현재 Telegram에서 사용 중인 `wikicurator` 세션의
+provider/model route로 전달한다. 큐레이터의 자연어 답변은 그대로 표시하고,
+벡터 검색 결과는 답변을 대신하는 원문 목록이 아니라 클릭 가능한 근거 위키로만
+표시한다.
 
 ## Non-Goals
 
-- 위키 검색·그래프·문서 저장 구조는 변경하지 않는다.
-- `wikicurator` 담당 에이전트 정체성은 제거하지 않는다.
-- Hermes 위임 작업 실행 엔진이나 프로필 설정은 변경하지 않는다.
+- 특정 provider나 model을 애플리케이션에 하드코딩하지 않는다.
+- 데스크톱 질문을 Telegram 채팅으로 재전송하지 않는다.
+- 검색 결과를 키워드 기반 답변으로 합성하지 않는다.
+- 위키 검색·그래프·문서 저장 구조와 DB schema는 변경하지 않는다.
 
 ## Touched Boundaries
 
-- Backend gateway: 위키 Relay 합성 payload와 공개 SSE fallback
-- Backend library: 기존 Relay chat completion 계약 재사용
-- DB/migrations: 변경 없음
-- Electron bridge: 변경 없음
-- React UI: 변경 없음
-- Tests: 위키 공개 스트림 Relay 계약 및 실패 fallback
-- Docs: 이 계획과 운영 검증 기록
+- Backend gateway: `profile.chat` payload, 공개 SSE fallback, model metadata
+- Mac mini Relay bridge: 현재 Telegram 세션 route 상속, streaming 완료 처리
+- Hermes agent runtime: OpenAI Codex transport 호환 처리
+- Tests: backend 공개 스트림과 Mac mini runtime 회귀 테스트
+- Electron bridge / React UI / DB migrations: product-code 변경 없음
 
 ## Success Criteria
 
-- [x] 위키 Relay 합성은 `wikicurator`가 아닌 실제 로컬 LLM 모델을 전송한다.
-- [x] UI와 응답 메타데이터는 담당 에이전트를 `wikicurator`로 유지한다.
-- [x] 로컬 LLM 실패 시에도 검색 근거 기반 답변과 출처를 반환한다.
-- [x] 로컬 LLM이 멈춰도 8초 이내에 검색 근거 기반 답변으로 전환한다.
-- [x] 실제 Electron에서 `UniPort BM 요약` 질문이 내부 404 없이 답변된다.
-- [x] 운영 `wikicurator`의 `profile.chat`이 사용자 질문 원문을 그대로 받아 자연어 답변을 생성한다.
-- [x] 성공 응답은 `answerMode: llm`, 임베딩 모델·벡터 점수, 근거 위키 목록을 함께 반환한다.
-- [ ] 실제 Electron 답변이 원문 목록이 아닌 자연어 문장과 근거 위키 링크로 표시된다.
+- [x] 질문 원문만 `wikicurator`의 `profile.chat`에 전달한다.
+- [x] 현재 Telegram 큐레이터 세션의 provider/model route를 동적으로 상속한다.
+- [x] 운영 응답이 실제 route인 `openai-codex / gpt-5.5`를 보고한다.
+- [x] 큐레이터의 자연어 답변을 수정 없이 표시한다.
+- [x] 벡터 검색 결과는 별도 근거 태그와 클릭 가능한 위키 버튼으로 표시한다.
+- [x] 실패 시 검색 원문을 답변으로 위장하지 않고 간결한 실패 안내를 표시한다.
+- [x] 운영 Railway와 실제 데스크톱 renderer 경로에서 end-to-end로 검증한다.
 
 ## Edge Cases
 
-- Relay 검색 성공 후 LLM 모델이 없거나 꺼진 경우: `retrieval-degraded` 답변을 반환한다.
-- 검색 근거가 없는 경우: LLM을 호출하지 않고 no-retrieval을 반환한다.
-- LLM이 응답했지만 빈 텍스트인 경우: 근거 기반 fallback을 유지한다.
-- 큐레이터 실행 실패: 실패를 정직하게 표시하되 검색 결과 원문 나열을 큐레이터 답변으로 위장하지 않는다.
+- 현재 Telegram 세션이 없으면 임의 model을 추측하지 않고 명시적으로 실패한다.
+- assistant 최종 응답이 비어 있거나 확인되지 않으면 성공으로 처리하지 않는다.
+- 중간 delta POST가 지연되어도 최종 응답과 complete 전송을 가로막지 않는다.
+- watchdog 직후 정상 child exit가 경합하면, 확인된 최종 assistant record가 있을 때만
+  성공으로 승격한다.
+- 큐레이터 실행 실패 시 근거 위키는 유지하되 답변 영역에는 간결한 재시도 안내만
+  표시한다.
 
 ## Test Plan
 
-- RED:
-  - [x] `/api/chat/stream` 위키 요청이 실제 로컬 모델 대신 프로필명만 전송하면 실패한다.
-  - [x] 질문을 변경하거나 `profile.chat`이 아닌 모델 API로 보내면 실패한다.
-- GREEN:
-  - [x] 검색 근거와 로컬 모델을 `chat.completions` Relay에 보내고 담당 에이전트 메타데이터를 보존한다.
-  - [x] `wikicurator`의 응답 본문을 그대로 반환하고 별도 벡터 근거를 함께 보낸다.
-- REFACTOR:
-  - [x] 기존 Relay helper를 재사용하고 위키 전용 중복 경로는 만들지 않는다.
+- RED: backend가 `resumeSource: telegram` 없이 job을 만들면 계약 테스트가 실패한다.
+- RED: bridge가 전역 프로필의 오래된 route를 사용하거나 질문에 검색 본문을
+  주입하면 runtime 테스트가 실패한다.
+- RED: delta 전송 지연과 timeout/exit 경합에서 complete가 누락되면 회귀 테스트가
+  실패한다.
+- GREEN: 질문 원문, 현재 세션 route, 자연어 답변, model provenance, 벡터 근거가
+  각각 계약대로 전달된다.
+- REFACTOR: 성공 경로와 degraded 경로 모두 model을 추측하지 않는다.
 
 ## Acceptance Gates
 
@@ -61,43 +65,50 @@
 - [x] `npm run typecheck`
 - [x] `npm --workspace apps/desktop run test`
 - [x] `npm run build:desktop`
-- [x] 실제 Electron 위키 질문
+- [x] Mac mini Relay bridge 전체 테스트
+- [x] 운영 Railway 직접 API 검증
+- [x] 실제 desktop renderer + 운영 API 검증
 
 ## Implementation Checklist
 
-- [x] Step 1: 위키 스트림 모델/프로필 혼동을 RED 계약으로 고정한다.
-- [x] Step 2: 위키 합성을 실제 로컬 모델 Relay로 연결한다.
-- [x] Step 3: 실패 fallback과 전체 회귀를 검증한다.
-- [x] Step 4: main 배포 후 Electron에서 실제 질문을 확인한다.
-- [x] Step 5: 질문 원문을 운영 `wikicurator` profile chat으로 전달한다.
-- [ ] Step 6: 자연어 답변·인용·근거 위키를 main 배포 후 실제 Electron에서 확인한다.
+- [x] 질문 원문과 현재 Telegram session 선택을 backend 계약으로 고정한다.
+- [x] bridge가 현재 `wikicurator` session의 provider/model route를 상속하게 한다.
+- [x] OpenAI Codex용 Hermes transport 오류를 수정한다.
+- [x] delta POST 지연과 timeout/exit 경합에서도 complete가 전달되게 한다.
+- [x] backend가 실제 completion model만 노출하고 가짜 local model을 추측하지 않게 한다.
+- [x] 실패 화면에서 raw 검색 원문을 제거하고 근거 태그만 유지한다.
+- [x] Railway 배포와 renderer end-to-end 검증을 완료한다.
 
 ## Verification Notes
 
-- Command: `node --test --test-name-pattern='wiki relay synthesizes retrieval' apps/backend/tests/wiki-fallback.test.cjs`
-  - Result: RED. Relay payload의 `model`이 `undefined`이고 `profile: wikicurator`만 존재함을 확인한 뒤 GREEN.
-- Command: `node --test apps/backend/tests/wiki-fallback.test.cjs`
-  - Result: PASS, 9 tests.
-- Command: `npm run backend:check && npm run test:backend`
-  - Result: PASS, backend 249 tests.
-- Command: `npm run typecheck`; `npm --workspace apps/desktop run test`; `npm run build:desktop`
-  - Result: PASS, desktop 138 tests와 production build 완료.
-- Command: `node --test --test-name-pattern='wiki relay returns retrieval fallback before' apps/backend/tests/wiki-fallback.test.cjs`
-  - Result: RED 5.28초 대기 후 GREEN 1.18초. 운영 UI에서는 최대 8초 뒤 retrieval fallback으로 전환한다.
-- Railway deployments: `2015ff2e-a09c-45ba-8068-d21ecf55c550`, `2ad6ee29-e4ff-43e1-bdb9-65e2607c32a2`
-  - Result: SUCCESS. 실제 로컬 모델 라우팅과 지연 fallback을 순차 배포했다.
-- Actual Electron: `UniPort BM 요약`
-  - Result: PASS. 기존 `model 'wikicurator' not found` 404가 재발하지 않았고, 로컬 모델 지연 시 `wikicurator · 검색 fallback`과 출처 3개가 표시되며 요청이 정상 종료됐다.
-- RED/GREEN: `node --test --test-name-pattern='wiki stream sends the unchanged question' apps/backend/tests/wiki-fallback.test.cjs`
-  - Result: RED `chat.completions`에서 GREEN `profile.chat`; payload는 `profile: wikicurator`와 사용자 질문 한 개만 포함하고 `model`·검색 본문·시스템 프롬프트를 포함하지 않는다.
-- UI RED/GREEN: `node apps/desktop/tests/playwright-wiki-graph-ask.cjs`
-  - Result: SSE의 벡터 근거가 초기 로컬 검색 근거를 대체하고, 질문 원문만 전송하며 큐레이터 답변과 클릭 가능한 정본 위키를 함께 표시한다.
-- Regression gates
-  - Result: backend 250 tests, desktop 138 tests, backend syntax, desktop typecheck/build, focused Playwright PASS.
+- Root cause: 모델 전환 자체는 정상적으로 저장되어 있었다. bridge가 현재 Telegram
+  session route 대신 오래된 전역 profile route를 사용했고, provider가 답변을 만든
+  뒤에도 지연된 delta POST를 기다리느라 complete를 보내지 못했다. timeout과 정상
+  child exit의 경합도 간헐 실패를 만들었다. backend는 실패 시 존재하지 않는
+  `qwen2.5:7b` metadata를 추측하고 raw 검색 결과를 답변처럼 표시했다.
+- Backend focused: `node --test apps/backend/tests/wiki-fallback.test.cjs` — 11/11 PASS.
+- Backend full: `npm run test:backend` — 250/250 PASS.
+- Desktop: typecheck PASS, tests 138/138 PASS, production build PASS.
+- Mac mini: Relay bridge tests 39/39 PASS; Hermes focused tests 10/10 PASS;
+  JavaScript syntax와 Python compile PASS.
+- Railway deployment: `03dd332f-d401-4d20-a6ff-6d12636d389d` — SUCCESS.
+- 운영 직접 API: HTTP 200, `answerMode: llm`, `gatewayFallback: false`,
+  `model: gpt-5.5`, 자연어 답변, raw 검색 prefix 없음, 근거 6개.
+- 실제 renderer: 운영 API 응답 200, 약 48.2초, 답변 1,381자, 근거 버튼 3개,
+  `model: gpt-5.5`, `answerMode: llm`, raw 검색 prefix 없음.
+- macOS foreground 자동 클릭은 잠금 화면 때문에 수행하지 못했지만, 동일 Electron
+  renderer를 Playwright로 실행해 실제 운영 API와 end-to-end 검증했다.
+
+## Rollback / Fallback
+
+- 큐레이터 실행 실패 시 간결한 재시도 안내와 검색된 근거 위키를 반환한다.
+- Mac mini bridge는 LaunchAgent 재시작으로 독립 복구할 수 있다.
+- backend 배포는 직전 Railway deployment로 즉시 rollback할 수 있다.
 
 ## Remaining Risks
 
-- Risk: Mac mini Relay에 구성된 로컬 모델 자체가 오프라인일 수 있다.
-  - Mitigation: 검색 근거 기반 degraded 답변을 정상 사용자 응답으로 유지한다.
-- Risk: 현재 운영 검증에서는 로컬 모델이 제한 안에 답하지 않아 자연어 합성 대신 검색 fallback이 사용됐다.
-  - Mitigation: 내부 오류나 무한 대기 없이 8초 내 검색 근거와 출처를 반환하며, 모델이 복구되면 동일 경로에서 자연어 합성을 사용한다.
+- Mac mini의 bridge/Hermes runtime 수정은 이 저장소 바깥 `~/.hermes`에 있다.
+  Hermes 재설치나 업데이트가 덮어쓸 수 있으므로 후속으로 runtime 저장소에
+  반영하거나 patch 자동 적용을 영속화해야 한다.
+- 큐레이터 응답 시간은 질문과 provider 상태에 따라 약 40~50초가 걸릴 수 있다.
+  현재는 정상 streaming 완료를 우선 복구했으며, 지연 최적화는 별도 범위다.

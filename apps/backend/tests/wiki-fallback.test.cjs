@@ -259,7 +259,7 @@ test('wiki chat stream fallback uses local LLM answer when Hermes runtime is abs
   }
 });
 
-test('wiki relay asks the canonical wikicurator profile without injecting retrieved text', async () => {
+test('wiki relay asks the current Telegram wikicurator session without injecting retrieved text', async () => {
   const server = createRailwayGatewayServer({
     env: {
       HERMES_RELAY_TOKEN: 'relay-token',
@@ -332,6 +332,7 @@ test('wiki relay asks the canonical wikicurator profile without injecting retrie
     const body = await response.text();
     assert.equal(profileJob.kind, 'profile.chat');
     assert.equal(profileJob.payload.profile, 'wikicurator');
+    assert.equal(profileJob.payload.resumeSource, 'telegram');
     assert.equal(profileJob.payload.stream, true);
     assert.deepEqual(profileJob.payload.messages, [{ role: 'user', content: '운영 원칙을 알려줘' }]);
     assert.doesNotMatch(JSON.stringify(profileJob.payload.messages), /배포 전에는 테스트와 프리뷰 검증/);
@@ -340,6 +341,7 @@ test('wiki relay asks the canonical wikicurator profile without injecting retrie
     assert.match(body, /"agent":"wikicurator"/);
     assert.match(body, /"provider":"profile"/);
     assert.match(body, /"answerMode":"llm"/);
+    assert.doesNotMatch(body, /qwen2\.5:7b/);
   } finally {
     await close(server);
   }
@@ -508,7 +510,8 @@ test('wiki relay clearly marks retrieval-only fallback when wikicurator profile 
     assert.equal(profileJob.kind, 'profile.chat');
     assert.equal(profileJob.payload.profile, 'wikicurator');
     assert.equal(response.status, 200);
-    assert.match(body, /배포 전에는 테스트와 프리뷰 검증을 완료한다/);
+    assert.match(body, /위키 큐레이터의 답변을 받지 못했습니다/);
+    assert.doesNotMatch(body, /\"text\":\"서버 DB 검색 기준으로 답변합니다/);
     assert.match(body, /"answerMode":"retrieval-degraded"/);
     assert.match(body, /"degraded":true/);
     assert.match(body, /"provider":"profile"/);
@@ -574,7 +577,8 @@ test('wiki relay returns retrieval fallback before a stalled wikicurator profile
     assert.equal(modelJob.payload.profile, 'wikicurator');
     assert.ok(Date.now() - startedAt < 2000, 'retrieval fallback should beat the wiki UI timeout');
     assert.equal(response.status, 200);
-    assert.match(body, /UniPort는 교육기관과 학습자를 연결/);
+    assert.match(body, /위키 큐레이터의 답변을 받지 못했습니다/);
+    assert.doesNotMatch(body, /\"text\":\"서버 DB 검색 기준으로 답변합니다/);
     assert.match(body, /"answerMode":"retrieval-degraded"/);
     assert.doesNotMatch(body, /event: error/);
   } finally {
