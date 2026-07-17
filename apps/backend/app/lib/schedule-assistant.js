@@ -393,10 +393,12 @@ function questionTime(question) {
 
 function scheduleQueryConstraints(question) {
   const raw = text(question).normalize('NFKC');
+  const conversationalFollowUp = /(?:방금|이전|앞선)\s*(?:답변|대화)|그\s*(?:중|답변|일정|항목)/.test(raw);
   const existence = /등록|잡혀|예정|있(?:어|나|나요|습니까|는지)|확인/.test(raw);
   const requestedTime = questionTime(raw);
   if (
-    !existence
+    conversationalFollowUp
+    || !existence
     || /충돌|겹치|완료율|비율|총|평균|추천|우선순위|작업량|비교|브리핑/.test(raw)
   ) return { intent: '', entity: '', time: '', exactLookup: false };
   const entity = raw

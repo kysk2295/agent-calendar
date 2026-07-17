@@ -117,6 +117,35 @@ test('exact existence lookup excludes unrelated schedules on the same day', asyn
   }
 });
 
+test('calendar conversational follow-up is not misclassified as an exact existence lookup', async () => {
+  const server = createRailwayGatewayServer({
+    env: { DATABASE_URL: '', HERMES_RUNTIME_URL: '' },
+    gatewayStore: createStore({ tasks: [], events: [] }),
+    fetchImpl: async () => {
+      throw new Error('an empty follow-up context must not call network retrieval');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        question: '방금 답변에서 가장 먼저 확인할 항목 하나와 그 이유만 한 문장으로 말해줘.',
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.computed.queryConstraints.exactLookup, false);
+    assert.equal(payload.computed.questionType, 'schedule-summary');
+    assert.notEqual(payload.search.embeddingModel, 'exact-filter');
+  } finally {
+    await close(server);
+  }
+});
+
 test('explicit Korean date limits calendar evidence to that exact day', async () => {
   const server = createRailwayGatewayServer({
     env: { DATABASE_URL: '', HERMES_RUNTIME_URL: '' },
