@@ -3550,14 +3550,21 @@ function wikiEvidenceSearchQuery(question = '') {
 
 function exactWikiEvidenceIdentifiers(question = '') {
   const normalized = String(question || '').normalize('NFKC');
-  const matches = normalized.match(/\b(?=[A-Z0-9-]{8,}\b)(?=[A-Z0-9-]*\d)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b/gi) || [];
+  const matches = normalized.match(/\b(?=[A-Z0-9-]{8,}\b)(?=[A-Z0-9-]*\d)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,}\b/gi) || [];
   return [...new Set(matches.map((value) => value.toLocaleLowerCase('en-US')))];
 }
 
-function groundedRelayWikiSources(question = '', sources = []) {
+function relayWikiMinScore(env = process.env) {
+  const parsed = Number(env.AGENT_CALENDAR_WIKI_MIN_SCORE || env.HERMES_WIKI_MIN_SCORE || 0.35);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0.35;
+}
+
+function groundedRelayWikiSources(question = '', sources = [], env = process.env) {
   const identifiers = exactWikiEvidenceIdentifiers(question);
-  if (!identifiers.length) return Array.isArray(sources) ? sources : [];
   return (Array.isArray(sources) ? sources : []).filter((source) => {
+    const score = Number(source?.score);
+    if (!Number.isFinite(score) || score < relayWikiMinScore(env)) return false;
+    if (!identifiers.length) return true;
     const haystack = [
       source?.path,
       source?.title,
@@ -3566,8 +3573,9 @@ function groundedRelayWikiSources(question = '', sources = []) {
       source?.content,
       source?.sourceId,
       source?.documentId,
-    ].filter(Boolean).join('\n').normalize('NFKC').toLocaleLowerCase('en-US');
-    return identifiers.every((identifier) => haystack.includes(identifier));
+    ].filter(Boolean).join('\n');
+    const sourceIdentifiers = new Set(exactWikiEvidenceIdentifiers(haystack));
+    return identifiers.some((identifier) => sourceIdentifiers.has(identifier));
   });
 }
 
@@ -3612,7 +3620,7 @@ async function runRailwayRelayWikiSearch({ relay, env = process.env, question, p
     throw error;
   }
   const rawSources = Array.isArray(finalData.sources) ? finalData.sources : [];
-  const sources = groundedRelayWikiSources(question, rawSources);
+  const sources = groundedRelayWikiSources(question, rawSources, env);
   const filteredSourceCount = rawSources.length - sources.length;
   const upstreamRetrieval = finalData.retrieval || {};
   return {
@@ -5093,11 +5101,11 @@ async function streamRelayWikiSessionTurn({
 
 async function fallbackWikiChatStream({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch, relay = null }) {
   const rawMessage = String(body.question || body.message || body.query || '').trim();
-  const question = extractFallbackWikiQuestion(rawMessage);
-  if (question && relay && relayEnabled(env) && relay.isBridgeOnline()) {
-    await streamRelayWikiSessionTurn({ res, body, question, relay, env });
+  if (rawMessage && relay && relayEnabled(env) && relay.isBridgeOnline()) {
+    await streamRelayWikiSessionTurn({ res, body, question: rawMessage, relay, env });
     return;
   }
+  const question = extractFallbackWikiQuestion(rawMessage);
   let wikiIndex = fallbackWikiIndex({
     gatewayState,
     gatewayStore,

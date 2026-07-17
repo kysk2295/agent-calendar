@@ -140,6 +140,55 @@ function parseSseEvents(body) {
   });
 }
 
+async function runRelayWikiCase({ message, sources, answer = '요청한 내용을 위키 근거에 맞춰 답변했습니다.' }) {
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+      HERMES_WIKI_SESSION_TURN_ENABLED: '1',
+      HERMES_RELAY_WIKI_SESSION_TURN_TIMEOUT_MS: '1000',
+    },
+    gatewayStore: createEmptyStore(),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const searchPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const responsePromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ view: 'wiki', agent: 'wikicurator', message }),
+    });
+    const searchJob = (await searchPoll).job;
+    await completeRelayJob(baseUrl, searchJob.id, {
+      ok: true,
+      query: message,
+      sources,
+      retrieval: {
+        source: 'wiki-vector-index',
+        mode: 'vector-hybrid',
+        chunkCount: sources.length,
+      },
+    });
+    const turnPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    const turnJob = (await turnPoll).job;
+    await completeSessionTurn(baseUrl, turnJob, { text: answer });
+    const response = await responsePromise;
+    return {
+      status: response.status,
+      events: parseSseEvents(await response.text()),
+      searchJob,
+      turnJob,
+    };
+  } finally {
+    await close(server);
+  }
+}
+
 async function readResponseUntil(reader, decoder, current, predicate) {
   let body = current;
   while (!predicate(body)) {
@@ -405,7 +454,7 @@ test('wiki relay asks the Hermes wikicurator agent directly without injecting re
         view: 'wiki',
         agent: 'wikicurator',
         agentId: 'wikicurator',
-        message: 'Q: 운영 원칙을 알려줘',
+        message: 'Q: 운영 원칙을 알려줘\nContext: 이 문구도 질문의 일부야',
       }),
     });
     const searchJob = (await searchPoll).job;
@@ -440,7 +489,7 @@ test('wiki relay asks the Hermes wikicurator agent directly without injecting re
     const body = await response.text();
     assert.deepEqual(turnJob.payload, {
       profile: 'wikicurator',
-      message: '운영 원칙을 알려줘',
+      message: 'Q: 운영 원칙을 알려줘\nContext: 이 문구도 질문의 일부야',
       requestId: turnJob.payload.requestId,
       conversationId: 'agent-calendar-wiki',
     });
@@ -740,15 +789,26 @@ test('wiki stream does not tag unrelated evidence for an absent exact identifier
     await completeRelayJob(baseUrl, searchJob.id, {
       ok: true,
       query: 'AC-NONEXISTENT-7F3A9 프로젝트의 확정 매출 수치가 있는지 확인해줘',
-      sources: [{
-        id: 'unrelated-wiki-source',
-        path: '2_wiki/UniPort-로드맵.md',
-        title: 'UniPort 로드맵',
-        excerpt: 'CPA와 B2B SaaS의 매출 가설을 다룬다.',
-        score: 0.38,
-        vectorScore: 0.44,
-        textScore: 0.25,
-      }],
+      sources: [
+        {
+          id: 'unrelated-wiki-source',
+          path: '2_wiki/UniPort-로드맵.md',
+          title: 'UniPort 로드맵',
+          excerpt: 'CPA와 B2B SaaS의 매출 가설을 다룬다.',
+          score: 0.38,
+          vectorScore: 0.44,
+          textScore: 0.25,
+        },
+        {
+          id: 'prefix-collision-source',
+          path: '2_wiki/AC-NONEXISTENT-7F3A90.md',
+          title: 'AC-NONEXISTENT-7F3A90',
+          excerpt: '서로 다른 프로젝트의 확정 매출 수치다.',
+          score: 0.91,
+          vectorScore: 0.9,
+          textScore: 0.8,
+        },
+      ],
       retrieval: {
         source: 'wiki-vector-index',
         mode: 'vector-hybrid',
@@ -775,6 +835,65 @@ test('wiki stream does not tag unrelated evidence for an absent exact identifier
   } finally {
     await close(server);
   }
+});
+
+test('wiki stream keeps split evidence for multiple exact identifiers without prefix collisions', async () => {
+  const result = await runRelayWikiCase({
+    message: 'AC-PROJECT-1234와 AC-PROJECT-5678의 차이를 비교해줘',
+    sources: [
+      {
+        id: 'first-project',
+        path: '2_wiki/AC-PROJECT-1234.md',
+        title: 'AC-PROJECT-1234',
+        excerpt: '첫 번째 프로젝트의 정본이다.',
+        score: 0.91,
+      },
+      {
+        id: 'second-project',
+        path: '2_wiki/AC-PROJECT-5678.md',
+        title: 'AC-PROJECT-5678',
+        excerpt: '두 번째 프로젝트의 정본이다.',
+        score: 0.9,
+      },
+      {
+        id: 'prefix-collision',
+        path: '2_wiki/AC-PROJECT-12340.md',
+        title: 'AC-PROJECT-12340',
+        excerpt: '비교 대상이 아닌 별도 프로젝트다.',
+        score: 0.95,
+      },
+    ],
+  });
+  const evidence = result.events.find((event) => event.name === 'evidence')?.data;
+  assert.equal(result.status, 200);
+  assert.deepEqual(evidence?.sources.map((source) => source.id), ['first-project', 'second-project']);
+  assert.equal(evidence?.retrieval?.chunkCount, 2);
+});
+
+test('wiki stream treats B2B-SAAS as ordinary wording and rejects only low-score evidence', async () => {
+  const result = await runRelayWikiCase({
+    message: 'B2B-SAAS 전략의 장기 확장 방향을 알려줘',
+    sources: [
+      {
+        id: 'grounded-b2b-source',
+        path: '2_wiki/금융기관-확장전략.md',
+        title: 'B2B SaaS 전략',
+        excerpt: '금융기관 온보딩과 교육 솔루션으로 확장한다.',
+        score: 0.88,
+      },
+      {
+        id: 'low-score-source',
+        path: '2_wiki/요리.md',
+        title: '주간 식단',
+        excerpt: '이번 주 식사 계획이다.',
+        score: 0.12,
+      },
+    ],
+  });
+  const evidence = result.events.find((event) => event.name === 'evidence')?.data;
+  assert.equal(result.status, 200);
+  assert.deepEqual(evidence?.sources.map((source) => source.id), ['grounded-b2b-source']);
+  assert.equal(evidence?.retrieval?.chunkCount, 1);
 });
 
 test('wiki relay keeps vector evidence when the live session turn fails', async () => {

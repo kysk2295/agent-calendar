@@ -80,7 +80,8 @@ async function streamTurn(settings, body) {
   }
 
   const compact = answer.replace(/\s+/gu, ' ').trim();
-  assert.ok(compact.length >= 10, `${body.view} answer is too short to be a natural sentence: ${compact}`);
+  const conciseNegative = body.allowConciseNegative === true && /없|찾지 못|확인되지|등록되어 있지/u.test(compact);
+  assert.ok(compact.length >= (conciseNegative ? 10 : 20), `${body.view} answer is too short to be a natural sentence: ${compact}`);
   assert.doesNotMatch(compact, RAW_TRANSCRIPT);
   assert.doesNotMatch(compact, FAILURE_COPY);
   assert.notEqual(firstDeltaMs, null, `${body.view} emitted no progressive answer delta`);
@@ -205,6 +206,7 @@ async function main() {
       view: 'calendar',
       agent: 'default',
       agentId: 'default',
+      allowConciseNegative: true,
       message: '오늘(2026년 7월 18일) 등록된 일정과 할 일을 사실과 추정을 구분해 자연스러운 한국어로 알려줘.',
     },
     {
@@ -280,6 +282,7 @@ async function main() {
       includeJournal: false,
       includeRaw: false,
       expectNoEvidence: true,
+      allowConciseNegative: true,
       message: '위키에 AC-NONEXISTENT-7F3A9라는 프로젝트의 확정 매출 수치가 있는지 확인해줘.',
     },
   ];
