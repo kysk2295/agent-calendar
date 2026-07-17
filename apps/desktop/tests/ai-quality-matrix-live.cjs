@@ -80,7 +80,7 @@ async function streamTurn(settings, body) {
   }
 
   const compact = answer.replace(/\s+/gu, ' ').trim();
-  const conciseNegative = body.allowConciseNegative === true && /없|찾지 못|확인되지|등록되어 있지/u.test(compact);
+  const conciseNegative = body.allowConciseNegative === true && /없(?:다|습니다|어요|어)(?:[.!?\s]|$)|찾지 못|확인되지|등록되어 있지/u.test(compact);
   assert.ok(compact.length >= (conciseNegative ? 10 : 20), `${body.view} answer is too short to be a natural sentence: ${compact}`);
   assert.doesNotMatch(compact, RAW_TRANSCRIPT);
   assert.doesNotMatch(compact, FAILURE_COPY);
