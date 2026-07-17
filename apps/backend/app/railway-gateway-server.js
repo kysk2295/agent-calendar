@@ -6992,6 +6992,20 @@ function compactCalendarAgentSource(source = {}) {
   };
 }
 
+function recentCalendarAgentTurns(state = {}) {
+  return (Array.isArray(state.chatMessages) ? state.chatMessages : [])
+    .filter((message) => (
+      ['user', 'assistant'].includes(String(message?.role || ''))
+      && (message?.target === 'calendar' || message?.source === 'schedule-assistant')
+    ))
+    .map((message) => ({
+      role: String(message.role),
+      text: safePublicText(message.text || message.body || message.content, '', 600, { preserveRedactions: true }).trim(),
+    }))
+    .filter((message) => message.text)
+    .slice(-6);
+}
+
 function truthfulCalendarAgentAnswer({ answer = '', result = {}, question = '' } = {}) {
   const value = String(answer || '').trim();
   const constraints = result.computed?.queryConstraints || {};
@@ -7092,6 +7106,7 @@ async function streamRelayCalendarSessionTurn({
       workCount: result.computed.workCount,
       workHours: result.computed.workHours,
     },
+    recentTurns: recentCalendarAgentTurns(state),
     sources: result.sources.slice(0, 6).map(compactCalendarAgentSource),
   };
   let streamedText = '';

@@ -1210,6 +1210,11 @@ test('calendar chat streams a persistent Hermes agent turn after bge-m3 retrieva
         done: false,
       }],
       events: [],
+      chatMessages: [
+        { role: 'user', text: '오늘 일정이 있어?', source: 'schedule-assistant', target: 'calendar' },
+        { role: 'assistant', text: '오늘은 유니포트 회의 준비가 있습니다.', source: 'schedule-assistant', target: 'calendar' },
+        { role: 'assistant', text: '위키 답변은 제외해야 합니다.', source: 'wiki-fallback', target: 'wiki' },
+      ],
     }),
   });
   const baseUrl = await listen(server);
@@ -1276,6 +1281,10 @@ test('calendar chat streams a persistent Hermes agent turn after bge-m3 retrieva
     assert.equal(second.job.payload.message, '내일 무엇부터 하면 좋을까?');
     assert.equal(second.job.payload.conversationId, 'agent-calendar-calendar');
     assert.equal(second.job.payload.context.sources[0].title, '유니포트 회의 준비');
+    assert.deepEqual(second.job.payload.context.recentTurns, [
+      { role: 'user', text: '오늘 일정이 있어?' },
+      { role: 'assistant', text: '오늘은 유니포트 회의 준비가 있습니다.' },
+    ]);
 
     const response = await responsePromise;
     assert.equal(response.status, 200);
