@@ -182,7 +182,11 @@ async function streamWorkTurn({
         executionEngine: context.mission.executionEngine || 'hermes',
         deliverable: context.mission.deliverable || { kind: 'report', format: 'markdown' },
         stream: true,
-        messages: liveTurnMessages(context),
+        messages: liveTurnMessages({
+          mission: context.mission,
+          state: context.state,
+          sessionId: context.session.id,
+        }),
       },
       meta: {
         missionId: context.mission.id,

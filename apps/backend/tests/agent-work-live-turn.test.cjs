@@ -58,6 +58,8 @@ test('live Work turn persists the final agent answer while emitting accepted, pr
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].payload.stream, true);
+    assert.equal(calls[0].payload.messages.at(-1).role, 'user');
+    assert.equal(calls[0].payload.messages.at(-1).content, '먼저 조사 범위와 다음 행동을 알려줘.');
     assert.equal(calls[0].meta.missionId, created.work.id);
     assert.deepEqual(events.map((event) => event.type), ['accepted', 'checkpoint', 'delta', 'delta', 'checkpoint', 'done']);
     assert.equal(events[0].delivery.status, 'accepted');

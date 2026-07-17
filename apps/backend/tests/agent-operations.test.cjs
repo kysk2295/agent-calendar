@@ -1918,6 +1918,112 @@ test('Hermes live Work Conversation uses profile chat streaming without a model 
   }
 });
 
+test('Hermes wikicurator Work Conversation sends the exact isolated Work transcript on every turn', async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-work-wikicurator-session-chat-'));
+  const store = new HermesStore({ dataDir, clock });
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+      HERMES_RELAY_STREAM_TIMEOUT_MS: '1000',
+      HERMES_RELAY_WIKI_SESSION_TURN_TIMEOUT_MS: '1000',
+    },
+    gatewayStore: store,
+    agentOperationsClock: clock,
+  });
+  const baseUrl = await listen(server);
+  const completeProfileChat = (job, answer) => fetch(
+    `${baseUrl}/api/relay/jobs/${job.id}/complete`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({
+        ok: true,
+        text: answer,
+        runner: 'hermes-profile-chat',
+        profile: 'wikicurator',
+      }),
+    },
+  );
+
+  try {
+    const firstQuestion = '배포 후보는 금요일 검토 예정이지만 아직 팀 확인 전이라고 한 문장으로 정리해 주세요.';
+    const createdResponse = await postJson(
+      `${baseUrl}/api/agent-operations/work`,
+      createAgentWorkRequest({
+        clientRequestId: 'request-wikicurator-session-chat-1',
+        title: 'Wiki Curator 자연어 대화',
+        objective: '담당 Wiki Curator와 문맥을 이어 대화한다.',
+        initialMessage: firstQuestion,
+        agentId: 'wikicurator',
+        executionEngine: 'hermes',
+        deliverable: { kind: 'report', format: 'markdown' },
+      }),
+    );
+    const created = await createdResponse.json();
+    const firstPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const firstLive = fetch(`${baseUrl}/api/agent-operations/work/${created.work.id}/live`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ initial: true }),
+    });
+    const { job: firstJob } = await firstPoll;
+    const firstAnswer = '확정 사실은 금요일 검토 예정이며, 팀 확인은 아직 완료되지 않았습니다.';
+    await completeProfileChat(firstJob, firstAnswer);
+    const firstStream = await (await firstLive).text();
+
+    assert.equal(firstJob.kind, 'profile.chat');
+    assert.equal(firstJob.payload.profile, 'wikicurator');
+    assert.equal(firstJob.payload.messages.at(-1).role, 'user');
+    assert.equal(firstJob.payload.messages.at(-1).content, firstQuestion);
+    assert.equal('model' in firstJob.payload, false);
+    assert.match(firstStream, new RegExp(firstAnswer));
+
+    const followUp = '그중 미확정인 항목만 더 짧게 말해 주세요.';
+    const secondPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const secondLive = fetch(`${baseUrl}/api/agent-operations/work/${created.work.id}/live`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        clientMessageId: 'wikicurator-session-follow-up',
+        text: followUp,
+      }),
+    });
+    const { job: secondJob } = await secondPoll;
+    const secondAnswer = '팀 확인이 아직 완료되지 않았습니다.';
+    await completeProfileChat(secondJob, secondAnswer);
+    const secondStream = await (await secondLive).text();
+
+    assert.equal(secondJob.kind, 'profile.chat');
+    assert.deepEqual(secondJob.payload.messages.slice(-3), [
+      { role: 'user', content: firstQuestion },
+      { role: 'assistant', content: firstAnswer },
+      { role: 'user', content: followUp },
+    ]);
+    assert.match(secondStream, new RegExp(secondAnswer));
+    const conversation = await (await fetch(
+      `${baseUrl}/api/agent-operations/work/${created.work.id}/conversation?limit=200`,
+    )).json();
+    assert.deepEqual(
+      conversation.checkpoints
+        .filter((checkpoint) => checkpoint.kind === 'agent_message')
+        .map((checkpoint) => checkpoint.text),
+      [firstAnswer, secondAnswer],
+    );
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('delegation conversation assigns responsible agents deterministically and honors valid explicit profiles', async () => {
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-work-assignment-'));
