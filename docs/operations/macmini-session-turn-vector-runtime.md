@@ -7,10 +7,10 @@
 - Curator Gateway API `127.0.0.1:8643` owns the persisted `wikicurator`
   Agent API session and serves `/api/sessions/{id}/chat/stream` directly.
 - Calendar Gateway API `127.0.0.1:8644` owns the persisted
-  `calendarassistant` session. It has no toolsets and uses local
-  `qwen2.5:7b` only for grounded natural-language synthesis.
-- Ollama `127.0.0.1:11434` owns Calendar synthesis (`qwen2.5:7b`) and Wiki or
-  Calendar evidence embeddings (`bge-m3`).
+  `calendarassistant` session. It has no toolsets and uses
+  `openai-codex` / `gpt-5.5` only for grounded natural-language synthesis.
+- Ollama `127.0.0.1:11434` owns Wiki and Calendar evidence embeddings
+  (`bge-m3`). It is not the Calendar natural-language generation provider.
 - Railway enqueues `agent.chat` with either `wiki.search` or
   `calendar.search`. Curator answers are returned unchanged; Calendar exact
   existence answers are checked against deterministic date/title/time facts
@@ -61,19 +61,17 @@ for desktop Wiki AI execution.
 - The `wikicurator` profile is pinned to `openai-codex` / `gpt-5.5`, has no
   provider fallback chain, and exposes only the `file` toolset to API-server
   Q&A turns. The Relay hard timeout is 60 seconds.
-- The `calendarassistant` profile is pinned to local `qwen2.5:7b`, has no
-  provider fallback chain or tools, and receives a bounded structured context
-  containing the parsed range, exact facts, and at most 6 relevant records.
-  Hermes normally requires 64K context for tool-calling models, while this
-  Ollama model exposes 32K; the dedicated no-tool profile avoids that invalid
-  tool boundary while keeping prompts well below the model limit.
+- The `calendarassistant` profile is pinned to `openai-codex` / `gpt-5.5`, has
+  no provider fallback chain or tools, and receives a bounded structured
+  context containing the parsed range, exact facts, at most 6 relevant records,
+  and at most 6 bounded Calendar-only recent turns.
 - Wiki evidence uses a persistent 1024-dimensional `bge-m3` vector index.
   Changed or missing notes are embedded in batches of at most 64.
 - Calendar evidence uses a separate persistent `bge-m3` vector index. Exact
   date/title/time lookups bypass semantic search and use `exact-filter`.
 - Wiki `bge-m3` requests use `keep_alive: 0`; Calendar `bge-m3` requests keep
-  both the embedding model and Qwen warm for 24 hours. The Relay also warms
-  `qwen2.5:7b` before polling and refreshes it hourly.
+  only the embedding model warm for 24 hours. The Relay does not load or warm a
+  local Calendar generation model.
 
 ## Verification
 
@@ -106,8 +104,8 @@ Expected live metadata for a calendar turn:
 {
   "answerMode": "llm",
   "llm": {
-    "provider": "custom",
-    "model": "qwen2.5:7b",
+    "provider": "openai-codex",
+    "model": "gpt-5.5",
     "used": true,
     "agent": "calendarassistant"
   },
@@ -118,8 +116,8 @@ Expected live metadata for a calendar turn:
 ## Rollback
 
 1. Replace the active Relay script and test with the matching adjacent backup.
-2. Replace the `wikicurator` and `calendarassistant` profile configs with the
-   matching timestamped backups.
+2. Replace the `wikicurator` and `calendarassistant` profile configs and
+   LaunchAgent plists with the matching timestamped backups.
 3. Restart `ai.hermes.gateway-wikicurator`,
    `ai.hermes.gateway-calendarassistant`, and
    `com.yunseo.hermes-railway-relay` with `launchctl kickstart -k`.

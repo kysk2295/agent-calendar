@@ -350,6 +350,18 @@ function questionRange(question, filters = {}) {
     const dayAfterTomorrow = addDaysKey(today, 2);
     return { from: dayAfterTomorrow, to: dayAfterTomorrow, label: '모레' };
   }
+  const nextWeekday = question.match(/다음\s*(일|월|화|수|목|금|토)요일/);
+  if (nextWeekday) {
+    const weekday = ['일', '월', '화', '수', '목', '금', '토'].indexOf(nextWeekday[1]);
+    const daysUntilWeekday = ((weekday - current.getUTCDay() + 7) % 7) || 7;
+    const key = addDaysKey(today, daysUntilWeekday);
+    const date = new Date(`${key}T00:00:00Z`);
+    return {
+      from: key,
+      to: key,
+      label: `${date.getUTCFullYear()}년 ${date.getUTCMonth() + 1}월 ${date.getUTCDate()}일 (다음 ${nextWeekday[1]}요일)`,
+    };
+  }
   if (/지난\s*주|저번\s*주/.test(question)) {
     const from = addDaysKey(monday, -7);
     return { from, to: addDaysKey(from, 6), label: '지난주' };
@@ -394,10 +406,12 @@ function questionTime(question) {
 function scheduleQueryConstraints(question) {
   const raw = text(question).normalize('NFKC');
   const conversationalFollowUp = /(?:방금|이전|앞선)\s*(?:답변|대화)|그\s*(?:중|답변|일정|항목)/.test(raw);
+  const rangeExplanation = /(?:어느|어떤)\s*날짜|날짜\s*범위|확인한\s*(?:날짜|기간)/.test(raw);
   const existence = /등록|잡혀|예정|있(?:어|나|나요|습니까|는지)|확인/.test(raw);
   const requestedTime = questionTime(raw);
   if (
     conversationalFollowUp
+    || rangeExplanation
     || !existence
     || /충돌|겹치|완료율|비율|총|평균|추천|우선순위|작업량|비교|브리핑/.test(raw)
   ) return { intent: '', entity: '', time: '', exactLookup: false };

@@ -80,6 +80,7 @@ async function streamTurn(settings, body) {
   }
 
   const compact = answer.replace(/\s+/gu, ' ').trim();
+  const done = events.find((entry) => entry.event === 'done')?.data || {};
   const conciseNegative = body.allowConciseNegative === true && /없(?:다|습니다|어요|어)(?:[.!?\s]|$)|찾지 못|확인되지|등록되어 있지/u.test(compact);
   assert.ok(compact.length >= (conciseNegative ? 10 : 20), `${body.view} answer is too short to be a natural sentence: ${compact}`);
   assert.doesNotMatch(compact, RAW_TRANSCRIPT);
@@ -92,6 +93,7 @@ async function streamTurn(settings, body) {
     firstDeltaMs,
     totalMs: Date.now() - startedAt,
     sources: [...sources.values()],
+    range: done.computed?.range || null,
     metadata: events.map((entry) => entry.data).find((data) => data.llm?.agent || data.run?.agent || data.agent) || {},
   };
 }
@@ -296,6 +298,15 @@ async function main() {
   const noEvidenceResult = results.find((result, index) => cases[index].expectNoEvidence);
   assert.ok(noEvidenceResult && noEvidenceResult.sources.length === 0, 'Unknown Wiki entities must not receive unrelated evidence tags.');
   assert.match(noEvidenceResult.answer, /없|찾지 못|확인되지|근거.*없/);
+  const nextFriday = results[4];
+  assert.equal(nextFriday.range?.from, nextFriday.range?.to, 'Next Friday must resolve to one calendar date.');
+  assert.ok(nextFriday.range?.from, 'Next Friday returned no concrete date range.');
+  const [year, month, day] = nextFriday.range.from.split('-').map(Number);
+  assert.match(
+    nextFriday.answer,
+    new RegExp(`${year}년\\s*${month}월\\s*${day}일|${nextFriday.range.from}`),
+    'Next Friday answer did not disclose the concrete date it checked.',
+  );
   for (const result of results) {
     const profile = String(result.metadata?.llm?.agent || result.metadata?.run?.agent || result.metadata?.agent || '');
     assert.equal(profile, result.view === 'wiki' ? 'wikicurator' : 'calendarassistant', `${result.view} answered through ${profile || 'unknown profile'}`);

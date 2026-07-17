@@ -218,6 +218,55 @@ test('next month question uses the next calendar month instead of all records', 
   }
 });
 
+test('next weekday question resolves one exact date and is not misclassified as an existence lookup', async () => {
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const current = new Date(`${today}T00:00:00Z`);
+  const daysUntilFriday = ((5 - current.getUTCDay() + 7) % 7) || 7;
+  const nextFriday = new Date(current);
+  nextFriday.setUTCDate(nextFriday.getUTCDate() + daysUntilFriday);
+  const nextFridayKey = nextFriday.toISOString().slice(0, 10);
+  const nextSaturday = new Date(nextFriday);
+  nextSaturday.setUTCDate(nextSaturday.getUTCDate() + 1);
+  const server = createRailwayGatewayServer({
+    env: { DATABASE_URL: '', HERMES_RUNTIME_URL: '' },
+    gatewayStore: createStore({
+      tasks: [
+        { id: 'next-friday', title: '금요일 일정', date: nextFridayKey, status: 'Planned' },
+        { id: 'next-saturday', title: '토요일 일정', date: nextSaturday.toISOString().slice(0, 10), status: 'Planned' },
+      ],
+      events: [],
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        question: '다음 금요일 일정이라고 하면 어느 날짜 범위를 확인했는지 먼저 밝히고 답해줘.',
+      }),
+    });
+    const payload = await response.json();
+
+    assert.deepEqual(payload.computed.range, {
+      from: nextFridayKey,
+      to: nextFridayKey,
+      label: `${nextFriday.getUTCFullYear()}년 ${nextFriday.getUTCMonth() + 1}월 ${nextFriday.getUTCDate()}일 (다음 금요일)`,
+    });
+    assert.equal(payload.computed.queryConstraints.exactLookup, false);
+    assert.equal(payload.computed.total, 1);
+    assert.deepEqual(payload.sources.map((source) => source.id), ['next-friday']);
+  } finally {
+    await close(server);
+  }
+});
+
 test('completion answer coverage appends only grounded records omitted by the LLM', () => {
   const answer = ensureCompletionAnswerCoverage({
     answer: '이번 주에는 리포트 작성(2026-07-17)을 완료했습니다.',

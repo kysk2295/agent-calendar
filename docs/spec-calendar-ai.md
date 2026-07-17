@@ -55,7 +55,7 @@
                                                           (chat/mail/wiki 계열은 후보에서 제외)
   → ③ 검색       임베딩 유사도 + 날짜 근접도 + 상태(미완료 가중) 하이브리드 상위 18건
   → ④ 집계       buildComputed()                        — 완료율, 건수, 근무시간, 기한초과 목록
-  → ⑤ 생성       qwen2.5:7b (Mac mini Ollama)           — 컨텍스트 = 질문 + computed + sources
+  → ⑤ 생성       calendarassistant (OpenAI Codex GPT-5.5) — 컨텍스트 = 질문 + computed + sources
   → ⑥ 응답       { answer, sources, computed, llm, search }
 ```
 
@@ -287,7 +287,7 @@ M1 정직성 ──→ M2 임베딩 ──→ M3 평가 체계 ──→ M4 품�
 
 | # | 작업 | 대상 | 완료 기준 (DoD) |
 |---|---|---|---|
-| 4.1 | 모델 3b → 7b 전환: env 오버라이드 제거해 코드 기본값(`qwen2.5:7b`)과 일치. 골든셋 전후 비교 + p95 지연 측정 | env, Mac mini Ollama | 골든셋 점수 상승 확인, p95 ≤ 6s. 미달 시 §8 트레이드오프 절차 |
+| 4.1 | Calendar 전용 Hermes 프로필을 OpenAI Codex GPT-5.5로 고정하고 골든셋 전후 비교 + p95 지연 측정 | Mac mini Hermes profile | 자연어 품질 게이트 통과, 첫 응답 p90 ≤ 30s. 실패 시 typed failure와 근거 기반 fallback 유지 |
 | 4.2 | `buildComputed`에 overdue/conflict/distribution 타입 + computed 필드 (§3.3 표) | `schedule-assistant.js:491` | 유닛: 타입별 결정적 계산 검증 (기한 경과일, 시간대 겹침, 태그별 집계) |
 | 4.3 | 프론트 키워드 라우팅 삭제 — 채팅 FAB 입력 전부 `/api/assistant/ask` | `App.tsx` | wiring 테스트: 키워드 없는 일정 질문도 ask 호출 |
 | 4.4 | 프롬프트에 근거 인용 형식 "(근거: 항목명 날짜)" 적용 | `schedule-assistant.js` | 골든셋 재측정에서 근거 인용 포함률 ≥ 80% |
