@@ -711,6 +711,72 @@ test('wiki stream sends the unchanged question to the live session and tags vect
   }
 });
 
+test('wiki stream does not tag unrelated evidence for an absent exact identifier', async () => {
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+      HERMES_WIKI_SESSION_TURN_ENABLED: '1',
+      HERMES_RELAY_WIKI_SESSION_TURN_TIMEOUT_MS: '1000',
+    },
+    gatewayStore: createEmptyStore(),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const searchPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const responsePromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        view: 'wiki',
+        agent: 'wikicurator',
+        message: 'AC-NONEXISTENT-7F3A9 프로젝트의 확정 매출 수치가 있는지 확인해줘',
+      }),
+    });
+    const searchJob = (await searchPoll).job;
+    await completeRelayJob(baseUrl, searchJob.id, {
+      ok: true,
+      query: 'AC-NONEXISTENT-7F3A9 프로젝트의 확정 매출 수치가 있는지 확인해줘',
+      sources: [{
+        id: 'unrelated-wiki-source',
+        path: '2_wiki/UniPort-로드맵.md',
+        title: 'UniPort 로드맵',
+        excerpt: 'CPA와 B2B SaaS의 매출 가설을 다룬다.',
+        score: 0.38,
+        vectorScore: 0.44,
+        textScore: 0.25,
+      }],
+      retrieval: {
+        source: 'wiki-vector-index',
+        mode: 'vector-hybrid',
+        chunkCount: 1,
+      },
+    });
+    const turnPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    const turnJob = (await turnPoll).job;
+    await completeSessionTurn(baseUrl, turnJob, {
+      text: '위키에서 해당 프로젝트나 확정 매출 수치는 확인되지 않았습니다.',
+    });
+
+    const response = await responsePromise;
+    const events = parseSseEvents(await response.text());
+    const evidence = events.find((event) => event.name === 'evidence')?.data;
+    const done = events.find((event) => event.name === 'done')?.data;
+    assert.equal(response.status, 200);
+    assert.deepEqual(evidence?.sources, []);
+    assert.deepEqual(done?.sources, []);
+    assert.equal(evidence?.retrieval?.mode, 'no-retrieval');
+    assert.equal(evidence?.retrieval?.chunkCount, 0);
+  } finally {
+    await close(server);
+  }
+});
+
 test('wiki relay keeps vector evidence when the live session turn fails', async () => {
   const server = createRailwayGatewayServer({
     env: {

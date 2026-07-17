@@ -3548,6 +3548,29 @@ function wikiEvidenceSearchQuery(question = '') {
   return [normalized, ...expansions].filter(Boolean).join(' ');
 }
 
+function exactWikiEvidenceIdentifiers(question = '') {
+  const normalized = String(question || '').normalize('NFKC');
+  const matches = normalized.match(/\b(?=[A-Z0-9-]{8,}\b)(?=[A-Z0-9-]*\d)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b/gi) || [];
+  return [...new Set(matches.map((value) => value.toLocaleLowerCase('en-US')))];
+}
+
+function groundedRelayWikiSources(question = '', sources = []) {
+  const identifiers = exactWikiEvidenceIdentifiers(question);
+  if (!identifiers.length) return Array.isArray(sources) ? sources : [];
+  return (Array.isArray(sources) ? sources : []).filter((source) => {
+    const haystack = [
+      source?.path,
+      source?.title,
+      source?.headingPath,
+      source?.excerpt,
+      source?.content,
+      source?.sourceId,
+      source?.documentId,
+    ].filter(Boolean).join('\n').normalize('NFKC').toLocaleLowerCase('en-US');
+    return identifiers.every((identifier) => haystack.includes(identifier));
+  });
+}
+
 async function runRailwayRelayWikiSearch({ relay, env = process.env, question, path = '', limit = 6 } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) return null;
   const job = relay.enqueue({
@@ -3588,14 +3611,19 @@ async function runRailwayRelayWikiSearch({ relay, env = process.env, question, p
     error.jobId = job.id;
     throw error;
   }
+  const rawSources = Array.isArray(finalData.sources) ? finalData.sources : [];
+  const sources = groundedRelayWikiSources(question, rawSources);
+  const filteredSourceCount = rawSources.length - sources.length;
+  const upstreamRetrieval = finalData.retrieval || {};
   return {
     query: finalData.query || question,
-    sources: Array.isArray(finalData.sources) ? finalData.sources : [],
+    sources,
     retrieval: {
       source: 'wiki-files',
-      mode: finalData.retrieval?.mode || (Array.isArray(finalData.sources) && finalData.sources.length ? 'retrieval_only' : 'no-retrieval'),
-      chunkCount: Array.isArray(finalData.sources) ? finalData.sources.length : 0,
-      ...(finalData.retrieval || {}),
+      ...upstreamRetrieval,
+      mode: sources.length ? (upstreamRetrieval.mode || 'retrieval_only') : 'no-retrieval',
+      chunkCount: sources.length,
+      ...(filteredSourceCount ? { filteredSourceCount } : {}),
       relayJobId: job.id,
     },
     wikiIndex: finalData.wikiIndex || null,

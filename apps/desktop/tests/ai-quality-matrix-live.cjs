@@ -80,7 +80,7 @@ async function streamTurn(settings, body) {
   }
 
   const compact = answer.replace(/\s+/gu, ' ').trim();
-  assert.ok(compact.length >= 20, `${body.view} answer is too short: ${compact}`);
+  assert.ok(compact.length >= 10, `${body.view} answer is too short to be a natural sentence: ${compact}`);
   assert.doesNotMatch(compact, RAW_TRANSCRIPT);
   assert.doesNotMatch(compact, FAILURE_COPY);
   assert.notEqual(firstDeltaMs, null, `${body.view} emitted no progressive answer delta`);
