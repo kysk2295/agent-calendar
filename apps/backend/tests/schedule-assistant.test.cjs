@@ -1211,9 +1211,16 @@ test('calendar chat streams a persistent Hermes agent turn after bge-m3 retrieva
       }],
       events: [],
       chatMessages: [
+        { role: 'user', text: '오래되어 제외될 캘린더 질문', source: 'schedule-assistant', target: 'calendar' },
         { role: 'user', text: '오늘 일정이 있어?', source: 'schedule-assistant', target: 'calendar' },
         { role: 'assistant', text: '오늘은 유니포트 회의 준비가 있습니다.', source: 'schedule-assistant', target: 'calendar' },
+        { role: 'user', text: '내일은?', source: 'schedule-assistant', target: 'calendar' },
+        { role: 'assistant', text: '내일도 회의 준비를 이어가세요.', source: 'schedule-assistant', target: 'calendar' },
+        { role: 'user', text: '대상이 없는 레거시 질문', source: 'schedule-assistant' },
+        { role: 'assistant', text: '가'.repeat(650), source: 'schedule-assistant', target: 'calendar' },
+        { role: 'system', text: '시스템 메시지는 제외해야 합니다.', source: 'schedule-assistant', target: 'calendar' },
         { role: 'assistant', text: '위키 답변은 제외해야 합니다.', source: 'wiki-fallback', target: 'wiki' },
+        { role: 'assistant', text: '명시적 위키 대상은 source가 달라도 제외해야 합니다.', source: 'schedule-assistant', target: 'wiki' },
       ],
     }),
   });
@@ -1284,6 +1291,10 @@ test('calendar chat streams a persistent Hermes agent turn after bge-m3 retrieva
     assert.deepEqual(second.job.payload.context.recentTurns, [
       { role: 'user', text: '오늘 일정이 있어?' },
       { role: 'assistant', text: '오늘은 유니포트 회의 준비가 있습니다.' },
+      { role: 'user', text: '내일은?' },
+      { role: 'assistant', text: '내일도 회의 준비를 이어가세요.' },
+      { role: 'user', text: '대상이 없는 레거시 질문' },
+      { role: 'assistant', text: '가'.repeat(600) },
     ]);
 
     const response = await responsePromise;

@@ -6996,7 +6996,10 @@ function recentCalendarAgentTurns(state = {}) {
   return (Array.isArray(state.chatMessages) ? state.chatMessages : [])
     .filter((message) => (
       ['user', 'assistant'].includes(String(message?.role || ''))
-      && (message?.target === 'calendar' || message?.source === 'schedule-assistant')
+      && (
+        message?.target === 'calendar'
+        || (!String(message?.target || '').trim() && message?.source === 'schedule-assistant')
+      )
     ))
     .map((message) => ({
       role: String(message.role),
