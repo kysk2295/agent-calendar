@@ -12,7 +12,7 @@ Calendar AI의 기존 `calendarassistant` Hermes 세션·일정 근거 경계를
 ## Non-Goals
 
 - 일정 검색, 정확 존재 판정, 벡터 DB 또는 Calendar 공개 API 스키마를 변경하지 않는다.
-- Wiki Curator 프로필이나 Telegram 세션 설정을 변경하지 않는다.
+- Wiki Curator provider/model이나 Telegram 세션 설정을 변경하지 않는다.
 - Calendar AI에 파일·터미널·메시징 도구 권한을 추가하지 않는다.
 
 ## Touched Boundaries
@@ -102,6 +102,10 @@ Calendar AI의 기존 `calendarassistant` Hermes 세션·일정 근거 경계를
   - Result: 상대 요일을 단일 날짜로 계산하는 회귀를 포함해 34/34 통과했다.
 - Command: production `ai-quality-matrix-live.cjs`
   - Result: Calendar 5개, Wiki 5개, Agent Work 2개 질문이 모두 완결된 자연어 문장으로 통과했다. `다음 금요일`은 `2026-07-24` 단일 범위로 답했고, 첫 delta p90은 11.13초였다.
+- Command: post-deploy Wiki absent-evidence QA
+  - Result: 장기 세션의 단편 답변과 중복 세션 제목 오류를 재현했다. Q&A 지침을 완전한 한국어 문장으로 강화하고 세션 제목에 conversation ID를 포함한 뒤 `agent-calendar-wiki-v2`에서 같은 질문을 그대로 전달해 238자 자연어 부재 답변, GPT-5.5, 무관한 근거 태그 0개를 확인했다.
+- Command: final production `ai-quality-matrix-live.cjs` after Wiki session rotation
+  - Result: Calendar 5개, Wiki 5개, Agent Work 2개가 모두 통과했고 첫 delta p90은 12.006초였다. 부재 질문은 159자 완전 문장, GPT-5.5, 근거 태그 0개로 답했다.
 - Command: configured Mail live E2E
   - Result: `/api/mail/messages`가 200으로 응답했고 Web chat 오염 없이 빈 메일함을 반환했다.
 - Command: `npm run verify:beta`

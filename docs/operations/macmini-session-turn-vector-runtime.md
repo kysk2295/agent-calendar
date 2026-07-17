@@ -5,7 +5,8 @@
 - Dashboard API `127.0.0.1:9121` is the control/read plane for sessions,
   profiles, scheduler jobs, and health. It does not execute curator turns.
 - Curator Gateway API `127.0.0.1:8643` owns the persisted `wikicurator`
-  Agent API session and serves `/api/sessions/{id}/chat/stream` directly.
+  Agent API session and serves `/api/sessions/{id}/chat/stream` directly. The
+  desktop session is versioned as `agent-calendar-wiki-v2`.
 - Calendar Gateway API `127.0.0.1:8644` owns the persisted
   `calendarassistant` session. It has no toolsets and uses
   `openai-codex` / `gpt-5.5` only for grounded natural-language synthesis.
@@ -28,6 +29,8 @@
   `/Users/goyunseo/.hermes/hermes-agent/gateway/platforms/api_server.py`
 - Curator profile config:
   `/Users/goyunseo/.hermes/profiles/wikicurator/config.yaml`
+- Curator profile instructions:
+  `/Users/goyunseo/.hermes/profiles/wikicurator/SOUL.md`
 - Calendar profile config:
   `/Users/goyunseo/.hermes/profiles/calendarassistant/config.yaml`
 - Wiki vector index:
@@ -39,7 +42,7 @@
   `ai.hermes.gateway-calendarassistant`
 
 The Relay directory is not a git checkout. Deployment-time backups are kept
-next to the runtime files with timestamped `.backup-YYYYMMDDHHMMSS` suffixes.
+next to the runtime files with timestamped `.bak-*` or `.backup-*` suffixes.
 The existing Hermes Agent API is reused; no Telegram-capture fork is required
 for desktop Wiki AI execution.
 
@@ -50,9 +53,12 @@ for desktop Wiki AI execution.
   the Agent request.
 - Relay ensures the persisted API session exists, then calls
   `/api/sessions/{conversationId}/chat/stream` with the unchanged user message.
+- New API sessions use a title suffixed with their `conversationId`, so a safe
+  session rotation cannot fail because an older session owns the same title.
 - The API request uses a separate read-only Q&A system instruction: do not load
   skills, do not mutate files, inspect only relevant wiki files, answer in
-  natural Korean, and say when evidence is insufficient.
+  natural Korean with at least one complete sentence, and say what was checked
+  when evidence is insufficient. One-word or fragment-only answers are invalid.
 - Relay has a reserved `agent.chat` lane and three general job lanes.
 - Curator deltas are coalesced before Railway callbacks; a stalled
   non-terminal callback cannot block the terminal event.
@@ -79,8 +85,8 @@ Run the Relay suite on the Mac mini:
 
 ```sh
 cd /Users/goyunseo/.hermes/os-runtime
-HOME=/Users/goyunseo /Users/goyunseo/.local/bin/node --check scripts/hermes-railway-relay-bridge.js
-HOME=/Users/goyunseo /Users/goyunseo/.local/bin/node --test tests/railway-relay-profile-chat.test.js
+HOME=/Users/goyunseo /opt/homebrew/bin/node --check scripts/hermes-railway-relay-bridge.js
+HOME=/Users/goyunseo /opt/homebrew/bin/node --test tests/railway-relay-profile-chat.test.js
 ```
 
 Expected live metadata for a wiki turn:
@@ -116,8 +122,8 @@ Expected live metadata for a calendar turn:
 ## Rollback
 
 1. Replace the active Relay script and test with the matching adjacent backup.
-2. Replace the `wikicurator` and `calendarassistant` profile configs and
-   LaunchAgent plists with the matching timestamped backups.
+2. Replace the `wikicurator` SOUL/config and `calendarassistant` profile config
+   plus LaunchAgent plists with the matching timestamped backups.
 3. Restart `ai.hermes.gateway-wikicurator`,
    `ai.hermes.gateway-calendarassistant`, and
    `com.yunseo.hermes-railway-relay` with `launchctl kickstart -k`.

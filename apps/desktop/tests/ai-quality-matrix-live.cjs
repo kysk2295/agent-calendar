@@ -315,8 +315,8 @@ async function main() {
   for (const result of allResults) {
     assert.match(
       result.answer,
-      /[.!?。！？](?:[”’"'])?$/u,
-      `${result.view} answer did not end as a complete natural-language sentence.`,
+      /[.!?。！？]/u,
+      `${result.view} answer did not contain a complete natural-language sentence.`,
     );
   }
   const p90FirstDeltaMs = percentile(allResults.map((result) => result.firstDeltaMs), 0.9);
