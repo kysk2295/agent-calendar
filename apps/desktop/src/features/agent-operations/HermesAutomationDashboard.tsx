@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   hermesAutomationLastStatusLabel,
@@ -36,27 +36,45 @@ function formatRunAt(value: string): string {
 export function HermesAutomationDashboard(props: HermesAutomationDashboardProps) {
   const [selectedJobId, setSelectedJobId] = useState('');
   const [draft, setDraft] = useState<HermesAutomationUpdateInput>({ name: '', goal: '', agentId: '', schedule: '' });
+  const [draftSyncVersion, setDraftSyncVersion] = useState(0);
+  const dirtyDraftFieldsRef = useRef<Partial<Record<keyof HermesAutomationUpdateInput, boolean>>>({});
+  const draftJobIdRef = useRef('');
   const [busy, setBusy] = useState<AutomationBusyState>('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const selectedJob = props.jobs.find((job) => job.id === selectedJobId) || props.jobs[0];
+  const updateDraftField = (field: keyof HermesAutomationUpdateInput, value: string) => {
+    if (selectedJob) draftJobIdRef.current = selectedJob.id;
+    dirtyDraftFieldsRef.current = { ...dirtyDraftFieldsRef.current, [field]: true };
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
+  const resetDraftSync = () => {
+    dirtyDraftFieldsRef.current = {};
+    setDraftSyncVersion((current) => current + 1);
+  };
 
   useEffect(() => {
     if (!selectedJob) {
       setSelectedJobId('');
       setDraft({ name: '', goal: '', agentId: '', schedule: '' });
+      dirtyDraftFieldsRef.current = {};
+      draftJobIdRef.current = '';
       return;
     }
+    const sameDraftJob = selectedJob.id === draftJobIdRef.current;
+    const dirtyFields = sameDraftJob ? dirtyDraftFieldsRef.current : {};
     setSelectedJobId(selectedJob.id);
-    setDraft({
-      name: selectedJob.name,
-      goal: selectedJob.description,
-      agentId: selectedJob.agentId === '확인 필요' ? '' : selectedJob.agentId,
-      schedule: selectedJob.schedule === '일정 확인 필요' ? '' : selectedJob.schedule,
-    });
+    draftJobIdRef.current = selectedJob.id;
+    if (!sameDraftJob) dirtyDraftFieldsRef.current = {};
+    setDraft((current) => ({
+      name: dirtyFields.name ? current.name : selectedJob.name,
+      goal: dirtyFields.goal ? current.goal : selectedJob.description,
+      agentId: dirtyFields.agentId ? current.agentId : selectedJob.agentId === '확인 필요' ? '' : selectedJob.agentId,
+      schedule: dirtyFields.schedule ? current.schedule : selectedJob.schedule === '일정 확인 필요' ? '' : selectedJob.schedule,
+    }));
     setDeleteConfirm(false);
-  }, [selectedJob?.agentId, selectedJob?.description, selectedJob?.id, selectedJob?.name, selectedJob?.schedule]);
+  }, [draftSyncVersion, selectedJob?.agentId, selectedJob?.description, selectedJob?.id, selectedJob?.name, selectedJob?.schedule, selectedJobId]);
 
   const runMutation = async (action: () => Promise<void>, successMessage: string): Promise<boolean> => {
     let accepted = false;
@@ -95,7 +113,7 @@ export function HermesAutomationDashboard(props: HermesAutomationDashboardProps)
   const save = async () => {
     if (!selectedJob || !draft.name.trim() || !draft.schedule.trim()) return;
     setBusy('save');
-    await runMutation(
+    const succeeded = await runMutation(
       () => props.onUpdate(selectedJob.id, {
         name: draft.name.trim(),
         goal: draft.goal.trim(),
@@ -104,6 +122,7 @@ export function HermesAutomationDashboard(props: HermesAutomationDashboardProps)
       }),
       '변경사항을 저장했습니다.',
     );
+    if (succeeded) resetDraftSync();
     setBusy('');
   };
 
@@ -134,7 +153,7 @@ export function HermesAutomationDashboard(props: HermesAutomationDashboardProps)
       <aside className="hermes-automation-list" aria-label="Hermes 자동화 목록">
         <header><div><strong>Hermes 자동화</strong><span>연결된 반복 작업</span></div><b>{props.jobs.length}</b></header>
         {props.jobs.map((job) => (
-          <button className="hermes-automation-row" type="button" aria-label={`${job.name} 자동화 열기`} data-active={selectedJob?.id === job.id} key={job.id} onClick={() => setSelectedJobId(job.id)}>
+          <button className="hermes-automation-row" type="button" aria-label={`${job.name} 자동화 열기`} data-active={selectedJob?.id === job.id} key={job.id} onClick={() => { dirtyDraftFieldsRef.current = {}; draftJobIdRef.current = job.id; setSelectedJobId(job.id); setDraftSyncVersion((current) => current + 1); }}>
             <i data-status={job.status} /><span><strong>{job.name}</strong><small>{job.agentId} · {job.schedule}</small><small>다음 실행 {formatRunAt(job.nextRunAt)}</small></span><b>{hermesAutomationStatusLabel(job.status)}</b>
           </button>
         ))}
@@ -155,10 +174,10 @@ export function HermesAutomationDashboard(props: HermesAutomationDashboardProps)
           </div>
 
           <form className="hermes-automation-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-            <label><span>이름</span><input aria-label="자동화 이름" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></label>
-            <label><span>담당 프로필</span><input aria-label="담당 프로필" list="hermes-agent-profiles" value={draft.agentId} onChange={(event) => setDraft({ ...draft, agentId: event.target.value })} /><datalist id="hermes-agent-profiles">{props.agents.map((agent) => <option value={agent.id} key={agent.id}>{agent.displayName}</option>)}</datalist></label>
-            <label className="wide"><span>목표</span><textarea aria-label="자동화 목표" value={draft.goal} onChange={(event) => setDraft({ ...draft, goal: event.target.value })} rows={4} /></label>
-            <label className="wide"><span>실행 일정</span><input aria-label="실행 일정" value={draft.schedule} onChange={(event) => setDraft({ ...draft, schedule: event.target.value })} placeholder="예: 0 9 * * 1 또는 every 6h" required /></label>
+            <label><span>이름</span><input aria-label="자동화 이름" value={draft.name} onChange={(event) => updateDraftField('name', event.target.value)} required /></label>
+            <label><span>담당 프로필</span><input aria-label="담당 프로필" list="hermes-agent-profiles" value={draft.agentId} onChange={(event) => updateDraftField('agentId', event.target.value)} /><datalist id="hermes-agent-profiles">{props.agents.map((agent) => <option value={agent.id} key={agent.id}>{agent.displayName}</option>)}</datalist></label>
+            <label className="wide"><span>목표</span><textarea aria-label="자동화 목표" value={draft.goal} onChange={(event) => updateDraftField('goal', event.target.value)} rows={4} /></label>
+            <label className="wide"><span>실행 일정</span><input aria-label="실행 일정" value={draft.schedule} onChange={(event) => updateDraftField('schedule', event.target.value)} placeholder="예: 0 9 * * 1 또는 every 6h" required /></label>
             <footer><button className="primary" type="submit" disabled={Boolean(busy) || !draft.name.trim() || !draft.schedule.trim()}>{busy === 'save' ? '저장 중' : '변경사항 저장'}</button></footer>
           </form>
 

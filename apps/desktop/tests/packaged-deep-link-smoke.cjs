@@ -81,6 +81,52 @@ async function closeServer(server) {
   await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
 }
 
+async function verifyPackagedSurfaces(window) {
+  const surfaces = [
+    ['캘린더', '캘린더'],
+    ['오늘', '오늘'],
+    ['다음 7일', '다음 7일'],
+    ['기본함', '기본함'],
+    ['메일함', '메일함'],
+    ['칸반 보드', '칸반 보드'],
+    ['주간 회고', '주간 회고'],
+    ['위키', '위키'],
+    ['일기', '일기'],
+    ['에이전트', '에이전트', '.agent-control-room'],
+    ['Hermes 자동화', 'Hermes 자동화'],
+    ['위젯', '위젯'],
+  ];
+  const verified = [];
+
+  for (const [navigationLabel, heading, contentSelector] of surfaces) {
+    await window.locator('.nav-item').filter({ hasText: navigationLabel }).first().click();
+    if (contentSelector) {
+      await window.locator(contentSelector).waitFor();
+    } else {
+      await window.locator('.screen-heading strong').filter({ hasText: heading }).waitFor();
+    }
+    verified.push(heading);
+  }
+
+  await window.locator('.sidebar-search').click();
+  await window.locator('.screen-heading strong').filter({ hasText: '검색' }).waitFor();
+  verified.push('검색');
+
+  await window.getByRole('button', { name: '캘린더 AI 열기' }).click();
+  await window.locator('.chat').waitFor();
+  await window.getByRole('button', { name: '캘린더 AI 닫기' }).click();
+  await window.locator('.chat').waitFor({ state: 'detached' });
+  verified.push('캘린더 AI');
+
+  await window.locator('.profile').click();
+  await window.locator('.settings-overlay').waitFor();
+  await window.locator('.settings-overlay footer').getByRole('button', { name: '완료' }).click();
+  await window.locator('.settings-overlay').waitFor({ state: 'detached' });
+  verified.push('설정');
+
+  return verified;
+}
+
 async function main() {
   if (process.platform !== 'darwin') {
     console.log(JSON.stringify({ ok: true, skipped: 'macOS packaged app required' }));
@@ -123,7 +169,8 @@ async function main() {
     }, 'https://attacker.example/sessions/session-running');
     await window.waitForTimeout(250);
     assert.equal(await window.locator('.task-session-panel').count(), 0);
-    console.log(JSON.stringify({ ok: true, coldLaunch: true, runningApp: true, invalidUrlRejected: true }));
+    const verifiedSurfaces = await verifyPackagedSurfaces(window);
+    console.log(JSON.stringify({ ok: true, coldLaunch: true, runningApp: true, invalidUrlRejected: true, verifiedSurfaces }));
   } finally {
     if (electronApp) await electronApp.close();
     await closeServer(server);

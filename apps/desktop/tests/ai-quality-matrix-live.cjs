@@ -312,6 +312,13 @@ async function main() {
     assert.equal(profile, result.view === 'wiki' ? 'wikicurator' : 'calendarassistant', `${result.view} answered through ${profile || 'unknown profile'}`);
   }
   const allResults = [...results, ...agentWorkResults];
+  for (const result of allResults) {
+    assert.match(
+      result.answer,
+      /[.!?。！？](?:[”’"'])?$/u,
+      `${result.view} answer did not end as a complete natural-language sentence.`,
+    );
+  }
   const p90FirstDeltaMs = percentile(allResults.map((result) => result.firstDeltaMs), 0.9);
   assert.ok(p90FirstDeltaMs <= 30_000, `p90 first answer delta exceeded 30 seconds: ${p90FirstDeltaMs}ms`);
 
@@ -321,6 +328,8 @@ async function main() {
     results: allResults.map((result) => ({
       ...result,
       answer: result.answer.slice(0, 500),
+      answerLength: result.answer.length,
+      answerTail: result.answer.slice(-120),
       sources: result.sources.map((source) => ({ path: source.path || '', title: source.title || '' })),
     })),
     checkedAt: new Date().toISOString(),

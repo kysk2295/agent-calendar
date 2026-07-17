@@ -126,6 +126,7 @@ async function main() {
   await page.getByText('Hermes 연결을 확인해 주세요.').waitFor();
   assert.equal(await page.getByLabel('자동화 목표').inputValue(), '실패해도 보존할 편집값');
   assert.equal(mutations.at(-1).method, 'PATCH');
+  assert.equal(mutations.at(-1).body.goal, '실패해도 보존할 편집값');
   if (auditDir) {
     await page.locator('.hermes-automations-layout').waitFor();
     await page.evaluate(() => document.body.offsetHeight);
