@@ -235,18 +235,22 @@ function isRetrospectiveQuestion(question) {
 
 async function vectorSearch(items, question, limit = 8, options = {}) {
   const query = await embedTextWithMetadata(question, options);
-  const fallbackModels = new Set(query.fallback ? ['hash-fallback'] : []);
+  let usedLexicalFallback = Boolean(query.fallback);
   const retrospective = isRetrospectiveQuestion(question);
   const entries = [];
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
     const source = itemSearchText(item);
-    const embedded = await embedScheduleRecord(item, source, options);
-    if (embedded.fallback) fallbackModels.add('hash-fallback');
-    const embeddingScore = Math.max(0, cosineSimilarity(query.vector, embedded.vector));
+    const embedded = query.fallback ? null : await embedScheduleRecord(item, source, options);
+    if (embedded?.fallback) usedLexicalFallback = true;
+    const embeddingScore = embedded && !embedded.fallback
+      ? Math.max(0, cosineSimilarity(query.vector, embedded.vector))
+      : 0;
     const dateScore = dateProximityScore(item, options.range || {});
     const keywordScore = keywordOverlapScore(question, source);
-    const baseScore = (0.55 * embeddingScore) + (0.25 * dateScore) + (0.20 * keywordScore);
+    const baseScore = usedLexicalFallback
+      ? (0.35 * dateScore) + (0.65 * keywordScore)
+      : (0.55 * embeddingScore) + (0.25 * dateScore) + (0.20 * keywordScore);
     const score = baseScore * (!retrospective && !isDone(item) ? 1.15 : 1);
     entries.push({
       item: { ...item, _score: Number(score.toFixed(6)) },
@@ -254,7 +258,7 @@ async function vectorSearch(items, question, limit = 8, options = {}) {
       score,
     });
   }
-  const embeddingModel = fallbackModels.size ? 'hash-fallback' : query.model;
+  const embeddingModel = usedLexicalFallback ? 'lexical-fallback' : query.model;
   return {
     items: entries
       .filter((entry) => entry.score > 0)
@@ -278,7 +282,30 @@ function addMonthsKey(date, offset) {
 }
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+function dateKey(year, month, day) {
+  const value = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (
+    value.getUTCFullYear() !== Number(year)
+    || value.getUTCMonth() !== Number(month) - 1
+    || value.getUTCDate() !== Number(day)
+  ) return '';
+  return value.toISOString().slice(0, 10);
+}
+
+function monthRange(year, month, label) {
+  const from = dateKey(year, month, 1);
+  if (!from) return null;
+  const nextMonth = new Date(Date.UTC(Number(year), Number(month), 1));
+  const to = addDaysKey(nextMonth.toISOString().slice(0, 10), -1);
+  return { from, to, label };
 }
 
 function questionRange(question, filters = {}) {
@@ -296,22 +323,118 @@ function questionRange(question, filters = {}) {
     else if (/이번\s*주|금주/.test(question)) label = '이번 주';
     return { from: explicitFrom, to: explicitTo, label };
   }
+  const isoDate = question.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  const koreanDate = question.match(/\b(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  const monthDay = question.match(/(?:^|\s)(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  const explicitDate = isoDate || koreanDate || monthDay;
+  if (explicitDate) {
+    const year = explicitDate === monthDay ? current.getUTCFullYear() : Number(explicitDate[1]);
+    const month = Number(explicitDate === monthDay ? explicitDate[1] : explicitDate[2]);
+    const day = Number(explicitDate === monthDay ? explicitDate[2] : explicitDate[3]);
+    const key = dateKey(year, month, day);
+    if (key) return { from: key, to: key, label: `${year}년 ${month}월 ${day}일` };
+  }
+  const koreanMonth = question.match(/\b(\d{4})\s*년\s*(\d{1,2})\s*월(?!\s*\d)/);
+  if (koreanMonth) {
+    const year = Number(koreanMonth[1]);
+    const month = Number(koreanMonth[2]);
+    const range = monthRange(year, month, `${year}년 ${month}월`);
+    if (range) return range;
+  }
   if (/오늘/.test(question)) return { from: today, to: today, label: '오늘' };
   if (/내일/.test(question)) {
     const tomorrow = addDaysKey(today, 1);
     return { from: tomorrow, to: tomorrow, label: '내일' };
+  }
+  if (/모레/.test(question)) {
+    const dayAfterTomorrow = addDaysKey(today, 2);
+    return { from: dayAfterTomorrow, to: dayAfterTomorrow, label: '모레' };
   }
   if (/지난\s*주|저번\s*주/.test(question)) {
     const from = addDaysKey(monday, -7);
     return { from, to: addDaysKey(from, 6), label: '지난주' };
   }
   if (/이번\s*주|금주/.test(question)) return { from: monday, to: addDaysKey(monday, 6), label: '이번 주' };
+  if (/다음\s*주|내주/.test(question)) {
+    const from = addDaysKey(monday, 7);
+    return { from, to: addDaysKey(from, 6), label: '다음 주' };
+  }
+  if (/다음\s*달|내달/.test(question)) {
+    const next = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + 1, 1));
+    return monthRange(next.getUTCFullYear(), next.getUTCMonth() + 1, '다음 달');
+  }
+  if (/이번\s*달|이번\s*월/.test(question)) {
+    return monthRange(current.getUTCFullYear(), current.getUTCMonth() + 1, '이번 달');
+  }
   const monthMatch = question.match(/(?:최근|지난)?\s*(\d+)\s*(?:달|개월)/);
   if (monthMatch) {
     const months = Math.max(1, Number(monthMatch[1]) || 1);
     return { from: addMonthsKey(today, -months), to: today, label: `최근 ${months}개월` };
   }
   return { from: '', to: '', label: '전체 기록' };
+}
+
+function normalizeComparable(value) {
+  return text(value).normalize('NFKC').toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
+}
+
+function questionTime(question) {
+  const korean = text(question).match(/(오전|오후)?\s*(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분)?/);
+  if (korean) {
+    let hour = Number(korean[2]);
+    const minute = Number(korean[3] || 0);
+    if (korean[1] === '오후' && hour < 12) hour += 12;
+    if (korean[1] === '오전' && hour === 12) hour = 0;
+    if (hour < 24 && minute < 60) return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  }
+  const clock = text(question).match(/(?:^|\s)([01]?\d|2[0-3]):([0-5]\d)(?:\s|$)/);
+  return clock ? `${String(Number(clock[1])).padStart(2, '0')}:${clock[2]}` : '';
+}
+
+function scheduleQueryConstraints(question) {
+  const raw = text(question).normalize('NFKC');
+  const existence = /등록|잡혀|예정|있(?:어|나|나요|습니까|는지)|확인/.test(raw);
+  const requestedTime = questionTime(raw);
+  if (
+    !existence
+    || /충돌|겹치|완료율|비율|총|평균|추천|우선순위|작업량|비교|브리핑/.test(raw)
+  ) return { intent: '', entity: '', time: '', exactLookup: false };
+  const entity = raw
+    .replace(/없으면[\s\S]*$/g, ' ')
+    .replace(/\d{4}\s*년\s*\d{1,2}\s*월(?:\s*\d{1,2}\s*일)?/g, ' ')
+    .replace(/\d{4}-\d{1,2}-\d{1,2}/g, ' ')
+    .replace(/(?:오늘|내일|모레|이번\s*주|다음\s*주|지난\s*주|저번\s*주|금주|내주|이번\s*달|다음\s*달|이번\s*월|내달)/g, ' ')
+    .replace(/(?:오전|오후)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분)?/g, ' ')
+    .replace(/(?:[01]?\d|2[0-3]):[0-5]\d/g, ' ')
+    .replace(/(?:^|\s)(?:에|에는|에서)(?=\s|$)/g, ' ')
+    .replace(/(?:내\s*)?(?:캘린더|달력)(?:에|에는|에서)?/g, ' ')
+    .replace(/(?:일정|스케줄)(?:이|가|은|는|을|를)?/g, ' ')
+    .replace(/(?:할\s*일|남은|해야\s*할|뭐가|무엇이|어떤|무슨|것)/g, ' ')
+    .replace(/(?:등록되어|등록돼|등록|잡혀|예정되어|예정|확인해|확인|있어|있나|있나요|있습니까|있는지|돼|되어)/g, ' ')
+    .replace(/(?:혹시|정말|좀|알려줘|답해줘|말해줘)/g, ' ')
+    .replace(/[?？!.,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const generic = /^(?:무슨|어떤|뭐|무엇|할\s*일|과|와|및)?$/.test(entity) ? '' : entity;
+  return {
+    intent: 'existence',
+    entity: generic,
+    time: requestedTime,
+    exactLookup: Boolean(generic || requestedTime),
+  };
+}
+
+function matchesQueryConstraints(item, constraints = {}) {
+  if (!constraints.exactLookup) return true;
+  if (constraints.time && minutesFromTime(itemTime(item)) !== minutesFromTime(constraints.time)) return false;
+  if (!constraints.entity) return true;
+  const haystack = normalizeComparable([
+    itemTitle(item),
+    itemList(item),
+    itemTags(item).join(' '),
+    text(item.notes || item.description || item.body),
+  ].join(' '));
+  return haystack.includes(normalizeComparable(constraints.entity));
 }
 
 function inRange(item, range) {
@@ -556,6 +679,16 @@ function isScheduleSource(record) {
 }
 
 async function relevantContextRecords(question, scopedRecords, scopedScheduleItems, searchOptions = {}) {
+  if (searchOptions.constraints?.exactLookup) {
+    return {
+      records: scopedScheduleItems.map((item, index) => recordFromScheduleItem(
+        { ...item, _score: 1 },
+        index,
+        canonicalScheduleSourceType([item.kind, item.type], 'schedule'),
+      )),
+      embeddingModel: 'exact-filter',
+    };
+  }
   const directScheduleItems = (await relevantItems(question, scopedScheduleItems, searchOptions)).map((item, index) => recordFromScheduleItem(item, index, canonicalScheduleSourceType([item.kind, item.type], 'schedule')));
   const searchableRecords = /시간|알바|근무/.test(question) ? scopedRecords.filter(isWorkItem) : scopedRecords;
   const searched = await vectorSearch(searchableRecords, question, 16, searchOptions);
@@ -664,9 +797,10 @@ function buildDistributionComputed(items) {
   return { byTag, byList };
 }
 
-function buildComputed(question, range, items) {
+function buildComputed(question, range, items, constraints = {}) {
   let questionType = 'schedule-summary';
-  if (/시간|알바|근무/.test(question)) questionType = 'work-hours';
+  if (constraints.exactLookup) questionType = 'existence';
+  else if (/시간|알바|근무/.test(question)) questionType = 'work-hours';
   else if (!/미완료/.test(question) && /완료|비율|완료율/.test(question)) questionType = 'completion-rate';
   else if (/기한|마감|지났|임박|늦어|가까운/.test(question)) questionType = 'overdue';
   else if (/충돌|겹치/.test(question)) questionType = 'conflict';
@@ -685,6 +819,7 @@ function buildComputed(question, range, items) {
     workCount: workItems.length,
     workHours: Math.round(workHours * 100) / 100,
     questionType,
+    queryConstraints: constraints,
     ...(questionType === 'overdue' ? buildDueComputed(countedItems) : {}),
     ...(questionType === 'conflict' ? buildConflictComputed(countedItems) : {}),
     ...(questionType === 'distribution' ? buildDistributionComputed(countedItems) : {}),
@@ -692,6 +827,13 @@ function buildComputed(question, range, items) {
 }
 
 function fallbackAnswer(question, computed, sources) {
+  if (computed.questionType === 'existence') {
+    const constraints = computed.queryConstraints || {};
+    const subject = constraints.entity ? `“${constraints.entity}” ` : '';
+    const atTime = constraints.time ? ` ${constraints.time}에` : '';
+    if (!sources.length) return `${computed.range.label}${atTime} ${subject}일정은 등록되어 있지 않습니다.`.replace(/\s+/g, ' ').trim();
+    return `${computed.range.label}${atTime} ${subject}일정이 ${sources.length}건 등록되어 있습니다: ${sources.map((source) => source.title).join(', ')}.`.replace(/\s+/g, ' ').trim();
+  }
   if (!sources.length) {
     return '아직 이 질문에 답할 일정/작업 기록이 없어요. 작업이나 일정에 날짜, 태그, 시작/종료 시간을 남기면 더 정확히 계산할 수 있습니다.';
   }
@@ -910,7 +1052,6 @@ function scheduleContextText({ question, computed, sources }) {
     '- 목록·완료 여부 질문은 한 문장 요약 뒤 관련 항목만 `- 제목 (날짜)` 형식으로 나열하라.',
     '- 목록의 항목 자체가 근거이므로 `(근거: ...)` 문구를 항목마다 반복하지 마라.',
     '- 분석·추천 질문에서만 판단에 필요한 근거를 한 번 인용하라.',
-    '- 일정/작업 전체가 1건 이상이면 "일정/할 일이 없다"고 말하지 마라. 완료 0건은 기록 없음이 아니라 모두 미완료라는 뜻이다.',
     '- 사용자가 추천·계획을 물었을 때만 다음 액션을 제안하고, 요청하지 않은 해석이나 다음 액션은 덧붙이지 마라.',
     '- 사용자가 상세 설명을 요청하지 않았다면 120어절 이내로 간결하게 답하라.',
   ].join('\n');
@@ -968,7 +1109,6 @@ function scheduleSystemPrompt(computed = {}) {
     '너는 사용자의 개인 캘린더 AI다.',
     '할 일, 일정, 캘린더 이벤트 등 제공된 DB 기록만 근거로 답하라.',
     '숫자·시간·비율 질문은 제공된 정확 계산값을 우선 사용하고, 그 숫자가 의미하는 바를 설명하라.',
-    '일정/작업 전체가 1건 이상이면 기록이 없다고 말하지 마라. 완료 0건은 모든 항목이 미완료라는 뜻이다.',
     'DB 근거가 부족한 부분은 추측하지 말고 부족한 지점을 분명히 말하되, 이미 있는 근거에서 가능한 판단은 끝까지 해라.',
     '목록 질문에는 한 문장 요약 뒤 관련 항목의 제목과 날짜만 나열하라.',
     '목록의 항목 자체가 근거이므로 근거 문구를 항목마다 반복하지 마라.',
@@ -1080,10 +1220,18 @@ async function synthesizeScheduleAnswer({ question, computed, sources, env = pro
 async function buildScheduleAssistantContext({ question, filters = {}, state = {}, env = process.env, fetchImpl = fetch } = {}) {
   const q = text(question).trim();
   const range = questionRange(q, filters);
-  const scopedScheduleItems = applyFilters(scheduleItemsFromState(state), filters, range);
-  const scopedRecords = applyRecordFilters(calendarAiRecordsFromState(state), filters, range);
-  const { records, embeddingModel } = await relevantContextRecords(q, scopedRecords, scopedScheduleItems, { env, fetchImpl, range });
-  const computed = buildComputed(q, range, scopedScheduleItems);
+  const constraints = scheduleQueryConstraints(q);
+  const scopedScheduleItems = applyFilters(scheduleItemsFromState(state), filters, range)
+    .filter((item) => matchesQueryConstraints(item, constraints));
+  const scopedRecords = applyRecordFilters(calendarAiRecordsFromState(state), filters, range)
+    .filter((item) => matchesQueryConstraints(item, constraints));
+  const { records, embeddingModel } = await relevantContextRecords(q, scopedRecords, scopedScheduleItems, {
+    env,
+    fetchImpl,
+    range,
+    constraints,
+  });
+  const computed = buildComputed(q, range, scopedScheduleItems, constraints);
   const exactCompletionRecords = computed.questionType === 'completion-rate'
     ? scopedScheduleItems
       .filter(isDone)
@@ -1107,6 +1255,11 @@ async function buildScheduleAssistantContext({ question, filters = {}, state = {
       candidateCount: scopedRecords.length,
       scheduleCandidateCount: scopedScheduleItems.length,
       sourceCount: sources.length,
+      constraints: {
+        intent: constraints.intent,
+        entity: constraints.entity,
+        time: constraints.time,
+      },
     },
   };
 }
@@ -1170,6 +1323,7 @@ function isScheduleQuestion(value) {
 
 module.exports = {
   buildScheduleAssistantAnswer,
+  buildScheduleAssistantContext,
   ensureCompletionAnswerCoverage,
   fallbackAnswer,
   isScheduleQuestion,

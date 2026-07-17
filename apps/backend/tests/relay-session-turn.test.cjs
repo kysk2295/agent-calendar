@@ -42,6 +42,18 @@ const payload = {
   conversationId: 'agent-calendar-wiki',
 };
 
+const calendarPayload = {
+  profile: 'calendarassistant',
+  message: '내일 오후 3시에 화성 출장 일정이 등록되어 있어?',
+  requestId: 'calendar-req-1',
+  conversationId: 'agent-calendar-calendar',
+  context: {
+    range: { label: '내일', from: '2026-07-18', to: '2026-07-18' },
+    facts: { exactLookup: true, matched: false, entity: '화성 출장', time: '15:00' },
+    sources: [],
+  },
+};
+
 
 test('runRelaySessionTurn forwards ordered events using relay cursor continuation', async () => {
   const relay = fakeRelay([
@@ -100,6 +112,54 @@ test('runRelaySessionTurn forwards ordered events using relay cursor continuatio
   assert.equal(result.text, '첫 답변');
   assert.equal(result.model, 'gpt-5.5');
   assert.equal(result.jobId, 'job-1');
+});
+
+
+test('runRelaySessionTurn accepts a bounded calendar context and uses calendar metadata', async () => {
+  const requestId = calendarPayload.requestId;
+  const relay = fakeRelay([{
+    events: [
+      {
+        id: 'job-1:0',
+        event: 'accepted',
+        data: {
+          type: 'accepted',
+          requestId,
+          provider: 'custom:ollama',
+          model: 'qwen2.5:7b',
+          sessionVersion: 'direct-api-v1',
+          queued: false,
+        },
+      },
+      {
+        id: 'job-1:1',
+        event: 'completed',
+        data: {
+          type: 'completed',
+          requestId,
+          text: '해당 일정은 등록되어 있지 않습니다.',
+          provider: 'custom:ollama',
+          model: 'qwen2.5:7b',
+          sessionVersion: 'direct-api-v1',
+        },
+      },
+    ],
+    cursor: 2,
+    complete: true,
+  }]);
+
+  const result = await runRelaySessionTurn({ relay, payload: calendarPayload });
+
+  assert.equal(result.text, '해당 일정은 등록되어 있지 않습니다.');
+  assert.deepEqual(relay.jobs, [{
+    kind: 'agent.chat',
+    payload: calendarPayload,
+    meta: {
+      view: 'calendar-ai',
+      agent: 'calendarassistant',
+      source: 'railway-relay-agent-chat',
+    },
+  }]);
 });
 
 

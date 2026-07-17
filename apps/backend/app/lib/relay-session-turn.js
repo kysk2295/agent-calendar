@@ -15,15 +15,25 @@ function sessionTurnError(code, retryable = false) {
 
 function validateSessionTurnPayload(payload = {}) {
   const keys = Object.keys(payload).sort();
-  const expectedKeys = ['conversationId', 'message', 'profile', 'requestId'];
+  const calendar = payload.profile === 'calendarassistant';
+  const expectedKeys = calendar
+    ? ['context', 'conversationId', 'message', 'profile', 'requestId']
+    : ['conversationId', 'message', 'profile', 'requestId'];
+  const contextText = calendar ? JSON.stringify(payload.context || null) : '';
   const valid = JSON.stringify(keys) === JSON.stringify(expectedKeys)
-    && payload.profile === 'wikicurator'
+    && ['wikicurator', 'calendarassistant'].includes(payload.profile)
     && typeof payload.message === 'string'
     && Boolean(payload.message.trim())
     && typeof payload.requestId === 'string'
     && Boolean(payload.requestId.trim())
     && typeof payload.conversationId === 'string'
-    && /^[a-zA-Z0-9._:-]{1,128}$/.test(payload.conversationId);
+    && /^[a-zA-Z0-9._:-]{1,128}$/.test(payload.conversationId)
+    && (!calendar || (
+      payload.context
+      && typeof payload.context === 'object'
+      && !Array.isArray(payload.context)
+      && contextText.length <= 48_000
+    ));
   if (!valid) throw sessionTurnError('invalid_session_turn_request');
   return { ...payload };
 }
@@ -120,8 +130,8 @@ async function runRelaySessionTurn({
     kind: 'agent.chat',
     payload: request,
     meta: {
-      view: 'wiki-ai',
-      agent: 'wikicurator',
+      view: request.profile === 'calendarassistant' ? 'calendar-ai' : 'wiki-ai',
+      agent: request.profile,
       source: 'railway-relay-agent-chat',
     },
   });

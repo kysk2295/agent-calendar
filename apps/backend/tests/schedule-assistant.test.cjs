@@ -71,6 +71,124 @@ test('completion questions send only completed records to the LLM while retainin
   assert.doesNotMatch(messages[1].content, /근무\/알바|답변 요구/);
 });
 
+test('exact existence lookup excludes unrelated schedules on the same day', async () => {
+  const server = createRailwayGatewayServer({
+    env: { DATABASE_URL: '', HERMES_RUNTIME_URL: '' },
+    gatewayStore: createStore({
+      tasks: [{
+        id: 'unrelated-shift',
+        title: '근무',
+        date: '2026-07-18',
+        time: '15:00',
+        status: 'Planned',
+        done: false,
+      }],
+      events: [],
+    }),
+    fetchImpl: async () => {
+      throw new Error('exact lookup must not call an embedding fallback');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        question: '내일 오후 3시에 화성 출장 일정이 등록되어 있어? 없으면 없다고 답해줘.',
+        filters: { from: '2026-07-18', to: '2026-07-18' },
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.computed.total, 0);
+    assert.equal(payload.sources.length, 0);
+    assert.match(payload.answer, /없|있지 않/);
+    assert.equal(payload.search.embeddingModel, 'exact-filter');
+    assert.deepEqual(payload.search.constraints, {
+      intent: 'existence',
+      entity: '화성 출장',
+      time: '15:00',
+    });
+  } finally {
+    await close(server);
+  }
+});
+
+test('explicit Korean date limits calendar evidence to that exact day', async () => {
+  const server = createRailwayGatewayServer({
+    env: { DATABASE_URL: '', HERMES_RUNTIME_URL: '' },
+    gatewayStore: createStore({
+      tasks: [
+        { id: 'future-target', title: '미래 계획 회의', date: '2035-01-02', status: 'Planned' },
+        { id: 'wrong-day', title: '다른 날 회의', date: '2026-07-18', status: 'Planned' },
+      ],
+      events: [],
+    }),
+    fetchImpl: async () => {
+      throw new Error('date-scoped lexical retrieval must not call network');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ question: '2035년 1월 2일 일정 알려줘' }),
+    });
+    const payload = await response.json();
+
+    assert.deepEqual(payload.computed.range, {
+      from: '2035-01-02',
+      to: '2035-01-02',
+      label: '2035년 1월 2일',
+    });
+    assert.equal(payload.computed.total, 1);
+    assert.deepEqual(payload.sources.map((source) => source.id), ['future-target']);
+    assert.notEqual(payload.search.embeddingModel, 'hash-fallback');
+  } finally {
+    await close(server);
+  }
+});
+
+test('next month question uses the next calendar month instead of all records', async () => {
+  const now = new Date();
+  const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const monthAfter = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 2, 1));
+  const dateKey = (date, day = 1) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const nextMonthLastDay = new Date(Date.UTC(monthAfter.getUTCFullYear(), monthAfter.getUTCMonth(), 0)).toISOString().slice(0, 10);
+  const server = createRailwayGatewayServer({
+    env: { DATABASE_URL: '', HERMES_RUNTIME_URL: '' },
+    gatewayStore: createStore({
+      tasks: [
+        { id: 'next-month', title: '다음 달 일정', date: dateKey(nextMonth, 5), status: 'Planned' },
+        { id: 'later', title: '다다음 달 일정', date: dateKey(monthAfter, 5), status: 'Planned' },
+      ],
+      events: [],
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/assistant/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ question: '다음 달 일정 알려줘' }),
+    });
+    const payload = await response.json();
+
+    assert.equal(payload.computed.range.from, dateKey(nextMonth, 1));
+    assert.equal(payload.computed.range.to, nextMonthLastDay);
+    assert.equal(payload.computed.total, 1);
+    assert.deepEqual(payload.sources.map((source) => source.id), ['next-month']);
+  } finally {
+    await close(server);
+  }
+});
+
 test('completion answer coverage appends only grounded records omitted by the LLM', () => {
   const answer = ensureCompletionAnswerCoverage({
     answer: '이번 주에는 리포트 작성(2026-07-17)을 완료했습니다.',
@@ -705,7 +823,7 @@ test('assistant ask ranks schedule sources with embedding, date, and keyword hyb
   }
 });
 
-test('assistant ask reports hash-fallback embedding model when Ollama embeddings fail', async () => {
+test('assistant ask reports lexical fallback without treating hash vectors as semantic retrieval', async () => {
   const state = {
     tasks: [
       {
@@ -741,7 +859,8 @@ test('assistant ask reports hash-fallback embedding model when Ollama embeddings
     const payload = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(payload.search.embeddingModel, 'hash-fallback');
+    assert.equal(payload.search.embeddingModel, 'lexical-fallback');
+    assert.doesNotMatch(JSON.stringify(payload), /hash-fallback/);
     assert.equal(payload.answerMode, 'fallback');
   } finally {
     await close(server);
@@ -1033,6 +1152,440 @@ test('calendar chat view routes every text request to schedule assistant instead
     const historyResponse = await fetch(`${baseUrl}/api/chat/messages`);
     const history = await historyResponse.json();
     assert.deepEqual(history.messages.map((message) => message.target), ['calendar', 'calendar']);
+  } finally {
+    await close(server);
+  }
+});
+
+test('calendar chat streams a persistent Hermes agent turn after bge-m3 retrieval', async () => {
+  const relayHeaders = {
+    'content-type': 'application/json',
+    'x-hermes-relay-token': 'relay-test-token',
+  };
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      HERMES_RELAY_TOKEN: 'relay-test-token',
+      HERMES_CALENDAR_AGENT_CHAT_ENABLED: '1',
+      HERMES_CALENDAR_AGENT_CONVERSATION_ID: 'agent-calendar-calendar',
+      HERMES_RELAY_CALENDAR_SESSION_TURN_TIMEOUT_MS: '1000',
+    },
+    gatewayStore: createStore({
+      tasks: [{
+        id: 'task-meeting',
+        title: '유니포트 회의 준비',
+        date: '2026-07-18',
+        time: '10:00',
+        status: 'Planned',
+        done: false,
+      }],
+      events: [],
+    }),
+  });
+  const baseUrl = await listen(server);
+  let pendingJob = null;
+
+  try {
+    const firstPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-test-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const responsePromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: '내일 무엇부터 하면 좋을까?',
+        view: 'calendar',
+        filters: { from: '2026-07-18', to: '2026-07-18' },
+      }),
+    });
+
+    const first = await firstPoll;
+    pendingJob = first.job;
+    if (first.job.kind !== 'calendar.search') {
+      await fetch(`${baseUrl}/api/relay/jobs/${first.job.id}/complete`, {
+        method: 'POST',
+        headers: relayHeaders,
+        body: JSON.stringify({ ok: false, error: 'unexpected_job_kind' }),
+      });
+      await responsePromise.then((response) => response.text());
+    }
+    assert.equal(first.job.kind, 'calendar.search');
+    assert.equal(first.job.payload.query, '내일 무엇부터 하면 좋을까?');
+    assert.deepEqual(first.job.payload.records.map((record) => record.id), ['task-meeting']);
+
+    const secondPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-test-token' },
+    }).then((response) => response.json());
+    await fetch(`${baseUrl}/api/relay/jobs/${first.job.id}/complete`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({
+        ok: true,
+        sources: [{
+          id: 'task-meeting',
+          title: '유니포트 회의 준비',
+          date: '2026-07-18',
+          time: '10:00',
+          done: false,
+          sourceType: 'task',
+          score: 0.88,
+        }],
+        retrieval: {
+          source: 'calendar-vector-index',
+          mode: 'vector-hybrid',
+          embeddingModel: 'bge-m3',
+        },
+      }),
+    });
+
+    const second = await secondPoll;
+    pendingJob = second.job;
+    assert.equal(second.job.kind, 'agent.chat');
+    assert.equal(second.job.payload.profile, 'calendarassistant');
+    assert.equal(second.job.payload.message, '내일 무엇부터 하면 좋을까?');
+    assert.equal(second.job.payload.conversationId, 'agent-calendar-calendar');
+    assert.equal(second.job.payload.context.sources[0].title, '유니포트 회의 준비');
+
+    const response = await responsePromise;
+    assert.equal(response.status, 200);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let streamed = '';
+
+    await fetch(`${baseUrl}/api/relay/jobs/${second.job.id}/events`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({
+        event: 'accepted',
+        data: {
+          type: 'accepted',
+          requestId: second.job.payload.requestId,
+          provider: 'custom:ollama',
+          model: 'qwen2.5:7b',
+          sessionVersion: 'direct-api-v1',
+          queued: false,
+        },
+      }),
+    });
+    await fetch(`${baseUrl}/api/relay/jobs/${second.job.id}/events`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({
+        event: 'delta',
+        data: {
+          type: 'delta',
+          requestId: second.job.payload.requestId,
+          sequence: 1,
+          text: '내일은 유니포트 회의 준비부터 ',
+        },
+      }),
+    });
+
+    while (!streamed.includes('유니포트 회의 준비부터')) {
+      const chunk = await reader.read();
+      assert.equal(chunk.done, false, 'the first answer delta must arrive before completion');
+      streamed += decoder.decode(chunk.value, { stream: true });
+    }
+    assert.match(streamed, /event: delta/);
+    assert.doesNotMatch(streamed, /event: done/);
+
+    await fetch(`${baseUrl}/api/relay/jobs/${second.job.id}/events`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({
+        event: 'completed',
+        data: {
+          type: 'completed',
+          requestId: second.job.payload.requestId,
+          text: '내일은 유니포트 회의 준비부터 하세요.',
+          provider: 'custom:ollama',
+          model: 'qwen2.5:7b',
+          sessionVersion: 'direct-api-v1',
+        },
+      }),
+    });
+    await fetch(`${baseUrl}/api/relay/jobs/${second.job.id}/complete`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({ ok: true }),
+    });
+    pendingJob = null;
+
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      streamed += decoder.decode(chunk.value, { stream: true });
+    }
+    streamed += decoder.decode();
+    assert.match(streamed, /event: done/);
+    assert.match(streamed, /"embeddingModel":"bge-m3"/);
+    assert.match(streamed, /"agent":"calendarassistant"/);
+    assert.doesNotMatch(streamed, /hash-fallback/);
+  } finally {
+    if (pendingJob?.id) {
+      await fetch(`${baseUrl}/api/relay/jobs/${pendingJob.id}/complete`, {
+        method: 'POST',
+        headers: relayHeaders,
+        body: JSON.stringify({ ok: false, error: 'test_cleanup' }),
+      }).catch(() => {});
+    }
+    await close(server);
+  }
+});
+
+test('calendar agent context keeps only six compact sources for prompt latency', async () => {
+  const relayHeaders = {
+    'content-type': 'application/json',
+    'x-hermes-relay-token': 'relay-test-token',
+  };
+  const tasks = Array.from({ length: 10 }, (_, index) => ({
+    id: `task-${index + 1}`,
+    title: `우선순위 작업 ${index + 1}`,
+    date: '2026-07-18',
+    status: 'Planned',
+    done: false,
+    notes: `상세 메모 ${index + 1} ${'가'.repeat(400)}`,
+  }));
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      HERMES_RELAY_TOKEN: 'relay-test-token',
+      HERMES_CALENDAR_AGENT_CHAT_ENABLED: '1',
+      HERMES_RELAY_CALENDAR_SESSION_TURN_TIMEOUT_MS: '1000',
+    },
+    gatewayStore: createStore({ tasks, events: [] }),
+  });
+  const baseUrl = await listen(server);
+  let pendingJob = null;
+
+  try {
+    const searchPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-test-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const responsePromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: '내일 무엇부터 하면 좋을까?',
+        view: 'calendar',
+        filters: { from: '2026-07-18', to: '2026-07-18' },
+      }),
+    });
+    const search = await searchPoll;
+    pendingJob = search.job;
+    assert.equal(search.job.kind, 'calendar.search');
+
+    const agentPoll = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-test-token' },
+    }).then((response) => response.json());
+    await fetch(`${baseUrl}/api/relay/jobs/${search.job.id}/complete`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({
+        ok: true,
+        sources: tasks.map((task, index) => ({
+          ...task,
+          sourceType: 'task',
+          snippet: `긴 검색 본문 ${index + 1} ${'나'.repeat(400)}`,
+          score: 1 - (index * 0.01),
+        })),
+        retrieval: { embeddingModel: 'bge-m3', mode: 'vector-hybrid' },
+      }),
+    });
+    const agent = await agentPoll;
+    pendingJob = agent.job;
+
+    assert.equal(agent.job.kind, 'agent.chat');
+    assert.equal(agent.job.payload.context.sources.length, 6);
+    assert.ok(agent.job.payload.context.sources.every((source) => source.snippet.length <= 180));
+
+    await fetch(`${baseUrl}/api/relay/jobs/${agent.job.id}/events`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({
+        event: 'completed',
+        data: {
+          type: 'completed',
+          requestId: agent.job.payload.requestId,
+          text: '우선순위 작업 1부터 처리하세요.',
+          provider: 'custom',
+          model: 'qwen2.5:7b',
+          sessionVersion: 'direct-api-v1',
+        },
+      }),
+    });
+    await fetch(`${baseUrl}/api/relay/jobs/${agent.job.id}/complete`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({ ok: true }),
+    });
+    pendingJob = null;
+    const response = await responsePromise;
+    assert.equal(response.status, 200);
+  } finally {
+    if (pendingJob?.id) {
+      await fetch(`${baseUrl}/api/relay/jobs/${pendingJob.id}/complete`, {
+        method: 'POST',
+        headers: relayHeaders,
+        body: JSON.stringify({ ok: false, error: 'test_cleanup' }),
+      }).catch(() => {});
+    }
+    await close(server);
+  }
+});
+
+test('calendar chat never exposes a positive agent claim when exact lookup found no schedule', async () => {
+  const relayHeaders = {
+    'content-type': 'application/json',
+    'x-hermes-relay-token': 'relay-test-token',
+  };
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      HERMES_RELAY_TOKEN: 'relay-test-token',
+      HERMES_CALENDAR_AGENT_CHAT_ENABLED: '1',
+      HERMES_CALENDAR_AGENT_CONVERSATION_ID: 'agent-calendar-calendar',
+      HERMES_RELAY_CALENDAR_SESSION_TURN_TIMEOUT_MS: '1000',
+    },
+    gatewayStore: createStore({
+      tasks: [{ id: 'unrelated', title: '근무', date: '2026-07-18', time: '15:00', status: 'Planned' }],
+      events: [],
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-test-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const chatPromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: '내일 오후 3시에 화성 출장 일정이 등록되어 있어?',
+        view: 'calendar',
+        filters: { from: '2026-07-18', to: '2026-07-18' },
+      }),
+    });
+    const polled = await pollPromise;
+
+    assert.equal(polled.job.kind, 'agent.chat');
+    assert.equal(polled.job.payload.context.facts.matched, false);
+    assert.deepEqual(polled.job.payload.context.sources, []);
+    await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/events`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({
+        event: 'delta',
+        data: {
+          type: 'delta',
+          requestId: polled.job.payload.requestId,
+          sequence: 1,
+          text: '네, 해당 일정이 등록되어 있습니다.',
+        },
+      }),
+    });
+    await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/events`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({
+        event: 'completed',
+        data: {
+          type: 'completed',
+          requestId: polled.job.payload.requestId,
+          text: '네, 해당 일정이 등록되어 있습니다.',
+          provider: 'custom:ollama',
+          model: 'qwen2.5:7b',
+          sessionVersion: 'direct-api-v1',
+        },
+      }),
+    });
+    await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/complete`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({ ok: true }),
+    });
+
+    const response = await chatPromise;
+    const body = await response.text();
+    assert.match(body, /등록되어 있지 않습니다/);
+    assert.doesNotMatch(body, /네, 해당 일정이 등록되어 있습니다/);
+    assert.match(body, /"sourceCount":0/);
+  } finally {
+    await close(server);
+  }
+});
+
+test('calendar exact lookup replaces multilingual agent drift with one grounded sentence', async () => {
+  const relayHeaders = {
+    'content-type': 'application/json',
+    'x-hermes-relay-token': 'relay-test-token',
+  };
+  const server = createRailwayGatewayServer({
+    env: {
+      DATABASE_URL: '',
+      HERMES_RUNTIME_URL: '',
+      HERMES_RELAY_TOKEN: 'relay-test-token',
+      HERMES_CALENDAR_AGENT_CHAT_ENABLED: '1',
+      HERMES_RELAY_CALENDAR_SESSION_TURN_TIMEOUT_MS: '1000',
+    },
+    gatewayStore: createStore({
+      tasks: [{ id: 'shift', title: '근무', date: '2026-07-18', status: 'Planned' }],
+      events: [],
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-test-token' },
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const chatPromise = fetch(`${baseUrl}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: '내일 근무 일정 있어?',
+        view: 'calendar',
+        filters: { from: '2026-07-18', to: '2026-07-18' },
+      }),
+    });
+    const agent = await pollPromise;
+    assert.equal(agent.job.kind, 'agent.chat');
+    assert.equal(agent.job.payload.context.facts.matched, true);
+
+    const drift = `네, 내일 근무 일정이 있습니다. ${'불필요한 설명 '.repeat(20)}的帮助信息`;
+    await fetch(`${baseUrl}/api/relay/jobs/${agent.job.id}/events`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({
+        event: 'completed',
+        data: {
+          type: 'completed',
+          requestId: agent.job.payload.requestId,
+          text: drift,
+          provider: 'custom',
+          model: 'qwen2.5:7b',
+          sessionVersion: 'direct-api-v1',
+        },
+      }),
+    });
+    await fetch(`${baseUrl}/api/relay/jobs/${agent.job.id}/complete`, {
+      method: 'POST',
+      headers: relayHeaders,
+      body: JSON.stringify({ ok: true }),
+    });
+
+    const response = await chatPromise;
+    const body = await response.text();
+    assert.match(body, /근무.*일정이 1건 등록되어 있습니다/);
+    assert.doesNotMatch(body, /的帮助信息|불필요한 설명/);
   } finally {
     await close(server);
   }

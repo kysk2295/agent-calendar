@@ -83,6 +83,7 @@ const {
 const { projectStateWithAgents, resolveHermesAgent } = require('./lib/agent-registry');
 const {
   buildScheduleAssistantAnswer,
+  buildScheduleAssistantContext,
   ensureCompletionAnswerCoverage,
   fallbackAnswer: fallbackScheduleAnswer,
   isScheduleQuestion,
@@ -3539,6 +3540,76 @@ async function runRailwayRelayWikiSearch({ relay, env = process.env, question, p
   };
 }
 
+async function runRailwayRelayCalendarSearch({ relay, env = process.env, question, records = [], limit = 12 } = {}) {
+  if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) return null;
+  const candidates = (Array.isArray(records) ? records : []).slice(0, 64).map((record) => ({
+    id: String(record.id || ''),
+    title: String(record.title || ''),
+    date: String(record.date || ''),
+    time: String(record.time || ''),
+    endTime: String(record.endTime || ''),
+    done: Boolean(record.done),
+    sourceType: String(record.sourceType || record.type || record.source || 'schedule'),
+    tags: Array.isArray(record.tags) ? record.tags.map(String).slice(0, 12) : [],
+    list: String(record.list || ''),
+    snippet: String(record.snippet || '').slice(0, 500),
+  })).filter((record) => record.id && record.title);
+  if (!candidates.length) return {
+    sources: [],
+    retrieval: {
+      source: 'calendar-exact-filter',
+      mode: 'exact',
+      embeddingModel: 'exact-filter',
+      candidateCount: 0,
+      sourceCount: 0,
+    },
+  };
+  const job = relay.enqueue({
+    kind: 'calendar.search',
+    payload: {
+      query: String(question || '').trim(),
+      records: candidates,
+      limit: Math.max(1, Math.min(18, Number(limit) || 12)),
+    },
+    meta: {
+      view: 'calendar-ai',
+      agent: 'calendarassistant',
+      source: 'railway-relay-calendar-search',
+    },
+  });
+  const timeoutMs = Number(env.HERMES_RELAY_CALENDAR_SEARCH_TIMEOUT_MS || 20_000);
+  const deadline = Date.now() + Math.max(1_000, timeoutMs);
+  let cursor = 0;
+  let finalData = null;
+  let lastError = '';
+  while (Date.now() < deadline) {
+    const batch = await relay.waitForEvents(job.id, cursor, Math.min(5_000, Math.max(1, deadline - Date.now())));
+    cursor = batch.cursor;
+    for (const record of batch.events || []) {
+      if (record.event === 'error') lastError = record.data?.error || 'calendar vector search failed';
+      if (record.event === 'bridge-complete') finalData = record.data || {};
+    }
+    if (batch.complete) break;
+  }
+  if (!finalData || finalData.ok === false) {
+    const error = new Error(finalData?.error || lastError || 'calendar vector search timed out');
+    error.jobId = job.id;
+    throw error;
+  }
+  return {
+    sources: Array.isArray(finalData.sources) ? finalData.sources : [],
+    retrieval: {
+      source: 'calendar-vector-index',
+      mode: 'vector-hybrid',
+      embeddingModel: 'bge-m3',
+      candidateCount: candidates.length,
+      sourceCount: Array.isArray(finalData.sources) ? finalData.sources.length : 0,
+      ...(finalData.retrieval || {}),
+      relayJobId: job.id,
+    },
+  };
+}
+
 async function runRailwayRelayWikiChat({ relay, env = process.env, question, sources, model = '' } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline() || !Array.isArray(sources) || !sources.length) return null;
   const completion = await runRelayProfileChatCompletion({
@@ -6800,6 +6871,265 @@ async function fallbackScheduleAssistantIngest({ res, body = {}, gatewayState, g
   return result;
 }
 
+function calendarAgentRequestId(body = {}) {
+  const supplied = String(body.requestId || '').trim();
+  if (/^[a-zA-Z0-9._:-]{1,128}$/.test(supplied)) return supplied;
+  return `calendar-turn-${crypto.randomUUID()}`;
+}
+
+function compactCalendarAgentSource(source = {}) {
+  return {
+    id: String(source.id || ''),
+    title: String(source.title || ''),
+    date: String(source.date || ''),
+    time: String(source.time || ''),
+    endTime: String(source.endTime || ''),
+    done: Boolean(source.done),
+    sourceType: String(source.sourceType || source.type || source.source || 'schedule'),
+    tags: Array.isArray(source.tags) ? source.tags.map(String).slice(0, 8) : [],
+    list: String(source.list || ''),
+    snippet: String(source.snippet || '').slice(0, 180),
+    score: Number(source.score || 0),
+  };
+}
+
+function truthfulCalendarAgentAnswer({ answer = '', result = {}, question = '' } = {}) {
+  const value = String(answer || '').trim();
+  const constraints = result.computed?.queryConstraints || {};
+  if (!constraints.exactLookup) return value;
+  const fallback = fallbackScheduleAnswer(question, result.computed, result.sources || []);
+  const unexpectedHanText = /[\u4e00-\u9fff]/.test(value) && !/[\u4e00-\u9fff]/.test(String(question || ''));
+  if (value.length > 180 || unexpectedHanText) return fallback;
+  if (!result.sources?.length) {
+    return /없|있지\s*않|등록되지\s*않|확인되지\s*않/.test(value) ? value : fallback;
+  }
+  return noItemsContradiction(value, result.sources) ? fallback : value;
+}
+
+async function streamRelayCalendarSessionTurn({
+  res,
+  body,
+  question,
+  gatewayState,
+  gatewayStore,
+  env,
+  fetchImpl,
+  relay,
+} = {}) {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  });
+  res.flushHeaders?.();
+
+  const requestId = calendarAgentRequestId(body);
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  res.once('close', abort);
+  writeSseEvent(res, 'status', {
+    requestId,
+    label: '일정 근거를 확인하고 있어요.',
+    responsibleAgent: 'calendar-assistant',
+  });
+
+  const state = gatewaySnapshot(gatewayState, gatewayStore);
+  let result = await buildScheduleAssistantContext({
+    question,
+    filters: body.filters || {},
+    state,
+    env,
+    fetchImpl,
+  });
+  const exactLookup = Boolean(result.computed?.queryConstraints?.exactLookup);
+  let retrievalDegraded = false;
+  if (!exactLookup && result.sources.length) {
+    try {
+      const search = await runRailwayRelayCalendarSearch({
+        relay,
+        env,
+        question,
+        records: result.sources,
+        limit: 6,
+      });
+      if (search) {
+        result = {
+          ...result,
+          sources: search.sources,
+          search: {
+            ...result.search,
+            ...search.retrieval,
+            embeddingModel: search.retrieval.embeddingModel,
+            sourceCount: search.sources.length,
+          },
+        };
+      }
+    } catch {
+      retrievalDegraded = true;
+      result = {
+        ...result,
+        search: {
+          ...result.search,
+          embeddingModel: 'lexical-fallback',
+          retrievalMode: 'degraded',
+        },
+      };
+    }
+  }
+
+  const constraints = result.computed?.queryConstraints || {};
+  const context = {
+    range: result.computed.range,
+    facts: {
+      exactLookup,
+      matched: result.sources.length > 0,
+      entity: constraints.entity || '',
+      time: constraints.time || '',
+      total: result.computed.total,
+      done: result.computed.done,
+      undone: result.computed.undone,
+      completionRate: result.computed.completionRate,
+      workCount: result.computed.workCount,
+      workHours: result.computed.workHours,
+    },
+    sources: result.sources.slice(0, 6).map(compactCalendarAgentSource),
+  };
+  let streamedText = '';
+  let bufferedExactText = '';
+  let completedText = '';
+  let provider = 'hermes-agent';
+  let model = '';
+  let failed = null;
+  try {
+    const turn = await runRelaySessionTurn({
+      relay,
+      payload: {
+        profile: 'calendarassistant',
+        message: question,
+        requestId,
+        conversationId: String(env.HERMES_CALENDAR_AGENT_CONVERSATION_ID || 'agent-calendar-calendar'),
+        context,
+      },
+      timeoutMs: Number(env.HERMES_RELAY_CALENDAR_SESSION_TURN_TIMEOUT_MS || 30_000),
+      signal: controller.signal,
+      onEvent: async (event) => {
+        if (res.writableEnded || res.destroyed) return;
+        if (event.type === 'accepted') {
+          provider = event.provider || provider;
+          model = event.model || model;
+          writeSseEvent(res, 'accepted', {
+            requestId,
+            provider,
+            model,
+            queued: event.queued,
+            responsibleAgent: 'calendar-assistant',
+          });
+        } else if (event.type === 'delta') {
+          if (exactLookup) {
+            bufferedExactText += event.text;
+          } else {
+            streamedText += event.text;
+            writeSseEvent(res, 'delta', {
+              text: event.text,
+              sequence: event.sequence,
+              requestId,
+              source: 'calendarassistant-agent',
+              responsibleAgent: 'calendar-assistant',
+              gatewayFallback: false,
+              run: { model: model || 'calendarassistant', agent: 'calendarassistant' },
+            });
+          }
+        } else if (event.type === 'tool-status') {
+          writeSseEvent(res, 'status', {
+            label: event.label,
+            requestId,
+            responsibleAgent: 'calendar-assistant',
+          });
+        } else if (event.type === 'completed') {
+          completedText = event.text;
+          provider = event.provider || provider;
+          model = event.model || model;
+        }
+      },
+    });
+    completedText = turn.text || completedText;
+    provider = turn.provider || provider;
+    model = turn.model || model;
+  } catch (error) {
+    failed = error;
+  }
+  res.removeListener('close', abort);
+  if (res.writableEnded || res.destroyed) return;
+
+  let answer = truthfulCalendarAgentAnswer({
+    answer: completedText || bufferedExactText || streamedText,
+    result,
+    question,
+  });
+  if (!answer) answer = fallbackScheduleAnswer(question, result.computed, result.sources);
+  if (exactLookup) {
+    streamedText = answer;
+    writeSseEvent(res, 'delta', {
+      text: answer,
+      requestId,
+      source: 'calendarassistant-agent',
+      responsibleAgent: 'calendar-assistant',
+      gatewayFallback: Boolean(failed),
+      run: { model: model || 'calendarassistant', agent: 'calendarassistant' },
+    });
+  } else if (answer !== streamedText) {
+    const remainder = answer.startsWith(streamedText)
+      ? answer.slice(streamedText.length)
+      : (!streamedText ? answer : '');
+    if (remainder) {
+      streamedText += remainder;
+      writeSseEvent(res, 'delta', {
+        text: remainder,
+        requestId,
+        source: 'calendarassistant-agent',
+        responsibleAgent: 'calendar-assistant',
+        gatewayFallback: Boolean(failed),
+        run: { model: model || 'calendarassistant', agent: 'calendarassistant' },
+      });
+    }
+  }
+
+  const userMessage = { role: 'user', text: question, source: 'schedule-assistant', target: 'calendar' };
+  const assistantMessage = { role: 'assistant', text: answer, source: 'schedule-assistant', target: 'calendar' };
+  if (gatewayStore && typeof gatewayStore.addChatMessage === 'function') {
+    gatewayStore.addChatMessage(userMessage);
+    gatewayStore.addChatMessage(assistantMessage);
+  } else {
+    addGatewayChatMessage(gatewayState, userMessage);
+    addGatewayChatMessage(gatewayState, assistantMessage);
+  }
+  const answerMode = failed ? 'fallback' : 'llm';
+  writeSseEvent(res, 'done', {
+    ok: true,
+    text: answer,
+    answer,
+    requestId,
+    sources: result.sources,
+    computed: result.computed,
+    search: result.search,
+    answerMode,
+    llm: {
+      provider,
+      model,
+      used: !failed,
+      transport: 'railway-relay',
+      agent: 'calendarassistant',
+      ...(failed ? { error: String(failed.code || 'calendar_agent_failed') } : {}),
+    },
+    ...(retrievalDegraded || failed ? { degraded: true } : {}),
+    gatewayFallback: Boolean(failed),
+    responsibleAgent: 'calendar-assistant',
+    run: { model: model || 'calendarassistant', agent: 'calendarassistant' },
+  });
+  res.end();
+}
+
 async function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewayStore = null, env = process.env, fetchImpl = fetch, relay = null }) {
   const question = String(body.question || body.message || body.query || '').trim();
   if (!question) {
@@ -6807,6 +7137,24 @@ async function streamScheduleAssistantAsk({ res, body = {}, gatewayState, gatewa
       { event: 'error', data: { ok: false, error: 'question is required', gatewayFallback: true } },
       { event: 'done', data: { ok: false, text: '', error: 'question is required', gatewayFallback: true } },
     ]);
+    return;
+  }
+  if (
+    envFlag(env.HERMES_CALENDAR_AGENT_CHAT_ENABLED)
+    && relay
+    && relayEnabled(env)
+    && relay.isBridgeOnline()
+  ) {
+    await streamRelayCalendarSessionTurn({
+      res,
+      body,
+      question,
+      gatewayState,
+      gatewayStore,
+      env,
+      fetchImpl,
+      relay,
+    });
     return;
   }
   const state = gatewaySnapshot(gatewayState, gatewayStore);

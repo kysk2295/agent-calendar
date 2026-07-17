@@ -1,4 +1,4 @@
-# Mac mini Direct Wiki Curator Runtime
+# Mac mini Direct Wiki Curator and Calendar Runtime
 
 ## Runtime boundary
 
@@ -6,10 +6,15 @@
   profiles, scheduler jobs, and health. It does not execute curator turns.
 - Curator Gateway API `127.0.0.1:8643` owns the persisted `wikicurator`
   Agent API session and serves `/api/sessions/{id}/chat/stream` directly.
-- Ollama `127.0.0.1:11434` owns calendar synthesis (`qwen2.5:7b`) and wiki
-  evidence embeddings (`bge-m3`).
-- Railway enqueues `agent.chat` and `wiki.search` in parallel. The curator
-  answer is returned unchanged; vector results are rendered only as evidence.
+- Calendar Gateway API `127.0.0.1:8644` owns the persisted
+  `calendarassistant` session. It has no toolsets and uses local
+  `qwen2.5:7b` only for grounded natural-language synthesis.
+- Ollama `127.0.0.1:11434` owns Calendar synthesis (`qwen2.5:7b`) and Wiki or
+  Calendar evidence embeddings (`bge-m3`).
+- Railway enqueues `agent.chat` with either `wiki.search` or
+  `calendar.search`. Curator answers are returned unchanged; Calendar exact
+  existence answers are checked against deterministic date/title/time facts
+  before any buffered text is exposed.
 - Telegram sessions, Telegram delivery, and Telegram-selected routes do not
   participate in the desktop Wiki AI request path.
 
@@ -23,10 +28,15 @@
   `/Users/goyunseo/.hermes/hermes-agent/gateway/platforms/api_server.py`
 - Curator profile config:
   `/Users/goyunseo/.hermes/profiles/wikicurator/config.yaml`
-- Vector index:
+- Calendar profile config:
+  `/Users/goyunseo/.hermes/profiles/calendarassistant/config.yaml`
+- Wiki vector index:
   `/Users/goyunseo/.hermes/cache/agent-calendar-wiki-vectors.json`
+- Calendar vector index:
+  `/Users/goyunseo/.hermes/cache/agent-calendar-schedule-vectors.json`
 - LaunchAgents:
-  `com.yunseo.hermes-railway-relay`, `ai.hermes.gateway-wikicurator`
+  `com.yunseo.hermes-railway-relay`, `ai.hermes.gateway-wikicurator`,
+  `ai.hermes.gateway-calendarassistant`
 
 The Relay directory is not a git checkout. Deployment-time backups are kept
 next to the runtime files with timestamped `.backup-YYYYMMDDHHMMSS` suffixes.
@@ -51,10 +61,19 @@ for desktop Wiki AI execution.
 - The `wikicurator` profile is pinned to `openai-codex` / `gpt-5.5`, has no
   provider fallback chain, and exposes only the `file` toolset to API-server
   Q&A turns. The Relay hard timeout is 60 seconds.
+- The `calendarassistant` profile is pinned to local `qwen2.5:7b`, has no
+  provider fallback chain or tools, and receives a bounded structured context
+  containing the parsed range, exact facts, and at most 6 relevant records.
+  Hermes normally requires 64K context for tool-calling models, while this
+  Ollama model exposes 32K; the dedicated no-tool profile avoids that invalid
+  tool boundary while keeping prompts well below the model limit.
 - Wiki evidence uses a persistent 1024-dimensional `bge-m3` vector index.
   Changed or missing notes are embedded in batches of at most 64.
-- `bge-m3` requests use `keep_alive: 0`. The Relay warms `qwen2.5:7b` before
-  polling, refreshes it hourly, and pins it for 24 hours on calendar requests.
+- Calendar evidence uses a separate persistent `bge-m3` vector index. Exact
+  date/title/time lookups bypass semantic search and use `exact-filter`.
+- Wiki `bge-m3` requests use `keep_alive: 0`; Calendar `bge-m3` requests keep
+  both the embedding model and Qwen warm for 24 hours. The Relay also warms
+  `qwen2.5:7b` before polling and refreshes it hourly.
 
 ## Verification
 
@@ -86,16 +105,23 @@ Expected live metadata for a calendar turn:
 ```json
 {
   "answerMode": "llm",
-  "llm": { "provider": "local-llm", "model": "qwen2.5:7b", "used": true }
+  "llm": {
+    "provider": "custom",
+    "model": "qwen2.5:7b",
+    "used": true,
+    "agent": "calendarassistant"
+  },
+  "search": { "embeddingModel": "bge-m3" }
 }
 ```
 
 ## Rollback
 
 1. Replace the active Relay script and test with the matching adjacent backup.
-2. Replace the `wikicurator` profile config with the matching timestamped
-   backup.
-3. Restart `ai.hermes.gateway-wikicurator` and
+2. Replace the `wikicurator` and `calendarassistant` profile configs with the
+   matching timestamped backups.
+3. Restart `ai.hermes.gateway-wikicurator`,
+   `ai.hermes.gateway-calendarassistant`, and
    `com.yunseo.hermes-railway-relay` with `launchctl kickstart -k`.
 4. Confirm the public path returns an explicit degraded response; never expose
    raw prompts or keyword results as a curator answer.
