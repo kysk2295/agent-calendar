@@ -248,16 +248,18 @@ test('task completion checkboxes match TickTick empty-square size', () => {
 test('gmail mail connection is wired to Railway mail endpoints', () => {
   assert.match(apiSource, /saveMailAccount:/);
   assert.match(apiSource, /syncMail:/);
-  assert.match(apiSource, /runInboxCommand:/);
+  assert.match(apiSource, /getMailMessages:/);
+  assert.match(apiSource, /runMailAction:/);
+  assert.doesNotMatch(apiSource, /getInbox:|runInboxCommand:/);
   assert.match(appSource, /function connectGmail\(/);
   assert.match(appSource, /async function addTaskFromMail\(/);
   assert.match(appSource, /async function archiveMail\(/);
   assert.match(appSource, /async function toggleMailStar\(/);
   assert.match(appSource, /hermesApi\.saveMailAccount/);
   assert.match(appSource, /hermesApi\.syncMail/);
-  assert.match(appSource, /hermesApi\.runInboxCommand\(id,\s*'task'/);
-  assert.match(appSource, /hermesApi\.runInboxCommand\(id,\s*'archive'/);
-  assert.match(appSource, /hermesApi\.runInboxCommand\(id,\s*next \? 'star' : 'unstar'/);
+  assert.match(appSource, /hermesApi\.runMailAction\(id,\s*'task'/);
+  assert.match(appSource, /hermesApi\.runMailAction\(id,\s*'archive'/);
+  assert.match(appSource, /hermesApi\.runMailAction\(id,\s*next \? 'star' : 'unstar'/);
   assert.match(appSource, /provider:\s*'gmail'/);
   assert.doesNotMatch(appSource, /archivedMailIds/);
   assert.doesNotMatch(appSource, /mailTaskIds/);

@@ -23,7 +23,7 @@ async function main() {
     try { body = request.postData() ? JSON.parse(request.postData()) : {}; } catch { body = {}; }
     calls.push({ method, path, body });
 
-    if (method === 'GET' && path === '/api/inbox/commands') {
+    if (method === 'GET' && path === '/api/mail/messages') {
       await route.fulfill({ json: { ok: true, items: [], commands: [] } });
       return;
     }

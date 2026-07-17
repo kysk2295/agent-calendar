@@ -101,7 +101,7 @@ export function AgentWorkTimeline(props: AgentWorkTimelineProps) {
   const currentReportId = currentAgentReportId(props.reports, props.currentResultReportId);
   const visibleCheckpoints = props.checkpoints.filter((checkpoint) => {
     const text = checkpoint.text.trim();
-    if (checkpoint.kind === 'progress' && text.toLowerCase() === '[redacted-command]') return false;
+    if (text.toLowerCase() === '[redacted-command]') return false;
     if (checkpoint.kind === 'plan' && /^planning mission:/i.test(text)) return false;
     if (checkpoint.kind === 'approval_response' && /^(?:pause|resume|cancel|retry|approve):\s*[\w-]+\s*(?:→|->)\s*[\w-]+$/i.test(text)) return false;
     return true;

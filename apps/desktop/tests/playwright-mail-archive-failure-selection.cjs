@@ -42,11 +42,11 @@ async function main() {
     try { body = request.postData() ? JSON.parse(request.postData()) : {}; } catch { body = {}; }
     calls.push({ method, path, body });
 
-    if (method === 'GET' && path === '/api/inbox/commands') {
+    if (method === 'GET' && path === '/api/mail/messages') {
       await route.fulfill({ json: { ok: true, items: inbox, commands: inbox } });
       return;
     }
-    if (method === 'POST' && path === '/api/inbox/commands/mail-archive-second/archive') {
+    if (method === 'POST' && path === '/api/mail/messages/mail-archive-second/archive') {
       await route.fulfill({ status: 500, json: { ok: false, error: 'archive failed' } });
       return;
     }

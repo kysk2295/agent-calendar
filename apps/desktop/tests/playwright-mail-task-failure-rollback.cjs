@@ -36,11 +36,11 @@ async function main() {
     try { body = request.postData() ? JSON.parse(request.postData()) : {}; } catch { body = {}; }
     calls.push({ method, path, body });
 
-    if (method === 'GET' && path === '/api/inbox/commands') {
+    if (method === 'GET' && path === '/api/mail/messages') {
       await route.fulfill({ json: { ok: true, items: inbox, commands: inbox } });
       return;
     }
-    if (method === 'POST' && path === '/api/inbox/commands/mail-task-fail/task') {
+    if (method === 'POST' && path === '/api/mail/messages/mail-task-fail/task') {
       await route.fulfill({ status: 500, json: { ok: false, error: 'task action failed' } });
       return;
     }
@@ -77,7 +77,7 @@ async function main() {
   assert.equal(await page.locator('.mail-item').count(), 1);
   assert.match(await page.locator('.mail-reader').textContent(), /작업 변환 실패 메일/);
   assert.doesNotMatch(await page.locator('.mail-actions').textContent(), /기본함에 추가됨/);
-  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/inbox/commands/mail-task-fail/task'), true);
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/mail/messages/mail-task-fail/task'), true);
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, taskCalls: calls.filter((call) => call.path.endsWith('/task')) }, null, 2));

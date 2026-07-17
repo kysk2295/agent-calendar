@@ -37,20 +37,20 @@ async function main() {
     try { body = request.postData() ? JSON.parse(request.postData()) : {}; } catch { body = {}; }
     calls.push({ method, path, body });
 
-    if (method === 'GET' && path === '/api/inbox/commands') {
+    if (method === 'GET' && path === '/api/mail/messages') {
       await route.fulfill({ json: { ok: true, items: inbox, commands: inbox } });
       return;
     }
-    if (method === 'POST' && path === '/api/inbox/commands/mail-action-1/star') {
+    if (method === 'POST' && path === '/api/mail/messages/mail-action-1/star') {
       inbox[0].star = true;
       await route.fulfill({ json: { ok: true, item: inbox[0] } });
       return;
     }
-    if (method === 'POST' && path === '/api/inbox/commands/mail-action-1/task') {
+    if (method === 'POST' && path === '/api/mail/messages/mail-action-1/task') {
       await route.fulfill({ json: { ok: true, task: { id: 'task-from-mail', title: body.message || inbox[0].subject } } });
       return;
     }
-    if (method === 'POST' && path === '/api/inbox/commands/mail-action-1/archive') {
+    if (method === 'POST' && path === '/api/mail/messages/mail-action-1/archive') {
       inbox.splice(0, inbox.length);
       await route.fulfill({ json: { ok: true } });
       return;

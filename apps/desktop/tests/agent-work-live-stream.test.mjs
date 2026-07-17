@@ -104,6 +104,7 @@ test('runtime command placeholders stay out of the operator Work Conversation', 
   const html = renderToStaticMarkup(timelineModule.AgentWorkTimeline({
     checkpoints: [
       { id: 'runtime-placeholder', sessionId: 'mission-thread-live', sequence: 1, kind: 'progress', text: '[redacted-command]', metadata: {}, createdAt: '2026-07-15T00:00:00.000Z' },
+      { id: 'runtime-placeholder-error', sessionId: 'mission-thread-live', sequence: 1.5, kind: 'error', text: '[redacted-command]', metadata: {}, createdAt: '2026-07-15T00:00:00.500Z' },
       { id: 'runtime-plan', sessionId: 'mission-thread-live', sequence: 2, kind: 'plan', text: 'Planning mission: internal task graph', metadata: {}, createdAt: '2026-07-15T00:00:01.000Z' },
       { id: 'runtime-pause', sessionId: 'mission-thread-live', sequence: 3, kind: 'approval_response', text: 'pause: scheduled → blocked', metadata: {}, createdAt: '2026-07-15T00:00:02.000Z' },
       { id: 'structured-agent-result', sessionId: 'mission-thread-live', sequence: 4, kind: 'agent_message', text: '{"summary":"검토 범위를 정리했습니다.","tasks":[{"title":"근거 확인"}]}', metadata: {}, createdAt: '2026-07-15T00:00:03.000Z' },

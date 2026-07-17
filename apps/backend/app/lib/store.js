@@ -1894,6 +1894,35 @@ class HermesStore {
       .slice(0, Number(limit || 50));
   }
 
+  listMailMessages({ limit = 50, includeArchived = false } = {}) {
+    const state = this.#load();
+    const archived = new Set(Array.isArray(state.commandInboxArchivedIds) ? state.commandInboxArchivedIds : []);
+    const starred = new Set(Array.isArray(state.commandInboxStarredIds) ? state.commandInboxStarredIds : []);
+    return (Array.isArray(state.mailMessages) ? state.mailMessages : [])
+      .filter((message) => includeArchived || !archived.has(String(message.id || '')))
+      .map((message) => ({
+        id: String(message.id || ''),
+        accountId: String(message.accountId || ''),
+        provider: String(message.provider || 'mail'),
+        source: String(message.provider || 'mail'),
+        sourceLabel: mailProviderLabel(message.provider),
+        from: String(message.from || ''),
+        email: String(message.from || ''),
+        subject: String(message.subject || '(no subject)'),
+        title: String(message.subject || '(no subject)'),
+        text: String(message.text || message.subject || ''),
+        body: String(message.text || ''),
+        preview: String(message.text || ''),
+        receivedAt: String(message.receivedAt || message.importedAt || state.meta.createdAt),
+        unread: message.unread !== false && message.read !== true,
+        starred: starred.has(String(message.id || '')),
+        star: starred.has(String(message.id || '')),
+      }))
+      .filter((message) => message.id)
+      .sort((a, b) => String(b.receivedAt || '').localeCompare(String(a.receivedAt || '')))
+      .slice(0, Number(limit || 50));
+  }
+
   getCommandInboxItem(itemId) {
     return this.listCommandInbox({ limit: 500, includeArchived: true })
       .find((item) => item.id === String(itemId || '')) || null;

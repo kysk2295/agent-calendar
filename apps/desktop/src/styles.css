@@ -2462,6 +2462,32 @@ textarea { resize: vertical; min-height: 72px; }
   overflow-y: auto;
   padding: 6px;
 }
+.mail-list-empty {
+  min-height: 160px;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  margin: 0;
+  padding: 24px;
+  color: var(--muted-dark);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+.mail-list-empty small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.mail-list-error button {
+  justify-self: center;
+  padding: 7px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
 .mail-item {
   width: 100%;
   display: flex;
@@ -6205,10 +6231,49 @@ textarea { resize: vertical; min-height: 72px; }
   letter-spacing: .06em;
   text-transform: uppercase;
 }
-.account-box, .theme-preview, .pref-box, .login-inline {
+.account-box, .theme-preview, .pref-box, .login-inline, .deployment-status {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 13px;
+}
+.deployment-status {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 24px;
+  padding: 13px 15px;
+}
+.deployment-status > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted-dark);
+  font-size: 12px;
+}
+.deployment-status > span i {
+  width: 8px;
+  height: 8px;
+  background: #B66A4B;
+  border-radius: 50%;
+}
+.deployment-status[data-reachable="true"] > span i { background: #3E9B72; }
+.deployment-status dl { display: grid; gap: 6px; margin: 0; }
+.deployment-status dl div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px; }
+.deployment-status dt { color: var(--muted); font-size: 10.5px; }
+.deployment-status dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.deployment-revision-warning {
+  margin: 0;
+  color: #B34B32;
+  font-size: 10.5px;
+  font-weight: 700;
 }
 .account-box {
   display: flex;

@@ -36,11 +36,11 @@ async function main() {
     try { body = request.postData() ? JSON.parse(request.postData()) : {}; } catch { body = {}; }
     calls.push({ method, path, body });
 
-    if (method === 'GET' && path === '/api/inbox/commands') {
+    if (method === 'GET' && path === '/api/mail/messages') {
       await route.fulfill({ json: { ok: true, items: inbox, commands: inbox } });
       return;
     }
-    if (method === 'POST' && path === '/api/inbox/commands/mail-star-fail/star') {
+    if (method === 'POST' && path === '/api/mail/messages/mail-star-fail/star') {
       await route.fulfill({ status: 500, json: { ok: false, error: 'star failed' } });
       return;
     }
@@ -76,7 +76,7 @@ async function main() {
   await page.waitForSelector('.api-banner');
   assert.equal(await page.getByRole('button', { name: '별표', exact: true }).textContent(), '☆');
   assert.doesNotMatch(await page.locator('.mail-item', { hasText: '별표 실패 메일' }).textContent(), /★/);
-  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/inbox/commands/mail-star-fail/star'), true);
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/api/mail/messages/mail-star-fail/star'), true);
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, starCalls: calls.filter((call) => call.path.endsWith('/star')) }, null, 2));

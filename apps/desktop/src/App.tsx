@@ -89,6 +89,7 @@ type AppState = {
   wiki: ApiEnvelope;
   settings: ApiEnvelope;
   usage: ApiEnvelope;
+  gatewayStatus: ApiEnvelope;
   profileReadiness: ApiEnvelope;
   agentSourceStatus: ApiEnvelope;
 };
@@ -111,6 +112,7 @@ const EMPTY_STATE: AppState = {
   wiki: {},
   settings: {},
   usage: {},
+  gatewayStatus: {},
   profileReadiness: {},
   agentSourceStatus: {},
 };
@@ -996,6 +998,7 @@ export function App() {
   const [gmailPassword, setGmailPassword] = useState('');
   const [mailSyncing, setMailSyncing] = useState(false);
   const [mailStatus, setMailStatus] = useState('');
+  const [mailLoadError, setMailLoadError] = useState('');
   const [activeNoteId, setActiveNoteId] = useState('');
   const [wikiQuestion, setWikiQuestion] = useState('');
   const [wikiAnswer, setWikiAnswer] = useState('');
@@ -1178,12 +1181,23 @@ export function App() {
         return fallback;
       });
       const settingsRequest = optionalRequest('설정', hermesApi.getSettings(), {}, { quiet: true });
+      const gatewayStatusRequest = optionalRequest('배포 상태', hermesApi.getGatewayStatus(), {}, { quiet: true });
       const dashboardRequest = optionalRequest('상태', hermesApi.getDashboardState());
       const tasksRequest = optionalRequest('작업', hermesApi.getTasks());
       const eventsRequest = optionalRequest('일정', hermesApi.getCalendarEvents());
       const agentsRequest = optionalRequest('에이전트', hermesApi.getAgents());
       const wikiRequest = optionalRequest('위키', hermesApi.getWiki(), state.wiki);
-      const inboxRequest = optionalRequest('메일함', hermesApi.getInbox());
+      const inboxRequest = hermesApi.getMailMessages()
+        .then((payload) => {
+          setMailLoadError('');
+          return payload;
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : '메일함 불러오기 실패';
+          setMailLoadError(message);
+          setApiError(message);
+          return { ok: false, items: state.inbox };
+        });
       const documentsRequest = optionalRequest('문서', hermesApi.getDocuments());
       const automationRequest = optionalRequest('자동화', hermesApi.getAutomation());
       const usageRequest = optionalRequest('사용량', hermesApi.getUsage());
@@ -1201,7 +1215,8 @@ export function App() {
           return null;
         });
       void agentOperationsRequest;
-      const [dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, usage, tools, settingsPayload, channels, documentsPayload, chatPayload] = await Promise.all([
+      const [gatewayStatus, dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, usage, tools, settingsPayload, channels, documentsPayload, chatPayload] = await Promise.all([
+        gatewayStatusRequest,
         dashboardRequest,
         tasksRequest,
         eventsRequest,
@@ -1253,6 +1268,7 @@ export function App() {
         wiki,
         settings: settingsPayload,
         usage,
+        gatewayStatus,
         profileReadiness: obj(dashboard, 'profileReadiness'),
         agentSourceStatus: obj(dashboard, 'agentSourceStatus'),
       });
@@ -2304,7 +2320,7 @@ export function App() {
       inbox: current.inbox.map((item, index) => itemId(item, `mail-${index}`) === id ? { ...item, actionStatus: '기본함에 추가됨' } : item),
     }));
     try {
-      await hermesApi.runInboxCommand(id, 'task', { message: itemTitle(mail, '메일 작업') });
+      await hermesApi.runMailAction(id, 'task', { message: itemTitle(mail, '메일 작업') });
       await hydrate();
     } catch (error) {
       setState((current) => ({ ...current, inbox: previousInbox }));
@@ -2320,7 +2336,7 @@ export function App() {
     setState((current) => ({ ...current, inbox: current.inbox.filter((item, index) => itemId(item, `mail-${index}`) !== id) }));
     setActiveMailId('');
     try {
-      await hermesApi.runInboxCommand(id, 'archive');
+      await hermesApi.runMailAction(id, 'archive');
       await hydrate();
     } catch (error) {
       setState((current) => ({ ...current, inbox: previousInbox }));
@@ -2343,7 +2359,7 @@ export function App() {
       }),
     }));
     try {
-      await hermesApi.runInboxCommand(id, next ? 'star' : 'unstar');
+      await hermesApi.runMailAction(id, next ? 'star' : 'unstar');
       await hydrate();
     } catch (error) {
       setState((current) => ({ ...current, inbox: previousInbox }));
@@ -2789,7 +2805,7 @@ export function App() {
               setQuickText(templates[label] || '');
             }} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} />}
             {screen === 'kanban' && <KanbanScreen tasks={filteredTasks} openTask={openTask} />}
-            {screen === 'mail' && <MailScreen inbox={mailItems} activeMailId={activeMailId} setActiveMailId={setActiveMailId} addTaskFromMail={(mail) => { void addTaskFromMail(mail); }} archiveMail={(mail) => { void archiveMail(mail); }} delegateMail={(mail, reply) => { setDelegateText(reply ? `아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n${itemTitle(mail, '메일')}` : `다음 메일을 처리해줘.\n\n${itemTitle(mail, '메일')}`); setModal('delegate'); }} toggleStar={(mail) => { void toggleMailStar(mail); }} gmailEmail={gmailEmail} setGmailEmail={setGmailEmail} gmailPassword={gmailPassword} setGmailPassword={setGmailPassword} mailSyncing={mailSyncing} mailStatus={mailStatus} connectGmail={connectGmail} />}
+            {screen === 'mail' && <MailScreen inbox={mailItems} activeMailId={activeMailId} setActiveMailId={setActiveMailId} addTaskFromMail={(mail) => { void addTaskFromMail(mail); }} archiveMail={(mail) => { void archiveMail(mail); }} delegateMail={(mail, reply) => { setDelegateText(reply ? `아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n${itemTitle(mail, '메일')}` : `다음 메일을 처리해줘.\n\n${itemTitle(mail, '메일')}`); setModal('delegate'); }} toggleStar={(mail) => { void toggleMailStar(mail); }} gmailEmail={gmailEmail} setGmailEmail={setGmailEmail} gmailPassword={gmailPassword} setGmailPassword={setGmailPassword} mailSyncing={mailSyncing} mailStatus={mailStatus} mailLoadError={mailLoadError} reloadMail={() => { void hydrate({ blocking: false }); }} connectGmail={connectGmail} />}
             {screen === 'notes' && <NotesScreen docs={docs} activeNoteId={activeNoteId} setActiveNoteId={setActiveNoteId} newNote={createNote} />}
             {screen === 'review' && <ReviewScreen tasks={tasks} patchTask={patchTask} generateRetroDraft={generateRetroDraft} createReviewGoal={createReviewGoal} saveRetro={saveRetro} />}
             {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} />}
@@ -2798,7 +2814,7 @@ export function App() {
             {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} automationJobs={hermesAutomationJobs} error={agentOperationsError} busy={agentOperationsBusy} onRetry={retryAgentOperations} onRefreshAgentOperations={retryAgentOperations} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onContinueSession={continueAgentSession} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
             {screen === 'automation' && <HermesAutomationDashboard jobs={hermesAutomationJobs} agents={agentRoster} onRefresh={refreshHermesAutomations} onUpdate={updateHermesAutomation} onSetEnabled={setHermesAutomationEnabled} onDelete={deleteHermesAutomation} />}
             {screen === 'widgets' && <WidgetsScreen tasks={tasks} events={events} runs={runs} />}
-            {screen === 'settings' && <SettingsScreen settings={settings} setSettings={setSettings} refresh={hydrate} />}
+            {screen === 'settings' && <SettingsScreen settings={settings} gatewayStatus={state.gatewayStatus} setSettings={setSettings} refresh={hydrate} />}
             {screen === 'login' && <LoginScreen email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} authenticateWithPassword={authenticateWithPassword} />}
           </section>
         )}
@@ -2836,7 +2852,7 @@ export function App() {
       )}
       {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} attachment={chatAttachment} setAttachment={setChatAttachment} send={sendChat} setChip={setChatInput} close={() => setChatOpen(false)} registerDrafts={registerScheduleDrafts} />}
       {modal === 'taxonomy' && taxonomyForm && <TaxonomyModal form={taxonomyForm} name={taxonomyName} setName={setTaxonomyName} groupName={taxonomyGroupName} setGroupName={setTaxonomyGroupName} icon={taxonomyIcon} setIcon={setTaxonomyIcon} close={() => { setTaxonomyForm(null); setModal(null); }} submit={() => void createTaxonomy()} />}
-      <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} approveRun={approveRun} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
+      <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} approveRun={approveRun} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} gatewayStatus={state.gatewayStatus} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
     </div>
   );
 }
@@ -3450,7 +3466,7 @@ function KanbanScreen({ tasks, openTask }: { tasks: Item[]; openTask: (task: Ite
   </div>;
 }
 
-function MailScreen({ inbox, activeMailId, setActiveMailId, addTaskFromMail, archiveMail, delegateMail, toggleStar, gmailEmail, setGmailEmail, gmailPassword, setGmailPassword, mailSyncing, mailStatus, connectGmail }: { inbox: Item[]; activeMailId: string; setActiveMailId: (id: string) => void; addTaskFromMail: (mail: Item) => void; archiveMail: (mail: Item) => void; delegateMail: (mail: Item, reply?: boolean) => void; toggleStar: (mail: Item) => void; gmailEmail: string; setGmailEmail: (value: string) => void; gmailPassword: string; setGmailPassword: (value: string) => void; mailSyncing: boolean; mailStatus: string; connectGmail: () => void }) {
+function MailScreen({ inbox, activeMailId, setActiveMailId, addTaskFromMail, archiveMail, delegateMail, toggleStar, gmailEmail, setGmailEmail, gmailPassword, setGmailPassword, mailSyncing, mailStatus, mailLoadError, reloadMail, connectGmail }: { inbox: Item[]; activeMailId: string; setActiveMailId: (id: string) => void; addTaskFromMail: (mail: Item) => void; archiveMail: (mail: Item) => void; delegateMail: (mail: Item, reply?: boolean) => void; toggleStar: (mail: Item) => void; gmailEmail: string; setGmailEmail: (value: string) => void; gmailPassword: string; setGmailPassword: (value: string) => void; mailSyncing: boolean; mailStatus: string; mailLoadError: string; reloadMail: () => void; connectGmail: () => void }) {
   const items = inbox;
   const active = items.find((mail, index) => itemId(mail, `mail-${index}`) === activeMailId) || items[0];
   const activeId = itemId(active || {}, '');
@@ -3467,6 +3483,8 @@ function MailScreen({ inbox, activeMailId, setActiveMailId, addTaskFromMail, arc
         {mailStatus && <small>{mailStatus}</small>}
       </section>
       <div>
+        {mailLoadError && <div className="mail-list-empty mail-list-error" role="alert"><strong>메일을 불러오지 못했습니다.</strong><small>기존 메일 데이터는 변경하지 않았습니다.</small><button type="button" onClick={reloadMail}>메일 다시 불러오기</button></div>}
+        {!items.length && !mailLoadError && <p className="mail-list-empty">연결된 메일이 없습니다.<small>Gmail을 연결하거나 동기화하세요.</small></p>}
         {items.map((mail, index) => {
           const id = itemId(mail, `mail-${index}`);
           const from = text(mail.from || mail.sender || mail.sourceLabel, 'Agent Calendar');
@@ -3499,7 +3517,7 @@ function MailScreen({ inbox, activeMailId, setActiveMailId, addTaskFromMail, arc
           {text(active.actionStatus) && <span>{text(active.actionStatus)}</span>}
         </div>
         <section className="mail-body">{text(active.body || active.preview || active.snippet, '메일 내용을 작업, 위임, 답장 초안으로 전환할 수 있습니다.')}</section>
-      </div> : <div className="mail-empty">메일을 선택하세요</div>}
+      </div> : <div className="mail-empty">메일을 연결하면 이곳에서 내용을 확인할 수 있습니다.</div>}
     </article>
   </div>;
 }
@@ -4866,7 +4884,22 @@ function AgentsScreen({ agents, runs, missionText, setMissionText, selectedAgent
   </div>;
 }
 
-function SettingsScreen({ settings, setSettings, refresh }: { settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void> }) {
+function DeploymentStatus({ status }: { status: ApiEnvelope }) {
+  const commit = text(status.buildCommit, '확인 중');
+  const deploymentId = text(status.deploymentId, '확인 중');
+  const accessMode = text(status.runtimeAccessMode, 'offline');
+  const accessLabel = accessMode === 'relay' ? 'Relay 연결' : accessMode === 'direct' ? '직접 연결' : 'Runtime 오프라인';
+  const reachable = status.effectiveRuntimeReachable === true;
+  const desktopBuildId = __AGENT_CALENDAR_BUILD_ID__;
+  const revisionMatches = commit !== '확인 중' && desktopBuildId !== 'development' && commit === desktopBuildId;
+  return <section className="deployment-status" data-reachable={reachable} data-revision-match={revisionMatches}>
+    <span><i /><b>{reachable ? accessLabel : 'Runtime 확인 필요'}</b></span>
+    <dl><div><dt>Git commit</dt><dd>{commit}</dd></div><div><dt>Desktop build</dt><dd>{desktopBuildId}</dd></div><div><dt>Railway deployment</dt><dd>{deploymentId}</dd></div></dl>
+    {!revisionMatches && <p className="deployment-revision-warning">버전 불일치 · 데스크톱과 Railway를 같은 커밋으로 다시 배포하세요.</p>}
+  </section>;
+}
+
+function SettingsScreen({ settings, gatewayStatus, setSettings, refresh }: { settings: DesktopSettingsState; gatewayStatus: ApiEnvelope; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void> }) {
   const [apiBaseUrl, setApiBaseUrlInput] = useState(settings.apiBaseUrl);
   const [apiToken, setApiToken] = useState('');
   const [theme, setTheme] = useState<DesktopTheme>(settings.theme);
@@ -4875,7 +4908,7 @@ function SettingsScreen({ settings, setSettings, refresh }: { settings: DesktopS
     if (next) setSettings(desktopSettingsState(next));
     await refresh();
   }
-  return <div className="settings screen-in"><Panel title="Railway API"><label>API Base URL<input value={apiBaseUrl} onChange={(event) => setApiBaseUrlInput(event.target.value)} /></label><label>Bearer Token<input type="password" value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder={settings.hasApiToken ? '저장됨 · 새 값 입력 시 교체' : '선택 사항'} /></label><button onClick={() => void save()}>저장하고 재연결</button></Panel><Panel title="테마"><div className="theme-row">{(['default', 'warm', 'dark', 'sage', 'mono'] as DesktopTheme[]).map((item) => <button data-active={theme === item} key={item} onClick={() => setTheme(item)}>{item}</button>)}</div></Panel></div>;
+  return <div className="settings screen-in"><Panel title="Railway API"><label>API Base URL<input value={apiBaseUrl} onChange={(event) => setApiBaseUrlInput(event.target.value)} /></label><label>Bearer Token<input type="password" value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder={settings.hasApiToken ? '저장됨 · 새 값 입력 시 교체' : '선택 사항'} /></label><button onClick={() => void save()}>저장하고 재연결</button></Panel><Panel title="배포 상태"><DeploymentStatus status={gatewayStatus} /></Panel><Panel title="테마"><div className="theme-row">{(['default', 'warm', 'dark', 'sage', 'mono'] as DesktopTheme[]).map((item) => <button data-active={theme === item} key={item} onClick={() => setTheme(item)}>{item}</button>)}</div></Panel></div>;
 }
 
 function LoginScreen({ email, setEmail, password, setPassword, loginWithProvider, authBusyProvider, passwordAuthBusy, loginStatus, authenticateWithPassword }: { email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; loginWithProvider: (provider: AuthProvider) => void; authBusyProvider: AuthProvider | null; passwordAuthBusy: boolean; loginStatus: string; authenticateWithPassword: (mode: 'login' | 'signup') => void }) {
@@ -5241,13 +5274,13 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
   </div>;
 }
 
-function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, newTask, createTask, lists, tags, agents, runs, selectedRun, selectedTask, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, delegateText, setDelegateText, delegateAgentId, setDelegateAgentId, startPlan, openRunArtifact, approveRun, newAgentName, setNewAgentName, newAgentRole, setNewAgentRole, newAgentEmoji, setNewAgentEmoji, createAgent, settings, setSettings, refresh, setApiError, loggedIn, setLoggedIn, logout, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { modal: ModalId; setModal: (modal: ModalId) => void; newTitle: string; setNewTitle: (value: string) => void; newDesc: string; setNewDesc: (value: string) => void; newTask: NewTaskControls; createTask: (extraNotes?: string) => Promise<void>; lists: TaxonomyItem[]; tags: TaxonomyItem[]; agents: Item[]; runs: Item[]; selectedRun?: Item; selectedTask?: Item; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; delegateText: string; setDelegateText: (value: string) => void; delegateAgentId: string; setDelegateAgentId: (value: string) => void; startPlan: () => void; openRunArtifact: (run?: Item) => void; approveRun: (run: Item) => void; newAgentName: string; setNewAgentName: (value: string) => void; newAgentRole: string; setNewAgentRole: (value: string) => void; newAgentEmoji: string; setNewAgentEmoji: (value: string) => void; createAgent: () => void; settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
+function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, newTask, createTask, lists, tags, agents, runs, selectedRun, selectedTask, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, delegateText, setDelegateText, delegateAgentId, setDelegateAgentId, startPlan, openRunArtifact, approveRun, newAgentName, setNewAgentName, newAgentRole, setNewAgentRole, newAgentEmoji, setNewAgentEmoji, createAgent, settings, gatewayStatus, setSettings, refresh, setApiError, loggedIn, setLoggedIn, logout, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { modal: ModalId; setModal: (modal: ModalId) => void; newTitle: string; setNewTitle: (value: string) => void; newDesc: string; setNewDesc: (value: string) => void; newTask: NewTaskControls; createTask: (extraNotes?: string) => Promise<void>; lists: TaxonomyItem[]; tags: TaxonomyItem[]; agents: Item[]; runs: Item[]; selectedRun?: Item; selectedTask?: Item; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; delegateText: string; setDelegateText: (value: string) => void; delegateAgentId: string; setDelegateAgentId: (value: string) => void; startPlan: () => void; openRunArtifact: (run?: Item) => void; approveRun: (run: Item) => void; newAgentName: string; setNewAgentName: (value: string) => void; newAgentRole: string; setNewAgentRole: (value: string) => void; newAgentEmoji: string; setNewAgentEmoji: (value: string) => void; createAgent: () => void; settings: DesktopSettingsState; gatewayStatus: ApiEnvelope; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
   if (!modal) return null;
   if (modal === 'new') {
     return <div className="modal-backdrop new-task-backdrop" onMouseDown={() => setModal(null)}><NewTaskModal title={newTitle} setTitle={setNewTitle} desc={newDesc} setDesc={setNewDesc} controls={newTask} lists={lists} close={() => setModal(null)} submit={createTask} /></div>;
   }
   if (modal === 'settings') {
-    return <SettingsOverlay settings={settings} setSettings={setSettings} refresh={refresh} setApiError={setApiError} close={() => setModal(null)} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />;
+    return <SettingsOverlay settings={settings} gatewayStatus={gatewayStatus} setSettings={setSettings} refresh={refresh} setApiError={setApiError} close={() => setModal(null)} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />;
   }
   if (modal === 'task' && selectedTask) {
     return <TaskDetailModal selectedTask={selectedTask} lists={lists} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} close={() => setModal(null)} delegate={() => { setDelegateText(itemTitle(selectedTask, '')); setModal('delegate'); }} />;
@@ -5591,7 +5624,7 @@ function NewAccordionRow({ label, value, panel, controls }: { label: string; val
   return <button className="new-accordion-row" onClick={() => controls.setSubPanel(active ? null : panel)}><b>{label}</b><em>{value}</em><i>{active ? '▾' : '›'}</i></button>;
 }
 
-function SettingsOverlay({ settings, setSettings, refresh, setApiError, close, loggedIn, setLoggedIn, logout, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { settings: DesktopSettingsState; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; close: () => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
+function SettingsOverlay({ settings, gatewayStatus, setSettings, refresh, setApiError, close, loggedIn, setLoggedIn, logout, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { settings: DesktopSettingsState; gatewayStatus: ApiEnvelope; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; close: () => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
   const themes: Array<[DesktopTheme, string, string]> = [
     ['default', 'Terracotta', '#D7613D'],
     ['warm', 'Warm', '#C95035'],
@@ -5638,6 +5671,8 @@ function SettingsOverlay({ settings, setSettings, refresh, setApiError, close, l
       <div className="settings-label">테마 · 강조 색상</div>
       <section className="theme-grid">{themes.map(([key, label, color]) => <button data-active={settings.theme === key} key={key} onClick={() => void saveTheme(key)}><span style={{ background: color }}>{settings.theme === key ? '✓' : ''}</span><b>{label}</b></button>)}</section>
       <section className="theme-preview"><span>H</span><b>선택한 색상이 버튼·강조·캘린더 전반에 즉시 적용됩니다</b></section>
+      <div className="settings-label">배포 상태</div>
+      <DeploymentStatus status={gatewayStatus} />
       <div className="settings-label">환경설정</div>
       <section className="pref-box">{prefRows.map(([key, label, desc]) => <div className="pref-row" key={key}><span className="pref-copy"><b>{label}</b><small>{desc}</small></span><button className="switch" data-active={prefs[key]} onClick={() => void updatePrefs({ ...prefs, [key]: !prefs[key] })}><span /></button></div>)}</section>
     </div>

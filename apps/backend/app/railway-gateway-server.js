@@ -63,6 +63,7 @@ const {
   publicCommandRouteRecord,
   publicDaemonRecord,
   publicDocumentRecord,
+  publicMailMessageRecord,
   publicMissionRecord,
   publicReportRecord,
   publicSessionEventRecord,
@@ -2923,6 +2924,61 @@ function fallbackCommandInboxList({ res, gatewayState, gatewayStore = null, quer
   });
 }
 
+function fallbackMailMessagesList({ res, gatewayState, gatewayStore = null, query = {} }) {
+  const limit = Number(query.limit || 50);
+  const storedState = gatewayStore && typeof gatewayStore.getState === 'function'
+    ? gatewayStore.getState()
+    : gatewayState;
+  const archived = new Set(Array.isArray(storedState.commandInboxArchivedIds) ? storedState.commandInboxArchivedIds : []);
+  const starred = new Set(Array.isArray(storedState.commandInboxStarredIds) ? storedState.commandInboxStarredIds : []);
+  const fallbackItems = (Array.isArray(storedState.mailMessages) ? storedState.mailMessages : [])
+    .filter((message) => !archived.has(String(message.id || '')))
+    .map((message) => ({
+      ...message,
+      source: message.provider || 'mail',
+      sourceLabel: gatewayMailProviderLabel(message.provider),
+      email: message.from || '',
+      title: message.subject || '(no subject)',
+      body: message.text || '',
+      preview: message.text || '',
+      unread: message.unread !== false && message.read !== true,
+      starred: starred.has(String(message.id || '')),
+      star: starred.has(String(message.id || '')),
+    }));
+  const items = gatewayStore && typeof gatewayStore.listMailMessages === 'function'
+    ? gatewayStore.listMailMessages({ limit })
+    : fallbackItems
+      .sort((a, b) => String(b.receivedAt || '').localeCompare(String(a.receivedAt || '')))
+      .slice(0, limit);
+  sendJson(res, 200, {
+    ok: true,
+    items: items.map(publicMailMessageRecord).filter(Boolean),
+    gatewayFallback: true,
+  });
+}
+
+function fallbackMailMessageAction({ res, gatewayState, gatewayStore = null, itemId, action, body = {} }) {
+  if (!gatewayStore || typeof gatewayStore.listMailMessages !== 'function') {
+    sendDatabaseRequired(res, 'mail message actions');
+    return;
+  }
+  const id = String(itemId || '');
+  const item = gatewayStore.listMailMessages({ limit: 500, includeArchived: true })
+    .find((message) => message.id === id);
+  if (!item) {
+    sendJson(res, 404, { error: 'Mail message not found', gatewayFallback: true });
+    return;
+  }
+  fallbackCommandInboxAction({
+    res,
+    gatewayState,
+    gatewayStore,
+    itemId: item.id,
+    action,
+    body,
+  });
+}
+
 function fallbackCommandInboxAction({ res, gatewayState, gatewayStore = null, itemId, action, body = {} }) {
   if (!gatewayStore) {
     sendDatabaseRequired(res, 'command inbox actions');
@@ -3090,10 +3146,25 @@ async function fallbackMailSync({
     return;
   }
   await ensureGatewayTickTickSnapshot({ gatewayState, gatewayStore, env, fetchImpl });
-  const mergedState = () => mergeGatewayLiveState(gatewayState, gatewayState, env, gatewayStore);
-  const commandItems = () => (gatewayStore && typeof gatewayStore.listCommandInbox === 'function'
-    ? gatewayStore.listCommandInbox({ limit: 200 })
-    : listGatewayCommandInbox(gatewayState, { limit: 200 }));
+  const mailItems = () => {
+    if (gatewayStore && typeof gatewayStore.listMailMessages === 'function') {
+      return gatewayStore.listMailMessages({ limit: 200 }).map(publicMailMessageRecord).filter(Boolean);
+    }
+    return (Array.isArray(gatewayState.mailMessages) ? gatewayState.mailMessages : [])
+      .map((message) => publicMailMessageRecord({
+        ...message,
+        source: message.provider || 'mail',
+        sourceLabel: gatewayMailProviderLabel(message.provider),
+        email: message.from || '',
+        title: message.subject || '(no subject)',
+        body: message.text || '',
+        preview: message.text || '',
+        unread: message.unread !== false && message.read !== true,
+        starred: false,
+        star: false,
+      }))
+      .filter(Boolean);
+  };
   const saveMailSyncStatus = (status) => {
     if (gatewayStore && typeof gatewayStore.setMailSyncStatus === 'function') {
       return gatewayStore.setMailSyncStatus(status);
@@ -3110,15 +3181,11 @@ async function fallbackMailSync({
       ok: false,
       reason: 'missing-accounts',
     });
-    const state = mergedState();
     sendJson(res, 200, {
       ok: true,
       imported: [],
       accounts: [],
-      items: commandItems(),
-      tasks: gatewayTasksFromState(state),
-      state,
-      gatewayMerged: true,
+      items: mailItems(),
       gatewayFallback: true,
       detail: 'HERMES_MAIL_ACCOUNTS_JSON is not configured on Railway.',
     });
@@ -3138,16 +3205,12 @@ async function fallbackMailSync({
     ok: syncResult.accounts.some((account) => account.ok),
     reason: syncResult.accounts.find((account) => !account.ok)?.reason || '',
   });
-  const state = mergedState();
   sendJson(res, 200, {
     ok: true,
     imported,
     accounts: syncResult.accounts,
     settings: { mail: { accounts: publicGatewayMailAccounts(env) } },
-    items: commandItems(),
-    tasks: gatewayTasksFromState(state),
-    state,
-    gatewayMerged: true,
+    items: mailItems(),
     gatewayFallback: true,
   });
 }
@@ -7409,7 +7472,7 @@ async function handleApi(
     const status = await buildGatewayStatus({
       runtimeUrl: env.HERMES_RUNTIME_URL,
       runtimeToken: env.HERMES_RUNTIME_TOKEN,
-      buildCommit: env.RAILWAY_GIT_COMMIT_SHA || env.RAILWAY_GIT_COMMIT || env.SOURCE_COMMIT || '',
+      buildCommit: env.SOURCE_COMMIT || env.RAILWAY_GIT_COMMIT_SHA || env.RAILWAY_GIT_COMMIT || '',
       deploymentId: env.RAILWAY_DEPLOYMENT_ID || '',
       fetchImpl,
     });
@@ -7803,6 +7866,26 @@ async function handleApi(
       gatewayState,
       gatewayStore,
       limit: requestUrl.searchParams.get('limit') || 80,
+    });
+    return;
+  }
+  if (method === 'GET' && pathSegments[0] === 'mail' && pathSegments[1] === 'messages') {
+    fallbackMailMessagesList({
+      res,
+      gatewayState,
+      gatewayStore,
+      query: queryObject(requestUrl.searchParams),
+    });
+    return;
+  }
+  if (method === 'POST' && pathSegments[0] === 'mail' && pathSegments[1] === 'messages' && pathSegments[2] && pathSegments[3]) {
+    fallbackMailMessageAction({
+      res,
+      gatewayState,
+      gatewayStore,
+      itemId: decodeURIComponent(pathSegments[2]),
+      action: pathSegments[3],
+      body: parseJsonBuffer(bodyBuffer),
     });
     return;
   }

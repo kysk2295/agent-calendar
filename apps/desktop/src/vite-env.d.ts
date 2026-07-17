@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+declare const __AGENT_CALENDAR_BUILD_ID__: string;
+
 type HermesDesktopSettings = {
   apiBaseUrl: string;
   hasApiToken: boolean;

@@ -305,6 +305,25 @@ function publicCommandInboxItemRecord(item = {}) {
   return projected;
 }
 
+function publicMailMessageRecord(message = {}) {
+  const id = publicIdentifier(message.id);
+  if (!id) return null;
+  const projected = { id };
+  for (const key of [
+    'accountId', 'provider', 'source', 'sourceLabel', 'from', 'email', 'subject', 'title',
+    'text', 'body', 'preview',
+  ]) {
+    const value = publicText(message[key], '', 100_000);
+    if (value) projected[key] = value;
+  }
+  const receivedAt = publicTimestamp(message.receivedAt);
+  if (receivedAt) projected.receivedAt = receivedAt;
+  for (const key of ['unread', 'read', 'starred', 'star']) {
+    if (typeof message[key] === 'boolean') projected[key] = message[key];
+  }
+  return projected;
+}
+
 function publicCommandRouteRecord(command = {}) {
   const projected = {};
   for (const key of ['message', 'view', 'templateId', 'model', 'source', 'reason']) {
@@ -469,6 +488,7 @@ module.exports = {
   publicCommandRouteRecord,
   publicDaemonRecord,
   publicDocumentRecord,
+  publicMailMessageRecord,
   publicMissionRecord,
   publicReportRecord,
   publicSchedulerResult,

@@ -131,6 +131,7 @@ function jsonPost(path: string, body: Record<string, unknown> = {}, timeoutMs = 
 }
 
 export const hermesApi = {
+  getGatewayStatus: () => hermesJson<ApiEnvelope>('/api/gateway-status'),
   getDashboardState: () => hermesJson<ApiEnvelope>('/api/state'),
   getTasks: () => hermesJson<ApiEnvelope>('/api/tasks'),
   createTask: (body: Record<string, unknown>) => jsonPost('/api/tasks', body),
@@ -145,10 +146,10 @@ export const hermesApi = {
   createCalendarEvent: (body: Record<string, unknown>) => jsonPost('/api/calendar/events', body),
   updateCalendarEvent: (id: string, body: Record<string, unknown>) => hermesJson<ApiEnvelope>(`/api/calendar/events/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteCalendarEvent: (id: string, body: Record<string, unknown> = {}) => hermesJson<ApiEnvelope>(`/api/calendar/events/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify(body) }),
-  getInbox: () => hermesJson<ApiEnvelope>('/api/inbox/commands?limit=200'),
+  getMailMessages: () => hermesJson<ApiEnvelope>('/api/mail/messages?limit=200'),
   saveMailAccount: (body: Record<string, unknown>) => jsonPost('/api/mail/accounts', body),
   syncMail: (body: Record<string, unknown> = {}) => jsonPost('/api/mail/sync', body),
-  runInboxCommand: (id: string, action: string, body: Record<string, unknown> = {}) => jsonPost(`/api/inbox/commands/${encodeURIComponent(id)}/${encodeURIComponent(action)}`, body),
+  runMailAction: (id: string, action: string, body: Record<string, unknown> = {}) => jsonPost(`/api/mail/messages/${encodeURIComponent(id)}/${encodeURIComponent(action)}`, body),
   getWorkboard: () => hermesJson<ApiEnvelope>('/api/workboard'),
   getDocuments: () => hermesJson<ApiEnvelope>('/api/documents'),
   createDocument: (body: Record<string, unknown>) => jsonPost('/api/documents', body),
