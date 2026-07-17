@@ -379,7 +379,7 @@ test('wiki chat stream fallback uses local LLM answer when Hermes runtime is abs
   }
 });
 
-test('wiki relay asks the current Telegram wikicurator session without injecting retrieved text', async () => {
+test('wiki relay asks the Hermes wikicurator agent directly without injecting retrieved text', async () => {
   const server = createRailwayGatewayServer({
     env: {
       HERMES_RELAY_TOKEN: 'relay-token',
@@ -415,7 +415,11 @@ test('wiki relay asks the current Telegram wikicurator session without injecting
       headers: { 'x-hermes-relay-token': 'relay-token' },
     }).then((response) => response.json());
     const turnJob = (await turnPoll).job;
-    assert.equal(turnJob.kind, 'session.turn');
+    assert.equal(turnJob.kind, 'agent.chat');
+    assert.equal(turnJob.payload.conversationId, 'agent-calendar-wiki');
+    assert.equal(turnJob.payload.source, undefined);
+    assert.equal(turnJob.payload.delivery, undefined);
+    assert.equal(turnJob.payload.policy, undefined);
     await completeRelayJob(baseUrl, searchJob.id, {
       ok: true,
       query: '운영 원칙',
@@ -436,11 +440,9 @@ test('wiki relay asks the current Telegram wikicurator session without injecting
     const body = await response.text();
     assert.deepEqual(turnJob.payload, {
       profile: 'wikicurator',
-      source: 'telegram',
       message: '운영 원칙을 알려줘',
       requestId: turnJob.payload.requestId,
-      delivery: 'capture',
-      policy: 'wiki-read-only',
+      conversationId: 'agent-calendar-wiki',
     });
     assert.doesNotMatch(JSON.stringify(turnJob.payload), /배포 전에는 테스트와 프리뷰 검증/);
     assert.equal(response.status, 200);
@@ -485,7 +487,7 @@ test('wiki session deltas arrive before vector evidence completes', async () => 
       headers: { 'x-hermes-relay-token': 'relay-token' },
     }).then((response) => response.json())).job;
     const searchJob = [firstJob, secondJob].find((job) => job.kind === 'wiki.search');
-    const turnJob = [firstJob, secondJob].find((job) => job.kind === 'session.turn');
+    const turnJob = [firstJob, secondJob].find((job) => job.kind === 'agent.chat');
     assert.ok(searchJob);
     assert.ok(turnJob);
     assert.equal(turnJob.payload.message, '병렬 처리 질문');
@@ -612,7 +614,7 @@ test('wiki evidence failure does not discard a completed natural-language answer
       headers: { 'x-hermes-relay-token': 'relay-token' },
     }).then((response) => response.json())).job);
     const searchJob = jobs.find((job) => job.kind === 'wiki.search');
-    const turnJob = jobs.find((job) => job.kind === 'session.turn');
+    const turnJob = jobs.find((job) => job.kind === 'agent.chat');
     await completeSessionTurn(baseUrl, turnJob, { text: '근거 검색과 무관하게 유지되는 자연어 답변' });
     await completeRelayJob(baseUrl, searchJob.id, {
       ok: false,
@@ -693,7 +695,7 @@ test('wiki stream sends the unchanged question to the live session and tags vect
     assert.equal(response.status, 200);
     assert.match(searchJob.payload.query, /비즈니스 모델/);
     assert.match(searchJob.payload.query, /CPA/);
-    assert.equal(turnJob.kind, 'session.turn');
+    assert.equal(turnJob.kind, 'agent.chat');
     assert.equal(turnJob.payload.message, 'UniPort BM 정본 기준으로 현재 BM과 우선순위를 알려줘');
     assert.equal(turnJob.payload.requestId, 'wiki-turn-fixed-1');
     assert.equal(turnJob.payload.retrieval, undefined);
@@ -763,7 +765,7 @@ test('wiki relay keeps vector evidence when the live session turn fails', async 
     const response = await responsePromise;
     const body = await response.text();
 
-    assert.equal(turnJob.kind, 'session.turn');
+    assert.equal(turnJob.kind, 'agent.chat');
     assert.equal(turnJob.payload.profile, 'wikicurator');
     assert.equal(response.status, 200);
     assert.match(body, /부분 자연어 답변/);
@@ -824,7 +826,7 @@ test('wiki relay returns evidence fallback before a stalled live session blocks 
     const response = await responsePromise;
     const body = await response.text();
 
-    assert.equal(modelJob.kind, 'session.turn');
+    assert.equal(modelJob.kind, 'agent.chat');
     assert.equal(modelJob.payload.profile, 'wikicurator');
     assert.ok(Date.now() - startedAt < 2000, 'retrieval fallback should beat the wiki UI timeout');
     assert.equal(response.status, 200);

@@ -15,16 +15,15 @@ function sessionTurnError(code, retryable = false) {
 
 function validateSessionTurnPayload(payload = {}) {
   const keys = Object.keys(payload).sort();
-  const expectedKeys = ['delivery', 'message', 'policy', 'profile', 'requestId', 'source'];
+  const expectedKeys = ['conversationId', 'message', 'profile', 'requestId'];
   const valid = JSON.stringify(keys) === JSON.stringify(expectedKeys)
     && payload.profile === 'wikicurator'
-    && payload.source === 'telegram'
     && typeof payload.message === 'string'
     && Boolean(payload.message.trim())
     && typeof payload.requestId === 'string'
     && Boolean(payload.requestId.trim())
-    && payload.delivery === 'capture'
-    && payload.policy === 'wiki-read-only';
+    && typeof payload.conversationId === 'string'
+    && /^[a-zA-Z0-9._:-]{1,128}$/.test(payload.conversationId);
   if (!valid) throw sessionTurnError('invalid_session_turn_request');
   return { ...payload };
 }
@@ -118,12 +117,12 @@ async function runRelaySessionTurn({
     throw sessionTurnError('relay_disconnected', true);
   }
   const job = relay.enqueue({
-    kind: 'session.turn',
+    kind: 'agent.chat',
     payload: request,
     meta: {
       view: 'wiki-ai',
       agent: 'wikicurator',
-      source: 'railway-relay-session-turn',
+      source: 'railway-relay-agent-chat',
     },
   });
   const deadline = Date.now() + Math.max(1, Number(timeoutMs) || 90_000);

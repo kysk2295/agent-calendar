@@ -37,11 +37,9 @@ function fakeRelay(batches, { online = true } = {}) {
 
 const payload = {
   profile: 'wikicurator',
-  source: 'telegram',
   message: '질문 원문',
   requestId: 'req-1',
-  delivery: 'capture',
-  policy: 'wiki-read-only',
+  conversationId: 'agent-calendar-wiki',
 };
 
 
@@ -84,12 +82,12 @@ test('runRelaySessionTurn forwards ordered events using relay cursor continuatio
   });
 
   assert.deepEqual(relay.jobs, [{
-    kind: 'session.turn',
+    kind: 'agent.chat',
     payload,
     meta: {
       view: 'wiki-ai',
       agent: 'wikicurator',
-      source: 'railway-relay-session-turn',
+      source: 'railway-relay-agent-chat',
     },
   }]);
   assert.deepEqual(relay.calls.map((call) => call.cursor), [0, 2]);
@@ -151,6 +149,26 @@ test('validatePublicSessionTurnEvent rejects unknown fields and mismatched types
     () => validatePublicSessionTurnEvent({ type: 'tool', requestId: 'req-1' }),
     /invalid_session_turn_event/,
   );
+});
+
+
+test('runRelaySessionTurn rejects the retired Telegram capture payload', async () => {
+  const relay = fakeRelay([]);
+  await assert.rejects(
+    runRelaySessionTurn({
+      relay,
+      payload: {
+        profile: 'wikicurator',
+        source: 'telegram',
+        message: '질문 원문',
+        requestId: 'req-1',
+        delivery: 'capture',
+        policy: 'wiki-read-only',
+      },
+    }),
+    (error) => error.code === 'invalid_session_turn_request',
+  );
+  assert.equal(relay.jobs.length, 0);
 });
 
 
