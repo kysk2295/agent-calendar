@@ -113,6 +113,20 @@ async function navigateToScreen(page, check, timeoutMs) {
   };
 }
 
+async function login(page, { username, password, timeoutMs }) {
+  const loginForm = page.locator('form[action="/login"]');
+  await loginForm.waitFor({ state: 'visible', timeout: timeoutMs });
+  await loginForm.locator('input[name="username"]').fill(username);
+  await loginForm.locator('input[name="password"]').fill(password);
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: timeoutMs }),
+    loginForm.locator('button[type="submit"]').click(),
+  ]);
+  if (new URL(page.url()).pathname === '/login') {
+    throw new Error('Hermes web login was rejected');
+  }
+}
+
 async function run() {
   const username = requiredEnv('HERMES_WEB_USERNAME');
   const password = requiredEnv('HERMES_WEB_PASSWORD');
@@ -123,7 +137,6 @@ async function run() {
   const screens = [];
   const browser = await chromium.launch({ headless: true, args: ['--disable-gpu'] });
   const context = await browser.newContext({
-    httpCredentials: { username, password },
     viewport: { width: 1440, height: 1000 },
   });
   const page = await context.newPage();
@@ -164,6 +177,9 @@ async function run() {
 
   try {
     await page.goto(target.toString(), { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    if (new URL(page.url()).pathname === '/login') {
+      await login(page, { username, password, timeoutMs });
+    }
     await page.locator('#hermesNav').waitFor({ state: 'visible', timeout: timeoutMs });
     await page.locator('#hermesScreen').waitFor({ state: 'visible', timeout: timeoutMs });
 
