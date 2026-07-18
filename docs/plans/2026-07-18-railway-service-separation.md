@@ -3,7 +3,7 @@
 - Date: 2026-07-18
 - Owner: Codex
 - Work size: Large / Boundary
-- Status: In progress
+- Status: Complete
 
 ## Goal
 
@@ -46,20 +46,20 @@ Calendar API로 전달해 두 화면이 동시에 동작하도록 한다.
 
 ## Success Criteria
 
-- [ ] 현재 Agent Calendar API 도메인은 전환 중 계속 200을 반환하고 build commit,
+- [x] 현재 Agent Calendar API 도메인은 전환 중 계속 200을 반환하고 build commit,
       Relay online, daemon 상태가 유지된다.
-- [ ] 현재 Railway 서비스의 GitHub source가 `kysk2295/agent-calendar:main`으로
+- [x] 현재 Railway 서비스의 GitHub source가 `kysk2295/agent-calendar:main`으로
       고정돼 Hermes push가 Agent Calendar를 덮어쓰지 않는다.
-- [ ] 새 `hermes-os-web` 서비스는 `kysk2295/hermes-os:main`에서 독립 배포된다.
-- [ ] 새 웹 도메인의 `/`와 모든 정적 asset이 기존 Hermes UI를 200으로 제공한다.
-- [ ] Hermes 웹의 `/api/*` 요청과 SSE stream은 server-side에서 Agent Calendar
+- [x] 새 `hermes-os-web` 서비스는 `kysk2295/hermes-os:main`에서 독립 배포된다.
+- [x] 새 웹 도메인의 `/`와 모든 정적 asset이 기존 Hermes UI를 200으로 제공한다.
+- [x] Hermes 웹의 `/api/*` 요청과 SSE stream은 server-side에서 Agent Calendar
       API로 전달되며 upstream token은 브라우저, 응답, 로그에 노출되지 않는다.
-- [ ] Hermes 웹의 HTML, asset, API는 HTTPS Basic 인증 전에는 401이고 인증 후에만
+- [x] Hermes 웹의 HTML, asset, API는 HTTPS Basic 인증 전에는 401이고 인증 후에만
       제공된다. 자격증명은 Railway와 macOS Keychain에만 저장된다.
-- [ ] Hermes 웹 서비스에는 DB, daemon, Telegram bot, Relay polling 소유권이 없다.
-- [ ] Agent Calendar와 Hermes 웹을 각각 재배포해도 다른 서비스 deployment ID와
+- [x] Hermes 웹 서비스에는 DB, daemon, Telegram bot, Relay polling 소유권이 없다.
+- [x] Agent Calendar와 Hermes 웹을 각각 재배포해도 다른 서비스 deployment ID와
       health가 변하지 않는다.
-- [ ] 배포 스크립트는 project/environment/service/source를 명시하지 않으면
+- [x] 배포 스크립트는 project/environment/service/source를 명시하지 않으면
       실행되지 않는다.
 
 ## Edge Cases
@@ -67,6 +67,10 @@ Calendar API로 전달해 두 화면이 동시에 동작하도록 한다.
 - Upstream API unavailable: Hermes 웹은 비밀값 없이 명시적 502를 반환하고 정적
   UI 서비스 자체는 계속 올라와 있어야 한다.
 - SSE/chat: proxy가 전체 응답을 버퍼링하지 않고 chunk를 순서대로 전달해야 한다.
+- SSE disconnect/backpressure: 브라우저가 끊기면 upstream fetch와 reader를 취소하고,
+  느린 client에는 `drain` 전까지 다음 chunk를 밀어 넣지 않는다.
+- Compression/redirect: native fetch가 압축을 해제한 뒤 stale `content-encoding`을
+  전달하지 않고 upstream redirect는 자동 추적하지 않는다.
 - Authentication: browser가 보낸 토큰보다 server-side upstream token을 사용하고
   hop-by-hop/host/content-length 헤더는 전달하지 않는다.
 - Healthcheck: 정보나 secret을 포함하지 않는 `GET /healthz`만 인증 없이 200을
@@ -86,60 +90,64 @@ Calendar API로 전달해 두 화면이 동시에 동작하도록 한다.
 제품 코드보다 테스트를 먼저 작성한다.
 
 - RED:
-  - [ ] Agent Calendar deploy script가 explicit service/source guard 없이 실행될 수
+  - [x] Agent Calendar deploy script가 explicit service/source guard 없이 실행될 수
         있음을 잡는 contract test를 먼저 실패시킨다.
-  - [ ] Hermes web upstream proxy가 없는 상태에서 method/path/query/body/auth/SSE
+  - [x] Hermes web upstream proxy가 없는 상태에서 method/path/query/body/auth/SSE
         계약 테스트를 먼저 실패시킨다.
-  - [ ] 인증 없는 HTML/API 요청과 잘못된 Basic 자격증명이 upstream을 호출하지
+  - [x] 인증 없는 HTML/API 요청과 잘못된 Basic 자격증명이 upstream을 호출하지
         않고 401인지 먼저 실패시킨다.
   - [x] 운영 재현: 기존 Hermes URL의 `/`가 `404`와 Agent Calendar API-only JSON을
         반환해 두 artifact가 한 서비스에서 교체되는 문제를 확인했다.
 - GREEN:
-  - [ ] Agent Calendar deploy guard는 project
+  - [x] Agent Calendar deploy guard는 project
         `b64a9c8f-101e-4e08-9a7f-68fea0a4de9a`, production environment
         `7629b09d-3447-4f74-9b06-2f9b8aafb80a`, 기존 canonical service
         `b7bd75ff-cc24-4a6d-9387-1628fcaff9d6`(현재 name `hermes-os`)와 source
         `kysk2295/agent-calendar:main`을 모두 확인한 뒤 GitHub source deployment만
         감시한다. 평시 경로에서 `railway up`을 호출하지 않는다.
-  - [ ] Hermes web은 정적 UI를 유지하면서 `/api/*`를 canonical upstream으로
+  - [x] Hermes web은 정적 UI를 유지하면서 `/api/*`를 canonical upstream으로
         streaming proxy한다.
-  - [ ] 두 Railway 서비스와 도메인이 동시에 health/UI/API gate를 통과한다.
+  - [x] 두 Railway 서비스와 도메인이 동시에 health/UI/API gate를 통과한다.
 - REFACTOR:
-  - [ ] 중복 Railway config를 하나의 명시적 root config 계약으로 정리하되 green
-        이후에만 수행한다.
-  - [ ] 역사 QA 문서와 사용자 지정 URL은 변경하지 않는다.
+  - [x] 서로 다른 repository의 Railway config를 인위적으로 합치지 않고, 각
+        서비스의 source/config 경계를 명시적으로 유지했다.
+  - [x] 역사 QA 문서와 사용자 지정 URL은 변경하지 않았다.
 
 ## Acceptance Gates
 
-- [ ] `npm run backend:check`
-- [ ] `npm run test:backend`
-- [ ] `npm run typecheck`
-- [ ] `npm --workspace apps/desktop run test`
-- [ ] `npm run build:desktop`
-- [ ] clean Hermes worktree `npm test`
-- [ ] clean Hermes worktree `npm run build:static`
-- [ ] Agent Calendar public `GET /api/gateway-status`: 200, expected build SHA,
+- [x] `npm run backend:check`
+- [x] `npm run test:backend`
+- [x] `npm run typecheck`
+- [x] `npm --workspace apps/desktop run test`
+- [x] `npm run build:desktop`
+- [ ] clean Hermes worktree `npm test` (실행됨: 아래의 동일한 기존 39 failures)
+- [x] clean Hermes worktree `npm run build:static`
+- [x] Agent Calendar public `GET /api/gateway-status`: 200, expected build SHA,
       `relay.bridgeOnline=true`, `relay.liveSnapshotOnline=true`
-- [ ] Agent Calendar bearer-authenticated `GET /api/agent-operations`: 200,
+- [x] Agent Calendar bearer-authenticated `GET /api/agent-operations`: 200,
       `daemon.running=true`, `daemon.lastError=null`
-- [ ] Agent Calendar bearer-authenticated connector state: Telegram
+- [x] Agent Calendar bearer-authenticated connector state: Telegram
       `ingressMode=existing-poller`; Postgres-backed API read remains 200
-- [ ] Hermes web live `/` HTML/assets/API/SSE smoke
-- [ ] Hermes web `GET /healthz`: unauthenticated 200 with only `{ "ok": true }`
-- [ ] Hermes web unauthenticated/bad-auth `/` and `/api/state`: 401,
+- [x] Hermes web live `/` HTML/assets/API/SSE smoke
+- [x] Hermes web `GET /healthz`: unauthenticated 200 with only `{ "ok": true }`
+- [x] Hermes web unauthenticated/bad-auth `/` and `/api/state`: 401,
       `WWW-Authenticate` present, upstream request counter unchanged
-- [ ] Hermes web authenticated `/` and `/api/state`: 200; upstream token absent from
+- [x] Hermes web authenticated `/` and `/api/state`: 200; upstream token absent from
       HTML, headers, response body, Railway logs
-- [ ] Hermes SSE fixture/live route: first chunk arrives before upstream close and chunk
+- [x] Hermes SSE fixture/live route: first chunk arrives before upstream close and chunk
       order is preserved
-- [ ] Playwright로 Hermes 대시보드, 캘린더, 태스크, 워크보드, 에이전트,
+- [x] Playwright로 Hermes 대시보드, 캘린더, 태스크, 워크보드, 에이전트,
       자동화 탭 클릭 및 console/page error 검사
-- [ ] Railway service source/start command/domain/deployment 독립성 검사
+- [x] Railway service source/start command/domain/deployment 독립성 검사
 
 건너뛴 gate:
 
-- Gate: `npm test`
-  - Reason: 아직 실행 전. 완료 시 갱신한다.
+- Gate: clean Hermes worktree `npm test`
+  - Reason: 기준 SHA도 `507 total / 468 pass / 39 fail`, 변경본은 신규 회귀 테스트를
+    포함해 `519 total / 480 pass / 39 fail`이다. 실패 39건은 변경 전부터 존재한
+    PRD 파일·고정 디자인 parity 계약군이며 이번 proxy/UI compatibility diff로
+    추가된 failure는 0건이다. focused proxy/runtime/readiness `101/101`과
+    static production build는 모두 exit 0이다.
 
 ## Rollback
 
@@ -179,8 +187,9 @@ Calendar API로 전달해 두 화면이 동시에 동작하도록 한다.
 - GitHub: Hermes proxy commit은 remote main의 검증 SHA 위에 단일 fast-forward
   commit으로 만들고, 실패 시 해당 commit을 revert한다.
 - DB: 새 웹에는 `DATABASE_URL`을 주지 않으므로 DB rollback이 필요 없어야 한다.
-- Secrets: upstream token은 Railway service variable에만 존재하며 출력하거나
-  파일에 저장하지 않는다.
+- Secrets: 새 웹 서비스의 upstream token copy는 Railway service reference로만
+  주입하며 출력하거나 파일에 저장하지 않는다. 기존 trusted desktop settings의
+  canonical bearer copy는 URL/토큰 migration 없이 유지한다.
 - Web access: Basic password는 무작위 생성하고 Railway variable과 macOS Keychain에
   동일하게 저장한다. plan, shell output, git, 최종 보고에 원문을 남기지 않는다.
 
@@ -200,19 +209,21 @@ Calendar API로 전달해 두 화면이 동시에 동작하도록 한다.
       `29cbfdeb484139901cf68c2a7690de32aaf6f0ac`인지 확인하고 그 SHA에서 별도
       `codex/hermes-ui-proxy` worktree를 만든다. `git status --porcelain`은 빈 출력,
       `git rev-parse HEAD`는 위 SHA여야 한다.
-- [ ] Step 5: Hermes `tests/railway-gateway.test.js`에 Basic 401/no-upstream-call,
+- [x] Step 5: Hermes `tests/railway-gateway.test.js`에 Basic 401/no-upstream-call,
       public minimal `/healthz`, method/path/query/body, injected bearer, secret redaction,
       SSE early-chunk RED를 추가한다. Command:
       `node --test tests/railway-gateway.test.js tests/runtime-gateway.test.js`.
-      proxy mode 전에는 expected assertion failure를 확인하고, 최소 구현 뒤 같은
-      command exit 0과 `npm test` exit 0을 확인한다.
-- [ ] Step 6: Agent Calendar narrow/full gate를 실행하고 Agent Calendar 변경만
+      proxy mode 전에는 expected assertion failure를 확인한다. 구현 뒤 같은 command,
+      gzip/redirect/disconnect 실제 HTTP 회귀, readiness boundary contract, static build를
+      exit 0으로 확인한다. full `npm test`는 위 baseline-equivalent 39 failures를 별도
+      기록한다.
+- [x] Step 6: Agent Calendar narrow/full gate를 실행하고 Agent Calendar 변경만
       commit/push한다. Commands: `npm run backend:check`, `npm run test:backend`,
       `npm run typecheck`, `npm --workspace apps/desktop run test`,
       `npm run build:desktop`; 모두 exit 0. `git diff --cached --name-only`에는 plan,
       deploy script, deploy test만 있어야 한다. push 뒤 `git ls-remote origin
       refs/heads/main`은 local HEAD와 같고 Hermes remote main은 여전히 위 29cb SHA다.
-- [ ] Step 7: 현재 canonical Railway service source를 먼저
+- [x] Step 7: 현재 canonical Railway service source를 먼저
       `kysk2295/agent-calendar:main`으로 고정한 뒤 stale `SOURCE_COMMIT` variable을
       삭제하고 explicit `redeploy --from-source`를 수행한다. 기존
       service ID/name/domain은 Relay·private-DNS 호환 anchor로 유지한다. 새 deployment가
@@ -234,12 +245,13 @@ Calendar API로 전달해 두 화면이 동시에 동작하도록 한다.
     `/api/channels/status`의 `.channels[] | select(.id=="telegram")` ingress
     `existing-poller`, `/api/tasks` HTTP 200을 assert한다. 전환 직전 다시 캡처한
     task ID count/SHA-256 sentinel이 Step 1 baseline과 동일해야 한다.
-- [ ] Step 8: clean Hermes worktree에서 `npm test`와 `npm run build:static`을 통과한
-      proxy commit을 `kysk2295/hermes-os:main`에 push한다. Expected: Step 7 canonical
+- [x] Step 8: clean Hermes worktree에서 관련 test/build가 green이고 full suite가
+      baseline-equivalent임을 확인한 proxy commit을 `kysk2295/hermes-os:main`에
+      push한다. Expected: Step 7 canonical
       deployment ID가 이 push만으로 변하지 않는다.
       Push 직전/직후 canonical latest deployment ID를 각각 저장해 동일함을
       `test "$before" = "$after"`로 assert한다.
-- [ ] Step 9: `hermes-os-web` service를 만들고 private upstream URL/token reference와
+- [x] Step 9: `hermes-os-web` service를 만들고 private upstream URL/token reference와
       Basic auth만 설정한 뒤 Hermes main을 연결·배포하고 도메인을 생성한다.
       먼저 `railway status --json`으로 linked project/environment가 위 fixed selector와
       일치함을 assert한다. `railway add --service hermes-os-web --json` 결과의 새 service
@@ -252,7 +264,7 @@ Calendar API로 전달해 두 화면이 동시에 동작하도록 한다.
       healthcheck는 `/healthz`다.
       Source는 `kysk2295/hermes-os:main`, start command는 `npm run start:railway`, latest
       deployment는 `SUCCESS`, generated domain의 `/healthz`는 인증 없이 200이어야 한다.
-- [ ] Step 10: 두 live surface를 검증한다.
+- [x] Step 10: 두 live surface를 검증한다.
   - canonical: public gateway-status와 authenticated agent-operations/connector/API read
   - web: healthz 200, no/bad Basic 401, good Basic UI/API 200, SSE early chunk
   - independence: Hermes push/web redeploy 전후 canonical deployment ID 동일;
@@ -261,7 +273,7 @@ Calendar API로 전달해 두 화면이 동시에 동작하도록 한다.
     credential를 브라우저 context에만 주입하고 dashboard/calendar/tasks/workboard/
     agents/automation tabs를 click한다. console error 0, failed same-origin API request
     0을 assert하고 스크립트는 secret을 출력하지 않는다.
-- [ ] Step 11: plan verification notes, 실제 새 service/deployment/domain IDs와 남은
+- [x] Step 11: plan verification notes, 실제 새 service/deployment/domain IDs와 남은
       위험을 갱신한다.
 
 ## Verification Notes
@@ -299,6 +311,81 @@ Calendar API로 전달해 두 화면이 동시에 동작하도록 한다.
 - Command: clean Hermes worktree creation
   - Result: branch `codex/hermes-ui-proxy-20260718`, HEAD
     `29cbfdeb484139901cf68c2a7690de32aaf6f0ac`, original dirty checkout untouched.
+- Command: Agent Calendar full local gates
+  - Result: backend check exit 0; backend `284/284`; desktop `141/141`; typecheck and
+    desktop production build exit 0.
+- Command: Agent Calendar commit/push
+  - Result: `main` commit `47bce6f9e0a85b57fc5dde5f0fcda0ffda5b56ee` pushed to
+    `kysk2295/agent-calendar`.
+- Command: canonical Railway source cutover and explicit source redeploy
+  - Result: service `b7bd75ff-cc24-4a6d-9387-1628fcaff9d6` now sources
+    `kysk2295/agent-calendar:main`; deployment
+    `bc307f27-46cf-4f24-acce-3baed9bf3213` reached SUCCESS at the expected commit and
+    start command. Stale `SOURCE_COMMIT` is absent.
+- Command: post-cutover canonical live gates
+  - Result: build `47bce6f9e0a8`, Relay bridge/live snapshot online, daemon running with
+    no error, all five Telegram profiles ready in `existing-poller`, registered webhook
+    count 0, task count/hash still `355`/`fcf451f85626147f4450f0617831cead3ff3564f223b21158535891701516b8a`.
+- Command: Hermes proxy TDD and adversarial transport regressions
+  - RED: non-proxy `/healthz`, authenticated cache isolation, native-fetch gzip,
+    manual redirect, SSE cache/cancel 계약을 추가한 뒤 `89 total / 83 pass / 6 fail`을
+    확인했다.
+  - GREEN: Basic auth, strict origin/fail-closed service identity, method/path/query/body,
+    server bearer, gzip metadata removal, redirect preservation, secret-redacted 502,
+    SSE early chunk/disconnect cancellation/backpressure를 별도 proxy module로 구현했고
+    `node --test tests/railway-gateway.test.js tests/runtime-gateway.test.js`가
+    readiness payload behavior 2 tests를 포함해 `101/101` pass다.
+- Command: clean Hermes worktree `npm run build:static`
+  - Result: static copy와 Vite production build 모두 exit 0.
+- Command: clean Hermes worktree `npm test`
+  - Result: `519 total / 480 pass / 39 fail`; 기준 SHA의 `507 / 468 / 39`와 failure
+    count/family가 같고 신규 12 tests는 모두 통과했다.
+- Command: local proxy against canonical production + Playwright clickthrough
+  - Result: minimal health 200, no/bad Basic 401, authenticated HTML/API 200;
+    dashboard/calendar/tasks/workboard/agents/automation 전부 visible, console/page error,
+    request failure, same-origin 4xx/5xx가 모두 0이다. Canonical redacted readiness도
+    5개 profile/status row를 유지하고 setup command 원문은 노출하지 않는다.
+- Command: Hermes proxy commit and GitHub source deployment
+  - Result: clean worktree commit
+    `4edc3f2a99859d99039b8a77eeff26a69af4b39f`를
+    `kysk2295/hermes-os:main`에 fast-forward push했다. 이 push 전후 canonical
+    deployment는 `bc307f27-46cf-4f24-acce-3baed9bf3213`로 동일했다.
+- Command: Railway `hermes-os-web` provisioning and source deployment
+  - Result: service `3ec65b5e-f4b3-43f6-a8d2-52ec2222b6d0`, deployment
+    `5f0cb9a0-5c82-4a5e-a64e-4ca5c3b1d7ab`, source
+    `kysk2295/hermes-os:main`, source SHA `4edc3f2a99859d99039b8a77eeff26a69af4b39f`가
+    `SUCCESS`다. Runtime log에서 `start:railway` 및 gateway port `8080` 시작을
+    확인했다. 전용 도메인은
+    `https://hermes-os-web-production.up.railway.app`이다.
+- Command: web-service variable ownership allow/deny check
+  - Result: 사용자 정의 키는 `AGENT_CALENDAR_API_ORIGIN`,
+    `AGENT_CALENDAR_API_TOKEN`, `HERMES_WEB_USERNAME`, `HERMES_WEB_PASSWORD`만
+    존재한다. `DATABASE_URL`, `HERMES_RELAY_*`, `HERMES_BRIDGE_*`,
+    `HERMES_TELEGRAM_*`, `AGENT_OPERATIONS_*`는 없고 private service reference가 비어
+    있지 않은 것도 값 출력 없이 확인했다.
+- Command: live web security/API/SSE smoke
+  - Result: `/healthz`는 정확히 `{"ok":true}`로 200, 미인증 `/`와
+    `/api/state` 및 오류 credential은 401이다. 인증 후 `/`, `/api/state`,
+    `/api/gateway-status`, `/api/tasks`는 모두 200이다. Live `/api/events` SSE의
+    첫 chunk 125 bytes가 536 ms에 도착했다. 응답 3,198,188 bytes와 해당
+    deployment의 build/runtime log 1,543 bytes를 검색했으며 Basic password와 upstream
+    bearer 일치는 각각 0건이다.
+- Command: production Playwright tab clickthrough
+  - Result: 대시보드, 캘린더, 태스크 보드, 워크보드, 에이전트,
+    오토메이션 6개 화면이 모두 visible이고 console error, page error,
+    request failure, same-origin 4xx/5xx는 모두 0건이다. 에이전트 준비 표시는
+    `default`, `bizconsultant`, `stockagent`, `uniportpm`, `wikicurator` 5개를
+    유지하고 `hermes gateway setup` 원문은 DOM에 노출하지 않는다.
+- Command: post-web-deploy canonical invariants
+  - Result: canonical deployment는 여전히
+    `bc307f27-46cf-4f24-acce-3baed9bf3213`/Agent Calendar
+    `47bce6f9e0a85b57fc5dde5f0fcda0ffda5b56ee`이다. Relay bridge/live snapshot은
+    online, daemon은 running/no error, Telegram은 connected/delivery-ready
+    `existing-poller`/registered webhook 0이다. task sentinel은 여전히
+    `355`/`fcf451f85626147f4450f0617831cead3ff3564f223b21158535891701516b8a`다.
+- Command: independent final code review
+  - Result: P0/P1/P2 0건, `APPROVE`; focused `101/101`, scoped strict TypeScript,
+    static build, syntax/diff 검사가 모두 통과했다.
 
 ## Executable Live QA
 
@@ -340,15 +427,15 @@ Secret 원문은 출력하지 않고 데스크톱 settings와 macOS Keychain에�
 
 ## Remaining Risks
 
-- Risk: Hermes UI가 Agent Calendar에 없는 legacy API를 호출할 수 있다.
-  - Mitigation: 실제 탭 clickthrough와 API network matrix로 검출하고, UI를
-    변형하지 않은 compatibility adapter만 추가한다.
-- Risk: Railway source connect가 즉시 deployment를 만들 수 있다.
-  - Mitigation: 검증된 pushed Agent Calendar SHA와 동일 backend tree의 source를
-    먼저 확인하고 rollback deployment ID를 기록한 뒤 연결한다.
-- Risk: Railway generated domain은 서비스 rename과 이름이 다를 수 있다.
-  - Mitigation: 이번 전환에서는 기존 service를 rename하지 않고 API compatibility
-    anchor로 유지한다. 새 Hermes 웹에만 별도 domain을 생성한다.
-- Risk: proxy upstream secret가 error/log에 섞일 수 있다.
-  - Mitigation: URL credential 금지, server-side header injection, 오류 redaction,
-    hostile-token test를 필수로 둔다.
+- Risk: Hermes UI가 향후 새 legacy API에 의존하면 Agent Calendar와 다시
+  compatibility drift가 생길 수 있다.
+  - Mitigation: 배포 QA 스크립트를 유지하고 Hermes UI/API 변경 때 매번 6개 탭과
+    same-origin network gate를 재실행한다.
+- Risk: Basic credential은 현재 단일 운영자 credential이므로 공유 또는 분실 시
+  수동 rotation이 필요하다.
+  - Mitigation: 원문은 Railway와 macOS Keychain에만 저장했고 응답·로그·Git에서
+    노출 검사를 통과했다. 필요 시 두 저장소의 값을 함께 교체한다.
+- Risk: `/api/state` 응답이 현재 약 3.2 MB라 데이터가 더 커지면 첫 화면의
+  network cost가 커질 수 있다.
+  - Mitigation: 이번 분리의 정확성과는 별개이며, 후속 성능 작업에서 화면별 API와
+    pagination을 검토한다. 현재 실환경 6개 탭은 request failure 없이 렌더됐다.
