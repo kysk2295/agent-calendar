@@ -12,6 +12,10 @@ export type AgentWorkLiveTurnState = Readonly<{
 }>;
 
 const IDLE: AgentWorkLiveTurnState = { active: false, text: '', error: '', refreshFailed: false };
+type OwnedAgentWorkLiveTurnState = Readonly<{
+  missionId: string;
+  turn: AgentWorkLiveTurnState;
+}>;
 
 function errorCopy(error: unknown): string {
   if (error instanceof HermesApiError && error.code === 'work_turn_in_progress') {
@@ -21,21 +25,44 @@ function errorCopy(error: unknown): string {
 }
 
 export function useAgentWorkLiveTurn(missionId: string, onRefresh: () => Promise<boolean>) {
-  const [state, setState] = useState<AgentWorkLiveTurnState>(IDLE);
+  const [ownedState, setOwnedState] = useState<OwnedAgentWorkLiveTurnState>({ missionId, turn: IDLE });
   const abortRef = useRef<AbortController | null>(null);
-  const retryMessageRef = useRef<Readonly<{ text: string; clientMessageId: string }> | null>(null);
+  const retryMessageRef = useRef<Readonly<{ missionId: string; text: string; clientMessageId: string }> | null>(null);
+  const missionIdRef = useRef(missionId);
   const onRefreshRef = useRef(onRefresh);
+  missionIdRef.current = missionId;
   onRefreshRef.current = onRefresh;
+  const state = ownedState.missionId === missionId ? ownedState.turn : IDLE;
 
-  useEffect(() => () => abortRef.current?.abort(), [missionId]);
+  useEffect(() => {
+    setOwnedState({ missionId, turn: IDLE });
+    retryMessageRef.current = null;
+    return () => abortRef.current?.abort();
+  }, [missionId]);
 
   const start = useCallback(async (request: AgentWorkLiveTurnRequest): Promise<AgentWorkDelivery> => {
     if (!missionId) throw new Error('Live Work Conversation requires a selected work');
     if (abortRef.current) throw new Error('Live Work Conversation is already active');
     const controller = new AbortController();
     abortRef.current = controller;
-    setState({ active: true, text: '', error: '', refreshFailed: false });
+    const turnMissionId = missionId;
+    const ownsTurn = () => (
+      missionIdRef.current === turnMissionId
+      && abortRef.current === controller
+      && !controller.signal.aborted
+    );
+    const updateState = (update: (current: AgentWorkLiveTurnState) => AgentWorkLiveTurnState) => {
+      setOwnedState((current) => {
+        if (!ownsTurn()) return current;
+        return {
+          missionId: turnMissionId,
+          turn: update(current.missionId === turnMissionId ? current.turn : IDLE),
+        };
+      });
+    };
+    setOwnedState({ missionId: turnMissionId, turn: { active: true, text: '', error: '', refreshFailed: false } });
     const refresh = async () => {
+      if (missionIdRef.current !== turnMissionId) return false;
       try {
         return await onRefreshRef.current();
       } catch {
@@ -51,16 +78,17 @@ export function useAgentWorkLiveTurn(missionId: string, onRefresh: () => Promise
         try {
           const response = await hermesApi.streamAgentWorkTurn(missionId, request, controller.signal);
           await consumeAgentWorkLiveSse(response, async (event) => {
+            if (!ownsTurn()) return;
             if (event.type === 'accepted') {
               accepted = true;
               resolve(event.delivery);
               void refresh().then((refreshed) => {
-                if (!refreshed) setState((current) => ({ ...current, refreshFailed: true }));
+                if (!refreshed) updateState((current) => ({ ...current, refreshFailed: true }));
               });
               return;
             }
             if (event.type === 'delta') {
-              setState((current) => ({ ...current, active: true, text: `${current.text}${event.text}` }));
+              updateState((current) => ({ ...current, active: true, text: `${current.text}${event.text}` }));
               return;
             }
             if (event.type === 'checkpoint') {
@@ -69,21 +97,33 @@ export function useAgentWorkLiveTurn(missionId: string, onRefresh: () => Promise
             }
             if (event.type === 'error') {
               streamError = event.message;
-              setState((current) => ({ ...current, active: false, error: event.message }));
+              updateState((current) => ({ ...current, active: false, error: event.message }));
               return;
             }
             if (event.type === 'done') {
               const refreshed = await refresh();
               if (!streamError || refreshed || durableTerminalError) {
-                setState(refreshed ? IDLE : { ...IDLE, refreshFailed: true });
+                updateState(() => refreshed ? IDLE : { ...IDLE, refreshFailed: true });
               }
               completed = true;
             }
           });
           if (!accepted) throw new Error('Live Work Conversation did not acknowledge the message');
+          if (!completed && !streamError) {
+            updateState((current) => ({
+              ...current,
+              active: false,
+              error: '실시간 응답이 중단되었습니다. 부분 응답을 확인한 뒤 다시 시도해 주세요.',
+            }));
+          }
         } catch (error: unknown) {
           const message = errorCopy(error);
-          setState({ active: false, text: '', error: message, refreshFailed: false });
+          updateState((current) => ({
+            active: false,
+            text: accepted ? current.text : '',
+            error: current.error || message,
+            refreshFailed: false,
+          }));
           if (!accepted) reject(error instanceof Error ? error : new Error(message));
         } finally {
           if (accepted && !completed) await refresh();
@@ -94,18 +134,18 @@ export function useAgentWorkLiveTurn(missionId: string, onRefresh: () => Promise
   }, [missionId]);
 
   const send = useCallback(async (text: string) => {
-    const pending = retryMessageRef.current?.text === text
+    const pending = retryMessageRef.current?.missionId === missionId && retryMessageRef.current.text === text
       ? retryMessageRef.current
-      : { text, clientMessageId: globalThis.crypto.randomUUID() };
+      : { missionId, text, clientMessageId: globalThis.crypto.randomUUID() };
     retryMessageRef.current = pending;
     try {
-      const accepted = await start(pending);
-      retryMessageRef.current = null;
+      const accepted = await start({ text: pending.text, clientMessageId: pending.clientMessageId });
+      if (retryMessageRef.current === pending) retryMessageRef.current = null;
       return accepted;
     } catch (error) {
       throw error;
     }
-  }, [start]);
+  }, [missionId, start]);
   const startInitial = useCallback(() => start({ initial: true }), [start]);
 
   return { state, send, startInitial };

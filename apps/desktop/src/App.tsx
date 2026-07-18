@@ -2079,9 +2079,15 @@ export function App() {
         )));
       });
     } catch {
+      setChatInput((current) => current.trim() ? current : message);
       setChatMessages((current) => current.map((item, index) => (
         index === current.length - 1
-          ? { ...item, text: '실시간 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.' }
+          ? {
+            ...item,
+            text: item.text.trim()
+              ? `${item.text}\n\n응답이 중단되었습니다. 입력창의 질문으로 다시 시도해 주세요.`
+              : '실시간 응답을 받지 못했습니다. 입력창의 질문으로 다시 시도해 주세요.',
+          }
           : item
       )));
     }
@@ -2114,55 +2120,55 @@ export function App() {
       const decoder = new TextDecoder();
       let buffer = '';
       let streamedAnswer = '';
+      const consumeWikiBlock = (block: string) => {
+        const event = block.split('\n').find((line) => line.startsWith('event:'))?.replace(/^event:\s*/, '').trim() || '';
+        const data = block.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.replace(/^data:\s?/, '')).join('\n').trim();
+        if (!data) return;
+        const parsed = JSON.parse(data) as {
+          text?: string;
+          error?: string;
+          gatewayFallback?: boolean;
+          source?: string;
+          sources?: Item[];
+          retrieval?: Item;
+          llm?: Item;
+          run?: { model?: string; agent?: string };
+        };
+        if (Array.isArray(parsed.sources)) {
+          setWikiAnswerSources(parsed.sources);
+        }
+        if (parsed.gatewayFallback !== undefined || parsed.source || parsed.run?.model || parsed.llm || parsed.retrieval) {
+          setWikiAnswerMeta((current) => ({
+            ...current,
+            gatewayFallback: parsed.gatewayFallback ?? current.gatewayFallback,
+            source: parsed.source || text(current.source, 'stream'),
+            model: parsed.run?.model || text(current.model, 'wikicurator'),
+            agent: text(parsed.llm?.agent || parsed.run?.agent, text(current.agent, 'wikicurator')),
+            provider: text(parsed.llm?.provider, text(current.provider, 'profile')),
+            embeddingModel: text(parsed.retrieval?.embeddingModel, text(current.embeddingModel)),
+          }));
+        }
+        if (parsed.error) throw new Error(parsed.error);
+        if (event === 'delta' && parsed.text) {
+          streamedAnswer += parsed.text;
+          setWikiAnswer(streamedAnswer);
+        }
+        if (event === 'done' && parsed.text) {
+          streamedAnswer = parsed.text;
+          setWikiAnswer(streamedAnswer);
+        }
+      };
       while (true) {
         const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+        buffer = `${buffer}${decoder.decode(value, { stream: !done })}`.replace(/\r\n/g, '\n');
         const blocks = buffer.split('\n\n');
         buffer = blocks.pop() || '';
         for (const block of blocks) {
-          const event = block.split('\n').find((line) => line.startsWith('event:'))?.replace(/^event:\s*/, '').trim() || '';
-          const data = block.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.replace(/^data:\s?/, '')).join('\n').trim();
-          if (!data) continue;
-          try {
-            const parsed = JSON.parse(data) as {
-              text?: string;
-              error?: string;
-              gatewayFallback?: boolean;
-              source?: string;
-              sources?: Item[];
-              retrieval?: Item;
-              llm?: Item;
-              run?: { model?: string; agent?: string };
-            };
-            if (Array.isArray(parsed.sources) && parsed.sources.length) {
-              setWikiAnswerSources(parsed.sources);
-            }
-            if (parsed.gatewayFallback !== undefined || parsed.source || parsed.run?.model || parsed.llm || parsed.retrieval) {
-              setWikiAnswerMeta((current) => ({
-                ...current,
-                gatewayFallback: parsed.gatewayFallback ?? current.gatewayFallback,
-                source: parsed.source || text(current.source, 'stream'),
-                model: parsed.run?.model || text(current.model, 'wikicurator'),
-                agent: text(parsed.llm?.agent || parsed.run?.agent, text(current.agent, 'wikicurator')),
-                provider: text(parsed.llm?.provider, text(current.provider, 'profile')),
-                embeddingModel: text(parsed.retrieval?.embeddingModel, text(current.embeddingModel)),
-              }));
-            }
-            if (parsed.error) throw new Error(parsed.error);
-            if (event === 'delta' && parsed.text) {
-              streamedAnswer += parsed.text;
-              setWikiAnswer(streamedAnswer);
-            }
-            if (event === 'done' && parsed.text) {
-              streamedAnswer = parsed.text;
-              setWikiAnswer(streamedAnswer);
-            }
-          } catch (parseError) {
-            if (parseError instanceof Error && parseError.message) throw parseError;
-          }
+          consumeWikiBlock(block);
         }
+        if (done) break;
       }
+      if (buffer.trim()) consumeWikiBlock(buffer);
       if (!streamedAnswer.trim()) setWikiAnswer('위키 큐레이터 답변 본문이 비어 있습니다.');
     } catch (error) {
       setWikiAnswer(error instanceof Error ? `위키 답변 실패: ${error.message}` : '위키 답변 실패');
