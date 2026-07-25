@@ -31,6 +31,7 @@ const { createRunnerWorkspaceInferenceCompletion } = require('./calendar-ai-runn
 const { WorkspaceInferenceBroker } = require('./workspace-inference-broker');
 const { ProviderAgentBridge } = require('./provider-agent-session-bridge');
 const { AutomationFederation } = require('./automation-federation');
+const { RunnerAutomationSourceAdapter } = require('./runner-automation-source-adapter');
 const { readProductionRequestBody } = require('./production-request-safety');
 
 /**
@@ -178,9 +179,13 @@ function createPhase1Runtime({
     legacyProduct: product,
     inferenceBroker,
   });
+  const runnerAutomationAdapter = new RunnerAutomationSourceAdapter({ pool, env });
   const automationFederation = new AutomationFederation({
     pool,
-    adapters: automationAdapters,
+    adapters: {
+      hermes: runnerAutomationAdapter,
+      ...automationAdapters,
+    },
     env,
   });
   const calendarAi = new CalendarAiService({

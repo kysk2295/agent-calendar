@@ -14,7 +14,7 @@
     "lib"
   ],
   "scripts": {
-    "check": "node -c bin/agent-calendar-runner.js && node -c bin/agent-calendar-runner-update.js && node -c tools/runner-release-artifacts.cjs && node -c tools/phase10-runner-rollback-rehearsal.cjs && node -c lib/index.js && node -c lib/crypto.js && node -c lib/client.js && node -c lib/capabilities.js && node -c lib/store.js && node -c lib/execution-loop.js && node -c lib/release-manager.js && node -c lib/provider-connectors.js && node -c lib/connector-loop.js && node -c lib/engines/index.js && node -c lib/engines/fake.js && node -c lib/engines/codex.js && node -c lib/engines/claude.js && node -c lib/engines/grok.js && node -c lib/engines/hermes.js && node -c lib/engines/knowledge.js && node -c lib/engines/contract.js && node -c lib/engines/spawn-safe.js",
+    "check": "node -c bin/agent-calendar-runner.js && node -c bin/agent-calendar-runner-update.js && node -c tools/runner-release-artifacts.cjs && node -c tools/phase10-runner-rollback-rehearsal.cjs && node -c lib/index.js && node -c lib/crypto.js && node -c lib/client.js && node -c lib/capabilities.js && node -c lib/store.js && node -c lib/execution-loop.js && node -c lib/release-manager.js && node -c lib/provider-connectors.js && node -c lib/automation-connectors.js && node -c lib/connector-loop.js && node -c lib/engines/index.js && node -c lib/engines/fake.js && node -c lib/engines/codex.js && node -c lib/engines/claude.js && node -c lib/engines/grok.js && node -c lib/engines/hermes.js && node -c lib/engines/knowledge.js && node -c lib/engines/contract.js && node -c lib/engines/spawn-safe.js",
     "test": "node --test tests/*.test.cjs",
     "start": "node bin/agent-calendar-runner.js"
   },

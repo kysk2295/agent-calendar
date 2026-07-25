@@ -129,6 +129,18 @@ function sourceAutomation({
   };
 }
 
+async function waitForConnectorRequest(bridge, runner, expectedKind) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const next = await bridge.nextConnectorRequest(runner);
+    if (next.request) {
+      assert.equal(next.request.kind, expectedKind);
+      return next.request;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`connector request timeout: ${expectedKind}`);
+}
+
 function createFakeAutomationAdapter({ limited = false } = {}) {
   const state = {
     items: [sourceAutomation()],
@@ -247,6 +259,17 @@ test('Phase 7 automation federation routes are registered', () => {
   assert.ok(matchProductionRoute('GET', '/api/automation/automations'));
   assert.ok(matchProductionRoute('POST', '/api/automation/changes'));
   assert.ok(matchProductionRoute('POST', '/api/automation/changes/change-1/approve'));
+});
+
+test('production Automation Federation uses each Workspace Runner instead of one global Hermes relay', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', 'app', 'railway-gateway-server.js'),
+    'utf8',
+  );
+  assert.match(
+    source,
+    /const automationAdapters\s*=\s*productionMode\s*\?\s*\{\}/,
+  );
 });
 
 test('Migration 0024 creates the Workspace-isolated automation federation records', async () => {
@@ -472,6 +495,149 @@ test('Automation federation synchronizes source-owned records and applies capabi
       automations_b: 0,
       occurrences_a: 1,
     });
+    runtime.durableExecution.stopBackgroundWorkers();
+    runtime.unifiedCalendar.stopBackgroundWorkers();
+  });
+});
+
+test('Runner-native Hermes automation stays on the exact Workspace Runner across sync and mutation', async () => {
+  await withPostgres(async ({ pool }) => {
+    const runtime = createPhase1Runtime({
+      pool,
+      env: {
+        WORKSPACE_AUTH_MODE: 'production',
+        AUTOMATION_FEDERATION_ENABLED: '1',
+        AUTOMATION_WRITES_ENABLED: '1',
+        AUTOMATION_RUNNER_REQUEST_TIMEOUT_MS: '2000',
+        AUTOMATION_RUNNER_POLL_MS: '5',
+        DURABLE_EXECUTION_BACKGROUND_WORKERS: '0',
+        UNIFIED_CALENDAR_BACKGROUND_WORKERS: '0',
+        CALENDAR_AI_RUNNER_MODEL_ENABLED: '0',
+        CALENDAR_AI_CLOUD_MODEL_ENABLED: '0',
+      },
+    });
+    const scopeA = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+    const runnerA = {
+      id: 'runner-a',
+      workspace_id: 'ws-a',
+      status: 'active',
+      connection_state: 'connected',
+    };
+    const runnerB = {
+      id: 'runner-b',
+      workspace_id: 'ws-b',
+      status: 'active',
+      connection_state: 'connected',
+    };
+
+    const connecting = runtime.automationFederation.connectSource(scopeA, {
+      adapterKind: 'hermes',
+      displayName: 'Alex의 Hermes',
+      runnerId: 'runner-a',
+      requestId: 'connect-runner-a-1',
+    });
+    const capabilityRequest = await waitForConnectorRequest(
+      runtime.providerAgentBridge,
+      runnerA,
+      'automation_capabilities',
+    );
+    assert.deepEqual(
+      (await runtime.providerAgentBridge.nextConnectorRequest(runnerB)).request,
+      null,
+    );
+    await assert.rejects(
+      () => runtime.providerAgentBridge.completeConnectorRequest(runnerB, {
+        requestId: capabilityRequest.id,
+        result: {},
+      }),
+      (error) => error.code === 'CONNECTOR_REQUEST_NOT_FOUND',
+    );
+    await runtime.providerAgentBridge.completeConnectorRequest(runnerA, {
+      requestId: capabilityRequest.id,
+      result: {
+        list: true,
+        create: true,
+        update: true,
+        pause: true,
+        resume: true,
+        run: true,
+        delete: false,
+        triggers: ['cron'],
+        sessionReuse: false,
+        runHistory: true,
+      },
+    });
+    const connected = await connecting;
+    assert.equal(connected.source.runnerId, 'runner-a');
+    assert.equal(connected.source.connectionRef.providerCredentialsStored, false);
+
+    const syncing = runtime.automationFederation.synchronize(scopeA, connected.source.id);
+    const listRequest = await waitForConnectorRequest(
+      runtime.providerAgentBridge,
+      runnerA,
+      'automation_list',
+    );
+    assert.equal(listRequest.payload.cursor, '');
+    await runtime.providerAgentBridge.completeConnectorRequest(runnerA, {
+      requestId: listRequest.id,
+      result: {
+        items: [sourceAutomation()],
+        occurrences: [{
+          externalOccurrenceId: 'weekly-brief:2026-07-27T00:00:00.000Z',
+          automationExternalId: 'weekly-brief',
+          scheduledAt: '2026-07-27T00:00:00.000Z',
+          status: 'scheduled',
+          revision: 'occ-rev-1',
+        }],
+        cursor: 'cursor-runner-a-1',
+        sourceRevision: 'source-rev-1',
+      },
+    });
+    const synchronized = await syncing;
+    assert.equal(synchronized.automations.length, 1);
+    assert.equal(synchronized.occurrences.length, 1);
+
+    const pausing = runtime.automationFederation.requestChange(scopeA, {
+      sourceId: connected.source.id,
+      automationId: synchronized.automations[0].id,
+      operation: 'pause',
+      requestId: 'pause-runner-a-1',
+      expectedRevision: 'rev-1',
+      input: {},
+    });
+    const pauseRequest = await waitForConnectorRequest(
+      runtime.providerAgentBridge,
+      runnerA,
+      'automation_mutation',
+    );
+    assert.equal(pauseRequest.payload.action, 'pause');
+    assert.equal(pauseRequest.payload.externalId, 'weekly-brief');
+    await runtime.providerAgentBridge.completeConnectorRequest(runnerA, {
+      requestId: pauseRequest.id,
+      result: {
+        automation: sourceAutomation({ revision: 'rev-2', enabled: false }),
+        sourceRevision: 'rev-2',
+      },
+    });
+    const paused = await pausing;
+    assert.equal(paused.receipt.status, 'succeeded');
+    assert.equal(paused.automation.status, 'paused');
+
+    const connectorRows = await pool.query(
+      `select workspace_id, runner_id, kind, request::text as request, response::text as response
+       from runner_connector_requests
+       order by created_at asc`,
+    );
+    assert.equal(connectorRows.rows.length, 3);
+    assert.equal(connectorRows.rows.every((row) => (
+      row.workspace_id === 'ws-a' && row.runner_id === 'runner-a'
+    )), true);
+    assert.equal(
+      /token|credential|authorization|cookie|password|secret/i.test(
+        JSON.stringify(connectorRows.rows),
+      ),
+      false,
+    );
     runtime.durableExecution.stopBackgroundWorkers();
     runtime.unifiedCalendar.stopBackgroundWorkers();
   });

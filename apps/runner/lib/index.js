@@ -8,6 +8,7 @@ module.exports = {
   ...require('./execution-loop'),
   ...require('./release-manager'),
   ...require('./provider-connectors'),
+  ...require('./automation-connectors'),
   ...require('./connector-loop'),
   engines: require('./engines'),
 };

@@ -845,6 +845,12 @@ Mobile-specific gate:
 - [ ] Phase 5: Knowledge v2 and Wiki AI isolation
 - [ ] Phase 6: conversational Calendar AI, Personal Memory, actions, and work delegation
 - [ ] Phase 7: Automation Federation and source reconciliation
+      **Partial (2026-07-25):** Hermes list/create/update/pause/resume/run now executes only through
+      the source Workspace's connected Runner; real PostgreSQL two-Workspace isolation, durable
+      connector completion, and an actual Runner-local loopback HTTP surface are verified
+      (`2026-07-25-phase7-workspace-runner-automation-bridge.md`).
+      **Still open:** live installed Hermes ETE and verified provider-local automation interfaces
+      for Claude, Codex, and Grok.
 - [ ] Phase 8: full Desktop production migration and signed release candidate
       Decision inputs ready: Developer ID + notarization, electron-builder DMG/ZIP, rollback rule (ADR 0009).
 - [ ] Phase 9: Web landing, signup handoff, docs, and signed distribution

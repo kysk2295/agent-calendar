@@ -11,6 +11,7 @@ const {
   normalizePublicCatalogEntry,
   normalizePublicSessionEntry,
 } = require('../lib/provider-connectors');
+const { createHermesAutomationConnector } = require('../lib/automation-connectors');
 const { runConnectorOnce } = require('../lib/connector-loop');
 
 function write(filePath, content) {
@@ -198,6 +199,89 @@ test('public session projection rejects secret-shaped titles', () => {
   );
 });
 
+test('Hermes automation connector keeps endpoint auth local and returns bounded public automation', async () => {
+  const requests = [];
+  const connector = createHermesAutomationConnector({
+    env: {
+      AGENT_CALENDAR_HERMES_AUTOMATION_URL: 'http://127.0.0.1:43111',
+      AGENT_CALENDAR_HERMES_AUTOMATION_TOKEN: 'runner-local-only',
+    },
+    fetchImpl: async (url, init) => {
+      requests.push({
+        url: String(url),
+        authorization: new Headers(init.headers).get('authorization'),
+      });
+      return new Response(JSON.stringify({
+        jobs: [{
+          id: 'morning-brief',
+          name: '아침 브리프',
+          schedule: '0 8 * * *',
+          enabled: true,
+          revision: 'rev-1',
+        }],
+        cursor: 'cursor-1',
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  const result = await connector.run('hermes', {
+    kind: 'automation_list',
+    consent: true,
+    cursor: '',
+  });
+  assert.equal(requests[0].authorization, 'Bearer runner-local-only');
+  assert.equal(JSON.stringify(result).includes('runner-local-only'), false);
+  assert.deepEqual(result.items, [{
+    externalId: 'morning-brief',
+    name: '아침 브리프',
+    goal: '',
+    agentId: '',
+    schedule: '0 8 * * *',
+    status: 'active',
+    enabled: true,
+    revision: 'rev-1',
+    nextRunAt: '',
+    lastRunAt: '',
+    lastStatus: '',
+  }]);
+
+  const unsafe = createHermesAutomationConnector({
+    env: {
+      AGENT_CALENDAR_HERMES_AUTOMATION_URL: 'https://automation.example.com',
+    },
+    fetchImpl: async () => new Response('{}'),
+  });
+  await assert.rejects(
+    () => unsafe.run('hermes', {
+      kind: 'automation_capabilities',
+      consent: true,
+    }),
+    (error) => error.code === 'CONNECTOR_AUTOMATION_URL_INVALID',
+  );
+
+  const leaking = createHermesAutomationConnector({
+    env: {
+      AGENT_CALENDAR_HERMES_AUTOMATION_URL: 'http://localhost:43111',
+    },
+    fetchImpl: async () => new Response(JSON.stringify({
+      jobs: [{ id: 'unsafe-job', token: 'must-not-cross-runner-boundary' }],
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+  });
+  await assert.rejects(
+    () => leaking.run('hermes', {
+      kind: 'automation_list',
+      consent: true,
+    }),
+    (error) => error.code === 'CONNECTOR_OUTPUT_SECRET',
+  );
+});
+
 test('connector loop completes only the exact Runner request with public entries', async () => {
   const calls = [];
   const client = {
@@ -278,4 +362,71 @@ test('connector loop dispatches session catalog requests without changing provid
   assert.equal(result.completed, true);
   const complete = calls.find((call) => call.requestPath === '/api/runner/device/connectors/complete');
   assert.equal(complete.body.entries[0].externalSessionId, '00000000-0000-4000-8000-000000000004');
+});
+
+test('connector loop dispatches Runner-local automation requests and returns only public result', async () => {
+  const calls = [];
+  const client = {
+    async deviceRequest(method, requestPath, body) {
+      calls.push({ method, requestPath, body });
+      if (requestPath === '/api/runner/device/connectors/next') {
+        return {
+          ok: true,
+          request: {
+            id: 'connector-automation-a',
+            provider: 'hermes',
+            kind: 'automation_mutation',
+            consent: true,
+            payload: {
+              action: 'pause',
+              externalId: 'morning-brief',
+              expectedRevision: 'rev-1',
+              idempotencyKey: 'change-a-1',
+            },
+          },
+        };
+      }
+      return { ok: true };
+    },
+  };
+  const connector = {
+    async runAutomation(provider, input) {
+      assert.equal(provider, 'hermes');
+      assert.deepEqual(input, {
+        kind: 'automation_mutation',
+        consent: true,
+        action: 'pause',
+        externalId: 'morning-brief',
+        expectedRevision: 'rev-1',
+        idempotencyKey: 'change-a-1',
+      });
+      return {
+        automation: {
+          externalId: 'morning-brief',
+          name: '아침 브리프',
+          status: 'paused',
+          enabled: false,
+          revision: 'rev-2',
+        },
+        sourceRevision: 'rev-2',
+      };
+    },
+  };
+
+  const result = await runConnectorOnce(client, { connector });
+  assert.equal(result.completed, true);
+  const complete = calls.find((call) => call.requestPath === '/api/runner/device/connectors/complete');
+  assert.deepEqual(complete.body, {
+    requestId: 'connector-automation-a',
+    result: {
+      automation: {
+        externalId: 'morning-brief',
+        name: '아침 브리프',
+        status: 'paused',
+        enabled: false,
+        revision: 'rev-2',
+      },
+      sourceRevision: 'rev-2',
+    },
+  });
 });

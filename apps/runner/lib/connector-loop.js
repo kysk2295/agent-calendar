@@ -16,10 +16,27 @@ async function runConnectorOnce(client, {
   if (!next.request) return { ok: true, idle: true };
   const request = next.request;
   try {
-    if (!['agent_catalog', 'session_catalog'].includes(request.kind)) {
+    const automationRequest = [
+      'automation_capabilities',
+      'automation_list',
+      'automation_mutation',
+    ].includes(request.kind);
+    if (!['agent_catalog', 'session_catalog'].includes(request.kind) && !automationRequest) {
       const error = new Error('Unsupported connector request');
       error.code = 'CONNECTOR_KIND_UNSUPPORTED';
       throw error;
+    }
+    if (automationRequest) {
+      const result = await connector.runAutomation(request.provider, {
+        kind: request.kind,
+        consent: request.consent === true,
+        ...(request.payload && typeof request.payload === 'object' ? request.payload : {}),
+      });
+      await client.deviceRequest('POST', '/api/runner/device/connectors/complete', {
+        requestId: request.id,
+        result,
+      });
+      return { ok: true, completed: true, requestId: request.id };
     }
     const entries = request.kind === 'agent_catalog'
       ? await connector.listAgents(request.provider, {

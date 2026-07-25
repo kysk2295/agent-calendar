@@ -7,6 +7,9 @@ const {
 } = require('./workspace-agent-directory');
 const { withAppRoleWorkspaceTransaction } = require('./workspace-request-context');
 const { assertWorkspaceScope } = require('./workspace-scope');
+const {
+  normalizeAutomationConnectorResult,
+} = require('./runner-automation-source-adapter');
 
 const PROVIDERS = new Set(['claude', 'codex', 'grok', 'hermes']);
 const CATALOG_FIELDS = new Set([
@@ -31,6 +34,11 @@ const SESSION_CATALOG_FIELDS = new Set([
 const PRIVATE_FIELD_PATTERN = /(api[_-]?key|authorization|cookie|credential|password|private|secret|token)/i;
 const HOST_PATH_PATTERN = /(?:^|[\s"'=:])(?:\/Users\/|\/home\/|[A-Za-z]:\\|\\\\[^\\\s]+\\)/;
 const SECRET_VALUE_PATTERN = /(?:sk-[A-Za-z0-9_-]{16,}|(?:api[_-]?key|token|secret|password)\s*[:=])/i;
+const AUTOMATION_CONNECTOR_KINDS = new Set([
+  'automation_capabilities',
+  'automation_list',
+  'automation_mutation',
+]);
 
 function bridgeError(code, message, statusHint = 422) {
   const error = new Error(message);
@@ -666,6 +674,13 @@ class ProviderAgentBridge {
           kind: row.kind,
           consent: row.request?.consent === true,
           externalAgentId: String(row.request?.externalAgentId || '').slice(0, 160),
+          ...(AUTOMATION_CONNECTOR_KINDS.has(row.kind)
+            ? {
+              payload: row.request?.payload && typeof row.request.payload === 'object'
+                ? row.request.payload
+                : {},
+            }
+            : {}),
         },
       };
     });
@@ -687,15 +702,19 @@ class ProviderAgentBridge {
       if (!['pending', 'running'].includes(row.status)) {
         return { ok: true, replay: true, status: row.status };
       }
-      const entries = row.kind === 'session_catalog'
-        ? normalizeSessionCatalogResponse(row.provider, input.entries || [])
-        : normalizeCatalogResponse(row.provider, input.entries || []);
+      const response = AUTOMATION_CONNECTOR_KINDS.has(row.kind)
+        ? { result: normalizeAutomationConnectorResult(row.kind, input.result || {}) }
+        : {
+          entries: row.kind === 'session_catalog'
+            ? normalizeSessionCatalogResponse(row.provider, input.entries || [])
+            : normalizeCatalogResponse(row.provider, input.entries || []),
+        };
       await client.query(
         `update runner_connector_requests
          set status = 'completed', response = $4::jsonb,
              terminal_at = now(), updated_at = now()
          where workspace_id = $1 and runner_id = $2 and id = $3`,
-        [runnerRow.workspace_id, runnerRow.id, row.id, JSON.stringify({ entries })],
+        [runnerRow.workspace_id, runnerRow.id, row.id, JSON.stringify(response)],
       );
       return { ok: true, status: 'completed', requestId: row.id };
     });

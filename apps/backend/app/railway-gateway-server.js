@@ -8950,10 +8950,15 @@ function createRailwayGatewayServer({
 } = {}) {
   const gatewayState = createGatewayState();
   const relay = new HermesRailwayRelay();
-  const hermesAutomationAdapter = createHermesRelayAutomationAdapter({ relay, env });
-  const automationAdapters = hermesAutomationAdapter
-    ? { hermes: hermesAutomationAdapter }
-    : {};
+  const productionMode = String(env.WORKSPACE_AUTH_MODE || '').trim().toLowerCase() === 'production';
+  const hermesAutomationAdapter = productionMode
+    ? null
+    : createHermesRelayAutomationAdapter({ relay, env });
+  const automationAdapters = productionMode
+    ? {}
+    : hermesAutomationAdapter
+      ? { hermes: hermesAutomationAdapter }
+      : {};
   const gatewayStore = injectedGatewayStore || (env.DATABASE_URL
     ? createStore({
       env,
@@ -8985,7 +8990,6 @@ function createRailwayGatewayServer({
   }
   if (phase1Runtime && !phase1Runtime.env) phase1Runtime.env = env;
   const operationsMonitor = injectedOperationsMonitor || createProductionObservability();
-  const productionMode = String(env.WORKSPACE_AUTH_MODE || '').trim().toLowerCase() === 'production';
   const requestSafety = injectedRequestSafety || (productionMode
     ? createProductionRequestSafety({ env })
     : null);

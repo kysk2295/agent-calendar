@@ -4,6 +4,7 @@ const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const util = require('node:util');
+const { createHermesAutomationConnector } = require('./automation-connectors');
 
 const execFileAsync = util.promisify(childProcess.execFile);
 const PROVIDERS = new Set(['claude', 'codex', 'grok', 'hermes']);
@@ -260,6 +261,10 @@ function createProviderConnector(options = {}) {
     });
     return { code: 0, stdout: result.stdout, stderr: result.stderr };
   });
+  const automationConnector = options.automationConnector || createHermesAutomationConnector({
+    env: options.env || process.env,
+    fetchImpl: options.fetchImpl || fetch,
+  });
 
   return {
     async listAgents(providerValue, { consent = false } = {}) {
@@ -309,6 +314,9 @@ function createProviderConnector(options = {}) {
         throw connectorError('CONNECTOR_COMMAND_FAILED', 'Grok session discovery failed');
       }
       return listGrokSessions(result?.stdout);
+    },
+    async runAutomation(providerValue, input = {}) {
+      return automationConnector.run(providerValue, input);
     },
   };
 }
