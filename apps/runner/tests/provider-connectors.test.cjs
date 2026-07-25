@@ -12,7 +12,10 @@ const {
   normalizePublicSessionEntry,
 } = require('../lib/provider-connectors');
 const { createHermesAutomationConnector } = require('../lib/automation-connectors');
-const { runConnectorOnce } = require('../lib/connector-loop');
+const {
+  connectorRequestHash,
+  runConnectorOnce,
+} = require('../lib/connector-loop');
 
 function write(filePath, content) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -243,6 +246,7 @@ test('Hermes automation connector keeps endpoint auth local and returns bounded 
         url: String(url),
         authorization: new Headers(init.headers).get('authorization'),
       });
+      assert.equal(new URL(url).pathname, '/api/jobs');
       return new Response(JSON.stringify({
         jobs: [{
           id: 'morning-brief',
@@ -312,6 +316,210 @@ test('Hermes automation connector keeps endpoint auth local and returns bounded 
     }),
     (error) => error.code === 'CONNECTOR_OUTPUT_SECRET',
   );
+});
+
+test('Hermes loopback API create uses the installed Gateway jobs contract then pauses by exact id', async () => {
+  const requests = [];
+  const connector = createHermesAutomationConnector({
+    env: {
+      AGENT_CALENDAR_HERMES_AUTOMATION_URL: 'http://127.0.0.1:43111',
+    },
+    fetchImpl: async (url, init) => {
+      const request = {
+        method: init.method,
+        path: new URL(url).pathname,
+        body: init.body ? JSON.parse(init.body) : null,
+      };
+      requests.push(request);
+      if (request.path === '/api/jobs') {
+        return new Response(JSON.stringify({
+          job: {
+            id: '0123456789ab',
+            name: request.body.name,
+            schedule: request.body.schedule,
+            enabled: true,
+          },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        job: {
+          id: '0123456789ab',
+          name: 'Morning brief',
+          schedule: '0 8 * * *',
+          enabled: false,
+        },
+      }), { status: 200 });
+    },
+  });
+
+  const result = await connector.run('hermes', {
+    kind: 'automation_mutation',
+    consent: true,
+    action: 'create',
+    name: 'Morning brief',
+    goal: 'Summarize the calendar',
+    schedule: '0 8 * * *',
+    enabled: false,
+  });
+
+  assert.deepEqual(requests, [
+    {
+      method: 'POST',
+      path: '/api/jobs',
+      body: {
+        name: 'Morning brief',
+        prompt: 'Summarize the calendar',
+        schedule: '0 8 * * *',
+        deliver: 'local',
+        enabled: false,
+      },
+    },
+    {
+      method: 'POST',
+      path: '/api/jobs/0123456789ab/pause',
+      body: {},
+    },
+  ]);
+  assert.equal(result.automation.externalId, '0123456789ab');
+  assert.equal(result.automation.status, 'paused');
+});
+
+test('installed Hermes CLI lists public cron metadata without endpoint configuration', async () => {
+  const calls = [];
+  const connector = createHermesAutomationConnector({
+    env: {},
+    execFile: async (command, args) => {
+      calls.push({ command, args });
+      return {
+        code: 0,
+        stdout: [
+          '\u001b[36mScheduled Jobs\u001b[0m',
+          '',
+          '  0123456789ab \u001b[32m[active]\u001b[0m',
+          '    Name:      Morning brief',
+          '    Schedule:  0 8 * * *',
+          '    Repeat:    ∞',
+          '    Next run:  2026-07-26T23:00:00+00:00',
+          '    Deliver:   local',
+          '    Script:    /Users/private/never-return.py',
+          '    Workdir:   /Users/private/project',
+          '    Last run:  2026-07-25T23:00:00+00:00  ok',
+        ].join('\n'),
+      };
+    },
+  });
+
+  const result = await connector.run('hermes', {
+    kind: 'automation_list',
+    consent: true,
+  });
+
+  assert.deepEqual(calls, [{
+    command: 'hermes',
+    args: ['cron', 'list', '--all'],
+  }]);
+  assert.equal(result.items[0].externalId, '0123456789ab');
+  assert.equal(result.items[0].name, 'Morning brief');
+  assert.equal(result.items[0].status, 'active');
+  assert.equal(result.items[0].lastStatus, 'ok');
+  assert.doesNotMatch(JSON.stringify(result), /Users|private|Script|Workdir/);
+});
+
+test('installed Hermes CLI creates paused local-delivery jobs and uses current edit/action argv', async () => {
+  const calls = [];
+  let state = {
+    name: 'Morning brief',
+    schedule: '0 8 * * *',
+    status: 'active',
+  };
+  const listOutput = () => [
+    `  0123456789ab [${state.status}]`,
+    `    Name:      ${state.name}`,
+    `    Schedule:  ${state.schedule}`,
+    '    Repeat:    ∞',
+    '    Next run:  2026-07-26T23:00:00+00:00',
+    '    Deliver:   local',
+  ].join('\n');
+  const connector = createHermesAutomationConnector({
+    env: {},
+    execFile: async (command, args) => {
+      calls.push({ command, args });
+      if (args[1] === 'create') {
+        return {
+          code: 0,
+          stdout: 'Created job: 0123456789ab\n  Name: Morning brief\n',
+        };
+      }
+      if (args[1] === 'pause') state = { ...state, status: 'paused' };
+      if (args[1] === 'edit') {
+        state = { name: 'Updated brief', schedule: '0 9 * * *', status: 'paused' };
+      }
+      if (args[1] === 'resume') state = { ...state, status: 'active' };
+      return { code: 0, stdout: args[1] === 'list' ? listOutput() : 'Updated job: 0123456789ab\n' };
+    },
+  });
+
+  const created = await connector.run('hermes', {
+    kind: 'automation_mutation',
+    consent: true,
+    action: 'create',
+    name: 'Morning brief',
+    goal: 'Summarize the calendar',
+    agentId: 'calendar',
+    schedule: '0 8 * * *',
+    enabled: false,
+  });
+  assert.equal(created.automation.status, 'paused');
+  assert.equal(created.automation.goal, 'Summarize the calendar');
+  assert.equal(created.automation.agentId, 'calendar');
+  assert.deepEqual(calls.slice(0, 3), [
+    {
+      command: 'hermes',
+      args: [
+        'cron', 'create', '--name', 'Morning brief', '--deliver', 'local',
+        '0 8 * * *', 'Summarize the calendar',
+      ],
+    },
+    { command: 'hermes', args: ['cron', 'pause', '0123456789ab'] },
+    { command: 'hermes', args: ['cron', 'list', '--all'] },
+  ]);
+
+  await connector.run('hermes', {
+    kind: 'automation_mutation',
+    consent: true,
+    action: 'update',
+    externalId: '0123456789ab',
+    name: 'Updated brief',
+    goal: 'Updated prompt',
+    schedule: '0 9 * * *',
+  });
+  await connector.run('hermes', {
+    kind: 'automation_mutation',
+    consent: true,
+    action: 'resume',
+    externalId: '0123456789ab',
+  });
+  await connector.run('hermes', {
+    kind: 'automation_mutation',
+    consent: true,
+    action: 'run',
+    externalId: '0123456789ab',
+  });
+  assert.deepEqual(calls[3], {
+    command: 'hermes',
+    args: [
+      'cron', 'edit', '0123456789ab', '--name', 'Updated brief',
+      '--schedule', '0 9 * * *', '--prompt', 'Updated prompt',
+    ],
+  });
+  assert.deepEqual(calls[5], {
+    command: 'hermes',
+    args: ['cron', 'resume', '0123456789ab'],
+  });
+  assert.deepEqual(calls[7], {
+    command: 'hermes',
+    args: ['cron', 'run', '0123456789ab'],
+  });
 });
 
 test('connector loop completes only the exact Runner request with public entries', async () => {
@@ -399,6 +607,10 @@ test('connector loop dispatches session catalog requests without changing provid
 test('connector loop dispatches Runner-local automation requests and returns only public result', async () => {
   const calls = [];
   const client = {
+    state: {},
+    persist(patch) {
+      this.state = { ...this.state, ...patch };
+    },
     async deviceRequest(method, requestPath, body) {
       calls.push({ method, requestPath, body });
       if (requestPath === '/api/runner/device/connectors/next') {
@@ -461,4 +673,106 @@ test('connector loop dispatches Runner-local automation requests and returns onl
       sourceRevision: 'rev-2',
     },
   });
+});
+
+test('automation mutation completion replays from Runner journal without repeating provider side effects', async () => {
+  const request = {
+    id: 'connector-automation-replay',
+    provider: 'hermes',
+    kind: 'automation_mutation',
+    consent: true,
+    payload: {
+      action: 'pause',
+      externalId: 'morning-brief',
+      idempotencyKey: 'change-replay-1',
+    },
+  };
+  let completionAttempts = 0;
+  let providerCalls = 0;
+  const client = {
+    state: {},
+    persist(patch) {
+      this.state = { ...this.state, ...patch };
+    },
+    async deviceRequest(method, requestPath) {
+      if (requestPath === '/api/runner/device/connectors/next') {
+        return { ok: true, request };
+      }
+      if (requestPath === '/api/runner/device/connectors/complete') {
+        completionAttempts += 1;
+        if (completionAttempts === 1) {
+          throw Object.assign(new Error('network unavailable'), { code: 'REQUEST_TIMEOUT' });
+        }
+      }
+      return { ok: true };
+    },
+  };
+  const connector = {
+    async runAutomation() {
+      providerCalls += 1;
+      return {
+        automation: {
+          externalId: 'morning-brief',
+          name: 'Morning brief',
+          status: 'paused',
+          enabled: false,
+        },
+      };
+    },
+  };
+
+  const interrupted = await runConnectorOnce(client, { connector });
+  assert.equal(interrupted.deferred, true);
+  assert.equal(providerCalls, 1);
+  assert.equal(client.state.activeConnectorMutation.status, 'completed');
+
+  const replayed = await runConnectorOnce(client, { connector });
+  assert.equal(replayed.completed, true);
+  assert.equal(providerCalls, 1);
+  assert.equal(client.state.activeConnectorMutation, null);
+});
+
+test('started automation journal fails with unknown outcome instead of re-running provider mutation', async () => {
+  const request = {
+    id: 'connector-automation-uncertain',
+    provider: 'hermes',
+    kind: 'automation_mutation',
+    consent: true,
+    payload: {
+      action: 'run',
+      externalId: 'morning-brief',
+      idempotencyKey: 'change-uncertain-1',
+    },
+  };
+  const calls = [];
+  const client = {
+    state: {
+      activeConnectorMutation: {
+        requestId: request.id,
+        requestHash: connectorRequestHash(request),
+        status: 'started',
+      },
+    },
+    persist(patch) {
+      this.state = { ...this.state, ...patch };
+    },
+    async deviceRequest(method, requestPath, body) {
+      calls.push({ requestPath, body });
+      if (requestPath === '/api/runner/device/connectors/next') {
+        return { ok: true, request };
+      }
+      return { ok: true };
+    },
+  };
+  const connector = {
+    async runAutomation() {
+      throw new Error('provider mutation must not be repeated');
+    },
+  };
+
+  const recovered = await runConnectorOnce(client, { connector });
+  assert.equal(recovered.failed, true);
+  const failure = calls.find((call) => call.requestPath === '/api/runner/device/connectors/fail');
+  assert.equal(failure.body.errorCode, 'SOURCE_OUTCOME_UNKNOWN');
+  assert.equal(client.state.activeConnectorMutation, null);
 });

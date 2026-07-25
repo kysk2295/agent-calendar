@@ -1,10 +1,16 @@
 'use strict';
 
+const crypto = require('node:crypto');
+const { execFile: execFileCallback } = require('node:child_process');
+const { promisify } = require('node:util');
+
+const execFileAsync = promisify(execFileCallback);
 const PRIVATE_FIELD_PATTERN = /(api[_-]?key|authorization|cookie|credential|password|private|secret|token)/i;
 const HOST_PATH_PATTERN = /(?:^|[\s"'=:])(?:\/Users\/|\/home\/|[A-Za-z]:\\|\\\\[^\\\s]+\\)/;
 const SECRET_VALUE_PATTERN = /(?:sk-[A-Za-z0-9_-]{16,}|Bearer\s+\S+|(?:api[_-]?key|token|secret|password)\s*[:=])/i;
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const MAX_ENTRIES = 200;
+const ANSI_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 
 function connectorError(code, message) {
   const error = new Error(message);
@@ -60,6 +66,13 @@ function firstText(...values) {
   return '';
 }
 
+function publicRevision(value) {
+  return crypto.createHash('sha256')
+    .update(JSON.stringify(value))
+    .digest('hex')
+    .slice(0, 24);
+}
+
 function normalizeAutomation(value = {}) {
   const job = objectValue(value);
   const externalId = firstText(job.id, job.externalId, job.key);
@@ -78,13 +91,20 @@ function normalizeAutomation(value = {}) {
     name: firstText(job.name, job.title) || '이름 없는 Hermes 자동화',
     goal: firstText(job.goal, job.description, job.objective, job.prompt),
     agentId: firstText(job.agentId, job.agent, job.profile, job.profileId),
-    schedule: firstText(job.schedule, job.scheduleDisplay, job.cron, job.cronExpression),
+    schedule: firstText(
+      job.scheduleDisplay,
+      job.schedule_display,
+      objectValue(job.schedule).value,
+      job.schedule,
+      job.cron,
+      job.cronExpression,
+    ),
     status,
     enabled,
     revision: firstText(job.revision, job.etag, job.updatedAt),
-    nextRunAt: firstText(job.nextRunAt, job.nextRun, job.scheduledAt),
-    lastRunAt: firstText(job.lastRunAt, job.lastRun),
-    lastStatus: firstText(job.lastStatus, job.lastResult),
+    nextRunAt: firstText(job.nextRunAt, job.next_run_at, job.nextRun, job.scheduledAt),
+    lastRunAt: firstText(job.lastRunAt, job.last_run_at, job.lastRun),
+    lastStatus: firstText(job.lastStatus, job.last_status, job.lastResult),
   };
 }
 
@@ -125,6 +145,80 @@ function capabilities() {
   };
 }
 
+function parseHermesCronList(stdout) {
+  const entries = [];
+  let current = null;
+  const commit = () => {
+    if (!current) return;
+    const enabled = current.state === 'active';
+    const item = normalizeAutomation({
+      id: current.id,
+      name: current.name,
+      schedule: current.schedule,
+      status: current.state,
+      enabled,
+      nextRunAt: current.nextRunAt === '?' ? '' : current.nextRunAt,
+      lastRunAt: current.lastRunAt === '?' ? '' : current.lastRunAt,
+      lastStatus: current.lastStatus,
+    });
+    item.revision = publicRevision(item);
+    entries.push(item);
+    current = null;
+  };
+  for (const rawLine of String(stdout || '').replace(ANSI_PATTERN, '').split(/\r?\n/)) {
+    const header = rawLine.match(/^\s{2}([A-Za-z0-9][A-Za-z0-9._-]{2,159})\s+\[(active|paused|completed|disabled)\]\s*$/i);
+    if (header) {
+      commit();
+      current = {
+        id: header[1],
+        state: header[2].toLowerCase(),
+        name: '',
+        schedule: '',
+        nextRunAt: '',
+        lastRunAt: '',
+        lastStatus: '',
+      };
+      continue;
+    }
+    if (!current) continue;
+    const field = rawLine.match(/^\s{4}(Name|Schedule|Next run):\s+(.*?)\s*$/i);
+    if (field) {
+      const key = field[1].toLowerCase();
+      if (key === 'name') current.name = field[2];
+      if (key === 'schedule') current.schedule = field[2];
+      if (key === 'next run') current.nextRunAt = field[2];
+      continue;
+    }
+    const lastRun = rawLine.match(/^\s{4}Last run:\s+(\S+)(?:\s{2,}(.+?))?\s*$/i);
+    if (lastRun) {
+      current.lastRunAt = lastRun[1];
+      current.lastStatus = String(lastRun[2] || '').split(':', 1)[0].trim();
+    }
+  }
+  commit();
+  return entries.slice(0, MAX_ENTRIES);
+}
+
+function listResult(items, input = {}) {
+  const scheduled = items
+    .filter((item) => item.nextRunAt)
+    .map((item) => ({
+      externalOccurrenceId: `${item.externalId}:${item.nextRunAt}`,
+      automationExternalId: item.externalId,
+      scheduledAt: item.nextRunAt,
+      status: 'scheduled',
+      revision: item.revision,
+      result: {},
+    }));
+  return {
+    items,
+    occurrences: scheduled.slice(0, MAX_ENTRIES),
+    cursor: firstText(input.cursor),
+    sourceRevision: publicRevision(items),
+    capabilities: capabilities(),
+  };
+}
+
 function loopbackBaseUrl(value) {
   const raw = String(value || '').trim().replace(/\/+$/g, '');
   if (!raw || !URL.canParse(raw)) {
@@ -161,31 +255,30 @@ function mutationRequest(input) {
   if (action === 'create') {
     return {
       method: 'POST',
-      path: '/api/cron/jobs',
+      path: '/api/jobs',
       body: {
-        name: String(input.name || '새 자동화'),
-        goal: String(input.goal || ''),
-        agentId: String(input.agentId || ''),
-        schedule: String(input.schedule || ''),
+        name: text(input.name || '새 자동화', 200),
+        prompt: text(input.goal || '', 4_000),
+        schedule: text(input.schedule || '', 500),
+        deliver: 'local',
         enabled: false,
       },
     };
   }
   if (action === 'update') {
     return {
-      method: 'PUT',
-      path: `/api/cron/jobs/${externalId}`,
+      method: 'PATCH',
+      path: `/api/jobs/${externalId}`,
       body: {
-        name: String(input.name || ''),
-        goal: String(input.goal || ''),
-        agentId: String(input.agentId || ''),
-        schedule: String(input.schedule || ''),
+        name: text(input.name || '', 200),
+        prompt: text(input.goal || '', 4_000),
+        schedule: text(input.schedule || '', 500),
       },
     };
   }
   return {
     method: 'POST',
-    path: `/api/cron/jobs/${externalId}/${action === 'run' ? 'trigger' : action}`,
+    path: `/api/jobs/${externalId}/${action}`,
     body: {},
   };
 }
@@ -193,11 +286,110 @@ function mutationRequest(input) {
 function createHermesAutomationConnector({
   env = process.env,
   fetchImpl = fetch,
+  execFile,
+  cwd = process.cwd(),
   timeoutMs = 15_000,
 } = {}) {
+  const runFile = execFile || (async (command, args) => {
+    const result = await execFileAsync(command, args, {
+      cwd,
+      env,
+      encoding: 'utf8',
+      maxBuffer: MAX_RESPONSE_BYTES,
+      timeout: Math.max(250, Number(timeoutMs) || 15_000),
+    });
+    return { code: 0, stdout: result.stdout, stderr: result.stderr };
+  });
+  const usesHttp = Boolean(String(env.AGENT_CALENDAR_HERMES_AUTOMATION_URL || '').trim());
+
+  async function cli(args) {
+    let result;
+    try {
+      result = await runFile('hermes', args);
+    } catch (error) {
+      if (error?.code === 'ENOENT') {
+        throw connectorError(
+          'CONNECTOR_AUTOMATION_NOT_CONFIGURED',
+          'Hermes automation CLI is not installed on this Runner',
+        );
+      }
+      if (error?.killed || error?.code === 'ETIMEDOUT' || error?.code === 'REQUEST_TIMEOUT') {
+        throw connectorError('SOURCE_TIMEOUT', 'Hermes automation CLI timed out');
+      }
+      throw connectorError('CONNECTOR_AUTOMATION_FAILED', 'Hermes automation command failed');
+    }
+    const stdout = String(result?.stdout || '');
+    const stderr = String(result?.stderr || '');
+    if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > MAX_RESPONSE_BYTES) {
+      throw connectorError('CONNECTOR_OUTPUT_INVALID', 'automation response is too large');
+    }
+    if (Number(result?.code || 0) !== 0) {
+      throw connectorError('CONNECTOR_AUTOMATION_FAILED', 'Hermes automation command failed');
+    }
+    return stdout.replace(ANSI_PATTERN, '');
+  }
+
+  async function cliList() {
+    return parseHermesCronList(await cli(['cron', 'list', '--all']));
+  }
+
+  async function cliMutation(input) {
+    const action = String(input.action || '').trim().toLowerCase();
+    if (!['create', 'update', 'pause', 'resume', 'run'].includes(action)) {
+      throw connectorError('CONNECTOR_AUTOMATION_ACTION_UNSUPPORTED', 'unsupported automation action');
+    }
+    const externalId = text(input.externalId || '', 200);
+    let resolvedId = externalId;
+    if (action === 'create') {
+      const name = text(input.name || '새 자동화', 200);
+      const schedule = text(input.schedule || '', 500);
+      const goal = text(input.goal || '', 4_000);
+      if (!schedule) {
+        throw connectorError('CONNECTOR_OUTPUT_INVALID', 'automation schedule is required');
+      }
+      const output = await cli([
+        'cron', 'create', '--name', name, '--deliver', 'local', schedule, goal,
+      ]);
+      const created = output.match(/Created job:\s*([A-Za-z0-9][A-Za-z0-9._-]{2,159})/i);
+      if (!created) {
+        throw connectorError('CONNECTOR_OUTPUT_INVALID', 'Hermes create result has no job identity');
+      }
+      resolvedId = created[1];
+      if (input.enabled !== true) await cli(['cron', 'pause', resolvedId]);
+    } else {
+      if (!resolvedId) {
+        throw connectorError('CONNECTOR_OUTPUT_INVALID', 'automation identity is required');
+      }
+      if (action === 'update') {
+        const args = ['cron', 'edit', resolvedId];
+        if (input.name) args.push('--name', text(input.name, 200));
+        if (input.schedule) args.push('--schedule', text(input.schedule, 500));
+        args.push('--prompt', text(input.goal || '', 4_000));
+        await cli(args);
+      } else {
+        await cli(['cron', action, resolvedId]);
+      }
+    }
+    const items = await cliList();
+    const automation = items.find((item) => item.externalId === resolvedId);
+    if (!automation) {
+      throw connectorError('CONNECTOR_OUTPUT_INVALID', 'Hermes job was not found after mutation');
+    }
+    return {
+      automation: {
+        ...automation,
+        ...(input.goal ? { goal: text(input.goal, 4_000) } : {}),
+        ...(input.agentId ? { agentId: text(input.agentId, 200) } : {}),
+      },
+      run: null,
+      sourceRevision: publicRevision(items),
+    };
+  }
+
   async function request(method, requestPath, body, input = {}) {
     const baseUrl = loopbackBaseUrl(env.AGENT_CALENDAR_HERMES_AUTOMATION_URL);
     const url = new URL(`${baseUrl}${requestPath}`);
+    if (requestPath === '/api/jobs') url.searchParams.set('include_disabled', 'true');
     if (input.cursor) url.searchParams.set('cursor', String(input.cursor));
     if (input.expectedRevision) {
       url.searchParams.set('expectedRevision', String(input.expectedRevision));
@@ -267,11 +459,13 @@ function createHermesAutomationConnector({
         );
       }
       if (input.kind === 'automation_capabilities') {
-        await request('GET', '/api/cron/jobs', undefined, { cursor: '' });
+        if (usesHttp) await request('GET', '/api/jobs', undefined, { cursor: '' });
+        else await cliList();
         return capabilities();
       }
       if (input.kind === 'automation_list') {
-        const payload = await request('GET', '/api/cron/jobs', undefined, input);
+        if (!usesHttp) return listResult(await cliList(), input);
+        const payload = await request('GET', '/api/jobs', undefined, input);
         const items = (Array.isArray(payload.jobs) ? payload.jobs : [])
           .map(normalizeAutomation)
           .slice(0, MAX_ENTRIES);
@@ -293,20 +487,29 @@ function createHermesAutomationConnector({
           items,
           occurrences: [...scheduled, ...history].slice(0, MAX_ENTRIES),
           cursor: firstText(payload.cursor, input.cursor),
-          sourceRevision: firstText(payload.sourceRevision, payload.revision),
+          sourceRevision: firstText(payload.sourceRevision, payload.revision) || publicRevision(items),
           capabilities: capabilities(),
         };
       }
       if (input.kind !== 'automation_mutation') {
         throw connectorError('CONNECTOR_KIND_UNSUPPORTED', 'unsupported automation connector request');
       }
+      if (!usesHttp) return cliMutation(input);
       const mutation = mutationRequest(input);
-      const payload = await request(
+      let payload = await request(
         mutation.method,
         mutation.path,
         mutation.body,
         input,
       );
+      if (input.action === 'create' && input.enabled !== true && payload.job?.id) {
+        payload = await request(
+          'POST',
+          `/api/jobs/${encodeURIComponent(String(payload.job.id))}/pause`,
+          {},
+          input,
+        );
+      }
       const rawAutomation = payload.job || payload.updated || payload.automation || null;
       const automation = rawAutomation ? normalizeAutomation(rawAutomation) : null;
       const run = payload.run
@@ -329,4 +532,5 @@ module.exports = {
   createHermesAutomationConnector,
   normalizeAutomation,
   normalizeOccurrence,
+  parseHermesCronList,
 };

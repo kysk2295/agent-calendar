@@ -597,6 +597,28 @@ test('Runner-native Hermes automation stays on the exact Workspace Runner across
     assert.equal(synchronized.automations.length, 1);
     assert.equal(synchronized.occurrences.length, 1);
 
+    const sparseSyncing = runtime.automationFederation.synchronize(scopeA, connected.source.id);
+    const sparseListRequest = await waitForConnectorRequest(
+      runtime.providerAgentBridge,
+      runnerA,
+      'automation_list',
+    );
+    await runtime.providerAgentBridge.completeConnectorRequest(runnerA, {
+      requestId: sparseListRequest.id,
+      result: {
+        items: [{
+          ...sourceAutomation({ revision: 'rev-sparse' }),
+          goal: '',
+          agentId: '',
+        }],
+        occurrences: [],
+        sourceRevision: 'source-rev-sparse',
+      },
+    });
+    const sparseSynchronized = await sparseSyncing;
+    assert.equal(sparseSynchronized.automations[0].goal, '다가오는 일정을 요약한다.');
+    assert.equal(sparseSynchronized.automations[0].agentId, 'calendar');
+
     const pausing = runtime.automationFederation.requestChange(scopeA, {
       sourceId: connected.source.id,
       automationId: synchronized.automations[0].id,
@@ -628,7 +650,7 @@ test('Runner-native Hermes automation stays on the exact Workspace Runner across
        from runner_connector_requests
        order by created_at asc`,
     );
-    assert.equal(connectorRows.rows.length, 3);
+    assert.equal(connectorRows.rows.length, 4);
     assert.equal(connectorRows.rows.every((row) => (
       row.workspace_id === 'ws-a' && row.runner_id === 'runner-a'
     )), true);
@@ -638,6 +660,54 @@ test('Runner-native Hermes automation stays on the exact Workspace Runner across
       ),
       false,
     );
+    runtime.durableExecution.stopBackgroundWorkers();
+    runtime.unifiedCalendar.stopBackgroundWorkers();
+  });
+});
+
+test('stale running connector request is reclaimed only by its exact Workspace Runner', async () => {
+  await withPostgres(async ({ pool }) => {
+    const runtime = createPhase1Runtime({
+      pool,
+      env: {
+        WORKSPACE_AUTH_MODE: 'production',
+        RUNNER_CONNECTOR_LEASE_MS: '1000',
+        DURABLE_EXECUTION_BACKGROUND_WORKERS: '0',
+        UNIFIED_CALENDAR_BACKGROUND_WORKERS: '0',
+        CALENDAR_AI_RUNNER_MODEL_ENABLED: '0',
+        CALENDAR_AI_CLOUD_MODEL_ENABLED: '0',
+      },
+    });
+    const runnerA = {
+      id: 'runner-a',
+      workspace_id: 'ws-a',
+      status: 'active',
+      connection_state: 'connected',
+    };
+    const runnerB = {
+      id: 'runner-b',
+      workspace_id: 'ws-b',
+      status: 'active',
+      connection_state: 'connected',
+    };
+    await pool.query(
+      `insert into runner_connector_requests (
+         id, workspace_id, runner_id, provider, kind, status, request,
+         started_at, expires_at
+       ) values
+       ('stale-request', 'ws-a', 'runner-a', 'hermes', 'automation_mutation',
+        'running', '{"consent":true,"payload":{"action":"run","externalId":"job-a"}}'::jsonb,
+        now() - interval '2 seconds', now() + interval '1 minute'),
+       ('fresh-request', 'ws-a', 'runner-a', 'hermes', 'automation_mutation',
+        'running', '{"consent":true,"payload":{"action":"pause","externalId":"job-b"}}'::jsonb,
+        now(), now() + interval '1 minute')`,
+    );
+
+    assert.equal((await runtime.providerAgentBridge.nextConnectorRequest(runnerB)).request, null);
+    const reclaimed = await runtime.providerAgentBridge.nextConnectorRequest(runnerA);
+    assert.equal(reclaimed.request.id, 'stale-request');
+    assert.equal(reclaimed.request.payload.externalId, 'job-a');
+    assert.equal((await runtime.providerAgentBridge.nextConnectorRequest(runnerA)).request, null);
     runtime.durableExecution.stopBackgroundWorkers();
     runtime.unifiedCalendar.stopBackgroundWorkers();
   });

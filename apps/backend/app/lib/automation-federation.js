@@ -481,8 +481,14 @@ class AutomationFederation {
            )
            on conflict (workspace_id, source_id, external_id) do update
            set name = excluded.name,
-               goal = excluded.goal,
-               agent_id = excluded.agent_id,
+               goal = case
+                 when btrim(excluded.goal) <> '' then excluded.goal
+                 else connected_automations.goal
+               end,
+               agent_id = case
+                 when btrim(excluded.agent_id) <> '' then excluded.agent_id
+                 else connected_automations.agent_id
+               end,
                schedule = excluded.schedule,
                status = excluded.status,
                enabled = excluded.enabled,
@@ -932,8 +938,14 @@ class AutomationFederation {
          )
          on conflict (workspace_id, source_id, external_id) do update
          set name = excluded.name,
-             goal = excluded.goal,
-             agent_id = excluded.agent_id,
+             goal = case
+               when btrim(excluded.goal) <> '' then excluded.goal
+               else connected_automations.goal
+             end,
+             agent_id = case
+               when btrim(excluded.agent_id) <> '' then excluded.agent_id
+               else connected_automations.agent_id
+             end,
              schedule = excluded.schedule,
              status = excluded.status,
              enabled = excluded.enabled,

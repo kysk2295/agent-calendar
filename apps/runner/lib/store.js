@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const os = require('node:os');
 const { generateEd25519Keypair, fingerprint, formatFingerprint } = require('./crypto');
@@ -22,11 +23,25 @@ function ensureDir(dir) {
 }
 
 function writePrivateFile(filePath, content) {
-  fs.writeFileSync(filePath, content, { encoding: 'utf8', mode: 0o600 });
+  ensureDir(path.dirname(filePath));
+  const temporaryPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${crypto.randomUUID()}.tmp`,
+  );
   try {
-    fs.chmodSync(filePath, 0o600);
-  } catch {
-    // ignore
+    fs.writeFileSync(temporaryPath, content, { encoding: 'utf8', mode: 0o600 });
+    try {
+      fs.chmodSync(temporaryPath, 0o600);
+    } catch {}
+    fs.renameSync(temporaryPath, filePath);
+    try {
+      fs.chmodSync(filePath, 0o600);
+    } catch {}
+  } catch (error) {
+    try {
+      fs.unlinkSync(temporaryPath);
+    } catch {}
+    throw error;
   }
 }
 

@@ -267,6 +267,8 @@ function createProviderConnector(options = {}) {
   const automationConnector = options.automationConnector || createHermesAutomationConnector({
     env: options.env || process.env,
     fetchImpl: options.fetchImpl || fetch,
+    execFile,
+    cwd,
   });
 
   return {

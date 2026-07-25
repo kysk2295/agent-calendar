@@ -160,7 +160,7 @@ function createPhase1Runtime({
     unifiedCalendar.startBackgroundWorkers();
   }
   const product = new WorkspaceScopedProductService({ pool, useAppRole: true });
-  const providerAgentBridge = new ProviderAgentBridge({ pool });
+  const providerAgentBridge = new ProviderAgentBridge({ pool, env });
   const cloudModelAdapter = createCalendarAiModelAdapter({ env });
   const inferenceBroker = workspaceInferenceBroker || new WorkspaceInferenceBroker({
     pool,

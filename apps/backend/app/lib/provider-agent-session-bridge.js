@@ -273,9 +273,13 @@ async function withServiceTransaction(pool, fn) {
 }
 
 class ProviderAgentBridge {
-  constructor({ pool } = {}) {
+  constructor({ pool, env = process.env } = {}) {
     if (!pool) throw new Error('ProviderAgentBridge requires pool');
     this.pool = pool;
+    this.connectorLeaseMs = Math.max(
+      1_000,
+      Number.parseInt(String(env.RUNNER_CONNECTOR_LEASE_MS || '30000'), 10) || 30_000,
+    );
   }
 
   async requestCatalog(scope, input = {}) {
@@ -652,11 +656,18 @@ class ProviderAgentBridge {
       const result = await client.query(
         `select * from runner_connector_requests
          where workspace_id = $1 and runner_id = $2
-           and status = 'pending' and expires_at > now()
-         order by created_at asc
+           and expires_at > now()
+           and (
+             status = 'pending'
+             or (
+               status = 'running'
+               and started_at < now() - ($3 * interval '1 millisecond')
+             )
+           )
+         order by case when status = 'running' then 0 else 1 end, created_at asc
          for update skip locked
          limit 1`,
-        [runnerRow.workspace_id, runnerRow.id],
+        [runnerRow.workspace_id, runnerRow.id, this.connectorLeaseMs],
       );
       if (!result.rowCount) return { ok: true, request: null };
       const row = result.rows[0];

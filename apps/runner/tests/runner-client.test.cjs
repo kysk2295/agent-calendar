@@ -15,7 +15,11 @@ const {
   PROTOCOL_VERSION,
 } = require('../lib/crypto');
 const { assertSafeArgs, BANNED_ARGS, probeAllEngines } = require('../lib/capabilities');
-const { loadOrCreateIdentity, defaultStateDir } = require('../lib/store');
+const {
+  loadOrCreateIdentity,
+  defaultStateDir,
+  writePrivateFile,
+} = require('../lib/store');
 const { RunnerClient } = require('../lib/client');
 
 test('runner generates stable ed25519 identity with restrictive store', () => {
@@ -58,6 +62,34 @@ test('runner process restart restores enrollment and active attempt state from i
   const stateMode = fs.statSync(path.join(dir, 'state.json')).mode & 0o777;
   if (process.platform !== 'win32') assert.equal(stateMode, 0o600);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('Runner private state replaces the destination through an owner-only temporary file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-atomic-state-'));
+  const filePath = path.join(dir, 'state.json');
+  const originalRenameSync = fs.renameSync;
+  const renames = [];
+  fs.renameSync = (source, destination) => {
+    renames.push({ source, destination });
+    return originalRenameSync(source, destination);
+  };
+  try {
+    writePrivateFile(filePath, '{"status":"active"}\n');
+    assert.equal(renames.length, 1);
+    assert.equal(renames[0].destination, filePath);
+    assert.match(path.basename(renames[0].source), /^\.state\.json\..+\.tmp$/);
+    assert.equal(fs.readFileSync(filePath, 'utf8'), '{"status":"active"}\n');
+    assert.deepEqual(
+      fs.readdirSync(dir).filter((name) => name.endsWith('.tmp')),
+      [],
+    );
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(filePath).mode & 0o777, 0o600);
+    }
+  } finally {
+    fs.renameSync = originalRenameSync;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('runner capability probes reject banned args', () => {
