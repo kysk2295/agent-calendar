@@ -243,7 +243,7 @@ class AgentOperationsService {
     if (!this.planCompletion) {
       throw new AgentOperationsError(
         'runtime_unavailable',
-        'Mac mini Hermes planning is unavailable',
+        'Hermes Runner planning is unavailable',
         503,
       );
     }

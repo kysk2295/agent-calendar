@@ -97,16 +97,16 @@ async function main() {
   const streamCall = calls.find((call) => call.method === 'POST' && call.path === '/api/chat/stream');
   const answer = await page.locator('.wiki-answer').textContent();
 
-  assert.equal(Boolean(searchCall), true);
+  assert.equal(Boolean(searchCall), false);
   assert.equal(Boolean(streamCall), true);
-  assert.equal(searchCall.body.includeJournal, true);
-  assert.equal(searchCall.body.includeRaw, true);
+  assert.equal(streamCall.body.includeJournal, true);
+  assert.equal(streamCall.body.includeRaw, true);
   assert.equal(streamCall.body.agent, 'wikicurator');
   assert.match(answer || '', /스코프 옵션/);
   assert.equal(await page.locator('.api-banner').count(), 0);
 
   await browser.close();
-  console.log(JSON.stringify({ ok: true, wikiSearch: searchCall.body, wikiStream: streamCall.body }, null, 2));
+  console.log(JSON.stringify({ ok: true, wikiSearch: searchCall?.body, wikiStream: streamCall.body }, null, 2));
 }
 
 main().catch((error) => {

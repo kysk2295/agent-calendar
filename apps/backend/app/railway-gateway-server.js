@@ -4,6 +4,7 @@ const http = require('node:http');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const { buildCalendarWorkDraft } = require('./lib/calendar-work');
+const { classifyExecutionRequest } = require('./domains/execution/request-policy');
 const {
   buildHermesChatDeltas,
   buildHermesChatStreamEvents,
@@ -78,6 +79,10 @@ const {
 } = require('./lib/relay-chat-completion');
 const { runRelaySessionTurn } = require('./lib/relay-session-turn');
 const {
+  createPhase1Runtime,
+  maybeHandlePhase1OrBlockLegacy,
+} = require('./lib/phase1-auth-routes');
+const {
   agentOperationsProfileTimeout,
   runRelayProfileCompletion,
 } = require('./lib/relay-profile-completion');
@@ -100,6 +105,19 @@ const { buildWorkboardRunPayload, buildWorkboardTaskDraft } = require('./lib/wor
 const { mergeUsageSummaries, readExternalUsageSources, usageFromState } = require('./lib/usage-sources');
 const { buildWikiIndex, dateStamp, slugify } = require('./lib/wiki');
 const { answerWikiQuestion, buildRetrievalOnlyAnswer } = require('./lib/wiki-rag');
+const { HermesAutomationSourceAdapter } = require('./lib/hermes-automation-source-adapter');
+const { createProductionObservability } = require('./lib/production-observability');
+const {
+  configureProductionServerTimeouts,
+  createProductionRequestSafety,
+  readProductionRequestBody,
+} = require('./lib/production-request-safety');
+const {
+  CLIENT_V1_CONTRACT_ID,
+  CLIENT_V1_RESPONSE_HEADER,
+  applyClientV1ResponseHeaders,
+  validateClientV1Request,
+} = require('./lib/client-v1-contract');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const SNAPSHOT_DIR = path.join(ROOT_DIR, 'snapshots');
@@ -240,13 +258,8 @@ function buildTickTickSetupSummary({ requestUrl, env = process.env, state = 'her
   };
 }
 
-function readRequestBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
+function readRequestBody(req, env = process.env) {
+  return readProductionRequestBody(req, env);
 }
 
 function parseJsonBuffer(buffer) {
@@ -1643,8 +1656,8 @@ function publicOfficialProfileAgents(agents = []) {
       name: publicName,
       ...(description ? { description } : {}),
       engine: 'hermes',
-      role: `Mac mini Hermes profile ${name}`,
-      persona: `Mac mini Hermes profile ${name}.`,
+      role: `Hermes Runner profile ${name}`,
+      persona: `Hermes Runner profile ${name}.`,
       status: allowedStatuses.has(status) ? status : 'Idle',
       enabled: agent.enabled !== false,
       tools: ['hermes-cli'],
@@ -1945,6 +1958,63 @@ async function relayRuntimeJsonRequest({
   };
 }
 
+function createHermesRelayAutomationAdapter({ relay, env = process.env } = {}) {
+  const boundRunnerId = String(env.HERMES_RELAY_RUNNER_ID || '').trim();
+  if (!boundRunnerId) return null;
+  return new HermesAutomationSourceAdapter({
+    request: async ({
+      source,
+      method,
+      path: requestPath,
+      query = {},
+      body,
+      idempotencyKey = '',
+      expectedRevision = '',
+    }) => {
+      if (String(source?.runnerId || source?.connectionRef?.runnerId || '') !== boundRunnerId) {
+        const error = new Error('Hermes relay is not bound to this Runner');
+        error.code = 'AUTOMATION_RUNNER_MISMATCH';
+        error.statusHint = 403;
+        throw error;
+      }
+      const response = await relayRuntimeJsonRequest({
+        relay,
+        env,
+        method,
+        pathOverride: requestPath,
+        query: {
+          ...query,
+          ...(idempotencyKey ? { idempotencyKey } : {}),
+          ...(expectedRevision ? { expectedRevision } : {}),
+        },
+        bodyText: body === undefined ? '' : JSON.stringify(body),
+        timeoutMs: Number(env.HERMES_AUTOMATION_TIMEOUT_MS || 30_000),
+      });
+      if (!response || response.status === 504) {
+        const error = new Error('Hermes automation source timed out');
+        error.code = 'SOURCE_TIMEOUT';
+        throw error;
+      }
+      if (response.status === 409) {
+        const error = new Error('Hermes automation source revision conflict');
+        error.code = 'SOURCE_REVISION_CONFLICT';
+        error.currentRevision = String(response.body?.currentRevision || '');
+        error.currentAutomation = response.body?.currentAutomation || null;
+        throw error;
+      }
+      if (!response.ok || response.status >= 400 || response.body?.ok === false) {
+        const error = new Error(
+          String(response.body?.message || response.body?.error || 'Hermes automation source failed'),
+        );
+        error.code = String(response.body?.error || 'AUTOMATION_SOURCE_FAILED');
+        error.statusHint = response.status;
+        throw error;
+      }
+      return response.body || {};
+    },
+  });
+}
+
 function isHermesCronSchedulerId(value = '') {
   return String(value || '').startsWith('hermes-cron:');
 }
@@ -2081,8 +2151,8 @@ function normalizeHermesProfileAgent(body = {}) {
     displayName: name,
     name,
     engine: 'hermes',
-    role: body.description || `Mac mini Hermes profile ${name}`,
-    persona: body.description || `맥 미니 Hermes 프로필 ${name}.`,
+    role: body.description || `Hermes Runner profile ${name}`,
+    persona: body.description || `Hermes Runner 프로필 ${name}.`,
     model,
     status: 'Idle',
     tools: ['hermes-cli'],
@@ -2124,8 +2194,8 @@ function publicHermesProfileAgentRecord(agent = {}) {
     displayName: publicDisplayText(agent.displayName, name) || name,
     name,
     engine: 'hermes',
-    role: publicDisplayText(agent.role, `Mac mini Hermes profile ${id}`),
-    persona: publicDisplayText(agent.persona, `Mac mini Hermes profile ${id}.`),
+    role: publicDisplayText(agent.role, `Hermes Runner profile ${id}`),
+    persona: publicDisplayText(agent.persona, `Hermes Runner profile ${id}.`),
     model,
     status: ['Idle', 'Running', 'Busy', 'Ready', 'Unavailable', 'Offline', 'Paused'].includes(String(agent.status))
       ? String(agent.status)
@@ -3230,7 +3300,7 @@ function buildRuntimeRecoveryCommand() {
 function buildResidentInstallCommand() {
   const updateUrl = 'https://hermes-os-production-e174.up.railway.app/hermes-runtime-update.tar.gz';
   return [
-    '# Install Hermes OS as launchd KeepAlive resident services on the Mac mini.',
+    '# Install Hermes OS as launchd KeepAlive resident services on the Runner host.',
     'cd "${HERMES_RUNTIME_DIR:-$HOME/.hermes/os-runtime}"',
     'rm -rf /tmp/hermes-runtime-update',
     'mkdir -p /tmp/hermes-runtime-update',
@@ -4003,7 +4073,7 @@ async function streamRailwayRelayChat({
     runtimeReachable: true,
     logs: [
       'railway-relay job queued',
-      'waiting for outbound Mac mini bridge',
+      'waiting for outbound Workspace Runner bridge',
     ],
   }, {
     name: command.message,
@@ -4304,7 +4374,7 @@ function fallbackOperationsOverview({ res, gatewayState, gatewayStore = null, en
 
 function fallbackHealth(res, runtimeResponse, env = process.env, error = null) {
   const runtimeUrl = redactGatewayConfig({ runtimeUrl: env.HERMES_RUNTIME_URL }).runtimeUrl;
-  const fallbackError = 'Mac mini runtime unreachable';
+  const fallbackError = 'Workspace Runner unreachable';
   const safeError = error
     ? safeRuntimeError(error.message || String(error), fallbackError)
     : fallbackError;
@@ -4332,7 +4402,7 @@ function fallbackHealth(res, runtimeResponse, env = process.env, error = null) {
       launchctl: {
         loaded: false,
         domainTarget: 'unavailable-from-railway',
-        error: 'launchctl status can only be checked on the Mac mini runtime.',
+        error: 'launchctl status can only be checked on the Runner host.',
       },
     },
     lastRuntimeUpdate: {
@@ -4340,10 +4410,10 @@ function fallbackHealth(res, runtimeResponse, env = process.env, error = null) {
       updateUrl: '',
       backupDir: '',
       appliedAt: '',
-      error: 'Mac mini runtime unreachable; check runtime health after recovery.',
+      error: 'Workspace Runner unreachable; check runtime health after recovery.',
     },
     ...(error ? { error: safeError } : {}),
-    message: 'Mac mini runtime is unreachable from the public gateway.',
+    message: 'Workspace Runner is unreachable from the public gateway.',
     time: new Date().toISOString(),
   });
 }
@@ -5275,8 +5345,8 @@ function gatewayTelegramConnectionState({
       ? 'Telegram bot routes are not provisioned on Railway gateway.'
       : existingPoller
         ? deliveryReady
-          ? 'Existing Mac mini Telegram poller retained; Agent Calendar webhook registration is skipped and report delivery is ready.'
-          : 'Existing Mac mini Telegram poller retained; configure an allowed chat before Agent Calendar report delivery.'
+          ? 'Existing Runner-hosted Telegram poller retained; Agent Calendar webhook registration is skipped and report delivery is ready.'
+          : 'Existing Runner-hosted Telegram poller retained; configure an allowed chat before Agent Calendar report delivery.'
         : 'Telegram ingress is disabled because HERMES_TELEGRAM_INGRESS_MODE is not recognized.';
     return {
       connected,
@@ -5344,7 +5414,7 @@ function fallbackSystemConnections({ res, env = process.env, gatewayState, gatew
       connected: Boolean(ticktickAccessToken),
       state: ticktickAccessToken ? 'ready' : 'missing',
       detail: ticktickAccessToken
-        ? 'Railway gateway has HERMES_TICKTICK_ACCESS_TOKEN; Mac mini runtime is currently unreachable.'
+        ? 'Railway gateway has HERMES_TICKTICK_ACCESS_TOKEN; the connected Runner is currently unreachable.'
         : 'HERMES_TICKTICK_ACCESS_TOKEN is not provisioned on Railway gateway.',
       token: ticktickAccessToken ? '••••' : '',
       importedCount: gatewayTickTickTaskCount(gatewayState, gatewayStore),
@@ -5410,7 +5480,7 @@ function buildGatewayChannelRoutingStatus({ env = process.env, gatewayState, gat
       candidateCount: 0,
       importedCount: commandRows.filter((item) => item.source === 'web').length,
       lastCommand: commandRows.find((item) => item.source === 'web') || null,
-      detail: 'Browser commands are captured by the Railway gateway while the Mac mini runtime is unreachable.',
+      detail: 'Browser commands are captured by the Railway gateway while the Workspace Runner is unreachable.',
     },
     {
       id: 'telegram',
@@ -6137,7 +6207,7 @@ function fallbackLearningPromoteSkill({ res, body = {}, gatewayState, gatewaySto
     file,
     state: publicGatewaySnapshot(gatewayState, gatewayStore),
     gatewayFallback: true,
-    wikiWriteBack: promoted ? 'pending Mac mini LLM-Wiki write-back' : 'watch candidate',
+    wikiWriteBack: promoted ? 'pending Runner-hosted LLM-Wiki write-back' : 'watch candidate',
   });
 }
 
@@ -7370,29 +7440,29 @@ function buildRuntimeRecoveryChatEvents({ message, command } = {}) {
       mode: 'runtime-recovery',
       status: 'recovery-required',
       runId: '',
-      reason: 'Mac mini runtime is unreachable from the public gateway.',
+      reason: 'Workspace Runner is unreachable from the public gateway.',
     },
     timeline: [
       { label: 'Message received', detail: message || '' },
-      { label: 'Runtime checked', detail: 'Gateway received a 5xx response from the Mac mini tunnel.' },
+      { label: 'Runtime checked', detail: 'Gateway received a 5xx response from the Runner connection.' },
       { label: 'Recovery prepared', detail: 'Copy recovery command from Runtime Recovery.' },
     ],
     toolActivity: [
       { tool: 'Hermes Router', state: 'done', detail: command && command.templateId ? command.templateId : 'runtime-recovery' },
-      { tool: 'Mac mini Hermes', state: 'down', detail: 'local runtime unreachable' },
+      { tool: 'Hermes Runner', state: 'down', detail: 'local runtime unreachable' },
       { tool: 'Runtime Recovery', state: 'ready', detail: 'Copy recovery command' },
     ],
     memory: {
       wikiPath: '5_conversation/agent-runs/runtime-update.md',
       savePolicy: 'recovery command is kept in the gateway health response',
-      next: 'Copy recovery in Dashboard, run it on the Mac mini, then press Check again.',
+      next: 'Copy recovery in Dashboard, run it on the Runner host, then press Check again.',
       recoveryCommand,
     },
   };
   const deltas = [
-    '맥미니 Hermes 런타임이 지금 public gateway에서 닿지 않습니다. ',
+    'Workspace의 Hermes Runner가 지금 public gateway에서 닿지 않습니다. ',
     '그래서 새 agent run을 만들기 전에 Runtime Recovery 모드로 전환했어요. ',
-    'Dashboard의 Runtime Recovery 패널에서 Copy recovery를 눌러 맥미니에서 실행한 뒤 Check again을 누르면 됩니다.',
+    'Dashboard의 Runtime Recovery 패널에서 Copy recovery를 눌러 Runner host에서 실행한 뒤 Check again을 누르면 됩니다.',
   ];
   return [
     { event: 'agent-state', data: visual.agentState },
@@ -7552,7 +7622,7 @@ async function handleApi(
   }
 
   const method = req.method || 'GET';
-  const bodyBuffer = ['GET', 'HEAD'].includes(method) ? undefined : await readRequestBody(req);
+  const bodyBuffer = ['GET', 'HEAD'].includes(method) ? undefined : await readRequestBody(req, env);
   if (pathSegments[0] === 'relay') {
     if (!relayEnabled(env)) {
       sendJson(res, 404, { ok: false, error: 'relay_not_configured' });
@@ -7732,10 +7802,12 @@ async function handleApi(
     return;
   }
   const schedulerWriteRequest = pathSegments[0] === 'scheduler' && method !== 'GET';
-  const missionLaunchRequest = method === 'POST' && pathSegments[0] === 'missions' && pathSegments[1] === 'launch';
-  const missionScheduleRequest = method === 'POST' && pathSegments[0] === 'missions' && pathSegments[1] === 'schedule';
+  const executionRequest = classifyExecutionRequest({ method, pathSegments });
+  const missionLaunchRequest = executionRequest.missionLaunch;
+  const missionScheduleRequest = executionRequest.missionSchedule;
   const agentProfileCreateRequest = method === 'POST' && pathSegments[0] === 'agents' && !pathSegments[1];
-  const runCreateRequest = method === 'POST' && pathSegments[0] === 'runs' && !pathSegments[1];
+  const runCreateRequest = executionRequest.runCreate;
+  const runActionRequest = executionRequest.runAction;
   const safeRuntimeExecutionBody = runCreateRequest || missionLaunchRequest
     ? buildSafeRuntimeExecutionBody(requestBody)
     : null;
@@ -7747,7 +7819,7 @@ async function handleApi(
     body: requestBody,
     query: queryObject(requestUrl.searchParams),
   });
-  if (toolTranslation || schedulerTranslation || schedulerWriteRequest || missionLaunchRequest || missionScheduleRequest || agentProfileCreateRequest || runCreateRequest || settingsRuntimeRequest) {
+  if (toolTranslation || schedulerTranslation || schedulerWriteRequest || missionLaunchRequest || missionScheduleRequest || agentProfileCreateRequest || runCreateRequest || runActionRequest || settingsRuntimeRequest) {
     const profileCreateBody = agentProfileCreateRequest ? buildHermesProfileCreateBody(requestBody) : null;
     const relayResponse = await relayRuntimeJsonRequest({
       relay,
@@ -8158,7 +8230,7 @@ async function handleApi(
     try {
       body = text ? JSON.parse(text) : {};
     } catch (error) {
-      fallbackHealth(res, runtimeResponse, env, new Error(`Invalid Mac mini health JSON: ${error.message}`));
+      fallbackHealth(res, runtimeResponse, env, new Error(`Invalid Runner health JSON: ${error.message}`));
       return;
     }
     sendJson(res, runtimeResponse.status, projectPublicRuntimeHealth(body));
@@ -8596,7 +8668,7 @@ async function handleApi(
       });
       return;
     }
-    if (method === 'POST' && pathSegments[0] === 'runs' && pathSegments[1] && ['stop', 'retry', 'approve'].includes(pathSegments[2])) {
+    if (runActionRequest) {
       fallbackRunAction({
         res,
         action: pathSegments[2],
@@ -8870,15 +8942,57 @@ function createRailwayGatewayServer({
   agentOperationsService: injectedAgentOperationsService = null,
   agentOperationsScheduler: injectedAgentOperationsScheduler = null,
   agentOperationsClock,
+  phase1Pool: injectedPhase1Pool = null,
+  phase1Runtime: injectedPhase1Runtime = null,
+  operationsMonitor: injectedOperationsMonitor = null,
+  operationsLogger: injectedOperationsLogger = null,
+  requestSafety: injectedRequestSafety = null,
 } = {}) {
   const gatewayState = createGatewayState();
   const relay = new HermesRailwayRelay();
+  const hermesAutomationAdapter = createHermesRelayAutomationAdapter({ relay, env });
+  const automationAdapters = hermesAutomationAdapter
+    ? { hermes: hermesAutomationAdapter }
+    : {};
   const gatewayStore = injectedGatewayStore || (env.DATABASE_URL
     ? createStore({
       env,
       dataDir: path.join(ROOT_DIR, 'work', 'hermes-gateway-data'),
     })
     : null);
+  let phase1Runtime = injectedPhase1Runtime || null;
+  if (!phase1Runtime && injectedPhase1Pool) {
+    phase1Runtime = createPhase1Runtime({
+      pool: injectedPhase1Pool,
+      env,
+      automationAdapters,
+    });
+  } else if (!phase1Runtime && gatewayStore && gatewayStore.pool) {
+    phase1Runtime = createPhase1Runtime({
+      pool: gatewayStore.pool,
+      env,
+      automationAdapters,
+    });
+  }
+  if (phase1Runtime && typeof phase1Runtime.scheduleIngestCompletion !== 'function') {
+    phase1Runtime.scheduleIngestCompletion = async (request) => {
+      const complete = relayIngestCompletionImpl({ relay, env });
+      return complete ? complete(request) : '';
+    };
+  }
+  if (phase1Runtime && typeof phase1Runtime.scheduleIngestFetch !== 'function') {
+    phase1Runtime.scheduleIngestFetch = fetchImpl;
+  }
+  if (phase1Runtime && !phase1Runtime.env) phase1Runtime.env = env;
+  const operationsMonitor = injectedOperationsMonitor || createProductionObservability();
+  const productionMode = String(env.WORKSPACE_AUTH_MODE || '').trim().toLowerCase() === 'production';
+  const requestSafety = injectedRequestSafety || (productionMode
+    ? createProductionRequestSafety({ env })
+    : null);
+  const operationsLogger = typeof injectedOperationsLogger === 'function'
+    ? injectedOperationsLogger
+    : (entry) => process.stdout.write(`${JSON.stringify(entry)}\n`);
+  const operationsLoggingEnabled = envFlag(env.AGENT_CALENDAR_OBSERVABILITY_LOGS);
   const operationClock = agentOperationsClock || (() => new Date());
   const executeAgentCompletion = async ({ payload = {}, meta = {}, onEvent }) => {
     const requestedExecutionEngine = String(
@@ -8900,7 +9014,7 @@ function createRailwayGatewayServer({
       if (!readiness?.ok || !codexReady) {
         throw new AgentOperationsError(
           'runtime_unavailable',
-          'Codex runner is not ready on the Mac mini runtime',
+          'Codex runner is not ready on the Workspace Runner',
           503,
         );
       }
@@ -9018,6 +9132,34 @@ function createRailwayGatewayServer({
     : null);
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const observedRequest = operationsMonitor.beginRequest({
+      method: req.method,
+      pathname: requestUrl.pathname,
+      requestId: req.headers['x-request-id'],
+    });
+    res.setHeader('x-request-id', observedRequest.requestId);
+    res.once('finish', () => {
+      const logEntry = observedRequest.finish(res.statusCode);
+      if (operationsLoggingEnabled) operationsLogger(logEntry);
+    });
+    const admission = requestSafety
+      ? requestSafety.admit({
+        pathname: requestUrl.pathname,
+        headers: req.headers || {},
+        remoteAddress: req.socket && req.socket.remoteAddress,
+      })
+      : { ok: true, release() {} };
+    if (!admission.ok) {
+      res.setHeader('retry-after', String(admission.retryAfterSeconds || 1));
+      sendJson(res, admission.status, {
+        ok: false,
+        error: admission.error,
+        message: admission.status === 429 ? 'too_many_requests' : 'service_unavailable',
+      });
+      return;
+    }
+    res.once('finish', admission.release);
+    res.once('close', admission.release);
     try {
       if (req.method === 'GET' && requestUrl.pathname === '/ticktick/callback') {
         const tokens = await exchangeTickTickCode({
@@ -9033,6 +9175,45 @@ function createRailwayGatewayServer({
         return;
       }
       if (requestUrl.pathname.startsWith('/api/')) {
+        if (productionMode) {
+          const contractRequest = validateClientV1Request({
+            method: req.method,
+            pathname: requestUrl.pathname,
+            headers: req.headers || {},
+          });
+          if (!contractRequest.ok) {
+            res.setHeader('vary', `Accept, ${CLIENT_V1_RESPONSE_HEADER}`);
+            if (contractRequest.status === 406) {
+              sendJson(res, 406, {
+                ok: false,
+                error: contractRequest.error,
+                message: 'not_acceptable',
+                requestedContract: contractRequest.contractId,
+                supportedContracts: [CLIENT_V1_CONTRACT_ID],
+              });
+              return;
+            }
+            sendJson(res, contractRequest.status, {
+              ok: false,
+              error: contractRequest.error,
+              message: 'bad_request',
+              contractId: CLIENT_V1_CONTRACT_ID,
+            });
+            return;
+          }
+          if (contractRequest.contractId === CLIENT_V1_CONTRACT_ID) {
+            applyClientV1ResponseHeaders(res);
+          }
+        }
+        // Phase 1 Workspace session routes + production fail-closed for unscoped legacy product APIs.
+        const phase1Handled = await maybeHandlePhase1OrBlockLegacy(req, res, requestUrl, {
+          env,
+          runtime: phase1Runtime,
+          operationsMonitor,
+          requestSafety,
+        });
+        if (phase1Handled) return;
+
         if (
           !isRelayApiPath(requestUrl.pathname)
           && !isPublicHealthApiPath(requestUrl.pathname)
@@ -9079,7 +9260,7 @@ function createRailwayGatewayServer({
   server.on('close', () => {
     if (agentOperationsDaemon) agentOperationsDaemon.stop();
   });
-  return server;
+  return productionMode ? configureProductionServerTimeouts(server, env) : server;
 }
 
 if (require.main === module) {

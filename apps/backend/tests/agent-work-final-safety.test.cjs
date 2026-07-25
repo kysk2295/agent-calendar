@@ -782,6 +782,8 @@ test('file-store command application rolls back its message when transition pers
 test('public projections expose only a real resolved execution engine and use Korean revision copy', () => {
   // Given / When
   const mission = publicMissionRecord({ id: 'mission-engine', agentId: 'default', executionEngine: 'auto', resolvedExecutionEngine: 'codex' });
+  const claudeMission = publicMissionRecord({ id: 'mission-engine-claude', agentId: 'default', executionEngine: 'auto', resolvedExecutionEngine: 'claude' });
+  const grokMission = publicMissionRecord({ id: 'mission-engine-grok', agentId: 'default', executionEngine: 'auto', resolvedExecutionEngine: 'grok' });
   const invalid = publicMissionRecord({ id: 'mission-engine-invalid', agentId: 'default', executionEngine: 'auto', resolvedExecutionEngine: 'local_llm' });
   const task = publicTaskRecord({ id: 'task-engine', executionEngine: 'auto', resolvedExecutionEngine: 'hermes' });
   const report = publicReportRecord({ id: 'report-engine', resolvedExecutionEngine: 'codex', findings: [], evidence: [], limitations: [], followUps: [], budget: {} });
@@ -789,6 +791,8 @@ test('public projections expose only a real resolved execution engine and use Ko
 
   // Then
   assert.equal(mission.resolvedExecutionEngine, 'codex');
+  assert.equal(claudeMission.resolvedExecutionEngine, 'claude');
+  assert.equal(grokMission.resolvedExecutionEngine, 'grok');
   assert.equal(Object.hasOwn(invalid, 'resolvedExecutionEngine'), false);
   assert.equal(task.resolvedExecutionEngine, 'hermes');
   assert.equal(report.resolvedExecutionEngine, 'codex');

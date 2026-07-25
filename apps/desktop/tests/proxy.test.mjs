@@ -5,6 +5,9 @@ import { test } from 'node:test';
 import { createApiProxyServer } from '../dist-electron/proxy.js';
 
 const PROXY_CREDENTIAL_HEADER = 'x-agent-calendar-proxy-credential';
+const CLIENT_CONTRACT_HEADER = 'x-agent-calendar-contract';
+const CLIENT_REQUEST_ID_HEADER = 'x-client-request-id';
+const CLIENT_IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
 const TEST_PROXY_CREDENTIAL = 'test-process-credential-that-is-never-an-owner-token';
 const DEV_RENDERER_ORIGIN = 'http://127.0.0.1:5173';
 
@@ -52,6 +55,10 @@ test('proxy forwards API path, query, method, body, and bearer token', async () 
       method: 'POST',
       headers: {
         authorization: 'Bearer attacker-controlled-token',
+        accept: 'application/vnd.agent-calendar.client-v1+json, application/json',
+        [CLIENT_CONTRACT_HEADER]: 'client-v1',
+        [CLIENT_REQUEST_ID_HEADER]: 'desktop-request-01',
+        [CLIENT_IDEMPOTENCY_KEY_HEADER]: 'desktop-request-01',
         'content-type': 'application/json',
       },
       body: JSON.stringify({ title: 'desktop task' }),
@@ -65,6 +72,9 @@ test('proxy forwards API path, query, method, body, and bearer token', async () 
   assert.equal(calls[0].init.method, 'POST');
   assert.equal(calls[0].init.headers.authorization, 'Bearer secret-token');
   assert.equal(calls[0].init.headers[PROXY_CREDENTIAL_HEADER], undefined);
+  assert.equal(calls[0].init.headers[CLIENT_CONTRACT_HEADER], 'client-v1');
+  assert.equal(calls[0].init.headers[CLIENT_REQUEST_ID_HEADER], 'desktop-request-01');
+  assert.equal(calls[0].init.headers[CLIENT_IDEMPOTENCY_KEY_HEADER], 'desktop-request-01');
   assert.equal(calls[0].body, '{"title":"desktop task"}');
 });
 
@@ -189,13 +199,22 @@ test('proxy answers preflight only for the configured dev renderer origin', asyn
       headers: {
         origin: DEV_RENDERER_ORIGIN,
         'access-control-request-method': 'GET',
-        'access-control-request-headers': `content-type,${PROXY_CREDENTIAL_HEADER}`,
+        'access-control-request-headers': [
+          'content-type',
+          CLIENT_CONTRACT_HEADER,
+          CLIENT_REQUEST_ID_HEADER,
+          CLIENT_IDEMPOTENCY_KEY_HEADER,
+          PROXY_CREDENTIAL_HEADER,
+        ].join(','),
       },
     });
     assert.equal(response.status, 204);
     assert.equal(response.headers.get('access-control-allow-origin'), DEV_RENDERER_ORIGIN);
     assert.match(response.headers.get('access-control-allow-headers') || '', /content-type/);
     assert.match(response.headers.get('access-control-allow-headers') || '', new RegExp(PROXY_CREDENTIAL_HEADER));
+    assert.match(response.headers.get('access-control-allow-headers') || '', new RegExp(CLIENT_CONTRACT_HEADER));
+    assert.match(response.headers.get('access-control-allow-headers') || '', new RegExp(CLIENT_REQUEST_ID_HEADER));
+    assert.match(response.headers.get('access-control-allow-headers') || '', new RegExp(CLIENT_IDEMPOTENCY_KEY_HEADER));
     assert.match(response.headers.get('vary') || '', /Origin/i);
   });
 

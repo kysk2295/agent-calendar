@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "phase": "phase8-desktop-session-truth-and-first-run-guide",
+  "recordedAt": "2026-07-25T01:13:49+09:00",
+  "baseCommit": "16d59256801d822e3430cdd30eaa7b56d58ecab9",
+  "branch": "main",
+  "result": "pass",
+  "scope": {
+    "sessionTruth": true,
+    "signedOutHydrationBlocked": true,
+    "orphanPublicProfileRemoved": true,
+    "workspaceScopedOnboarding": true,
+    "settingsReentry": true
+  },
+  "electronEte": {
+    "command": "node apps/desktop/tests/playwright-phase8-session-truth.cjs",
+    "completeCount": 1,
+    "protectedRequestsBeforeLogin": 0,
+    "safeStorage": true,
+    "restartRestore": true,
+    "staleProfileRecovery": true,
+    "onboardingStatusAfterDismiss": "dismissed",
+    "settingsReentryObserved": true
+  },
+  "screenshots": [
+    {
+      "path": "apps/desktop/test-results/phase8-session-truth/01-stale-profile-login.png",
+      "bytes": 167750,
+      "sha256": "d095741ad07b394fbc9918e50954ef81b7ed631f5c30cd0cd52838e0eaf7ccce",
+      "manualQa": "pass"
+    },
+    {
+      "path": "apps/desktop/test-results/phase8-session-truth/02-first-run-guide.png",
+      "bytes": 103183,
+      "sha256": "fc0cf248cff49b5c17f272924625c03efdb2179f4cb0df10ef1d330bf76b0e62",
+      "manualQa": "pass"
+    },
+    {
+      "path": "apps/desktop/test-results/phase8-session-truth/03-authenticated-calendar.png",
+      "bytes": 75192,
+      "sha256": "4bcf6f99ac1eba9df0104bf0fb58e0ac10e5e47c74755be98cea63013cefef0b",
+      "manualQa": "pass"
+    },
+    {
+      "path": "apps/desktop/test-results/phase8-session-truth/04-restarted-calendar.png",
+      "bytes": 72125,
+      "sha256": "1f6cecb30d78afb4d3162ab408a910575ee3de849024c2d3c475a54310bced1c",
+      "manualQa": "pass"
+    }
+  ],
+  "verification": [
+    {
+      "command": "npm run backend:check",
+      "result": "pass"
+    },
+    {
+      "command": "node --test apps/desktop/tests/secure-session.test.mjs apps/desktop/tests/onboarding-readiness.test.mjs",
+      "result": "pass",
+      "tests": 7
+    },
+    {
+      "command": "node --test apps/backend/tests/phase1-full-gateway-workspace-cutover.test.cjs",
+      "result": "pass",
+      "tests": 3
+    },
+    {
+      "command": "npm run test:backend",
+      "result": "pass",
+      "tests": 410
+    },
+    {
+      "command": "npm --workspace apps/desktop run test",
+      "result": "pass",
+      "tests": 190
+    },
+    {
+      "command": "npm run build:desktop",
+      "result": "pass"
+    },
+    {
+      "command": "node apps/desktop/tests/playwright-workos-authkit-login-e2e.cjs",
+      "result": "pass",
+      "completeCount": 1
+    },
+    {
+      "command": "npm test",
+      "result": "pass",
+      "backendTests": 410,
+      "desktopTests": 190,
+      "runnerTests": 19
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "cleanup": {
+    "matchingElectronOrEteProcesses": 0,
+    "matchingTemporaryUserDataDirectories": 0,
+    "staleTestDirectoriesMovedToTrash": 3,
+    "stalePhase8ScreenshotsMovedToTrash": 3
+  },
+  "knownNonBlockingObservations": [
+    "Vite reports the existing port 24678 as in use while source-importing tests; all suites pass.",
+    "The renderer production bundle remains above Vite's 500 kB warning threshold.",
+    "TypeScript and Biome LSP servers are unavailable by prior user choice; typecheck and build are blocking substitutes."
+  ],
+  "externalGatesNotClaimed": [
+    "Live WorkOS AuthKit cloud credentials and dashboard configuration",
+    "Live Google Calendar OAuth credentials and production connector completion",
+    "Developer ID signing, notarization, updater, and signed release-candidate rollback"
+  ]
+}

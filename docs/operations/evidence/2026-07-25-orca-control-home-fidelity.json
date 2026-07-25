@@ -1,0 +1,99 @@
+{
+  "date": "2026-07-25",
+  "scope": "Desktop Agent Work Control Home Orca fidelity pass",
+  "reviewed_head": "16d59256801d822e3430cdd30eaa7b56d58ecab9",
+  "reference": {
+    "product": "Orca",
+    "sources": [
+      "https://www.onorca.dev/docs",
+      "https://github.com/stablyai/orca"
+    ],
+    "adopted": [
+      "work queue as the primary reading surface",
+      "320px execution and activity rail",
+      "flat rows with thin dividers",
+      "compact light and dark neutral surfaces"
+    ],
+    "not_adopted": [
+      "Orca branding",
+      "terminal-first information architecture",
+      "copied assets or product copy"
+    ]
+  },
+  "verification": [
+    {
+      "command": "node --test apps/desktop/tests/orca-product-surfaces-design.test.mjs apps/desktop/tests/agent-work-design-system.test.mjs apps/desktop/tests/agent-work-live-stream.test.mjs",
+      "result": "pass",
+      "summary": "30/30 design-system and Agent Work tests"
+    },
+    {
+      "command": "AGENT_CALENDAR_E2E_CONTROL_HOME_ONLY=1 EVIDENCE_DIR=apps/desktop/test-results/orca-control-home-fidelity/light node apps/desktop/tests/playwright-agent-work-workspace.cjs",
+      "result": "pass",
+      "summary": "Light renderer QA at 1280px, 768px, and 375px with computed layout and overflow assertions"
+    },
+    {
+      "command": "AGENT_CALENDAR_E2E_CONTROL_HOME_ONLY=1 AGENT_CALENDAR_E2E_THEME=dark EVIDENCE_DIR=apps/desktop/test-results/orca-control-home-fidelity/dark node apps/desktop/tests/playwright-agent-work-workspace.cjs",
+      "result": "pass",
+      "summary": "Dark renderer QA at 1280px, 768px, and 375px with computed layout and overflow assertions"
+    },
+    {
+      "command": "npm run typecheck",
+      "result": "pass",
+      "summary": "Renderer and Electron TypeScript"
+    },
+    {
+      "command": "npm --workspace apps/desktop run test",
+      "result": "pass",
+      "summary": "240/240 Desktop tests"
+    },
+    {
+      "command": "npm run build:desktop",
+      "result": "pass",
+      "summary": "Production renderer and Electron build"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass",
+      "summary": "No whitespace errors"
+    }
+  ],
+  "artifacts": {
+    "light_desktop": {
+      "path": "apps/desktop/test-results/orca-control-home-fidelity/light/desktop-control-home.png",
+      "sha256": "1e12254b15abbe60bb007b8e64e17dbd639c130216d754e3f317ae1d629e8b86"
+    },
+    "light_tablet": {
+      "path": "apps/desktop/test-results/orca-control-home-fidelity/light/tablet-control-home.png",
+      "sha256": "9964496a77ef8079ab8b1d5de63431f4e16579a3eb23d5200766a198ed9284cc"
+    },
+    "light_mobile": {
+      "path": "apps/desktop/test-results/orca-control-home-fidelity/light/mobile-control-home.png",
+      "sha256": "ba20eba694597a7e52d826b3125427bad91805735fd0f7c2dd554c2ed5d9b8bf"
+    },
+    "dark_desktop": {
+      "path": "apps/desktop/test-results/orca-control-home-fidelity/dark/desktop-control-home.png",
+      "sha256": "b66817a6a5bae0590e8b3fb7a4ca2aaa961e60c5f7f5e00d7eb171c56287ed18"
+    },
+    "dark_tablet": {
+      "path": "apps/desktop/test-results/orca-control-home-fidelity/dark/tablet-control-home.png",
+      "sha256": "e4e5d55de6099b54d340e0f5bebb95462e37a01fa000ce1811b5856ea7419d33"
+    },
+    "dark_mobile": {
+      "path": "apps/desktop/test-results/orca-control-home-fidelity/dark/mobile-control-home.png",
+      "sha256": "dccd028b84573f8d60a4afc0fced2b81292625fd3965c1330b087bd84a0730e4"
+    },
+    "review": ".omo/evidence/orca-control-home-fidelity-pass-clone-fidelity.md"
+  },
+  "independent_review": {
+    "reviewer": "orca_design_final_review",
+    "reviewed_head": "16d59256801d822e3430cdd30eaa7b56d58ecab9",
+    "verdict": "PASS / APPROVE",
+    "findings": "No critical, high, or medium fidelity findings. The only low process finding was resolved by closing the plan."
+  },
+  "known_warnings": [
+    "The complete Agent Work browser scenario reaches the redesigned Control Home but later stalls in an existing message retry step with the send button left in a busy state; the bounded Control Home visual workflow passes.",
+    "The renderer retains the pre-existing Vite chunk-size warning above 500kB.",
+    "The test environment logs a non-failing WebSocket port 24678 warning during module tests.",
+    "TypeScript LSP is not installed in this workspace; the user previously declined installation, so TypeScript typecheck served as diagnostics."
+  ]
+}

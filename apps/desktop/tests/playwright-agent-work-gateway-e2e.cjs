@@ -232,8 +232,8 @@ async function main() {
     assert.equal(messagePost >= 0 && messageAggregate >= 0 && messageConversation > messageAggregate, true, JSON.stringify(messageTraffic));
 
     await page.waitForFunction(() => {
-      const composer = document.querySelector('.agent-work-composer textarea');
-      return composer instanceof HTMLTextAreaElement && !composer.disabled;
+      const sendButton = document.querySelector('.agent-work-composer button');
+      return sendButton instanceof HTMLButtonElement && !sendButton.disabled;
     });
     await composer.fill('이 보고서를 고객에게 이메일로 보내줘');
     const rejectedResponsePromise = page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith(`/work/${createdBody.work.id}/live`));

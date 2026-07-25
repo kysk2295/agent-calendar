@@ -17,10 +17,12 @@ async function runMigrations({
   pool,
   env = process.env,
   migrationsDir = path.join(__dirname, 'migrations'),
+  fileFilter = null,
 } = {}) {
   const ownedPool = pool || createPoolFromEnv(env);
   const files = fs.readdirSync(migrationsDir)
     .filter((file) => file.endsWith('.sql'))
+    .filter((file) => (typeof fileFilter === 'function' ? Boolean(fileFilter(file)) : true))
     .sort();
 
   for (const file of files) {

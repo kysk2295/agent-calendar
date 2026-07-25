@@ -1,6 +1,60 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ArrowsClockwise,
+  Books,
+  CalendarBlank,
+  CalendarDots,
+  CaretLeft,
+  CaretRight,
+  ChartBar,
+  ChatCircleDots,
+  Columns,
+  DesktopTower,
+  EnvelopeSimple,
+  GearSix,
+  ListBullets,
+  MagnifyingGlass,
+  Notebook,
+  Plus,
+  Robot,
+  SquaresFour,
+  Sun,
+  Tag,
+  Tray,
+  X,
+  type Icon,
+} from '@phosphor-icons/react';
 import { hermesApi, setApiBaseUrl, setApiProxyConnection, type ApiEnvelope } from './api/hermesApi';
 import { createAgentWork } from './api/agentWorkApiClient';
+import {
+  agentDisplayName,
+  agentProfileName,
+  agentSourceKind,
+  agentStatusLabel,
+  isAgentSelectable,
+  mergeAgentsWithProfileReadiness,
+} from './domains/agent-work/agentRoster';
+import {
+  calendarAiMessageFromDone,
+  normalizeCalendarChatHistory,
+  normalizeScheduleIngestResponse,
+  optimisticMailTaskUpdate,
+  scheduleDraftRegistrationItem,
+  selectedScheduleDrafts,
+  type ChatMessage,
+  type CalendarAiActionDraft,
+  type ScheduleDraft,
+} from './domains/communication/communication';
+import {
+  applyWikiStreamBlock,
+  createdDocumentFrom,
+  docIdentity,
+  mergeDocsByIdentity,
+  parseKnowledgeV2Answer,
+  parseKnowledgeV2Job,
+  persistedDocumentIdentity,
+  wikiJournalDocs,
+} from './domains/knowledge/knowledge';
 import { AgentOperationsScreen } from './features/agent-operations/AgentOperationsScreen';
 import { HermesAutomationDashboard } from './features/agent-operations/HermesAutomationDashboard';
 import {
@@ -9,37 +63,117 @@ import {
   parseAgentSessionEnvelope,
 } from './features/agent-operations/agentOperations';
 import { agentTaskCalendarRecord } from './features/agent-operations/agentTaskAppearance';
-import { parseHermesAutomationJobs } from './features/agent-operations/hermesAutomation';
+import {
+  parseConnectedAutomations,
+  parseConnectedAutomationSources,
+} from './features/agent-operations/hermesAutomation';
 import { TaskSessionPanel } from './features/agent-operations/TaskSessionPanel';
 import type {
+  AgentCatalogRequest,
+  AgentDirectoryMutationInput,
+  AgentExecutionEngine,
   AgentOperationsState,
   AgentMissionCreateInput,
   AgentRosterEntry,
+  ConnectedAutomationSource,
   AgentSessionDetail,
   AgentTaskAction,
+  HermesAutomationJob,
   HermesAutomationUpdateInput,
+  ProviderAgentSession,
+  ProviderSessionCatalogRequest,
+  ProviderSessionImportResult,
 } from './features/agent-operations/types';
 import './features/agent-operations/agent-operations.css';
 import './features/agent-operations/agent-workspace.css';
 import { useAgentCalendarDeepLink } from './features/agent-operations/useAgentCalendarDeepLink';
 import { consumeConsoleChatStream } from './features/chat/consoleChatStream';
+import { ChatDrawer } from './features/communication/ChatDrawer';
+import { MailScreen } from './features/communication/MailScreen';
+import {
+  coverageSummary,
+  mapUnifiedEntriesToCalendarEvents,
+  monthSourceBadge,
+} from './domains/work-management/unifiedCalendarPresentation';
+import { DiaryScreen, NotesScreen, ReviewScreen, WikiScreen } from './features/knowledge';
+import {
+  APP_TIME_ZONE,
+  TAXONOMY_SOURCE,
+  addDaysKey,
+  addMonthsKey,
+  calendarEventMatchesCreated,
+  calendarEventPayload,
+  calendarMetadata,
+  calendarNotes,
+  dateLabel,
+  desktopTaskPayload,
+  fallbackAnswer,
+  formatDateChip,
+  formatTime,
+  formatUpdatedStamp,
+  isCalendarEventRecord,
+  isDone,
+  isTaskRecord,
+  isTaxonomyRecord,
+  normalizeCalendarEvent,
+  parseQuick,
+  parseTaxonomyRecord,
+  plainCalendarNotes,
+  quickDatePreset,
+  repeatLabel,
+  responseCalendarEvent,
+  responseTask,
+  scheduleItemDate,
+  shouldPersistTask,
+  taskDataSummary,
+  taskListName,
+  taskMatchesCreated,
+  taskOwner,
+  taskPayload,
+  taskTags,
+  taxonomyMatchesSaved,
+  taxonomyNavKey,
+  todayKey,
+  todayMetaLabel,
+  weekRangeLabel,
+  type TaxonomyItem,
+  type TaxonomyKind,
+} from './domains/work-management/workManagement';
 import {
   DEFAULT_UI_PREFERENCES,
   persistUiPreferences,
   readUiPreferences,
   type UiPreferences,
 } from './features/settings/uiPreferences';
+import { WorkspaceInferencePolicyPanel } from './features/settings/WorkspaceInferencePolicyPanel';
+import { OnboardingGuide } from './features/onboarding/OnboardingGuide';
+import { buildOnboardingReadiness } from './features/onboarding/onboardingReadiness';
+import {
+  INITIAL_DESKTOP_CONNECTIVITY,
+  beginConnectivityRetry,
+  connectivityPresentation,
+  markConnectivityOffline,
+  markConnectivityOnline,
+  offlineRetryDelayMs,
+  settleRecoveredConnectivity,
+} from './features/connectivity/desktopConnectivity';
+import {
+  createWorkspaceHydrationCoordinator,
+  type WorkspaceHydrationCoordinator,
+  type WorkspaceSessionLease,
+} from './features/connectivity/workspaceHydrationCoordinator';
+import { parseWorkspacePresentationSnapshot } from './features/connectivity/workspaceSnapshot';
+import { RunnerSetupPanel } from './features/runner/RunnerSetupPanel';
+import type { PublicRunner } from './features/runner/runnerApi';
 
-type ScreenId = 'calendar' | 'today' | 'next7' | 'tasks' | 'kanban' | 'mail' | 'notes' | 'someday' | 'review' | 'wiki' | 'diary' | 'search' | 'agents' | 'automation' | 'widgets' | 'settings' | 'login';
+type ScreenId = 'onboarding' | 'calendar' | 'today' | 'next7' | 'tasks' | 'kanban' | 'mail' | 'notes' | 'someday' | 'review' | 'wiki' | 'diary' | 'search' | 'agents' | 'automation' | 'widgets' | 'settings' | 'login' | 'runner';
 type ModalId = 'task' | 'new' | 'delegate' | 'run' | 'agent' | 'settings' | 'taxonomy' | null;
 type Item = Record<string, unknown>;
-type NavItem = { id: ScreenId; icon: string; label: string; navKey?: string };
+type NavIconName = 'calendar' | 'today' | 'next7' | 'inbox' | 'mail' | 'board' | 'review' | 'wiki' | 'diary' | 'agent' | 'runner' | 'automation' | 'widget' | 'list' | 'tag';
+type NavItem = { id: ScreenId; icon: NavIconName; label: string; navKey?: string };
 type NavGroup = { title: string; kind?: 'list' | 'tag'; group?: string; items: NavItem[] };
-type TaxonomyKind = 'list' | 'tag';
-type TaxonomyItem = { id: string; label: string; icon: string; group: string; kind: TaxonomyKind; recordId?: string; hidden?: boolean };
 type CompletionNotice = { task: Item; title: string } | null;
-type ScheduleDraft = { kind: 'event' | 'task'; title: string; date: string; start: string | null; end: string | null; location: string | null; notes: string; confidence: 'high' | 'low'; selected?: boolean };
-type ChatMessage = { role: string; text: string; drafts?: ScheduleDraft[]; warnings?: string[]; conflicts?: Item[] };
+type AutomationMutationOutcome = { approvalId?: string };
 type AuthProvider = HermesAuthProvider;
 type AuthProfileState = HermesAuthProfile;
 type DesktopSettingsState = { apiBaseUrl: string; hasApiToken: boolean; theme: HermesDesktopSettings['theme']; authProfile: AuthProfileState | null; uiPreferences: UiPreferences };
@@ -94,8 +228,6 @@ type AppState = {
   agentSourceStatus: ApiEnvelope;
 };
 
-const APP_TIME_ZONE = 'Asia/Seoul';
-
 const EMPTY_STATE: AppState = {
   tasks: [],
   events: [],
@@ -117,7 +249,18 @@ const EMPTY_STATE: AppState = {
   agentSourceStatus: {},
 };
 
+const INITIAL_DESKTOP_RELEASE_STATUS: HermesDesktopReleaseStatus = {
+  supported: false,
+  phase: 'unsupported',
+  currentVersion: '',
+  availableVersion: null,
+  progressPercent: null,
+  checkedAt: null,
+  message: '업데이트 확인은 설치된 Desktop 앱에서 사용할 수 있습니다.',
+};
+
 const screenMeta: Record<ScreenId, { title: string; sub: string }> = {
+  onboarding: { title: '시작 가이드', sub: '캘린더 · Runner · Wiki · Calendar AI' },
   calendar: { title: '캘린더', sub: '나 · 에이전트 공유 일정' },
   today: { title: '오늘', sub: '' },
   next7: { title: '다음 7일', sub: '이번 주 + 다음 주' },
@@ -131,14 +274,13 @@ const screenMeta: Record<ScreenId, { title: string; sub: string }> = {
   diary: { title: '일기', sub: '매일 쓰고 위키에 쌓기' },
   search: { title: '검색', sub: '' },
   agents: { title: '에이전트', sub: '작업 위임 · 실시간 실행' },
-  automation: { title: 'Hermes 자동화', sub: '반복 작업 · 실행 일정 관리' },
+  automation: { title: '자동화', sub: 'Runner 연결 · 일정 · 실행 관리' },
   widgets: { title: '위젯', sub: 'macOS 데스크톱 위젯 미리보기' },
   settings: { title: '설정', sub: '' },
+  runner: { title: 'Runner 설정', sub: '계정 바인딩 · 소유자 확인' },
   login: { title: '로그인', sub: '' },
 };
 
-const TAXONOMY_SOURCE = 'hermes-desktop-taxonomy';
-const CALENDAR_META_MARKER = '[Agent Calendar]\n';
 const LOGO_SRC = './agent-calendar-logo.png';
 const IS_WIDGET_OVERLAY = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('overlay') === 'widgets';
 
@@ -150,13 +292,27 @@ function LogoMark({ className = 'brand-mark' }: { className?: string }) {
   return <img className={className} src={LOGO_SRC} alt="" draggable={false} />;
 }
 
-function ChatIcon({ className = 'chat-fab-icon' }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M7.5 8.25h9M7.5 12h6.25" />
-      <path d="M5.75 18.5c-1.45 0-2.5-1.05-2.5-2.5V6.75c0-1.45 1.05-2.5 2.5-2.5h12.5c1.45 0 2.5 1.05 2.5 2.5V16c0 1.45-1.05 2.5-2.5 2.5h-6.8L7.6 21.1c-.82.55-1.85-.04-1.85-1.02V18.5Z" />
-    </svg>
-  );
+const navIcons: Record<NavIconName, Icon> = {
+  calendar: CalendarBlank,
+  today: Sun,
+  next7: CalendarDots,
+  inbox: Tray,
+  mail: EnvelopeSimple,
+  board: Columns,
+  review: ChartBar,
+  wiki: Books,
+  diary: Notebook,
+  agent: Robot,
+  runner: DesktopTower,
+  automation: ArrowsClockwise,
+  widget: SquaresFour,
+  list: ListBullets,
+  tag: Tag,
+};
+
+function NavIcon({ name }: { name: NavIconName }) {
+  const IconComponent = navIcons[name];
+  return <IconComponent className="nav-icon" size={16} weight="regular" aria-hidden="true" />;
 }
 
 type SystemIconName = 'calendar' | 'check' | 'google' | 'key' | 'mail' | 'orbit';
@@ -184,25 +340,23 @@ function DateRowIcon({ name }: { name: DateRowIconName }) {
   return <svg className={`date-row-icon date-row-icon-${name}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
 }
 
-const smartNavGroups: NavGroup[] = [
-  { title: '', items: [
-    { id: 'calendar', icon: '🗓️', label: '캘린더' },
-    { id: 'today', icon: '☀️', label: '오늘' },
-    { id: 'next7', icon: '📆', label: '다음 7일' },
-    { id: 'tasks', icon: '📥', label: '기본함' },
-    { id: 'mail', icon: '✉️', label: '메일함' },
-    { id: 'kanban', icon: '▦', label: '칸반 보드' },
-  ] },
-  { title: '회고 & 기록', items: [
-    { id: 'review', icon: '📊', label: '주간 회고' },
-    { id: 'wiki', icon: '📚', label: '위키' },
-    { id: 'diary', icon: '📔', label: '일기' },
-  ] },
-  { title: 'AGENTS', items: [
-    { id: 'agents', icon: '🤖', label: '에이전트' },
-    { id: 'automation', icon: '⟳', label: 'Hermes 자동화' },
-    { id: 'widgets', icon: '▣', label: '위젯' },
-  ] },
+const primaryNavItems: NavItem[] = [
+  { id: 'calendar', icon: 'calendar', label: '캘린더' },
+  { id: 'agents', icon: 'agent', label: '에이전트' },
+  { id: 'automation', icon: 'automation', label: '자동화' },
+];
+
+const secondaryNavItems: NavItem[] = [
+  { id: 'today', icon: 'today', label: '오늘' },
+  { id: 'next7', icon: 'next7', label: '다음 7일' },
+  { id: 'tasks', icon: 'inbox', label: '기본함' },
+  { id: 'mail', icon: 'mail', label: '메일함' },
+  { id: 'kanban', icon: 'board', label: '칸반 보드' },
+  { id: 'wiki', icon: 'wiki', label: '위키' },
+  { id: 'review', icon: 'review', label: '주간 회고' },
+  { id: 'diary', icon: 'diary', label: '일기' },
+  { id: 'runner', icon: 'runner', label: 'Runner 설정' },
+  { id: 'widgets', icon: 'widget', label: '위젯' },
 ];
 
 function arr(payload: ApiEnvelope | undefined, ...keys: string[]): Item[] {
@@ -243,20 +397,6 @@ function itemTitle(item: Item, fallback = '항목') {
 
 function itemSub(item: Item, fallback = 'Agent Calendar') {
   return text(item.date || item.due || item.status || item.agent || item.model || item.from || item.folder || item.source, fallback);
-}
-
-function docIdentity(item: Item, fallback = '') {
-  return text(item.path || item.wikiPath || item.id || item._id || item.key || item.title, fallback);
-}
-
-function persistedDocumentIdentity(item: Item, fallback = '') {
-  return text(item.path || item.wikiPath || item.id || item._id || item.key, fallback);
-}
-
-function createdDocumentFrom(payload: ApiEnvelope): Item {
-  const nested = obj(payload, 'document');
-  if (persistedDocumentIdentity(nested)) return nested;
-  return persistedDocumentIdentity(payload) ? payload : {};
 }
 
 function agentIdentity(item: Item, fallback = '') {
@@ -312,468 +452,12 @@ function nestedItem(item: Item, ...keys: string[]) {
   return null;
 }
 
-function normalizeCalendarEvent(item: Item): Item {
-  const nested = nestedItem(item, 'event', 'calendarEvent', 'task');
-  const source = text(item.source || nested?.source || 'calendar-event');
-  return {
-    ...(nested || item),
-    id: itemId(nested || item, itemId(item, '')),
-    kind: 'calendar-event',
-    type: 'calendar-event',
-    source,
-  };
-}
-
-function isDone(item: Item) {
-  return /done|complete|completed|ok|완료/i.test(text(item.status || item.lane || item.lastStatus));
-}
-
-function taskOwner(item: Item) {
-  const owner = text(item.owner || item.agent || item.agentId, 'Me');
-  if (/agent|default|bizconsultant|stockagent|uniportpm|wikicurator|Hermes|Agent Calendar/i.test(owner)) return 'Agent';
-  if (/hybrid|joint|공동/i.test(owner)) return 'Hybrid';
-  return 'Me';
-}
-
-function profileReadinessEntries(payload: ApiEnvelope) {
-  return arr(payload, 'requiredProfiles', 'profiles');
-}
-
-function profileEntryName(entry: Item) {
-  return text(entry.profile || entry.name || entry.id || objectValue(entry.setup).profile, '').toLowerCase();
-}
-
-function agentProfileName(agent: Item) {
-  const profile = objectValue(agent.profile);
-  return text(agent.profileName || agent.profileId || profile.name || profile.profile || agent.name || agent.id, '').toLowerCase();
-}
-
-function mergeAgentsWithProfileReadiness(agents: Item[], readiness: ApiEnvelope) {
-  const entries = profileReadinessEntries(readiness);
-  if (!entries.length) return agents;
-  const byProfile = new Map<string, Item>();
-  entries.forEach((entry) => {
-    const key = profileEntryName(entry);
-    if (key) byProfile.set(key, entry);
-  });
-  return agents.map((agent) => {
-    const key = agentProfileName(agent);
-    const profileStatus = key ? byProfile.get(key) : undefined;
-    if (!profileStatus) return agent;
-    return {
-      ...agent,
-      hermesProfileName: profileEntryName(profileStatus) || key,
-      hermesProfileStatus: text(profileStatus.status, ''),
-      hermesProfilePresent: profileStatus.present,
-      hermesProfileSetup: profileStatus.setup,
-      hermesDashboardProfile: profileStatus,
-    };
-  });
-}
-
-function agentStatusLabel(agent: Item) {
-  if (agent.enabled === false) return '중지됨';
-  const raw = text(agent.hermesProfileStatus || agent.profileStatus || agent.status, '').toLowerCase();
-  const present = agent.hermesProfilePresent;
-  if (present === false || /missing|not-found|absent|누락|없음/.test(raw)) return '누락';
-  if (/ready|준비/.test(raw)) return '준비됨';
-  if (/busy|running|작업|executing/.test(raw)) return '작업중';
-  if (/active|online|connected|활성/.test(raw)) return '활성';
-  if (/idle|유휴/.test(raw)) return '유휴';
-  if (/pending|requested|대기/.test(raw)) return '생성 대기';
-  if (/unavailable|offline|disconnected|사용 불가/.test(raw)) return '사용 불가';
-  if (/blocked|error|fail|오류/.test(raw)) return '확인 필요';
-  return raw ? text(agent.hermesProfileStatus || agent.profileStatus || agent.status) : '상태 없음';
-}
-
-function agentDisplayName(agent: Item) {
-  return text(agent.displayName || agent.name || agent.id || agent.hermesProfileName, 'agent');
-}
-
-function isAgentSelectable(agent: Item) {
-  return agent.hermesProfilePresent !== false
-    && !agent.pending
-    && !/missing|누락|pending|requested|unavailable|offline|disconnected|사용 불가/i.test(text(agent.hermesProfileStatus || agent.status));
-}
-
-function dateKeyInTimeZone(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: APP_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-  const part = (type: string) => parts.find((entry) => entry.type === type)?.value || '';
-  return `${part('year')}-${part('month')}-${part('day')}`;
-}
-
-function todayKey() {
-  return dateKeyInTimeZone();
-}
-
-function dateLabel(offset = 0) {
-  const day = new Date(`${todayKey()}T00:00:00`);
-  day.setDate(day.getDate() + offset);
-  return new Intl.DateTimeFormat('ko-KR', { timeZone: APP_TIME_ZONE, month: 'long', day: 'numeric', weekday: 'short' }).format(day);
-}
-
-function todayMetaLabel() {
-  const day = new Date(`${todayKey()}T00:00:00`);
-  const label = new Intl.DateTimeFormat('ko-KR', {
-    timeZone: APP_TIME_ZONE,
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'short',
-  }).format(day);
-  return label.replace(/\s([월화수목금토일])$/, ' ($1)');
-}
-
-function formatTime(value: string) {
-  if (!value) return '';
-  const [hourRaw, minute = '00'] = value.split(':');
-  const hour = Number(hourRaw);
-  const period = hour < 12 ? '오전' : '오후';
-  const display = hour % 12 || 12;
-  return `${period} ${display}:${minute}`;
-}
-
-function formatDateChip(value: string) {
-  if (!value) return '날짜 추가';
-  const date = new Date(`${value}T00:00:00`);
-  return `${date.getMonth() + 1}월 ${date.getDate()}일`;
-}
-
-function formatUpdatedStamp(value: string) {
-  if (!value) return '방금 수정';
-  const datePart = value.includes('T') ? value.split('T')[0] : value.slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return `${formatDateChip(datePart)} 수정`;
-  return value.length > 16 ? '최근 수정' : value;
-}
-
-function repeatLabel(value: string) {
-  return ({ none: '안 함', daily: '매일', weekday: '평일', weekly: '매주', monthly: '매월' } as Record<string, string>)[value] || '안 함';
-}
-
-function addDaysKey(date: string, offset: number) {
-  const day = new Date(`${date}T00:00:00`);
-  day.setDate(day.getDate() + offset);
-  return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(day);
-}
-
-function quickDatePreset(kind: 'today' | 'tomorrow' | 'nextWeek' | 'evening', baseDate = todayKey()) {
-  if (kind === 'tomorrow') return { date: addDaysKey(todayKey(), 1), time: '' };
-  if (kind === 'nextWeek') return { date: addDaysKey(todayKey(), 7), time: '' };
-  if (kind === 'evening') return { date: todayKey(), time: '18:00' };
-  return { date: todayKey(), time: '' };
-}
-
-function addMonthsKey(date: string, offset: number) {
-  const day = new Date(`${date}T00:00:00`);
-  day.setMonth(day.getMonth() + offset);
-  return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(day);
-}
-
-function weekRangeLabel(date = todayKey()) {
-  const day = new Date(`${date}T00:00:00`);
-  const dayOfWeek = day.getDay() || 7;
-  day.setDate(day.getDate() - dayOfWeek + 1);
-  const start = new Date(day);
-  const end = new Date(day);
-  end.setDate(start.getDate() + 6);
-  const format = (value: Date) => new Intl.DateTimeFormat('ko-KR', {
-    timeZone: APP_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(value).replace(/\. /g, '.').replace(/\.$/, '');
-  return `${format(start)} - ${format(end)}`;
-}
-
-type ScheduleQuestionSummary = {
-  scopeLabel: string;
-  from: string;
-  to: string;
-  total: number;
-  done: number;
-  todo: number;
-  workHours: number;
-  workCount: number;
-  summary: string;
-  list: string;
-  sources: Item[];
-};
-
-function scheduleQuestionRange(question: string) {
-  const today = todayKey();
-  const current = new Date(`${today}T00:00:00`);
-  const dayOfWeek = current.getDay() || 7;
-  const monday = addDaysKey(today, 1 - dayOfWeek);
-  if (/오늘/.test(question)) return { from: today, to: today, label: '오늘' };
-  if (/내일/.test(question)) {
-    const tomorrow = addDaysKey(today, 1);
-    return { from: tomorrow, to: tomorrow, label: '내일' };
-  }
-  if (/지난\s*주|저번\s*주/.test(question)) {
-    const from = addDaysKey(monday, -7);
-    return { from, to: addDaysKey(from, 6), label: '지난주' };
-  }
-  if (/이번\s*주|금주/.test(question)) return { from: monday, to: addDaysKey(monday, 6), label: '이번 주' };
-  const monthMatch = question.match(/(?:최근|지난)?\s*(\d+)\s*(?:달|개월)/);
-  if (monthMatch) {
-    const months = Math.max(1, Number(monthMatch[1]) || 1);
-    return { from: addMonthsKey(today, -months), to: today, label: `최근 ${months}개월` };
-  }
-  return { from: '', to: '', label: '전체 기록' };
-}
-
-function scheduleItemDate(item: Item) {
-  const value = text(item.date || item.startDate || item.day || item.due);
-  const match = value.match(/\d{4}-\d{2}-\d{2}/);
-  return match ? match[0] : value.slice(0, 10);
-}
-
-function inScheduleRange(item: Item, from: string, to: string) {
-  if (!from && !to) return true;
-  const date = scheduleItemDate(item);
-  if (!date) return false;
-  return (!from || date >= from) && (!to || date <= to);
-}
-
-function scheduleItemDurationHours(item: Item) {
-  const startTime = text(item.time || item.t);
-  const endTime = text(item.endTime || item.tEnd || calendarMetadata(item).endTime);
-  if (!startTime || !endTime) return 0;
-  const [startHour = 0, startMinute = 0] = startTime.split(':').map((part) => Number(part) || 0);
-  const [endHour = 0, endMinute = 0] = endTime.split(':').map((part) => Number(part) || 0);
-  const minutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
-  return minutes > 0 ? minutes / 60 : 0;
-}
-
-function isWorkItem(item: Item) {
-  return /알바|근무|work|shift/i.test([
-    itemTitle(item, ''),
-    taskListName(item),
-    taskTags(item).join(' '),
-    text(item.notes || item.description),
-  ].join(' '));
-}
-
-function taskDataSummary(question: string, items: Item[]): ScheduleQuestionSummary {
-  const range = scheduleQuestionRange(question);
-  const scoped = items.filter((item) => inScheduleRange(item, range.from, range.to));
-  const done = scoped.filter(isDone).length;
-  const todo = scoped.length - done;
-  const workItems = scoped.filter(isWorkItem);
-  const workHours = workItems.reduce((sum, item) => sum + (scheduleItemDurationHours(item) || 4), 0);
-  const list = scoped.slice(0, 20).map((item, index) => {
-    const tags = taskTags(item);
-    return [
-      `${index + 1}. ${itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}`,
-      scheduleItemDate(item) || '날짜 없음',
-      text(item.time || ''),
-      isDone(item) ? '완료' : '미완료',
-      taskListName(item) || text(item.source || ''),
-      tags.length ? `#${tags.join(' #')}` : '',
-    ].filter(Boolean).join(' · ');
-  }).join('\n');
-  const pct = Math.round((done / Math.max(scoped.length, 1)) * 100);
-  return {
-    scopeLabel: range.label,
-    from: range.from,
-    to: range.to,
-    total: scoped.length,
-    done,
-    todo,
-    workHours,
-    workCount: workItems.length,
-    summary: `${range.label} 기준 전체 ${scoped.length}개, 완료 ${done}개, 미완료 ${todo}개, 완료율 ${pct}%, 근무/알바 ${workItems.length}건 ${Number.isInteger(workHours) ? workHours : workHours.toFixed(1)}시간`,
-    list,
-    sources: scoped.slice(0, 10),
-  };
-}
-
-function fallbackAnswer(question: string, summary: ScheduleQuestionSummary) {
-  if (!summary.total) return '아직 해당 범위에 기록이 없어요. 먼저 작업이나 일정을 추가하면 그 데이터를 기준으로 답할 수 있어요.';
-  const rate = Math.round((summary.done / Math.max(summary.total, 1)) * 100);
-  if (/시간|알바|근무/.test(question)) {
-    const hours = Number.isInteger(summary.workHours) ? String(summary.workHours) : summary.workHours.toFixed(1);
-    const basis = summary.workCount ? `${summary.workCount}건 기준` : `${summary.scopeLabel} 기록 기준`;
-    return `${summary.scopeLabel} 알바/근무 시간은 ${hours}시간으로 계산돼요. 근거: ${basis}. 시작~종료 시간이 없는 근무 기록은 회당 4시간으로 추정했어요.`;
-  }
-  if (/완료|완료율|비율|평균/.test(question)) {
-    return `${summary.scopeLabel} 완료율은 ${rate}%예요. ${summary.done}/${summary.total} 완료, 미완료 ${summary.todo}개입니다.\n근거: ${summary.scopeLabel} 작업 ${summary.total}개.`;
-  }
-  if (/추천|뭐|무엇|다음|할\s*일|할일/.test(question)) {
-    const next = summary.sources
-      .filter((item) => !isDone(item))
-      .sort((a, b) => `${scheduleItemDate(a) || '9999-99-99'}:${Number(b.pri || b.priority || 0)}`.localeCompare(`${scheduleItemDate(b) || '9999-99-99'}:${Number(a.pri || a.priority || 0)}`))
-      .slice(0, 3);
-    if (!next.length) return `${summary.scopeLabel}에는 남은 작업이 없어요. 완료된 ${summary.done}개 기록을 보면 지금은 새 목표를 잡아도 괜찮아 보여요.\n근거: ${summary.scopeLabel} 작업 ${summary.total}개.`;
-    return [
-      `${summary.scopeLabel} 기준으로 다음에 하면 좋은 건 ${next.length}개예요.`,
-      ...next.map((item, index) => `${index + 1}. ${itemTitle(item, '작업')}${scheduleItemDate(item) ? ` (${scheduleItemDate(item)})` : ''}`),
-      `근거: 미완료 작업 ${summary.todo}개 중 날짜가 가까운 항목을 우선으로 골랐어요.`,
-    ].join('\n');
-  }
-  return `${summary.summary}입니다.\n근거: ${summary.scopeLabel} 작업 ${summary.total}개.`;
-}
-
-function parseQuick(textValue: string, fallbackDate?: string) {
-  let title = textValue;
-  let date = fallbackDate || '';
-  let time = '';
-  const tags: string[] = [];
-  let owner = 'Me';
-  let repeat = 'none';
-  let priority = '';
-  title = title.replace(/#(\S+)/g, (_, tag: string) => { tags.push(tag); return ''; });
-  if (/@(hermes|agent|codex|에이전트)/i.test(title)) owner = 'Agent';
-  title = title.replace(/@\S+/g, '');
-  if (/!높음|!high|p1/i.test(title)) priority = 'P1';
-  if (/!중간|!med|p2/i.test(title)) priority = 'P2';
-  if (/!낮음|!low|p3/i.test(title)) priority = 'P3';
-  title = title.replace(/!(높음|중간|낮음|high|med|low)|p[123]/gi, '');
-  if (/평일/.test(title)) repeat = 'weekday';
-  else if (/매일|daily/i.test(title)) repeat = 'daily';
-  else if (/매주|weekly/i.test(title)) repeat = 'weekly';
-  else if (/매월|매달|monthly/i.test(title)) repeat = 'monthly';
-  title = title.replace(/평일|매일|매주|매월|매달|daily|weekly|monthly/gi, '');
-  if (/오늘/.test(title)) { date = todayKey(); title = title.replace(/오늘/g, ''); }
-  if (/내일/.test(title)) { date = addDaysKey(todayKey(), 1); title = title.replace(/내일/g, ''); }
-  if (/모레/.test(title)) { date = addDaysKey(todayKey(), 2); title = title.replace(/모레/g, ''); }
-  const timeMatch = title.match(/(오전|오후)\s*(\d{1,2})\s*시\s*(\d{1,2})?\s*분?/);
-  if (timeMatch) {
-    let hour = Number(timeMatch[2]);
-    if (timeMatch[1] === '오후' && hour < 12) hour += 12;
-    if (timeMatch[1] === '오전' && hour === 12) hour = 0;
-    time = `${String(hour).padStart(2, '0')}:${String(Number(timeMatch[3] || 0)).padStart(2, '0')}`;
-    title = title.replace(timeMatch[0], '');
-  } else {
-    const simpleTime = title.match(/(\d{1,2}):(\d{2})|(\d{1,2})시/);
-    if (simpleTime) {
-      time = simpleTime[3] ? `${String(Number(simpleTime[3])).padStart(2, '0')}:00` : `${String(Number(simpleTime[1])).padStart(2, '0')}:${simpleTime[2]}`;
-      title = title.replace(simpleTime[0], '');
-    }
-  }
-  return { title: title.replace(/\s+/g, ' ').trim() || textValue, date, time, tags, owner, repeat, priority };
-}
-
 function itemId(item: Item, fallback: string) {
   return text(item.id || item._id || item.key || item.path, fallback);
 }
 
 function slugify(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, '-').replace(/[:/#?&]/g, '-');
-}
-
-function taxonomyNavKey(kind: TaxonomyKind, id: string) {
-  return `${kind}:${slugify(id)}`;
-}
-
-function parseTaxonomyRecord(item: Item): TaxonomyItem | null {
-  const title = itemTitle(item, '');
-  const source = text(item.source);
-  const marker = text(item.kind || item.type || item.recordType);
-  const notes = text(item.notes || item.description);
-  let parsed: Record<string, unknown> = {};
-  if (notes.trim().startsWith('{')) {
-    try { parsed = JSON.parse(notes) as Record<string, unknown>; } catch { parsed = {}; }
-  }
-  const kind = text(item.taxonomyKind || parsed.kind || (/^__(hermes|agents_calendar)_list:/.test(title) ? 'list' : /^__(hermes|agents_calendar)_tag:/.test(title) ? 'tag' : '')) as TaxonomyKind;
-  const isMeta = source === TAXONOMY_SOURCE || marker === 'taxonomy' || /^__(hermes|agents_calendar)_(list|tag):/.test(title);
-  if (!isMeta || (kind !== 'list' && kind !== 'tag')) return null;
-  const label = text(item.label || item.name || parsed.label || title.replace(/^__(hermes|agents_calendar)_(list|tag):/, ''), kind === 'list' ? '새 리스트' : '새 태그');
-  return {
-    id: text(item.slug || parsed.id || itemId(item, slugify(label)), slugify(label)),
-    label,
-    icon: text(item.icon || parsed.icon, kind === 'list' ? '📁' : '🏷'),
-    group: text(item.group || parsed.group, kind === 'list' ? '리스트' : '태그'),
-    kind,
-    recordId: itemId(item, ''),
-    hidden: Boolean(item.hidden || parsed.hidden),
-  };
-}
-
-function isTaxonomyRecord(item: Item) {
-  return Boolean(parseTaxonomyRecord(item));
-}
-
-function taskListName(task: Item) {
-  return text(task.category || task.list || task.project, '');
-}
-
-function taskTags(task: Item) {
-  if (Array.isArray(task.tags)) return task.tags.map(String).filter(Boolean);
-  return text(task.tags).split(',').map((tag) => tag.trim()).filter(Boolean);
-}
-
-function shouldPersistTask(id: string) {
-  return Boolean(id) && !id.startsWith('local-') && !id.startsWith('draft-') && !/^t\d+$/.test(id);
-}
-
-function isCalendarEventRecord(item: Item) {
-  const kind = text(item.kind || item.type || item.recordType);
-  const source = text(item.source);
-  return kind === 'calendar-event' || kind === 'event' || source === 'calendar-event' || source === 'external-calendar';
-}
-
-function isTaskRecord(item: Item) {
-  return !isTaxonomyRecord(item) && !isCalendarEventRecord(item);
-}
-
-function plainCalendarNotes(item: Item) {
-  return text(item.notes || item.description).split(CALENDAR_META_MARKER)[0].trimEnd();
-}
-
-function calendarMetadata(item: Item) {
-  const rawNotes = text(item.notes || item.description);
-  let stored: Record<string, unknown> = {};
-  const markerIndex = rawNotes.indexOf(CALENDAR_META_MARKER);
-  if (markerIndex !== -1) {
-    try { stored = JSON.parse(rawNotes.slice(markerIndex + CALENDAR_META_MARKER.length)) as Record<string, unknown>; } catch { stored = {}; }
-  }
-  const repeat = text(item.repeat || item.recurrence || stored.repeat || stored.recurrence, 'none') || 'none';
-  return {
-    allDay: Boolean(item.allDay ?? stored.allDay),
-    endDate: text(item.endDate || stored.endDate),
-    endTime: text(item.endTime || stored.endTime),
-    repeat,
-    repeatUntil: text(item.repeatUntil || stored.repeatUntil),
-  };
-}
-
-function calendarNotes(item: Item) {
-  const notes = plainCalendarNotes(item);
-  const meta = calendarMetadata(item);
-  const hasMeta = meta.allDay || meta.endDate || meta.endTime || meta.repeat !== 'none' || meta.repeatUntil;
-  return hasMeta ? `${notes ? `${notes}\n\n` : ''}${CALENDAR_META_MARKER}${JSON.stringify(meta)}` : notes;
-}
-
-function desktopTaskPayload(item: Item) {
-  return { ...taskPayload(item), source: 'desktop-task-db' };
-}
-
-function calendarEventPayload(item: Item) {
-  const calendar = calendarMetadata(item);
-  const payload = taskPayload(item);
-  return {
-    ...payload,
-    title: itemTitle(item, '새 일정'),
-    date: text(item.date || item.startDate || item.day, todayKey()),
-    startDate: text(item.startDate || item.date || item.day, todayKey()),
-    time: text(item.time || item.t),
-    endDate: calendar.endDate || text(item.endDate || item.dateEnd || item.dueDate),
-    endTime: calendar.endTime || text(item.endTime || item.tEnd),
-    allDay: calendar.allDay,
-    recurrence: calendar.repeat === 'none' ? '' : calendar.repeat,
-    repeat: calendar.repeat,
-    repeatUntil: calendar.repeatUntil,
-    notes: calendarNotes(item),
-    kind: 'calendar-event',
-    type: 'calendar-event',
-    source: text(item.source || 'desktop-calendar-event'),
-  };
 }
 
 function hermesWidgetOwner(item: Item): HermesWidgetOwner {
@@ -833,99 +517,7 @@ function buildHermesWidgetSnapshot(tasks: Item[], events: Item[], runs: Item[]):
   };
 }
 
-function taskPayload(item: Item) {
-  const payload: Record<string, unknown> = {};
-  const copyKeys = ['title', 'notes', 'description', 'date', 'time', 'endDate', 'endTime', 'allDay', 'owner', 'agent', 'status', 'lane', 'tags', 'repeat', 'repeatUntil', 'recurrence', 'priority', 'project', 'category', 'list', 'done', 'reminder', 'reminderAt'];
-  for (const key of copyKeys) {
-    if (item[key] !== undefined) payload[key] = item[key];
-  }
-  const calendar = calendarMetadata(item);
-  payload.allDay = calendar.allDay;
-  payload.endDate = calendar.endDate;
-  payload.endTime = calendar.endTime;
-  payload.recurrence = calendar.repeat === 'none' ? '' : calendar.repeat;
-  payload.repeatUntil = calendar.repeatUntil;
-  if (item.notes !== undefined || item.description !== undefined || calendar.allDay || calendar.endDate || calendar.endTime || calendar.repeat !== 'none' || calendar.repeatUntil) {
-    payload.notes = calendarNotes(item);
-  }
-  if (item.category !== undefined && payload.project === undefined) payload.project = item.category;
-  if (item.list !== undefined && payload.project === undefined) payload.project = item.list;
-  if (item.status !== undefined && payload.lane === undefined) payload.lane = item.status;
-  if (item.done !== undefined && payload.status === undefined) payload.status = item.done ? 'Done' : 'Planned';
-  const date = text(item.date);
-  const time = text(item.time);
-  if ((date || time) && payload.due === undefined) payload.due = `${date}${time ? ` ${time}` : ''}`.trim();
-  if (!date && !time && (item.date === '' || item.time === '') && payload.due === undefined) payload.due = '';
-  return payload;
-}
-
-function responseTask(payload: ApiEnvelope) {
-  const direct = payload.task;
-  if (direct && typeof direct === 'object' && !Array.isArray(direct)) return direct as Item;
-  const data = payload.data;
-  if (data && typeof data === 'object' && !Array.isArray(data)) {
-    const nested = (data as ApiEnvelope).task;
-    if (nested && typeof nested === 'object' && !Array.isArray(nested)) return nested as Item;
-  }
-  return null;
-}
-
-function responseCalendarEvent(payload: ApiEnvelope) {
-  const direct = payload.event || payload.calendarEvent;
-  if (direct && typeof direct === 'object' && !Array.isArray(direct)) return direct as Item;
-  const data = payload.data;
-  if (data && typeof data === 'object' && !Array.isArray(data)) {
-    const nested = (data as ApiEnvelope).event || (data as ApiEnvelope).calendarEvent;
-    if (nested && typeof nested === 'object' && !Array.isArray(nested)) return nested as Item;
-  }
-  return null;
-}
-
-function taskMatchesCreated(expected: Item, candidate: Item) {
-  const expectedId = itemId(expected, '');
-  const candidateId = itemId(candidate, '');
-  if (expectedId && candidateId && expectedId === candidateId) return true;
-  return itemTitle(expected, '') !== '' && itemTitle(expected, '') === itemTitle(candidate, '') && text(expected.date) === text(candidate.date);
-}
-
-function calendarEventMatchesCreated(expected: Item, candidate: Item) {
-  const expectedId = itemId(expected, '');
-  const candidateId = itemId(candidate, '');
-  if (expectedId && candidateId && expectedId === candidateId) return true;
-  const expectedDate = text(expected.startDate || expected.date);
-  const candidateDate = text(candidate.startDate || candidate.date);
-  return itemTitle(expected, '') !== '' && itemTitle(expected, '') === itemTitle(candidate, '') && expectedDate === candidateDate;
-}
-
-function taxonomyMatchesSaved(expected: TaxonomyItem, candidate: Item) {
-  const parsed = parseTaxonomyRecord(candidate);
-  if (!parsed || parsed.kind !== expected.kind) return false;
-  if (expected.recordId && parsed.recordId && expected.recordId === parsed.recordId) return true;
-  return slugify(parsed.id) === slugify(expected.id) || slugify(parsed.label) === slugify(expected.label);
-}
-
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function toChatMessage(item: Item) {
-  return {
-    role: text(item.role, 'assistant'),
-    text: text(item.text || item.message || item.content || item.goal, ''),
-  };
-}
-
-function scheduleDraftsFromPayload(payload: ApiEnvelope): ScheduleDraft[] {
-  return arr(payload, 'drafts').map((draft) => ({
-    kind: text(draft.kind) === 'task' ? 'task' : 'event',
-    title: text(draft.title, '일정 초안'),
-    date: text(draft.date),
-    start: text(draft.start) || null,
-    end: text(draft.end) || null,
-    location: text(draft.location) || null,
-    notes: text(draft.notes),
-    confidence: text(draft.confidence) === 'low' ? 'low' : 'high',
-    selected: true,
-  }));
-}
 
 function stringList(payload: ApiEnvelope, key: string) {
   const direct = payload[key];
@@ -933,6 +525,10 @@ function stringList(payload: ApiEnvelope, key: string) {
   const data = obj(payload, 'data');
   const nested = data[key];
   return Array.isArray(nested) ? nested.map(String) : [];
+}
+
+function loadKnowledgeDocument(path: string) {
+  return hermesApi.getWiki({ path });
 }
 
 function desktopSettingsState(settings: HermesDesktopSettings): DesktopSettingsState {
@@ -945,15 +541,25 @@ function desktopSettingsState(settings: HermesDesktopSettings): DesktopSettingsS
   };
 }
 
+function desktopSettingsSignedIn(settings: HermesDesktopSettings): boolean {
+  if (settings.session) return settings.session.signedIn === true;
+  return Boolean(settings.hasSession || settings.authProfile);
+}
+
 export function App() {
   const isWidgetOverlay = IS_WIDGET_OVERLAY;
   const [screen, setScreen] = useState<ScreenId>('calendar');
   const [activeNavKey, setActiveNavKey] = useState('calendar');
+  const [secondaryNavOpen, setSecondaryNavOpen] = useState(false);
   const [modal, setModal] = useState<ModalId>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [state, setState] = useState<AppState>(EMPTY_STATE);
   const [agentOperations, setAgentOperations] = useState<AgentOperationsState>(EMPTY_AGENT_OPERATIONS_STATE);
+  const [calendarSources, setCalendarSources] = useState<Item[]>([]);
+  const [calendarCoverageNote, setCalendarCoverageNote] = useState('');
+  const [connectedAutomationSources, setConnectedAutomationSources] = useState<readonly ConnectedAutomationSource[]>([]);
+  const [automationRunners, setAutomationRunners] = useState<readonly PublicRunner[]>([]);
   const [agentOperationsError, setAgentOperationsError] = useState('');
   const [agentOperationsBusy, setAgentOperationsBusy] = useState('');
   const agentOperationsRefreshPromiseRef = useRef<Promise<void> | null>(null);
@@ -963,6 +569,11 @@ export function App() {
   const [agentSessionMessageBusy, setAgentSessionMessageBusy] = useState(false);
   const [settings, setSettings] = useState<DesktopSettingsState>({ apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app', hasApiToken: false, theme: 'default', authProfile: null, uiPreferences: DEFAULT_UI_PREFERENCES });
   const [apiError, setApiError] = useState('');
+  const [desktopConnectivity, setDesktopConnectivity] = useState(INITIAL_DESKTOP_CONNECTIVITY);
+  const [desktopReleaseStatus, setDesktopReleaseStatus] = useState(INITIAL_DESKTOP_RELEASE_STATUS);
+  const [desktopReleaseBusy, setDesktopReleaseBusy] = useState<'' | 'check' | 'download' | 'install'>('');
+  const [desktopReleaseError, setDesktopReleaseError] = useState('');
+  const [desktopRecoveryStatus, setDesktopRecoveryStatus] = useState<HermesDesktopRecoveryStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const hasHydratedRef = useRef(false);
   const localUiPreferencesRef = useRef<UiPreferences | null>(null);
@@ -981,12 +592,10 @@ export function App() {
   const [newMode, setNewMode] = useState<'date' | 'duration'>('date');
   const [newEndDate, setNewEndDate] = useState('');
   const [newEndTime, setNewEndTime] = useState('');
-  const [loggedIn, setLoggedIn] = useState(true);
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPw, setLoginPw] = useState('');
+  const [loggedIn, setLoggedIn] = useState(false);
   const [loginStatus, setLoginStatus] = useState('');
-  const [authBusyProvider, setAuthBusyProvider] = useState<AuthProvider | null>(null);
-  const [passwordAuthBusy, setPasswordAuthBusy] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authPhase, setAuthPhase] = useState<'idle' | 'opening' | 'waiting' | 'completing' | 'error'>('idle');
   const [prefs, setPrefs] = useState<UiPreferences>(DEFAULT_UI_PREFERENCES);
   const [quickText, setQuickText] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState('');
@@ -994,10 +603,6 @@ export function App() {
   const [calDate, setCalDate] = useState(todayKey());
   const [placingTaskId, setPlacingTaskId] = useState('');
   const [activeMailId, setActiveMailId] = useState('');
-  const [gmailEmail, setGmailEmail] = useState('');
-  const [gmailPassword, setGmailPassword] = useState('');
-  const [mailSyncing, setMailSyncing] = useState(false);
-  const [mailStatus, setMailStatus] = useState('');
   const [mailLoadError, setMailLoadError] = useState('');
   const [activeNoteId, setActiveNoteId] = useState('');
   const [wikiQuestion, setWikiQuestion] = useState('');
@@ -1005,6 +610,8 @@ export function App() {
   const [wikiAnswerSources, setWikiAnswerSources] = useState<Item[]>([]);
   const [wikiAnswerMeta, setWikiAnswerMeta] = useState<Item>({});
   const [wikiAsking, setWikiAsking] = useState(false);
+  const [wikiSourceBusy, setWikiSourceBusy] = useState(false);
+  const [wikiSourceMessage, setWikiSourceMessage] = useState('');
   const [wikiIncludeJournal, setWikiIncludeJournal] = useState(false);
   const [wikiIncludeRaw, setWikiIncludeRaw] = useState(false);
   const [activeWikiId, setActiveWikiId] = useState('');
@@ -1026,10 +633,95 @@ export function App() {
   const [chatInput, setChatInput] = useState('');
   const [chatAttachment, setChatAttachment] = useState<File | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [calendarAiConversationId, setCalendarAiConversationId] = useState('');
+  const [calendarAiMemories, setCalendarAiMemories] = useState<Item[]>([]);
+  const [calendarAiMemoryOpen, setCalendarAiMemoryOpen] = useState(false);
+  const [calendarAiActionBusyId, setCalendarAiActionBusyId] = useState('');
+  const [onboardingBusy, setOnboardingBusy] = useState(false);
+  const [onboardingMessage, setOnboardingMessage] = useState('');
   const [completionNotice, setCompletionNotice] = useState<CompletionNotice>(null);
   const widgetActionDrainRef = useRef(false);
   const optimisticRunsRef = useRef<Item[]>([]);
   const approvedRunIdsRef = useRef<Set<string>>(new Set());
+  const workspaceHydrationCoordinatorRef = useRef<WorkspaceHydrationCoordinator | null>(null);
+  const workspaceSessionResolutionRef = useRef(0);
+  if (!workspaceHydrationCoordinatorRef.current) {
+    workspaceHydrationCoordinatorRef.current = createWorkspaceHydrationCoordinator();
+  }
+  const workspaceHydrationCoordinator = workspaceHydrationCoordinatorRef.current;
+
+  function resetWorkspaceClientState() {
+    workspaceSessionResolutionRef.current += 1;
+    workspaceHydrationCoordinator.clearSession();
+    setState(EMPTY_STATE);
+    setAgentOperations(EMPTY_AGENT_OPERATIONS_STATE);
+    setCalendarSources([]);
+    setCalendarCoverageNote('');
+    setConnectedAutomationSources([]);
+    setAutomationRunners([]);
+    setAgentOperationsError('');
+    setAgentOperationsBusy('');
+    setSelectedAgentSessionId('');
+    setAgentSessionDetail(null);
+    setAgentSessionLoading(false);
+    setAgentSessionMessageBusy(false);
+    setChatMessages([]);
+    setCalendarAiConversationId('');
+    setCalendarAiMemories([]);
+    setWikiAnswer('');
+    setWikiAnswerSources([]);
+    setWikiAnswerMeta({});
+    setCompletionNotice(null);
+    setDesktopConnectivity(INITIAL_DESKTOP_CONNECTIVITY);
+    optimisticRunsRef.current = [];
+    approvedRunIdsRef.current = new Set();
+    hasHydratedRef.current = false;
+  }
+
+  async function restoreWorkspacePresentationSnapshot(session: WorkspaceSessionLease): Promise<boolean> {
+    if (!window.hermesDesktop?.readWorkspaceSnapshot) return false;
+    const cached = await window.hermesDesktop.readWorkspaceSnapshot().catch(() => null);
+    if (!workspaceHydrationCoordinator.isSessionCurrent(session)) return false;
+    if (!cached) return false;
+    const snapshot = parseWorkspacePresentationSnapshot(cached.data);
+    if (!snapshot) return false;
+    const cachedState = snapshot.state as AppState;
+    setState(cachedState);
+    setAgentOperations(snapshot.agentOperations as AgentOperationsState);
+    setCalendarSources(snapshot.calendarSources as Item[]);
+    setCalendarCoverageNote(snapshot.calendarCoverageNote);
+    setConnectedAutomationSources(snapshot.connectedAutomationSources as ConnectedAutomationSource[]);
+    setAutomationRunners(snapshot.automationRunners as PublicRunner[]);
+    setCalendarAiMemories(snapshot.calendarAiMemories as Item[]);
+    setCalendarAiConversationId(snapshot.calendarAiConversationId);
+    setChatMessages(snapshot.chatMessages as ChatMessage[]);
+    setDesktopConnectivity(markConnectivityOnline(
+      INITIAL_DESKTOP_CONNECTIVITY,
+      cached.savedAt,
+    ));
+    hasHydratedRef.current = true;
+    setLoading(false);
+    return true;
+  }
+
+  async function startSignedInWorkspace(): Promise<void> {
+    const resolution = workspaceSessionResolutionRef.current + 1;
+    workspaceSessionResolutionRef.current = resolution;
+    workspaceHydrationCoordinator.beginSessionTransition();
+    const status = await window.hermesDesktop?.getSessionStatus().catch(() => null);
+    if (workspaceSessionResolutionRef.current !== resolution) return;
+    if (!status?.signedIn || !status.sessionId) {
+      resetWorkspaceClientState();
+      setLoggedIn(false);
+      setLoading(false);
+      return;
+    }
+    const session = workspaceHydrationCoordinator.activateSession(status.sessionId);
+    const restored = await restoreWorkspacePresentationSnapshot(session);
+    if (!workspaceHydrationCoordinator.isSessionCurrent(session)) return;
+    await hydrate({ blocking: !restored });
+  }
 
   const baseTasks = state.tasks;
   const agentCalendarTasks = useMemo(() => {
@@ -1056,20 +748,72 @@ export function App() {
     displayName: agentDisplayName(agent),
     status: agentStatusLabel(agent),
     enabled: agent.enabled !== false,
-    model: text(agent.model, 'Recommended'),
+    model: text(agent.model || agent.defaultExecutionEngine, 'Recommended'),
     role: text(agent.role || agent.persona),
-    provider: text(agent.provider || agent.runtime || agent.source, '연결 정보 없음'),
+    provider: text(agent.provider || agent.runtime || agent.source, agentSourceKind(agent) === 'native' ? 'agent-calendar' : '연결 정보 없음'),
     trustLevel: text(agent.trustLevel || agent.trust, '확인 필요'),
     allowedTaskClasses: stringList(agent, 'allowedTaskClasses'),
+    responsibility: text(agent.responsibility || agent.persona),
+    instructions: text(agent.instructions),
+    specialties: stringList(agent, 'specialties').length
+      ? stringList(agent, 'specialties')
+      : stringList(agent, 'allowedTaskClasses'),
+    sourceKind: agentSourceKind(agent),
+    externalAgentId: text(agent.externalAgentId || agent.profileId || agent.profileName),
+    connectionStatus: text(agent.connectionStatus || agent.hermesProfileStatus || agent.status),
+    defaultExecutionEngine: (['auto', 'codex', 'claude', 'grok', 'hermes', 'local_llm'].includes(text(agent.defaultExecutionEngine).toLowerCase())
+      ? text(agent.defaultExecutionEngine).toLowerCase()
+      : 'auto') as AgentExecutionEngine,
+    defaultRunnerId: text(agent.defaultRunnerId),
+    emoji: text(agent.emoji),
   })), [agents]);
-  const hermesAutomationJobs = useMemo(() => parseHermesAutomationJobs(state.automation), [state.automation]);
+  const hermesAutomationJobs = useMemo(() => parseConnectedAutomations(state.automation), [state.automation]);
+  const onboardingReadiness = useMemo(() => buildOnboardingReadiness({
+    calendarSources,
+    runners: automationRunners,
+    knowledgeSources: arr(state.wiki, 'sources'),
+    calendarAiConversationId,
+    calendarAiAvailable: state.settings.calendarAiAvailable === true
+      || text(state.settings.calendarAiMode) === 'cloud_model',
+  }), [
+    automationRunners,
+    calendarAiConversationId,
+    calendarSources,
+    state.settings,
+    state.wiki,
+  ]);
+  const onboardingState = obj(state.settings, 'onboarding');
+  const onboardingStatus = text(onboardingState.status);
+  const onboardingPending = !['completed', 'dismissed'].includes(onboardingStatus);
   const runs = state.runs;
   const selectedRun = runs.find((run, index) => itemId(run, `run-${index}`) === selectedRunId) || runs[0];
   const accountName = settings.authProfile?.name || 'Yunseo';
   const accountEmail = settings.authProfile?.email || 'yunseo@agent.calendar';
   const accountInitial = (accountName || accountEmail || 'A').trim().slice(0, 1).toUpperCase();
-  const accountProviderLabel = settings.authProfile?.provider === 'google' ? 'Google 로그인' : settings.authProfile?.provider === 'password' ? '이메일 로그인' : 'Railway 연결';
-  const showGlobalApiBanner = Boolean(apiError && screen !== 'agents');
+  const accountProviderLabel = settings.authProfile?.provider === 'authkit'
+    ? 'AuthKit 로그인'
+    : settings.authProfile?.provider === 'google'
+      ? 'Google 로그인'
+      : settings.authProfile?.provider === 'password'
+        ? '이메일 로그인'
+        : '세션 없음';
+  const connectivityCopy = connectivityPresentation(
+    desktopConnectivity,
+    (value) => new Intl.DateTimeFormat('ko-KR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(value)),
+  );
+  const showDesktopConnectivity = loggedIn && [
+    'offline',
+    'reconnecting',
+    'recovered',
+  ].includes(desktopConnectivity.status);
+  const showGlobalApiBanner = Boolean(
+    apiError
+    && screen !== 'agents'
+    && !['offline', 'reconnecting'].includes(desktopConnectivity.status),
+  );
   const taxonomy = useMemo(() => {
     const byId = new Map<string, TaxonomyItem>();
     const metadata = state.taxonomy.map(parseTaxonomyRecord).filter(Boolean) as TaxonomyItem[];
@@ -1118,7 +862,7 @@ export function App() {
       title: group === '리스트' ? '리스트' : `리스트 · ${group}`,
       kind: 'list',
       group,
-      items: entries.map((entry) => ({ id: 'tasks' as ScreenId, navKey: taxonomyNavKey('list', entry.id), icon: entry.icon, label: entry.label })),
+      items: entries.map((entry) => ({ id: 'tasks' as ScreenId, navKey: taxonomyNavKey('list', entry.id), icon: 'list' as const, label: entry.label })),
     }));
     const tagGroups = new Map<string, TaxonomyItem[]>();
     tagDefinitions.forEach((entry) => {
@@ -1129,11 +873,11 @@ export function App() {
       title: group === '태그' ? '태그' : `태그 · ${group}`,
       kind: 'tag',
       group,
-      items: entries.map((entry) => ({ id: 'tasks' as ScreenId, navKey: taxonomyNavKey('tag', entry.id), icon: entry.icon, label: entry.label })),
+      items: entries.map((entry) => ({ id: 'tasks' as ScreenId, navKey: taxonomyNavKey('tag', entry.id), icon: 'tag' as const, label: entry.label })),
     }));
     if (!dynamicListGroups.some((group) => group.group === '리스트')) dynamicListGroups.push({ title: '리스트', kind: 'list', group: '리스트', items: [] });
     if (!dynamicTagGroups.length) dynamicTagGroups.push({ title: '태그', kind: 'tag', group: '태그', items: [] });
-    return [smartNavGroups[0], ...dynamicListGroups, ...dynamicTagGroups, ...smartNavGroups.slice(1)];
+    return [...dynamicListGroups, ...dynamicTagGroups];
   }, [listDefinitions, tagDefinitions]);
   useEffect(() => {
     let cancelled = false;
@@ -1154,11 +898,19 @@ export function App() {
         if (desktopSettings && !cancelled) {
           localUiPreferencesRef.current = readUiPreferences(desktopSettings);
           setSettings(desktopSettingsState(desktopSettings));
-          setLoggedIn(Boolean(desktopSettings.authProfile));
-          if (desktopSettings.authProfile?.email) setLoginEmail(desktopSettings.authProfile.email);
+          const signedIn = desktopSettingsSignedIn(desktopSettings);
+          setLoggedIn(signedIn);
+          setApiProxyConnection(proxyConnection);
+          if (signedIn) {
+            await startSignedInWorkspace();
+          } else {
+            resetWorkspaceClientState();
+            setLoading(false);
+          }
+          return;
         }
         setApiProxyConnection(proxyConnection);
-        await hydrate();
+        if (!cancelled) setLoading(false);
       } catch (error) {
         if (!cancelled) {
           setApiError(error instanceof Error ? error.message : 'Electron 설정을 불러오지 못했습니다.');
@@ -1167,56 +919,254 @@ export function App() {
       }
     }
     void boot();
-    return () => { cancelled = true; };
+    const offSession = window.hermesDesktop?.onAuthSessionChanged?.((next) => {
+      if (cancelled) return;
+      const signedIn = desktopSettingsSignedIn(next);
+      setSettings(desktopSettingsState(next));
+      setLoggedIn(signedIn);
+      setAuthBusy(false);
+      setAuthPhase('idle');
+      setLoginStatus('');
+      if (signedIn) {
+        void startSignedInWorkspace();
+      } else {
+        resetWorkspaceClientState();
+        setLoading(false);
+      }
+    });
+    const offError = window.hermesDesktop?.onAuthLoginError?.((error) => {
+      if (cancelled) return;
+      setAuthBusy(false);
+      setAuthPhase('error');
+      setLoginStatus(error?.message || '로그인에 실패했습니다.');
+    });
+    return () => {
+      cancelled = true;
+      offSession?.();
+      offError?.();
+    };
   }, []);
 
+  useEffect(() => {
+    const bridge = window.hermesDesktop;
+    if (!bridge) return undefined;
+    let cancelled = false;
+    void Promise.all([
+      bridge.getDesktopReleaseStatus(),
+      bridge.consumeDesktopRecoveryStatus(),
+    ]).then(([releaseStatus, recoveryStatus]) => {
+      if (cancelled) return;
+      setDesktopReleaseStatus(releaseStatus);
+      if (recoveryStatus.phase !== 'none') {
+        setDesktopRecoveryStatus(recoveryStatus);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setDesktopReleaseError('업데이트 상태를 불러오지 못했습니다.');
+      }
+    });
+    const offRelease = bridge.onDesktopReleaseStatus((releaseStatus) => {
+      if (!cancelled) setDesktopReleaseStatus(releaseStatus);
+    });
+    return () => {
+      cancelled = true;
+      offRelease();
+    };
+  }, []);
+
+  async function runDesktopReleaseAction(action: 'check' | 'download' | 'install') {
+    const bridge = window.hermesDesktop;
+    if (!bridge || desktopReleaseBusy) return;
+    setDesktopReleaseBusy(action);
+    setDesktopReleaseError('');
+    try {
+      const next = action === 'check'
+        ? await bridge.checkDesktopRelease()
+        : action === 'download'
+          ? await bridge.downloadDesktopRelease()
+          : await bridge.installDesktopRelease();
+      setDesktopReleaseStatus(next);
+    } catch (error) {
+      setDesktopReleaseError(
+        error instanceof Error ? error.message : '업데이트 작업을 완료하지 못했습니다.',
+      );
+    } finally {
+      setDesktopReleaseBusy('');
+    }
+  }
+
+  // Live refresh: while Agent Ops is open, poll Workspace Runner + mission aggregate so
+  // enrollment/connect and durable checkpoints appear without a manual page reload.
+  useEffect(() => {
+    if (screen !== 'agents' || !loggedIn) return undefined;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        await refreshAgentOperations();
+      } catch {
+        /* keep prior state; next tick retries */
+      }
+    };
+    void tick();
+    const timer = window.setInterval(() => { void tick(); }, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [screen, loggedIn]);
+
+  useEffect(() => {
+    if (!loggedIn) return undefined;
+    const markBrowserOffline = () => {
+      setDesktopConnectivity((current) => markConnectivityOffline(current, {
+        at: new Date().toISOString(),
+        message: '네트워크 연결이 끊겼습니다.',
+      }));
+    };
+    const retryWhenBrowserReturns = () => {
+      setDesktopConnectivity((current) => beginConnectivityRetry(current));
+      void hydrate({ blocking: false });
+    };
+    window.addEventListener('offline', markBrowserOffline);
+    window.addEventListener('online', retryWhenBrowserReturns);
+    return () => {
+      window.removeEventListener('offline', markBrowserOffline);
+      window.removeEventListener('online', retryWhenBrowserReturns);
+    };
+  }, [loggedIn]);
+
+  useEffect(() => {
+    if (!loggedIn || desktopConnectivity.status !== 'offline') return undefined;
+    const timer = window.setTimeout(() => {
+      setDesktopConnectivity((current) => beginConnectivityRetry(current));
+      void hydrate({ blocking: false });
+    }, offlineRetryDelayMs(desktopConnectivity.retryAttempt));
+    return () => window.clearTimeout(timer);
+  }, [
+    desktopConnectivity.retryAttempt,
+    desktopConnectivity.status,
+    loggedIn,
+  ]);
+
+  useEffect(() => {
+    if (desktopConnectivity.status !== 'recovered') return undefined;
+    const timer = window.setTimeout(() => {
+      setDesktopConnectivity((current) => settleRecoveredConnectivity(current));
+    }, 4_000);
+    return () => window.clearTimeout(timer);
+  }, [desktopConnectivity.status]);
+
   async function hydrate(options: { blocking?: boolean } = {}) {
+    const hydrationTicket = window.hermesDesktop
+      ? workspaceHydrationCoordinator.beginCurrentHydration()
+      : null;
+    if (window.hermesDesktop && !hydrationTicket) return;
+    const isHydrationCurrent = () => (
+      !hydrationTicket || workspaceHydrationCoordinator.isCurrent(hydrationTicket)
+    );
     const blocking = options.blocking ?? !hasHydratedRef.current;
     if (blocking) setLoading(true);
     setApiError('');
     setAgentOperationsError('');
     try {
+      let gatewayStatus: ApiEnvelope;
+      try {
+        gatewayStatus = await hermesApi.getGatewayStatus();
+      } catch (error) {
+        if (!isHydrationCurrent()) return;
+        const message = error instanceof Error
+          ? error.message
+          : 'Railway 연결을 확인하지 못했습니다.';
+        setDesktopConnectivity((current) => markConnectivityOffline(current, {
+          at: new Date().toISOString(),
+          message,
+        }));
+        setApiError(message);
+        return;
+      }
       const optionalRequest = (label: string, request: Promise<ApiEnvelope>, fallback: ApiEnvelope = {}, options: { quiet?: boolean } = {}) => request.catch((error) => {
-        if (!options.quiet) setApiError(error instanceof Error ? error.message : `${label} 불러오기 실패`);
+        if (!isHydrationCurrent()) return fallback;
+        const code = error && typeof error === 'object' && 'code' in error
+          ? String((error as { code?: string }).code || '')
+          : '';
+        // Never surface explicit production_disabled connector contracts as a global hydrate banner.
+        if (code === 'production_disabled' || options.quiet) {
+          return fallback;
+        }
+        setApiError(error instanceof Error ? error.message : `${label} 불러오기 실패`);
         return fallback;
       });
       const settingsRequest = optionalRequest('설정', hermesApi.getSettings(), {}, { quiet: true });
-      const gatewayStatusRequest = optionalRequest('배포 상태', hermesApi.getGatewayStatus(), {}, { quiet: true });
       const dashboardRequest = optionalRequest('상태', hermesApi.getDashboardState());
       const tasksRequest = optionalRequest('작업', hermesApi.getTasks());
-      const eventsRequest = optionalRequest('일정', hermesApi.getCalendarEvents());
+      const now = new Date();
+      const fromIso = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+      const toIso = new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59).toISOString();
+      const eventsRequest = hermesApi.getUnifiedCalendar({ from: fromIso, to: toIso })
+        .then((payload) => payload)
+        .catch(() => hermesApi.getCalendarEvents());
+      const calendarSourcesRequest = optionalRequest('캘린더 소스', hermesApi.getCalendarSources(), { sources: [] }, { quiet: true });
       const agentsRequest = optionalRequest('에이전트', hermesApi.getAgents());
       const wikiRequest = optionalRequest('위키', hermesApi.getWiki(), state.wiki);
       const inboxRequest = hermesApi.getMailMessages()
         .then((payload) => {
-          setMailLoadError('');
+          if (isHydrationCurrent()) setMailLoadError('');
           return payload;
         })
         .catch((error) => {
+          if (!isHydrationCurrent()) return { ok: false, items: state.inbox };
+          const code = error && typeof error === 'object' && 'code' in error
+            ? String((error as { code?: string }).code || '')
+            : '';
+          // Production Workspace mode disables mail connectors explicitly — do not block hydrate.
+          if (code === 'production_disabled') {
+            setMailLoadError('');
+            return { ok: false, items: [], productionDisabled: true };
+          }
           const message = error instanceof Error ? error.message : '메일함 불러오기 실패';
           setMailLoadError(message);
           setApiError(message);
           return { ok: false, items: state.inbox };
         });
       const documentsRequest = optionalRequest('문서', hermesApi.getDocuments());
-      const automationRequest = optionalRequest('자동화', hermesApi.getAutomation());
+      const automationRequest = optionalRequest(
+        '자동화',
+        hermesApi.listConnectedAutomations(),
+        { automations: [] },
+        { quiet: true },
+      );
+      const automationSourcesRequest = optionalRequest(
+        '자동화 소스',
+        hermesApi.listAutomationSources(),
+        { sources: [] },
+        { quiet: true },
+      );
+      const automationRunnersRequest = optionalRequest(
+        'Runner',
+        hermesApi.listRunners(),
+        { runners: [] },
+        { quiet: true },
+      );
       const usageRequest = optionalRequest('사용량', hermesApi.getUsage());
       const toolsRequest = optionalRequest('도구', hermesApi.getTools());
       const channelsRequest = optionalRequest('채널', hermesApi.getChannels());
       const chatRequest = optionalRequest('채팅', hermesApi.getChatMessages());
+      const calendarAiMemoryRequest = optionalRequest('개인 기억', hermesApi.listCalendarAiMemories(), { memories: [] }, { quiet: true });
       const agentOperationsRequest = hermesApi.getAgentOperations()
         .then(parseAgentOperationsEnvelope)
         .then((next) => {
+          if (!isHydrationCurrent()) return null;
           setAgentOperations(next);
           return next;
         })
         .catch((error) => {
-          setAgentOperationsError(error instanceof Error ? error.message : 'Agent Operations 불러오기 실패');
+          if (isHydrationCurrent()) {
+            setAgentOperationsError(error instanceof Error ? error.message : 'Agent Operations 불러오기 실패');
+          }
           return null;
         });
-      void agentOperationsRequest;
-      const [gatewayStatus, dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, usage, tools, settingsPayload, channels, documentsPayload, chatPayload] = await Promise.all([
-        gatewayStatusRequest,
+      const [dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, automationSourcesPayload, automationRunnersPayload, usage, tools, settingsPayload, channels, documentsPayload, chatPayload, calendarSourcesPayload, calendarAiMemoryPayload] = await Promise.all([
         dashboardRequest,
         tasksRequest,
         eventsRequest,
@@ -1224,20 +1174,41 @@ export function App() {
         wikiRequest,
         inboxRequest,
         automationRequest,
+        automationSourcesRequest,
+        automationRunnersRequest,
         usageRequest,
         toolsRequest,
         settingsRequest,
         channelsRequest,
         documentsRequest,
         chatRequest,
+        calendarSourcesRequest,
+        calendarAiMemoryRequest,
       ]);
+      if (!isHydrationCurrent()) return;
       const rawTasks = arr(tasksPayload, 'tasks');
       const taxonomyRecords = rawTasks.filter(isTaxonomyRecord);
       const tasks = rawTasks.filter(isTaskRecord);
-      const events = [
-        ...arr(eventsPayload, 'events', 'calendarEvents').map(normalizeCalendarEvent),
-        ...rawTasks.filter(isCalendarEventRecord).map(normalizeCalendarEvent),
-      ];
+      const unifiedEntries = Array.isArray((eventsPayload as { entries?: unknown[] })?.entries)
+        ? (eventsPayload as { entries: Array<Record<string, unknown>> }).entries
+        : null;
+      const events = unifiedEntries
+        ? mapUnifiedEntriesToCalendarEvents(unifiedEntries as never).map(normalizeCalendarEvent)
+        : [
+          ...arr(eventsPayload, 'events', 'calendarEvents').map(normalizeCalendarEvent),
+          ...rawTasks.filter(isCalendarEventRecord).map(normalizeCalendarEvent),
+        ];
+      const coverage = Array.isArray((eventsPayload as { coverage?: unknown[] })?.coverage)
+        ? (eventsPayload as { coverage: Array<Record<string, unknown>> }).coverage
+        : [];
+      const nextSources = arr(calendarSourcesPayload, 'sources');
+      const nextCoverageNote = coverageSummary((coverage || []) as never);
+      const nextAutomationSources = parseConnectedAutomationSources(arr(automationSourcesPayload, 'sources'));
+      const nextAutomationRunners = arr(automationRunnersPayload, 'runners') as PublicRunner[];
+      setCalendarSources(nextSources as Item[]);
+      setCalendarCoverageNote(nextCoverageNote);
+      setConnectedAutomationSources(nextAutomationSources);
+      setAutomationRunners(nextAutomationRunners);
       const agents = arr(agentsPayload, 'agents');
       const remoteRuns = arr(dashboard, 'runs');
       const seenRuns = new Set(remoteRuns.map((run, index) => itemId(run, `run-${index}`)));
@@ -1252,14 +1223,17 @@ export function App() {
       const inboxItems = arr(inbox, 'items', 'commands', 'commandRows');
       const remoteChat = arr(chatPayload, 'messages', 'chatMessages');
       const scheduleChat = remoteChat.filter((message) => text(message.target) === 'calendar');
-      setState({
+      const normalizedScheduleChat = normalizeCalendarChatHistory(remoteChat);
+      const nextConversationId = text(chatPayload.conversationId);
+      const nextCalendarAiMemories = arr(calendarAiMemoryPayload, 'memories');
+      const nextState: AppState = {
         tasks,
         events,
         agents,
         runs,
         docs,
         inbox: inboxItems,
-        automation: arr(automation, 'jobs', 'schedulerJobs'),
+        automation: arr(automation, 'automations'),
         channels: arr(channels, 'channels'),
         sessions: arr(dashboard, 'sessions'),
         tools: arr(tools, 'tools', 'skills', 'toolsets'),
@@ -1271,67 +1245,114 @@ export function App() {
         gatewayStatus,
         profileReadiness: obj(dashboard, 'profileReadiness'),
         agentSourceStatus: obj(dashboard, 'agentSourceStatus'),
-      });
+      };
+      setCalendarAiConversationId(nextConversationId);
+      setCalendarAiMemories(nextCalendarAiMemories);
+      setState(nextState);
+      const hydratedOnboarding = obj(settingsPayload, 'onboarding');
+      const hydratedOnboardingStatus = text(hydratedOnboarding.status);
+      if (
+        !hasHydratedRef.current
+        && !['completed', 'dismissed'].includes(hydratedOnboardingStatus)
+      ) {
+        setScreen('onboarding');
+        setActiveNavKey('onboarding');
+      }
       const hydratedPreferences = localUiPreferencesRef.current || readUiPreferences(settingsPayload);
       setPrefs(hydratedPreferences);
       setSettings((current) => ({ ...current, uiPreferences: hydratedPreferences }));
-      setChatMessages(scheduleChat.slice(-40).map(toChatMessage).filter((message) => message.text));
+      setChatMessages(normalizedScheduleChat);
       hasHydratedRef.current = true;
+      let synchronizedAt = new Date().toISOString();
+      if (window.hermesDesktop?.saveWorkspaceSnapshot) {
+        try {
+          if (!hydrationTicket) return;
+          const persisted = await window.hermesDesktop.saveWorkspaceSnapshot({
+            sessionId: hydrationTicket.sessionId,
+            generation: hydrationTicket.generation,
+            data: {
+              presentationSchemaVersion: 1,
+              state: nextState,
+              agentOperations,
+              calendarSources: nextSources,
+              calendarCoverageNote: nextCoverageNote,
+              connectedAutomationSources: nextAutomationSources,
+              automationRunners: nextAutomationRunners,
+              calendarAiMemories: nextCalendarAiMemories,
+              calendarAiConversationId: nextConversationId,
+              chatMessages: normalizedScheduleChat,
+            },
+          });
+          if (!isHydrationCurrent()) return;
+          synchronizedAt = persisted.savedAt;
+        } catch {
+          if (isHydrationCurrent()) {
+            setApiError('오프라인 보관본을 안전하게 저장하지 못했습니다.');
+          }
+        }
+        void agentOperationsRequest.then((next) => {
+          if (!next || !hydrationTicket || !isHydrationCurrent()) return;
+          void window.hermesDesktop?.saveWorkspaceSnapshot({
+            sessionId: hydrationTicket.sessionId,
+            generation: hydrationTicket.generation,
+            data: {
+              presentationSchemaVersion: 1,
+              state: nextState,
+              agentOperations: next,
+              calendarSources: nextSources,
+              calendarCoverageNote: nextCoverageNote,
+              connectedAutomationSources: nextAutomationSources,
+              automationRunners: nextAutomationRunners,
+              calendarAiMemories: nextCalendarAiMemories,
+              calendarAiConversationId: nextConversationId,
+              chatMessages: normalizedScheduleChat,
+            },
+          }).catch(() => {
+            if (isHydrationCurrent()) {
+              setApiError('오프라인 보관본을 안전하게 저장하지 못했습니다.');
+            }
+          });
+        });
+      }
+      if (!isHydrationCurrent()) return;
+      setDesktopConnectivity((current) => markConnectivityOnline(
+        current,
+        synchronizedAt,
+      ));
     } catch (error) {
-      setApiError(error instanceof Error ? error.message : 'Railway API 응답 실패');
+      if (isHydrationCurrent()) {
+        setApiError(error instanceof Error ? error.message : 'Railway API 응답 실패');
+      }
     } finally {
-      if (blocking || !hasHydratedRef.current) setLoading(false);
+      if (isHydrationCurrent() && (blocking || !hasHydratedRef.current)) setLoading(false);
     }
   }
 
-  async function loginWithProvider(provider: AuthProvider) {
+  async function loginWithAuthKit() {
     setLoginStatus('');
-    setAuthBusyProvider(provider);
+    setAuthBusy(true);
+    setAuthPhase('opening');
     try {
-      if (!window.hermesDesktop?.loginWithProvider) {
-        setLoggedIn(true);
-        setLoginPw('');
-        setModal(null);
+      if (!window.hermesDesktop?.loginWithAuthKit) {
+        setLoginStatus('Electron 로그인 브리지가 없습니다.');
+        setAuthPhase('error');
         return;
       }
-      const next = await window.hermesDesktop.loginWithProvider(provider);
+      setAuthPhase('waiting');
+      const next = await window.hermesDesktop.loginWithAuthKit();
       setSettings(desktopSettingsState(next));
-      setLoggedIn(Boolean(next.authProfile));
-      if (next.authProfile?.email) setLoginEmail(next.authProfile.email);
-      setLoginPw('');
+      const signedIn = desktopSettingsSignedIn(next);
+      setLoggedIn(signedIn);
+      setAuthPhase('idle');
       setModal(null);
-    } catch (error) {
-      setLoginStatus(error instanceof Error ? error.message : '소셜 로그인을 완료하지 못했습니다.');
-    } finally {
-      setAuthBusyProvider(null);
-    }
-  }
-
-  async function authenticateWithPassword(mode: 'login' | 'signup') {
-    const email = loginEmail.trim();
-    const password = loginPw;
-    setLoginStatus('');
-    setPasswordAuthBusy(true);
-    try {
-      if (!window.hermesDesktop) {
-        setLoggedIn(true);
-        setLoginPw('');
-        setModal(null);
-        return;
+      if (signedIn) {
+        await startSignedInWorkspace();
       }
-      if (!email || !password) throw new Error('이메일과 비밀번호를 입력하세요.');
-      const next = mode === 'signup'
-        ? await window.hermesDesktop.signUpWithPassword({ email, password })
-        : await window.hermesDesktop.loginWithPassword({ email, password });
-      setSettings(desktopSettingsState(next));
-      setLoggedIn(Boolean(next.authProfile));
-      if (next.authProfile?.email) setLoginEmail(next.authProfile.email);
-      setLoginPw('');
-      setModal(null);
     } catch (error) {
-      setLoginStatus(error instanceof Error ? error.message : mode === 'signup' ? '회원가입에 실패했습니다.' : '로그인에 실패했습니다.');
+      setAuthPhase('error');
+      setLoginStatus(error instanceof Error ? error.message : 'AuthKit 로그인을 완료하지 못했습니다.');
     } finally {
-      setPasswordAuthBusy(false);
+      setAuthBusy(false);
     }
   }
 
@@ -1342,8 +1363,10 @@ export function App() {
     } catch (error) {
       setApiError(error instanceof Error ? error.message : '로그아웃 상태 저장 실패');
     }
+    resetWorkspaceClientState();
     setLoggedIn(false);
-    setLoginPw('');
+    setAuthPhase('idle');
+    setLoginStatus('');
     setModal(null);
   }
 
@@ -1554,6 +1577,47 @@ export function App() {
   async function patchCalendarEvent(task: Item, patch: Item) {
     const id = itemId(task, '');
     if (!id) return false;
+    const isExternal = text(task.sourceKind) === 'external_calendar'
+      || text(task.provider) === 'google'
+      || text(task.source) === 'google';
+    const isAgent = text(task.sourceKind) === 'agent_work'
+      || text(task.source) === 'agent-work'
+      || text(task.origin) === 'agent';
+    if (isAgent || task.writable === false) {
+      setApiError('읽기 전용 일정은 수정할 수 없습니다.');
+      return false;
+    }
+    if (isExternal) {
+      const providerEventId = text(task.providerEventId || task.entryId || id);
+      const sourceId = text(task.sourceId);
+      if (!providerEventId || !sourceId) {
+        setApiError('외부 일정 식별자가 없어 수정할 수 없습니다.');
+        return false;
+      }
+      const snapshot: Item = { ...task, ...patch, kind: 'calendar-event', type: 'calendar-event' };
+      const date = text(snapshot.date || snapshot.startDate);
+      const time = text(snapshot.time);
+      const startsAt = text(snapshot.startsAt) || (date && time ? `${date}T${time}:00.000Z` : date ? `${date}T00:00:00.000Z` : '');
+      const endsAt = text(snapshot.endsAt) || (date && time ? `${date}T${String(Number(time.slice(0, 2)) + 1).padStart(2, '0')}${time.slice(2)}:00.000Z` : startsAt);
+      applyOptimisticEventPatch(id, snapshot);
+      try {
+        // Success only after provider reconcile (mutation receipt path).
+        await hermesApi.updateExternalCalendarEvent(providerEventId, {
+          sourceId,
+          title: itemTitle(snapshot, text(task.title)),
+          startsAt,
+          endsAt,
+          ifMatch: text(task.etag),
+          idempotencyKey: `ext-upd-${providerEventId}-${Date.now()}`,
+        });
+        await hydrate({ blocking: false });
+        return true;
+      } catch (error) {
+        applyOptimisticEventPatch(id, task);
+        setApiError(error instanceof Error ? error.message : '외부 일정 업데이트 실패');
+        return false;
+      }
+    }
     if (!shouldPersistTask(id)) {
       setApiError('서버에 저장된 일정만 수정할 수 있습니다.');
       return false;
@@ -1776,8 +1840,13 @@ export function App() {
   async function refreshAgentOperations() {
     if (agentOperationsRefreshPromiseRef.current) return agentOperationsRefreshPromiseRef.current;
     const request = (async () => {
-      const next = parseAgentOperationsEnvelope(await hermesApi.getAgentOperations());
+      const [operationsPayload, runnersPayload] = await Promise.all([
+        hermesApi.getAgentOperations(),
+        hermesApi.listRunners(),
+      ]);
+      const next = parseAgentOperationsEnvelope(operationsPayload);
       setAgentOperations(next);
+      setAutomationRunners(arr(runnersPayload, 'runners') as PublicRunner[]);
     })();
     agentOperationsRefreshPromiseRef.current = request;
     try {
@@ -1802,20 +1871,127 @@ export function App() {
   }
 
   async function refreshHermesAutomations(): Promise<void> {
-    const payload = await hermesApi.getAutomation();
-    setState((current) => ({ ...current, automation: arr(payload, 'jobs', 'schedulerJobs') }));
+    const [sourcesPayload, automationsPayload, runnersPayload] = await Promise.all([
+      hermesApi.listAutomationSources(),
+      hermesApi.listConnectedAutomations(),
+      hermesApi.listRunners(),
+    ]);
+    setConnectedAutomationSources(parseConnectedAutomationSources(arr(sourcesPayload, 'sources')));
+    setAutomationRunners(arr(runnersPayload, 'runners') as PublicRunner[]);
+    setState((current) => ({ ...current, automation: arr(automationsPayload, 'automations') }));
   }
 
-  async function updateHermesAutomation(jobId: string, input: HermesAutomationUpdateInput): Promise<void> {
-    await hermesApi.updateSchedulerJob(jobId, input);
+  function automationRequestId(operation: string, identity = ''): string {
+    const nonce = typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return `desktop-${operation}-${identity || 'new'}-${nonce}`;
   }
 
-  async function setHermesAutomationEnabled(jobId: string, enabled: boolean): Promise<void> {
-    await hermesApi.updateSchedulerJob(jobId, { enabled });
+  async function applyAutomationChange(input: {
+    sourceId: string;
+    operation: 'create' | 'update' | 'pause' | 'resume' | 'run';
+    automationId?: string;
+    expectedRevision?: string;
+    values?: Record<string, unknown>;
+  }): Promise<AutomationMutationOutcome> {
+    const result = await hermesApi.requestAutomationChange({
+      sourceId: input.sourceId,
+      operation: input.operation,
+      automationId: input.automationId || '',
+      expectedRevision: input.expectedRevision || '',
+      input: input.values || {},
+      requestId: automationRequestId(input.operation, input.automationId),
+    });
+    const change = obj(result, 'change');
+    if (text(change.status) === 'pending_approval') {
+      const changeId = itemId(change, '');
+      if (!changeId) throw new Error('승인할 자동화 변경을 찾지 못했습니다.');
+      return { approvalId: changeId };
+    }
+    const receipt = obj(result, 'receipt');
+    const status = text(receipt.status);
+    if (status && status !== 'succeeded') {
+      await refreshHermesAutomations();
+      if (status === 'unknown') throw new Error('출처 응답이 확정되지 않았습니다. 출처에서 상태를 확인해 주세요.');
+      if (status === 'conflict') throw new Error('출처의 자동화가 먼저 변경되었습니다. 최신 상태를 확인해 주세요.');
+      throw new Error(text(receipt.errorMessage, '출처에서 자동화 변경을 적용하지 못했습니다.'));
+    }
+    return {};
   }
 
-  async function deleteHermesAutomation(jobId: string): Promise<void> {
-    await hermesApi.deleteSchedulerJob(jobId);
+  async function connectAutomationSource(input: {
+    runnerId: string;
+    adapterKind: string;
+    displayName: string;
+  }): Promise<void> {
+    const result = await hermesApi.connectAutomationSource({
+      ...input,
+      requestId: automationRequestId('connect', input.runnerId),
+      connectionRef: { runnerId: input.runnerId },
+    });
+    const sourceId = itemId(obj(result, 'source'), '');
+    if (!sourceId) throw new Error('연결된 자동화 소스를 확인하지 못했습니다.');
+    await hermesApi.syncAutomationSource(sourceId);
+  }
+
+  async function syncAutomationSource(sourceId: string): Promise<void> {
+    await hermesApi.syncAutomationSource(sourceId);
+  }
+
+  async function approveConnectedAutomationChange(changeId: string): Promise<void> {
+    const result = await hermesApi.approveAutomationChange(changeId, {
+      requestId: automationRequestId('approve', changeId),
+    });
+    const receipt = obj(result, 'receipt');
+    const status = text(receipt.status);
+    if (status && status !== 'succeeded') {
+      await refreshHermesAutomations();
+      if (status === 'unknown') throw new Error('출처 응답이 확정되지 않았습니다. 출처에서 상태를 확인해 주세요.');
+      if (status === 'conflict') throw new Error('출처의 자동화가 먼저 변경되었습니다. 최신 상태를 확인해 주세요.');
+      throw new Error(text(receipt.errorMessage, '출처에서 승인한 변경을 적용하지 못했습니다.'));
+    }
+  }
+
+  async function createConnectedAutomation(input: HermesAutomationUpdateInput & { sourceId: string }): Promise<AutomationMutationOutcome> {
+    return applyAutomationChange({
+      sourceId: input.sourceId,
+      operation: 'create',
+      values: {
+        name: input.name,
+        goal: input.goal,
+        agentId: input.agentId,
+        schedule: input.schedule,
+      },
+    });
+  }
+
+  async function updateConnectedAutomation(job: HermesAutomationJob, input: HermesAutomationUpdateInput): Promise<AutomationMutationOutcome> {
+    return applyAutomationChange({
+      sourceId: job.sourceId,
+      automationId: job.id,
+      expectedRevision: job.sourceRevision,
+      operation: 'update',
+      values: input,
+    });
+  }
+
+  async function setConnectedAutomationEnabled(job: HermesAutomationJob, enabled: boolean): Promise<AutomationMutationOutcome> {
+    return applyAutomationChange({
+      sourceId: job.sourceId,
+      automationId: job.id,
+      expectedRevision: job.sourceRevision,
+      operation: enabled ? 'resume' : 'pause',
+    });
+  }
+
+  async function runConnectedAutomation(job: HermesAutomationJob): Promise<AutomationMutationOutcome> {
+    return applyAutomationChange({
+      sourceId: job.sourceId,
+      automationId: job.id,
+      expectedRevision: job.sourceRevision,
+      operation: 'run',
+    });
   }
 
   async function runAgentOperation<T>(busyKey: string, operation: () => Promise<T>): Promise<T | null> {
@@ -1931,62 +2107,180 @@ export function App() {
     await runAgentOperation(reportId, () => hermesApi.recordAgentFollowUpDecision(reportId, index, decision));
   }
 
+  async function createWorkspaceAgent(input: AgentDirectoryMutationInput): Promise<boolean> {
+    try {
+      const payload = await hermesApi.createAgent({ ...input });
+      const created = createdAgentFrom(payload);
+      const createdId = agentIdentity(created);
+      if (!createdId) throw new Error('에이전트 생성 응답이 비어 있습니다.');
+      setState((current) => ({
+        ...current,
+        agents: [created, ...current.agents.filter((agent) => agentIdentity(agent) !== createdId)],
+      }));
+      await hydrate({ blocking: false });
+      return true;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 생성 실패');
+      return false;
+    }
+  }
+
+  async function updateWorkspaceAgent(agentId: string, input: AgentDirectoryMutationInput): Promise<boolean> {
+    try {
+      const payload = await hermesApi.updateAgent(agentId, { ...input });
+      const updated = createdAgentFrom(payload);
+      if (!agentIdentity(updated)) throw new Error('에이전트 수정 응답이 비어 있습니다.');
+      setState((current) => ({
+        ...current,
+        agents: current.agents.map((agent) => agentIdentity(agent) === agentId ? updated : agent),
+      }));
+      await hydrate({ blocking: false });
+      return true;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 수정 실패');
+      return false;
+    }
+  }
+
+  async function requestAgentCatalog(input: Readonly<{
+    runnerId: string;
+    provider: string;
+    consent: true;
+  }>): Promise<AgentCatalogRequest | null> {
+    try {
+      const payload = await hermesApi.requestAgentCatalog({ ...input });
+      return obj(payload, 'request') as unknown as AgentCatalogRequest;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 목록 요청 실패');
+      return null;
+    }
+  }
+
+  async function getAgentCatalogRequest(requestId: string): Promise<AgentCatalogRequest | null> {
+    try {
+      const payload = await hermesApi.getAgentCatalogRequest(requestId);
+      return obj(payload, 'request') as unknown as AgentCatalogRequest;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 목록 확인 실패');
+      return null;
+    }
+  }
+
+  async function importAgentCatalogEntry(
+    requestId: string,
+    input: Readonly<{ externalAgentId: string; defaultExecutionEngine: AgentExecutionEngine }>,
+  ): Promise<boolean> {
+    try {
+      const payload = await hermesApi.importAgentCatalogEntry(requestId, { ...input });
+      const imported = createdAgentFrom(payload);
+      const importedId = agentIdentity(imported);
+      if (!importedId) throw new Error('가져온 에이전트 응답이 비어 있습니다.');
+      setState((current) => ({
+        ...current,
+        agents: [imported, ...current.agents.filter((agent) => agentIdentity(agent) !== importedId)],
+      }));
+      await hydrate({ blocking: false });
+      return true;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 가져오기 실패');
+      return false;
+    }
+  }
+
+  async function listProviderAgentSessions(
+    agentId: string,
+    search: string,
+    archived: boolean,
+  ): Promise<readonly ProviderAgentSession[]> {
+    try {
+      const payload = await hermesApi.listProviderAgentSessions(agentId, { search, archived });
+      return arr(payload, 'sessions') as unknown as ProviderAgentSession[];
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 세션 조회 실패');
+      return [];
+    }
+  }
+
+  async function requestProviderSessionCatalog(
+    agentId: string,
+    input: Readonly<{ runnerId: string; consent: true }>,
+  ): Promise<ProviderSessionCatalogRequest | null> {
+    try {
+      const payload = await hermesApi.requestProviderSessionCatalog(agentId, { ...input });
+      return obj(payload, 'request') as unknown as ProviderSessionCatalogRequest;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '기존 세션 목록 요청 실패');
+      return null;
+    }
+  }
+
+  async function importProviderSessionCatalogEntry(
+    agentId: string,
+    requestId: string,
+    externalSessionId: string,
+  ): Promise<ProviderSessionImportResult | null> {
+    try {
+      const payload = await hermesApi.importProviderSessionCatalogEntry(
+        agentId,
+        requestId,
+        { externalSessionId },
+      );
+      const session = obj(payload, 'session') as unknown as ProviderAgentSession;
+      const missionId = text(payload.missionId);
+      const workConversationId = text(payload.workConversationId);
+      if (!session.id || !missionId || !workConversationId) {
+        throw new Error('가져온 provider 세션 응답이 비어 있습니다.');
+      }
+      await hydrate({ blocking: false });
+      return { session, missionId, workConversationId };
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '기존 provider 세션 가져오기 실패');
+      return null;
+    }
+  }
+
+  async function updateProviderAgentSession(
+    sessionId: string,
+    patch: Readonly<{ title?: string; archived?: boolean }>,
+  ): Promise<ProviderAgentSession | null> {
+    try {
+      const payload = await hermesApi.updateProviderAgentSession(sessionId, { ...patch });
+      return obj(payload, 'session') as unknown as ProviderAgentSession;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 세션 수정 실패');
+      return null;
+    }
+  }
+
   async function createAgent() {
     const name = newAgentName.trim();
     if (!name) return;
-    const optimisticAgent = {
-      id: slugify(name) || `agent-${Date.now()}`,
-      name,
+    const succeeded = await createWorkspaceAgent({
       displayName: name,
-      emoji: newAgentEmoji,
       role: newAgentRole || '사용자 정의 에이전트',
-      status: 'ready',
-      source: 'hermes-desktop',
-    };
-    const previousAgents = state.agents;
-    setState((current) => ({ ...current, agents: [optimisticAgent, ...current.agents] }));
-    try {
-      const payload = await hermesApi.createAgent({
-        name,
-        displayName: name,
-        emoji: newAgentEmoji,
-        role: newAgentRole || '사용자 정의 에이전트',
-        source: 'hermes-desktop',
-      });
-      const created = createdAgentFrom(payload);
-      if (!agentIdentity(created)) throw new Error('에이전트 생성 응답이 비어 있습니다.');
-      setState((current) => ({
-        ...current,
-        agents: [created, ...current.agents.filter((agent, index) => itemId(agent, `agent-${index}`) !== optimisticAgent.id)],
-      }));
+      responsibility: '',
+      instructions: '',
+      specialties: [],
+      sourceKind: 'native',
+      provider: 'agent-calendar',
+      externalAgentId: '',
+      defaultExecutionEngine: 'auto',
+      defaultRunnerId: '',
+    });
+    if (succeeded) {
       setNewAgentName('');
       setNewAgentRole('');
       setNewAgentEmoji('🤖');
       setModal(null);
-      await hydrate();
-    } catch (error) {
-      setState((current) => ({ ...current, agents: previousAgents }));
-      setApiError(error instanceof Error ? error.message : '에이전트 생성 실패');
     }
   }
 
   async function registerScheduleDrafts(drafts: ScheduleDraft[]) {
-    const selected = drafts.filter((draft) => draft.selected !== false && draft.title.trim() && draft.date.trim());
+    const selected = selectedScheduleDrafts(drafts);
     if (!selected.length) return;
     const registered: ScheduleDraft[] = [];
     for (const draft of selected) {
-      const item = {
-        title: draft.title.trim(),
-        date: draft.date.trim(),
-        time: draft.start || '',
-        endTime: draft.end || '',
-        location: draft.location || '',
-        notes: draft.notes || '',
-        status: 'Planned',
-        owner: 'Me',
-        kind: draft.kind === 'event' ? 'calendar-event' : 'task',
-        type: draft.kind === 'event' ? 'calendar-event' : 'task',
-      };
+      const item = scheduleDraftRegistrationItem(draft);
       const ok = draft.kind === 'event'
         ? await persistCreatedTask(item, 'calendar')
         : await persistCreatedTask(item, 'task');
@@ -2028,12 +2322,7 @@ export function App() {
       const data = obj(payload, 'data');
       const search = obj(payload, 'search');
       if (attachment || text(search.intent || payload.search && (payload.search as Item).intent) === 'ingest') {
-        const drafts = scheduleDraftsFromPayload(payload);
-        const warnings = stringList(payload, 'warnings');
-        const conflicts = arr(payload, 'conflicts');
-        const summary = drafts.length
-          ? `일정 초안 ${drafts.length}건을 찾았어요. 확인 후 등록됩니다.`
-          : (warnings[0] || '일정 초안을 만들지 못했어요.');
+        const { drafts, warnings, conflicts, summary } = normalizeScheduleIngestResponse(payload);
         setChatMessages((current) => current.map((message, index) => (
           index === current.length - 1 ? { ...message, text: summary, drafts, warnings, conflicts } : message
         )));
@@ -2057,13 +2346,14 @@ export function App() {
     }
   }
 
-  async function sendChat() {
-    const message = chatInput.trim();
+  async function sendChat(messageOverride = '') {
+    const message = (messageOverride || chatInput).trim();
     if (!message && !chatAttachment) return;
-    if (chatAttachment) {
+    if (!messageOverride && chatAttachment) {
       await askData(message, chatAttachment);
       return;
     }
+    setChatBusy(true);
     setChatInput('');
     setChatMessages((current) => [...current, { role: 'user', text: message }, { role: 'assistant', text: '' }]);
     try {
@@ -2072,11 +2362,22 @@ export function App() {
         view: 'calendar',
         agent: 'default',
         agentId: 'default',
+        conversationId: calendarAiConversationId || undefined,
+        requestId: crypto.randomUUID(),
       });
       await consumeConsoleChatStream(response, (answer) => {
         setChatMessages((current) => current.map((item, index) => (
           index === current.length - 1 ? { ...item, text: answer } : item
         )));
+      }, (done) => {
+        const next = calendarAiMessageFromDone(done);
+        setCalendarAiConversationId(text(done.conversationId));
+        setChatMessages((current) => current.map((item, index) => (
+          index === current.length - 1 ? { ...item, ...next, text: next.text || item.text } : item
+        )));
+        if (next.mode?.startsWith('memory_')) {
+          void hermesApi.listCalendarAiMemories().then((payload) => setCalendarAiMemories(arr(payload, 'memories')));
+        }
       });
     } catch {
       setChatInput((current) => current.trim() ? current : message);
@@ -2090,6 +2391,74 @@ export function App() {
           }
           : item
       )));
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function updateCalendarAiMemory(id: string, value: string) {
+    const payload = await hermesApi.updateCalendarAiMemory(id, { value });
+    const memory = obj(payload, 'memory');
+    setCalendarAiMemories((current) => current.map((item) => (
+      text(item.id) === id ? { ...item, ...memory } : item
+    )));
+  }
+
+  async function forgetCalendarAiMemory(id: string) {
+    const payload = await hermesApi.forgetCalendarAiMemory(id);
+    const memory = obj(payload, 'memory');
+    setCalendarAiMemories((current) => current.map((item) => (
+      text(item.id) === id ? { ...item, ...memory } : item
+    )));
+  }
+
+  async function purgeCalendarAiMemory(id: string) {
+    await hermesApi.purgeCalendarAiMemory(id);
+    setCalendarAiMemories((current) => current.filter((item) => text(item.id) !== id));
+  }
+
+  async function actOnCalendarAiDraft(
+    draft: CalendarAiActionDraft,
+    action: 'approve' | 'revise' | 'cancel',
+    input: Record<string, unknown> = {},
+  ) {
+    setCalendarAiActionBusyId(draft.id);
+    try {
+      let payload: ApiEnvelope;
+      if (action === 'revise') {
+        payload = await hermesApi.reviseCalendarAiAction(draft.id, input);
+      } else if (action === 'cancel') {
+        payload = await hermesApi.cancelCalendarAiAction(draft.id);
+      } else {
+        const changed = Object.entries(input).some(([key, value]) => (
+          value !== undefined && value !== draft.input[key]
+        ));
+        if (changed) await hermesApi.reviseCalendarAiAction(draft.id, input);
+        payload = await hermesApi.approveCalendarAiAction(draft.id, crypto.randomUUID());
+      }
+      const actionDraft = obj(payload, 'actionDraft');
+      const responseDraft = Object.keys(actionDraft).length ? actionDraft : obj(payload, 'draft');
+      setChatMessages((current) => current.map((message) => (
+        message.actionDraft?.id === draft.id
+          ? {
+            ...message,
+            actionDraft: {
+              id: text(responseDraft.id, draft.id),
+              actionKind: text(responseDraft.actionKind, draft.actionKind),
+              status: text(responseDraft.status, draft.status),
+              input: obj(responseDraft, 'input'),
+            },
+          }
+          : message
+      )));
+      if (action === 'approve') await hydrate({ blocking: false });
+    } catch (error) {
+      setChatMessages((current) => [...current, {
+        role: 'assistant',
+        text: error instanceof Error ? `작업을 처리하지 못했습니다: ${error.message}` : '작업을 처리하지 못했습니다.',
+      }]);
+    } finally {
+      setCalendarAiActionBusyId('');
     }
   }
 
@@ -2101,7 +2470,36 @@ export function App() {
     setWikiAnswerSources([]);
     setWikiAnswerMeta({});
     try {
-      setWikiAnswerMeta({ provider: 'railway-hermes', agent: 'wikicurator', model: 'wikicurator', source: 'stream', gatewayFallback: false });
+      if (state.wiki.knowledgeV2 === true) {
+        const requestId = crypto.randomUUID();
+        const payload = await hermesApi.askKnowledge({
+          question,
+          requestId,
+          waitForRunnerMs: 0,
+        });
+        let presentation = parseKnowledgeV2Answer(payload);
+        setWikiAnswer(presentation.answer);
+        setWikiAnswerSources(presentation.sources);
+        setWikiAnswerMeta(presentation.meta);
+        if (presentation.jobId && text(presentation.meta.answerStatus) === 'pending') {
+          for (let attempt = 0; attempt < 40; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            const job = await hermesApi.getKnowledgeSearchJob(presentation.jobId);
+            presentation = parseKnowledgeV2Job(job);
+            setWikiAnswer(presentation.answer);
+            setWikiAnswerSources(presentation.sources);
+            setWikiAnswerMeta(presentation.meta);
+            if (text(presentation.meta.answerStatus) !== 'pending') break;
+          }
+        }
+        return;
+      }
+      let streamState = {
+        answer: '',
+        sources: [] as Item[],
+        meta: { provider: 'railway-hermes', agent: 'wikicurator', model: 'wikicurator', source: 'stream', gatewayFallback: false } as Item,
+      };
+      setWikiAnswerMeta(streamState.meta);
 
       const response = await hermesApi.streamChat({
         message: question,
@@ -2119,44 +2517,11 @@ export function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let streamedAnswer = '';
       const consumeWikiBlock = (block: string) => {
-        const event = block.split('\n').find((line) => line.startsWith('event:'))?.replace(/^event:\s*/, '').trim() || '';
-        const data = block.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.replace(/^data:\s?/, '')).join('\n').trim();
-        if (!data) return;
-        const parsed = JSON.parse(data) as {
-          text?: string;
-          error?: string;
-          gatewayFallback?: boolean;
-          source?: string;
-          sources?: Item[];
-          retrieval?: Item;
-          llm?: Item;
-          run?: { model?: string; agent?: string };
-        };
-        if (Array.isArray(parsed.sources)) {
-          setWikiAnswerSources(parsed.sources);
-        }
-        if (parsed.gatewayFallback !== undefined || parsed.source || parsed.run?.model || parsed.llm || parsed.retrieval) {
-          setWikiAnswerMeta((current) => ({
-            ...current,
-            gatewayFallback: parsed.gatewayFallback ?? current.gatewayFallback,
-            source: parsed.source || text(current.source, 'stream'),
-            model: parsed.run?.model || text(current.model, 'wikicurator'),
-            agent: text(parsed.llm?.agent || parsed.run?.agent, text(current.agent, 'wikicurator')),
-            provider: text(parsed.llm?.provider, text(current.provider, 'profile')),
-            embeddingModel: text(parsed.retrieval?.embeddingModel, text(current.embeddingModel)),
-          }));
-        }
-        if (parsed.error) throw new Error(parsed.error);
-        if (event === 'delta' && parsed.text) {
-          streamedAnswer += parsed.text;
-          setWikiAnswer(streamedAnswer);
-        }
-        if (event === 'done' && parsed.text) {
-          streamedAnswer = parsed.text;
-          setWikiAnswer(streamedAnswer);
-        }
+        streamState = applyWikiStreamBlock(streamState, block);
+        setWikiAnswer(streamState.answer);
+        setWikiAnswerSources(streamState.sources);
+        setWikiAnswerMeta(streamState.meta);
       };
       while (true) {
         const { value, done } = await reader.read();
@@ -2169,12 +2534,147 @@ export function App() {
         if (done) break;
       }
       if (buffer.trim()) consumeWikiBlock(buffer);
-      if (!streamedAnswer.trim()) setWikiAnswer('위키 큐레이터 답변 본문이 비어 있습니다.');
+      if (!streamState.answer.trim()) setWikiAnswer('위키 큐레이터 답변 본문이 비어 있습니다.');
     } catch (error) {
       setWikiAnswer(error instanceof Error ? `위키 답변 실패: ${error.message}` : '위키 답변 실패');
     } finally {
       setWikiAsking(false);
     }
+  }
+
+  async function refreshKnowledgeSources() {
+    const payload = await hermesApi.getKnowledgeSources();
+    const sources = arr(payload, 'sources');
+    setState((current) => ({
+      ...current,
+      wiki: {
+        ...current.wiki,
+        knowledgeV2: true,
+        sources,
+      },
+    }));
+  }
+
+  async function syncCalendarSources() {
+    setOnboardingMessage('');
+    try {
+      const list = await hermesApi.getCalendarSources();
+      const sources = Array.isArray((list as { sources?: unknown[] })?.sources)
+        ? (list as { sources: Array<Record<string, unknown>> }).sources
+        : calendarSources;
+      const now = new Date();
+      const rangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+      const rangeEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59).toISOString();
+      for (const source of sources) {
+        const id = itemId(source as Item, '');
+        const status = text((source as Item).status);
+        if (id && (status === 'connected' || status === 'error' || status === 'syncing')) {
+          await hermesApi.syncCalendarSource(id, { full: false, rangeStart, rangeEnd });
+        }
+      }
+      await hydrate({ blocking: false });
+      setOnboardingMessage('캘린더 동기화 상태를 확인했습니다.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '캘린더 동기화 실패';
+      setApiError(message);
+      setOnboardingMessage(message);
+    }
+  }
+
+  async function connectGoogleCalendar() {
+    if (onboardingBusy) return;
+    setOnboardingBusy(true);
+    setOnboardingMessage('Google 로그인 창을 여는 중입니다.');
+    try {
+      if (!window.hermesDesktop?.connectGoogleCalendar) {
+        throw new Error('Google Calendar 연결은 데스크톱 앱에서 사용할 수 있습니다.');
+      }
+      const result = await window.hermesDesktop.connectGoogleCalendar();
+      await hydrate({ blocking: false });
+      setOnboardingMessage(
+        result.sync.ok
+          ? 'Google Calendar 동기화가 완료되었습니다.'
+          : result.sync.error || 'Google Calendar는 연결되었지만 첫 동기화에 실패했습니다.',
+      );
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : 'Google Calendar 연결에 실패했습니다.';
+      setOnboardingMessage(
+        raw.includes('Google Calendar 연결을 사용할 수 없습니다')
+          ? 'Google Calendar 연결을 사용할 수 없습니다. 관리자 설정을 확인하세요.'
+          : raw,
+      );
+    } finally {
+      setOnboardingBusy(false);
+    }
+  }
+
+  async function saveOnboardingStatus(status: 'dismissed' | 'completed') {
+    if (onboardingBusy) return;
+    setOnboardingBusy(true);
+    setOnboardingMessage('');
+    try {
+      const timestamp = new Date().toISOString();
+      const onboarding = {
+        version: 1,
+        status,
+        ...(status === 'completed' ? { completedAt: timestamp } : { dismissedAt: timestamp }),
+      };
+      const next = await hermesApi.saveSettings({ onboarding });
+      setState((current) => ({ ...current, settings: next }));
+      openScreen('calendar');
+    } catch (error) {
+      setOnboardingMessage(error instanceof Error ? error.message : '시작 가이드 상태 저장 실패');
+    } finally {
+      setOnboardingBusy(false);
+    }
+  }
+
+  async function addCloudKnowledgeFile(file: File) {
+    if (wikiSourceBusy) return;
+    setWikiSourceBusy(true);
+    setWikiSourceMessage('');
+    try {
+      const created = await hermesApi.createKnowledgeSource({
+        sourceKind: 'cloud_indexed',
+        label: file.name,
+        path: file.name,
+        cloudOptIn: true,
+      });
+      const source = obj(created, 'source');
+      const sourceId = text(source.id);
+      if (!sourceId) throw new Error('지식 소스 ID가 반환되지 않았습니다.');
+      await hermesApi.ingestKnowledge({
+        sourceId,
+        title: file.name,
+        path: file.name,
+        content: await file.text(),
+      });
+      await refreshKnowledgeSources();
+      setWikiSourceMessage(`${file.name} 암호화 색인이 완료되었습니다.`);
+    } catch (error) {
+      setWikiSourceMessage(error instanceof Error ? error.message : '지식 파일 추가 실패');
+    } finally {
+      setWikiSourceBusy(false);
+    }
+  }
+
+  async function revokeKnowledgeSource(sourceId: string) {
+    if (!sourceId || wikiSourceBusy) return;
+    setWikiSourceBusy(true);
+    setWikiSourceMessage('');
+    try {
+      await hermesApi.revokeKnowledgeSource(sourceId);
+      await refreshKnowledgeSources();
+      setWikiSourceMessage('지식 소스 연결을 해제했습니다.');
+    } catch (error) {
+      setWikiSourceMessage(error instanceof Error ? error.message : '지식 소스 연결 해제 실패');
+    } finally {
+      setWikiSourceBusy(false);
+    }
+  }
+
+  async function resolveKnowledgeEvidence(handle: string) {
+    return hermesApi.resolveKnowledgeEvidence(handle);
   }
 
   function dismissWikiAnswer() {
@@ -2296,6 +2796,15 @@ export function App() {
   function openScreen(nextScreen: ScreenId, navKey: string = nextScreen) {
     setScreen(nextScreen);
     setActiveNavKey(navKey);
+    // Agent Ops must re-read Workspace Runner connected/capability state when entered
+    // (Runner Setup connects after the last hydrate; header cannot stay on stale runner_required).
+    if (nextScreen === 'agents') {
+      void refreshAgentOperations().catch(() => undefined);
+    }
+    // Calendar projection appears only after completion — rehydrate events without full blocking load.
+    if (nextScreen === 'calendar' || nextScreen === 'today') {
+      void hydrate({ blocking: false });
+    }
   }
 
   function openNewTask(date = screen === 'today' ? todayKey() : '', time = '') {
@@ -2323,92 +2832,21 @@ export function App() {
     const previousInbox = state.inbox;
     setState((current) => ({
       ...current,
-      inbox: current.inbox.map((item, index) => itemId(item, `mail-${index}`) === id ? { ...item, actionStatus: '기본함에 추가됨' } : item),
+      inbox: optimisticMailTaskUpdate(current.inbox, id),
     }));
     try {
-      await hermesApi.runMailAction(id, 'task', { message: itemTitle(mail, '메일 작업') });
+      await hermesApi.createTask({
+        title: itemTitle(mail, '메일 작업'),
+        status: 'Planned',
+        owner: 'Me',
+        list: 'inbox',
+        source: 'desktop-mail',
+        sourceMailId: id,
+      });
       await hydrate();
     } catch (error) {
       setState((current) => ({ ...current, inbox: previousInbox }));
       setApiError(error instanceof Error ? error.message : '메일 작업 추가 실패');
-    }
-  }
-
-  async function archiveMail(mail: Item) {
-    const id = itemId(mail, '');
-    if (!id) return;
-    const previousInbox = state.inbox;
-    const previousActiveMailId = activeMailId;
-    setState((current) => ({ ...current, inbox: current.inbox.filter((item, index) => itemId(item, `mail-${index}`) !== id) }));
-    setActiveMailId('');
-    try {
-      await hermesApi.runMailAction(id, 'archive');
-      await hydrate();
-    } catch (error) {
-      setState((current) => ({ ...current, inbox: previousInbox }));
-      setActiveMailId(previousActiveMailId);
-      setApiError(error instanceof Error ? error.message : '메일 보관 실패');
-    }
-  }
-
-  async function toggleMailStar(mail: Item) {
-    const id = itemId(mail, '');
-    if (!id) return;
-    const next = !(mail.star || mail.starred || mail.important);
-    const previousInbox = state.inbox;
-    setState((current) => ({
-      ...current,
-      inbox: current.inbox.map((item, index) => {
-        const itemKey = itemId(item, `mail-${index}`);
-        if (itemKey !== id) return item;
-        return { ...item, star: next, starred: next, important: next };
-      }),
-    }));
-    try {
-      await hermesApi.runMailAction(id, next ? 'star' : 'unstar');
-      await hydrate();
-    } catch (error) {
-      setState((current) => ({ ...current, inbox: previousInbox }));
-      setApiError(error instanceof Error ? error.message : '메일 별표 변경 실패');
-    }
-  }
-
-  async function connectGmail() {
-    const email = gmailEmail.trim();
-    const password = gmailPassword.trim();
-    if (!email || !password) {
-      setMailStatus('Gmail 주소와 앱 비밀번호를 입력하세요.');
-      return;
-    }
-    setMailSyncing(true);
-    setMailStatus('Gmail 연결 중...');
-    try {
-      await hermesApi.saveMailAccount({
-        provider: 'gmail',
-        email,
-        username: email,
-        password,
-        host: 'imap.gmail.com',
-        port: 993,
-        secure: true,
-        enabled: true,
-      });
-      const synced = await hermesApi.syncMail({ provider: 'gmail', email, limit: 50 });
-      const syncedItems = arr(synced, 'items', 'commands', 'commandRows', 'inbox', 'messages');
-      const syncedCount = synced.imported ?? synced.count ?? synced.total;
-      const hasSyncedCount = syncedCount !== undefined && syncedCount !== null && syncedCount !== '';
-      if (!syncedItems.length && !hasSyncedCount) throw new Error('Gmail 동기화 응답이 비어 있습니다.');
-      if (syncedItems.length) {
-        setState((current) => ({ ...current, inbox: syncedItems }));
-        setActiveMailId(itemId(syncedItems[0], ''));
-      }
-      setGmailPassword('');
-      setMailStatus(`Gmail 동기화 완료 · ${syncedItems.length || text(syncedCount, '0')}개`);
-      await hydrate();
-    } catch (error) {
-      setMailStatus(error instanceof Error ? `Gmail 연결 실패: ${error.message}` : 'Gmail 연결 실패');
-    } finally {
-      setMailSyncing(false);
     }
   }
 
@@ -2609,9 +3047,16 @@ export function App() {
   }
 
   const activeNavItem = useMemo(
-    () => navGroups.flatMap((group) => group.items).find((item) => (item.navKey || item.id) === activeNavKey),
-    [activeNavKey],
+    () => [...primaryNavItems, ...secondaryNavItems, ...navGroups.flatMap((group) => group.items)]
+      .find((item) => (item.navKey || item.id) === activeNavKey),
+    [activeNavKey, navGroups],
   );
+  const secondaryNavActive = secondaryNavItems.some((item) => (item.navKey || item.id) === activeNavKey)
+    || activeNavKey.startsWith('list:')
+    || activeNavKey.startsWith('tag:');
+  useEffect(() => {
+    if (secondaryNavActive) setSecondaryNavOpen(true);
+  }, [secondaryNavActive]);
   const selectedMeta = screen === 'tasks' && activeNavItem && (activeNavItem.navKey || activeNavItem.id) !== 'tasks'
     ? {
       title: activeNavItem.navKey?.startsWith('tag:') ? `#${activeNavItem.label}` : activeNavItem.label,
@@ -2756,7 +3201,7 @@ export function App() {
   if (!loggedIn) {
     return (
       <div className="app-root login-root" data-theme={settings.theme}>
-        <LoginScreen email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} authenticateWithPassword={authenticateWithPassword} />
+        <LoginScreen loginWithAuthKit={loginWithAuthKit} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} />
       </div>
     );
   }
@@ -2766,44 +3211,160 @@ export function App() {
       <aside className="sidebar">
         <div className="brand">
           <LogoMark />
-          <div>
-            <div className="brand-title">Agent Calendar</div>
-            <div className="brand-sub">할 일 · 캘린더 · 에이전트</div>
-          </div>
+          <div className="brand-title">Agent Calendar</div>
         </div>
         <button className="sidebar-search" onClick={() => openScreen('search')}>
-          <span>⌕</span><span>검색</span><kbd>⌘K</kbd>
+          <MagnifyingGlass size={15} weight="regular" aria-hidden="true" />
+          <span>검색</span>
+          <kbd>⌘K</kbd>
         </button>
         <nav className="nav">
-          {navGroups.map((group, groupIndex) => (
-            <div key={group.title || `smart-${groupIndex}`}>
-              {group.title && <div className="nav-title"><span>{group.title}</span>{group.kind ? <button title={`${group.kind === 'list' ? '리스트' : '태그'} 추가`} onClick={() => openTaxonomyForm(group.kind as TaxonomyKind, group.group)}>+</button> : null}</div>}
-              {group.items.map((item) => {
+          <div className="nav-primary">
+            {primaryNavItems.map((item) => {
+              const count = countForNav(item);
+              return <button className="nav-item" data-active={activeNavKey === (item.navKey || item.id)} key={item.navKey || item.id} onClick={() => openScreen(item.id, item.navKey || item.id)}>
+                <span><NavIcon name={item.icon} />{item.label}</span>
+                {count > 0 && <em>{count}</em>}
+              </button>;
+            })}
+          </div>
+          <details
+            className="nav-more"
+            open={secondaryNavOpen}
+            onToggle={(event) => setSecondaryNavOpen(event.currentTarget.open)}
+          >
+            <summary>
+              <CaretRight size={13} weight="bold" aria-hidden="true" />
+              <span>작업공간</span>
+            </summary>
+            <div className="nav-more-items">
+              {secondaryNavItems.map((item) => {
                 const count = countForNav(item);
                 return <button className="nav-item" data-active={activeNavKey === (item.navKey || item.id)} key={item.navKey || item.id} onClick={() => openScreen(item.id, item.navKey || item.id)}>
-                  <span><b>{item.icon}</b>{item.label}</span>
+                  <span><NavIcon name={item.icon} />{item.label}</span>
                   {count > 0 && <em>{count}</em>}
                 </button>;
               })}
-              {group.kind === 'tag' && !group.items.length && <button className="nav-item empty-taxonomy" onClick={() => openTaxonomyForm('tag', group.group)}><span><b>＋</b>태그 만들기</span></button>}
             </div>
-          ))}
+            <div className="nav-taxonomy-groups">
+              {navGroups.map((group, groupIndex) => (
+                <div key={group.title || `smart-${groupIndex}`}>
+                  {group.title && <div className="nav-title"><span>{group.title}</span>{group.kind ? <button title={`${group.kind === 'list' ? '리스트' : '태그'} 추가`} onClick={() => openTaxonomyForm(group.kind as TaxonomyKind, group.group)}>+</button> : null}</div>}
+                  {group.items.map((item) => {
+                    const count = countForNav(item);
+                    return <button className="nav-item" data-active={activeNavKey === (item.navKey || item.id)} key={item.navKey || item.id} onClick={() => openScreen(item.id, item.navKey || item.id)}>
+                      <span><NavIcon name={item.icon} />{item.label}</span>
+                      {count > 0 && <em>{count}</em>}
+                    </button>;
+                  })}
+                  {group.kind === 'tag' && !group.items.length && <button className="nav-item empty-taxonomy" onClick={() => openTaxonomyForm('tag', group.group)}><span><Plus className="nav-icon" size={16} weight="regular" aria-hidden="true" />태그 만들기</span></button>}
+                </div>
+              ))}
+            </div>
+          </details>
         </nav>
-        <button className="profile" onClick={() => setModal('settings')}>
+        <button className="profile" data-testid="open-settings" onClick={() => setModal('settings')}>
           {settings.authProfile?.picture ? <img className="avatar" src={settings.authProfile.picture} alt="" /> : <span className="avatar">{accountInitial}</span>}
-          <span><strong>{accountName}</strong><small>{showGlobalApiBanner ? 'Railway 확인 필요' : accountProviderLabel}</small></span>
-          <span>⚙</span>
+          <span><strong>{accountName}</strong><small>{showDesktopConnectivity ? '연결 확인 필요' : showGlobalApiBanner ? 'Railway 확인 필요' : accountProviderLabel}</small></span>
+          <GearSix className="profile-settings-icon" size={16} weight="regular" aria-hidden="true" />
         </button>
       </aside>
 
       <main className="main">
         <header className="topbar">
-          <div className="screen-heading"><strong>{selectedMeta.title}</strong><span>{selectedMeta.sub}</span></div>
+          <div className="screen-heading"><strong>{selectedMeta.title}</strong></div>
+          <div className="topbar-actions">
+            {onboardingPending && screen !== 'onboarding' && (
+              <button
+                type="button"
+                className="onboarding-return"
+                data-testid="onboarding-return"
+                onClick={() => openScreen('onboarding')}
+              >
+                설정 계속
+              </button>
+            )}
+            <button className="chat-fab" data-active={chatOpen} onClick={() => setChatOpen((open) => !open)} aria-label={chatOpen ? '캘린더 AI 닫기' : '캘린더 AI 열기'} title="캘린더 AI">
+              <ChatCircleDots className="chat-fab-icon" size={16} weight="regular" aria-hidden="true" />
+              <span>캘린더 AI</span>
+            </button>
+          </div>
         </header>
+        {desktopRecoveryStatus && (
+          <div
+            className="desktop-recovery-notice"
+            data-testid="desktop-recovery-notice"
+            data-phase={desktopRecoveryStatus.phase}
+            role="status"
+          >
+            <span>
+              <strong>{desktopRecoveryStatus.phase === 'halted' ? '안전 복구 모드' : '앱 복구 완료'}</strong>
+              <small>{desktopRecoveryStatus.message}</small>
+            </span>
+            <button type="button" onClick={() => setDesktopRecoveryStatus(null)}>확인</button>
+          </div>
+        )}
+        {showDesktopConnectivity && (
+          <div
+            className="desktop-connectivity"
+            data-testid="desktop-connectivity"
+            data-state={desktopConnectivity.status}
+            role={desktopConnectivity.status === 'offline' ? 'alert' : 'status'}
+            aria-live="polite"
+          >
+            <i aria-hidden="true" />
+            <strong>{connectivityCopy.title}</strong>
+            <span>{connectivityCopy.detail}</span>
+            {connectivityCopy.actionLabel && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDesktopConnectivity((current) => beginConnectivityRetry(current));
+                  void hydrate({ blocking: false });
+                }}
+              >
+                {connectivityCopy.actionLabel}
+              </button>
+            )}
+          </div>
+        )}
         {showGlobalApiBanner && <div className="api-banner"><strong>Railway API 확인 필요</strong><span>{apiError}</span><button onClick={() => void hydrate()}>재시도</button></div>}
         {loading ? <Loading /> : (
           <section className="content">
-            {screen === 'calendar' && <CalendarScreen tasks={scheduledTaskItems} events={events} openNewTask={openNewTask} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} calView={calView} setCalView={setCalView} calDate={calDate} setCalDate={setCalDate} placingTaskId={placingTaskId} setPlacingTaskId={setPlacingTaskId} />}
+            {screen === 'calendar' && <CalendarScreen tasks={scheduledTaskItems} events={events} openNewTask={openNewTask} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} calView={calView} setCalView={setCalView} calDate={calDate} setCalDate={setCalDate} placingTaskId={placingTaskId} setPlacingTaskId={setPlacingTaskId} calendarSources={calendarSources} coverageNote={calendarCoverageNote} onConnectGoogle={connectGoogleCalendar} connectionBusy={onboardingBusy} connectionMessage={onboardingMessage} onSyncSources={syncCalendarSources} onCreateExternalGoogle={async () => {
+              try {
+                let googleSource = calendarSources.find((source) => text(source.provider) === 'google' && text(source.status) === 'connected');
+                if (!googleSource) {
+                  const list = await hermesApi.getCalendarSources();
+                  const sources = Array.isArray((list as { sources?: unknown[] })?.sources)
+                    ? (list as { sources: Item[] }).sources
+                    : [];
+                  googleSource = sources.find((source) => text(source.provider) === 'google' && text(source.status) === 'connected');
+                }
+                const sourceId = itemId(googleSource || {}, '');
+                if (!sourceId) throw new Error('연결된 Google 소스가 없습니다');
+                const day = calDate || todayKey();
+                // Use a wall-clock hour visible in day view (07–22).
+                const startsAt = `${day}T10:00:00.000Z`;
+                const endsAt = `${day}T11:00:00.000Z`;
+                // Success is only shown after provider reconcile + local projection hydrate.
+                const result = await hermesApi.createExternalCalendarEvent({
+                  sourceId,
+                  title: 'Google external create',
+                  startsAt,
+                  endsAt,
+                  allDay: false,
+                  timezone: 'Asia/Seoul',
+                  idempotencyKey: `ete-ext-create-${day}-${Date.now()}`,
+                });
+                if (result && typeof result === 'object' && 'ok' in result && (result as { ok?: boolean }).ok === false) {
+                  throw new Error('외부 일정 생성 실패');
+                }
+                await hydrate({ blocking: false });
+              } catch (error) {
+                setApiError(error instanceof Error ? error.message : '외부 일정 생성 실패');
+              }
+            }} />}
             {screen === 'today' && <TodayScreen tasks={tasks} runs={runs} approveRun={approveRun} quickText={quickText} setQuickText={setQuickText} submitQuick={() => submitQuick(todayKey())} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} openRun={openRun} />}
             {screen === 'tasks' && selectedTaxonomy && <TaxonomyManager item={selectedTaxonomy} edit={(item) => openTaxonomyForm(item.kind, item.group, item)} hide={(item) => void hideTaxonomy(item)} />}
             {(screen === 'tasks' || screen === 'next7' || screen === 'someday') && <TaskListScreen tasks={filteredTasks} quickText={quickText} setQuickText={setQuickText} submitQuick={() => submitQuick(screen === 'next7' ? todayKey() : undefined)} applyRepeatTemplate={(label) => {
@@ -2811,24 +3372,61 @@ export function App() {
               setQuickText(templates[label] || '');
             }} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} />}
             {screen === 'kanban' && <KanbanScreen tasks={filteredTasks} openTask={openTask} />}
-            {screen === 'mail' && <MailScreen inbox={mailItems} activeMailId={activeMailId} setActiveMailId={setActiveMailId} addTaskFromMail={(mail) => { void addTaskFromMail(mail); }} archiveMail={(mail) => { void archiveMail(mail); }} delegateMail={(mail, reply) => { setDelegateText(reply ? `아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n${itemTitle(mail, '메일')}` : `다음 메일을 처리해줘.\n\n${itemTitle(mail, '메일')}`); setModal('delegate'); }} toggleStar={(mail) => { void toggleMailStar(mail); }} gmailEmail={gmailEmail} setGmailEmail={setGmailEmail} gmailPassword={gmailPassword} setGmailPassword={setGmailPassword} mailSyncing={mailSyncing} mailStatus={mailStatus} mailLoadError={mailLoadError} reloadMail={() => { void hydrate({ blocking: false }); }} connectGmail={connectGmail} />}
+            {screen === 'mail' && <MailScreen inbox={mailItems} activeMailId={activeMailId} setActiveMailId={setActiveMailId} addTaskFromMail={(mail) => { void addTaskFromMail(mail); }} delegateMail={(mail, reply) => { setDelegateText(reply ? `아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n${itemTitle(mail, '메일')}` : `다음 메일을 처리해줘.\n\n${itemTitle(mail, '메일')}`); setModal('delegate'); }} mailLoadError={mailLoadError} reloadMail={() => { void hydrate({ blocking: false }); }} />}
             {screen === 'notes' && <NotesScreen docs={docs} activeNoteId={activeNoteId} setActiveNoteId={setActiveNoteId} newNote={createNote} />}
             {screen === 'review' && <ReviewScreen tasks={tasks} patchTask={patchTask} generateRetroDraft={generateRetroDraft} createReviewGoal={createReviewGoal} saveRetro={saveRetro} />}
-            {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} />}
-            {screen === 'diary' && <DiaryScreen docs={diaryDocs} diaryText={diaryText} setDiaryText={setDiaryText} diaryMood={diaryMood} setDiaryMood={setDiaryMood} saveDiary={saveDiary} />}
+            {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} loadDocument={loadKnowledgeDocument} knowledgeV2={state.wiki.knowledgeV2 === true} knowledgeSources={arr(state.wiki, 'sources')} sourceBusy={wikiSourceBusy} sourceMessage={wikiSourceMessage} addCloudFile={addCloudKnowledgeFile} revokeSource={revokeKnowledgeSource} resolveEvidence={resolveKnowledgeEvidence} />}
+            {screen === 'diary' && <DiaryScreen docs={diaryDocs} diaryText={diaryText} setDiaryText={setDiaryText} diaryMood={diaryMood} setDiaryMood={setDiaryMood} saveDiary={saveDiary} loadDocument={loadKnowledgeDocument} />}
             {screen === 'search' && <SearchScreen query={query} setQuery={setQuery} tasks={tasks} docs={docs} openTask={openTask} openDoc={openDoc} />}
-            {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} automationJobs={hermesAutomationJobs} error={agentOperationsError} busy={agentOperationsBusy} onRetry={retryAgentOperations} onRefreshAgentOperations={retryAgentOperations} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onContinueSession={continueAgentSession} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
-            {screen === 'automation' && <HermesAutomationDashboard jobs={hermesAutomationJobs} agents={agentRoster} onRefresh={refreshHermesAutomations} onUpdate={updateHermesAutomation} onSetEnabled={setHermesAutomationEnabled} onDelete={deleteHermesAutomation} />}
+            {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} runners={automationRunners} automationJobs={hermesAutomationJobs} error={agentOperationsError} busy={agentOperationsBusy} onRetry={retryAgentOperations} onRefreshAgentOperations={retryAgentOperations} onCreateAgent={createWorkspaceAgent} onUpdateAgent={updateWorkspaceAgent} onRequestAgentCatalog={requestAgentCatalog} onGetAgentCatalogRequest={getAgentCatalogRequest} onImportAgentCatalogEntry={importAgentCatalogEntry} onListProviderAgentSessions={listProviderAgentSessions} onRequestProviderSessionCatalog={requestProviderSessionCatalog} onImportProviderSessionCatalogEntry={importProviderSessionCatalogEntry} onUpdateProviderAgentSession={updateProviderAgentSession} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onContinueSession={continueAgentSession} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
+            {screen === 'automation' && (
+              <HermesAutomationDashboard
+                sources={connectedAutomationSources}
+                runners={automationRunners}
+                jobs={hermesAutomationJobs}
+                agents={agentRoster}
+                onRefresh={refreshHermesAutomations}
+                onConnect={connectAutomationSource}
+                onSync={syncAutomationSource}
+                onCreate={createConnectedAutomation}
+                onUpdate={updateConnectedAutomation}
+                onSetEnabled={setConnectedAutomationEnabled}
+                onRun={runConnectedAutomation}
+                onApprove={approveConnectedAutomationChange}
+              />
+            )}
             {screen === 'widgets' && <WidgetsScreen tasks={tasks} events={events} runs={runs} />}
-            {screen === 'settings' && <SettingsScreen settings={settings} gatewayStatus={state.gatewayStatus} setSettings={setSettings} refresh={hydrate} />}
-            {screen === 'login' && <LoginScreen email={loginEmail} setEmail={setLoginEmail} password={loginPw} setPassword={setLoginPw} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} authenticateWithPassword={authenticateWithPassword} />}
+            {screen === 'onboarding' && (
+              <OnboardingGuide
+                readiness={onboardingReadiness}
+                busy={onboardingBusy || wikiSourceBusy}
+                message={onboardingMessage || wikiSourceMessage}
+                onConnectCalendar={connectGoogleCalendar}
+                onSyncCalendar={syncCalendarSources}
+                onOpenRunner={() => openScreen('runner')}
+                onOpenWiki={() => openScreen('wiki')}
+                onOpenCalendarAi={() => {
+                  openScreen('calendar');
+                  setChatOpen(true);
+                }}
+                onAddKnowledgeFile={addCloudKnowledgeFile}
+                onDismiss={() => saveOnboardingStatus('dismissed')}
+                onComplete={() => saveOnboardingStatus('completed')}
+              />
+            )}
+            {screen === 'settings' && <SettingsScreen settings={settings} gatewayStatus={state.gatewayStatus} setSettings={setSettings} refresh={hydrate} openRunnerSetup={() => openScreen('runner')} openOnboarding={() => openScreen('onboarding')} desktopReleaseStatus={desktopReleaseStatus} desktopReleaseBusy={desktopReleaseBusy} desktopReleaseError={desktopReleaseError} onCheckDesktopRelease={() => void runDesktopReleaseAction('check')} onDownloadDesktopRelease={() => void runDesktopReleaseAction('download')} onInstallDesktopRelease={() => void runDesktopReleaseAction('install')} />}
+            {screen === 'runner' && (
+              <RunnerSetupPanel
+                workspaceLabel={settings.authProfile?.email || settings.authProfile?.name || accountName || 'Workspace'}
+                controlPlaneBaseUrl={settings.apiBaseUrl}
+                onReadyCalendar={() => openScreen('calendar')}
+              />
+            )}
+            {screen === 'login' && <LoginScreen loginWithAuthKit={loginWithAuthKit} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} />}
           </section>
         )}
       </main>
 
-      <button className="chat-fab" data-active={chatOpen} onClick={() => setChatOpen((open) => !open)} aria-label={chatOpen ? '캘린더 AI 닫기' : '캘린더 AI 열기'} title="캘린더 AI">
-        <ChatIcon />
-      </button>
       {completionNotice && <CompletionToast title={completionNotice.title} undo={undoCompletion} close={() => setCompletionNotice(null)} />}
       {selectedAgentSessionId && !agentSessionDetail && (
         <div className="task-session-backdrop">
@@ -2856,9 +3454,9 @@ export function App() {
           onTaskAction={transitionAgentOperationTask}
         />
       )}
-      {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} attachment={chatAttachment} setAttachment={setChatAttachment} send={sendChat} setChip={setChatInput} close={() => setChatOpen(false)} registerDrafts={registerScheduleDrafts} />}
+      {chatOpen && <ChatDrawer messages={chatMessages} input={chatInput} setInput={setChatInput} attachment={chatAttachment} setAttachment={setChatAttachment} send={sendChat} busy={chatBusy} setChip={setChatInput} close={() => setChatOpen(false)} registerDrafts={registerScheduleDrafts} memories={calendarAiMemories} memoryOpen={calendarAiMemoryOpen} toggleMemory={() => setCalendarAiMemoryOpen((open) => !open)} updateMemory={updateCalendarAiMemory} forgetMemory={forgetCalendarAiMemory} purgeMemory={purgeCalendarAiMemory} actOnDraft={actOnCalendarAiDraft} actionBusyId={calendarAiActionBusyId} />}
       {modal === 'taxonomy' && taxonomyForm && <TaxonomyModal form={taxonomyForm} name={taxonomyName} setName={setTaxonomyName} groupName={taxonomyGroupName} setGroupName={setTaxonomyGroupName} icon={taxonomyIcon} setIcon={setTaxonomyIcon} close={() => { setTaxonomyForm(null); setModal(null); }} submit={() => void createTaxonomy()} />}
-      <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} approveRun={approveRun} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} gatewayStatus={state.gatewayStatus} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />
+      <Modal modal={modal} setModal={setModal} newTitle={newTitle} setNewTitle={setNewTitle} newDesc={newDesc} setNewDesc={setNewDesc} newTask={newTaskControls} createTask={createTask} lists={listDefinitions} tags={tagDefinitions} agents={agents} runs={runs} selectedRun={selectedRun} selectedTask={selectedTask} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} delegateText={delegateText} setDelegateText={setDelegateText} delegateAgentId={delegateAgentId} setDelegateAgentId={setDelegateAgentId} startPlan={() => startPlan(delegateText, delegateAgentId)} openRunArtifact={openRunArtifact} approveRun={approveRun} newAgentName={newAgentName} setNewAgentName={setNewAgentName} newAgentRole={newAgentRole} setNewAgentRole={setNewAgentRole} newAgentEmoji={newAgentEmoji} setNewAgentEmoji={setNewAgentEmoji} createAgent={createAgent} settings={settings} gatewayStatus={state.gatewayStatus} setSettings={setSettings} refresh={hydrate} setApiError={setApiError} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginWithAuthKit={loginWithAuthKit} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} prefs={prefs} updatePrefs={updatePrefs} openOnboarding={() => { setModal(null); openScreen('onboarding'); }} desktopReleaseStatus={desktopReleaseStatus} desktopReleaseBusy={desktopReleaseBusy} desktopReleaseError={desktopReleaseError} onCheckDesktopRelease={() => void runDesktopReleaseAction('check')} onDownloadDesktopRelease={() => void runDesktopReleaseAction('download')} onInstallDesktopRelease={() => void runDesktopReleaseAction('install')} />
     </div>
   );
 }
@@ -3006,14 +3604,14 @@ function WidgetsScreen({ tasks, events, runs }: { tasks: Item[]; events: Item[];
       </div>
     </div>
     <footer className="widgets-caption">
-      <span>월 캘린더 — Large</span>
+      <span>월 캘린더, Large</span>
       <span>오늘 — Medium</span>
-      <span>다음 일정 · 에이전트 상태 — Small</span>
+      <span>다음 일정 · 에이전트 상태, Small</span>
     </footer>
   </div>;
 }
 
-function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patchTask, patchCalendarEvent, calView, setCalView, calDate, setCalDate, placingTaskId, setPlacingTaskId }: { tasks: Item[]; events: Item[]; openNewTask: (date?: string, time?: string) => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; patchTask: (task: Item, patch: Item) => void; patchCalendarEvent: (task: Item, patch: Item) => void; calView: 'month' | 'week' | 'day'; setCalView: (view: 'month' | 'week' | 'day') => void; calDate: string; setCalDate: (date: string) => void; placingTaskId: string; setPlacingTaskId: (id: string) => void }) {
+function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patchTask, patchCalendarEvent, calView, setCalView, calDate, setCalDate, placingTaskId, setPlacingTaskId, calendarSources = [], coverageNote = '', onConnectGoogle, connectionBusy = false, connectionMessage = '', onSyncSources, onCreateExternalGoogle }: { tasks: Item[]; events: Item[]; openNewTask: (date?: string, time?: string) => void; openTask: (task: Item) => void; toggleTask: (task: Item) => void; patchTask: (task: Item, patch: Item) => void; patchCalendarEvent: (task: Item, patch: Item) => void; calView: 'month' | 'week' | 'day'; setCalView: (view: 'month' | 'week' | 'day') => void; calDate: string; setCalDate: (date: string) => void; placingTaskId: string; setPlacingTaskId: (id: string) => void; calendarSources?: Item[]; coverageNote?: string; onConnectGoogle?: () => Promise<void>; connectionBusy?: boolean; connectionMessage?: string; onSyncSources?: () => Promise<void>; onCreateExternalGoogle?: () => Promise<void> }) {
   const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
   const [draggingItem, setDraggingItem] = useState<Item | null>(null);
   const [ownerView, setOwnerView] = useState<'me' | 'agents' | 'combined'>('combined');
@@ -3048,6 +3646,20 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     return dates.map((date, index) => ({ ...item, _calendarDate: date, _rangeStart: start, _rangeEnd: end, _rangeOffset: index, _rangeLength: dates.length }));
   });
   const isRangePill = (item: Item) => text(item._rangeStart) && text(item._rangeEnd) && text(item._rangeStart) !== text(item._rangeEnd);
+  const hasConnectedGoogle = calendarSources.some((source) => text(source.provider) === 'google' && text(source.status) === 'connected');
+  const sourceSummary = hasConnectedGoogle ? 'Google Calendar 연결됨' : '외부 캘린더 없음';
+  const entrySourceBadge = (item: Item) => {
+    if (text(item.sourceLabel)) return text(item.sourceLabel);
+    if (text(item.sourceKind) === 'agent_work' || text(item.source) === 'agent-work' || text(item.origin) === 'agent') return 'Agent';
+    if (text(item.provider) === 'google' || text(item.source) === 'google') return 'Google';
+    if (isCalendarEventRecord(item)) return 'Internal';
+    return '';
+  };
+  const isReadOnlyEntry = (item: Item) => item.writable === false
+    || text(item.origin) === 'agent'
+    || text(item.sourceKind) === 'agent_work'
+    || text(item.source) === 'agent-work';
+  const canDragEntry = (item: Item) => !isReadOnlyEntry(item) && text(item.origin) !== 'agent';
   const calendarItemClass = (item: Item) => [
     isCalendarEventRecord(item) ? 'calendar-event-pill' : 'scheduled-task-pill',
     `owner-${taskOwner(item).toLowerCase()}`,
@@ -3057,6 +3669,9 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     isRangePill(item) && text(item._calendarDate) === text(item._rangeEnd) ? 'range-end' : '',
     text(item.origin) === 'agent' ? 'agent-task-pill' : '',
     text(item.origin) === 'agent' && text(item.agentTaskState) ? `agent-task-${text(item.agentTaskState)}` : '',
+    text(item.provider) === 'google' || text(item.source) === 'google' ? 'source-google' : '',
+    text(item.sourceKind) === 'agent_work' || text(item.source) === 'agent-work' ? 'source-agent-work' : '',
+    isReadOnlyEntry(item) ? 'calendar-readonly' : '',
   ].filter(Boolean).join(' ');
   const calendarPillContent = (item: Item, fallback: string) => {
     const range = isRangePill(item);
@@ -3068,7 +3683,17 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     const showTime = !!timeValue && (!range || rangeEnd);
     const agentLabel = text(item.agentTaskLabel);
     const visibleAgentLabel = [agentLabel, text(item.agent), text(item.agentTaskEngineLabel)].filter(Boolean).join(' · ');
-    return <><span>{showTitle ? itemTitle(item, fallback) : '\u00A0'}</span>{showTitle && visibleAgentLabel && <i>{visibleAgentLabel}</i>}{showTime && <b>{formatTime(timeValue)}</b>}</>;
+    const badge = monthSourceBadge({
+      sourceKind: text(item.sourceKind),
+      provider: text(item.provider || item.source),
+      sourceLabel: entrySourceBadge(item),
+    });
+    return <>
+      {showTitle && badge && <em className="source-badge" data-source-badge={badge}>{badge}</em>}
+      <span>{showTitle ? itemTitle(item, fallback) : '\u00A0'}</span>
+      {showTitle && visibleAgentLabel && <i>{visibleAgentLabel}</i>}
+      {showTime && <b>{formatTime(timeValue)}</b>}
+    </>;
   };
   const calendarItemDescription = (item: Item) => [
     itemTitle(item, '에이전트 작업'),
@@ -3082,6 +3707,7 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
   ].filter(Boolean).join(' · ');
   const patchDraggedItem = (item: Item, targetDate: string, targetTime?: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return;
+    if (isReadOnlyEntry(item)) return;
     const originalStart = itemStartDate(item) || targetDate;
     const originalEnd = itemEndDate(item, originalStart);
     const rangeLength = Math.max(1, rangeDates(originalStart, originalEnd).length);
@@ -3095,6 +3721,10 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     else patchTask(item, patch);
   };
   const beginDrag = (event: React.DragEvent, item: Item) => {
+    if (!canDragEntry(item)) {
+      event.preventDefault();
+      return;
+    }
     event.stopPropagation();
     setDraggingItem(item);
     event.dataTransfer.effectAllowed = 'move';
@@ -3125,7 +3755,7 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     const matched = expandedCalendarItems
       .filter((item) => text(item._calendarDate) === date)
       .sort((a, b) => Number(b._rangeLength || 1) - Number(a._rangeLength || 1) || text(a._rangeStart).localeCompare(text(b._rangeStart)));
-    return matched.slice(0, 4);
+    return matched.slice(0, 6);
   };
   const cells = Array.from({ length: 35 }, (_, index) => {
     const dateValue = new Date(gridStart);
@@ -3151,20 +3781,78 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
     return { hour, time, items: dayItems.filter((item) => text(item.time).startsWith(String(hour).padStart(2, '0'))).slice(0, 2) };
   });
   const allDayItems = dayItems.filter((item) => !text(item.time));
-  return <div className="calendar screen-in" data-dragging={!!draggingItem}>
-    <div className="screen-toolbar"><h2>{label}</h2><Legend /><div className="agent-calendar-filter" aria-label="캘린더 담당자 필터"><Segment items={['나', '에이전트', '전체']} active={ownerView} setActive={(value) => setOwnerView(value as 'me' | 'agents' | 'combined')} values={['me', 'agents', 'combined']} /></div><Segment items={['월', '주', '일']} active={calView} setActive={(value) => setCalView(value as 'month' | 'week' | 'day')} values={['month', 'week', 'day']} /><button onClick={() => { setCalDate(todayKey()); setPlacingTaskId(''); }}>오늘</button><button onClick={() => shiftCalendar(-1)}>‹</button><button onClick={() => shiftCalendar(1)}>›</button></div>
+  return <div className="calendar screen-in" data-dragging={!!draggingItem} data-testid="unified-calendar">
+    <div className="screen-toolbar calendar-toolbar">
+      <div className="calendar-period">
+        <h2>{label}</h2>
+        <Legend />
+      </div>
+      <div className="calendar-toolbar-actions">
+        <div className="agent-calendar-filter" aria-label="캘린더 담당자 필터">
+          <Segment items={['나', '에이전트', '전체']} active={ownerView} setActive={(value) => setOwnerView(value as 'me' | 'agents' | 'combined')} values={['me', 'agents', 'combined']} />
+        </div>
+        <Segment items={['월', '주', '일']} active={calView} setActive={(value) => setCalView(value as 'month' | 'week' | 'day')} values={['month', 'week', 'day']} />
+        <button className="calendar-today" onClick={() => { setCalDate(todayKey()); setPlacingTaskId(''); }}>오늘</button>
+        <div className="calendar-navigation" aria-label="캘린더 기간 이동">
+          <button aria-label="이전 기간" title="이전 기간" onClick={() => shiftCalendar(-1)}>
+            <CaretLeft size={14} weight="bold" aria-hidden="true" />
+          </button>
+          <button aria-label="다음 기간" title="다음 기간" onClick={() => shiftCalendar(1)}>
+            <CaretRight size={14} weight="bold" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    </div>
+    <div className="unified-calendar-sources" data-testid="calendar-sources" aria-label="통합 캘린더 소스">
+      <div className="unified-calendar-sources-meta">
+        <CalendarDots className="calendar-source-icon" size={15} weight="regular" aria-hidden="true" />
+        <span data-testid="calendar-source-summary">{sourceSummary}</span>
+        <span data-testid="calendar-coverage-note" data-coverage={coverageNote.includes('불완전') ? 'incomplete' : coverageNote.includes('완료') ? 'complete' : 'none'}>{coverageNote || '커버리지 대기'}</span>
+      </div>
+      <div className="unified-calendar-sources-actions">
+        {!hasConnectedGoogle && onConnectGoogle && (
+          <button type="button" data-testid="calendar-connect-google" disabled={connectionBusy} onClick={() => { void onConnectGoogle(); }}>
+            {connectionBusy ? 'Google 로그인 대기 중' : 'Google Calendar 연결'}
+          </button>
+        )}
+        {hasConnectedGoogle && onSyncSources && (
+          <button type="button" data-testid="calendar-sync-sources" onClick={() => { void onSyncSources(); }}>소스 동기화</button>
+        )}
+        {hasConnectedGoogle && onCreateExternalGoogle && (
+          <button type="button" data-testid="calendar-external-create" onClick={() => { void onCreateExternalGoogle(); }}>Google 일정 추가</button>
+        )}
+      </div>
+      {connectionMessage && <p className="calendar-source-message" role="status">{connectionMessage}</p>}
+      {calendarSources.length > 0 && (
+        <ul className="unified-calendar-source-list" data-testid="calendar-source-list">
+          {calendarSources.map((source, index) => {
+            const id = itemId(source, `src-${index}`);
+            const status = text(source.status, 'unknown');
+            const lastSync = text(source.lastSyncedAt || source.last_synced_at);
+            return (
+              <li key={id} data-source-id={id} data-source-status={status} data-provider={text(source.provider)}>
+                <span className="source-pill">{text(source.label || source.provider || 'source')}</span>
+                <span className="source-status">{status === 'connected' ? '연결됨' : status}</span>
+                {lastSync && <span className="source-freshness">동기화 {lastSync.slice(0, 19)}</span>}
+                {source.writable === false && <span className="source-ro">읽기 전용</span>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
     {calView === 'month' && <div className="month-grid">
       {weekdays.map((day) => <div className="weekday" key={day}>{day}</div>)}
       {cells.map((cell) => <button className="day-cell" data-date={cell.date} data-muted={!cell.inMonth} data-today={cell.today} data-selected={cell.selected} key={cell.date} onDragOver={allowCalendarDrop} onDrop={(event) => dropOnCalendar(event, cell.date)} onClick={() => openNewTask(cell.date)}>
         <strong onClick={(event) => { event.stopPropagation(); setCalDate(cell.date); setCalView('day'); }}>{cell.day}</strong>
-        {cell.items.map((item, index) => <span className={`event-pill ${calendarItemClass(item)}`} draggable={text(item.origin) !== 'agent'} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${cell.day}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}>{calendarPillContent(item, isCalendarEventRecord(item) ? '일정' : '작업')}</span>)}
+        {cell.items.map((item, index) => <span className={`event-pill ${calendarItemClass(item)}`} draggable={canDragEntry(item)} data-source-kind={text(item.sourceKind || item.source)} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${cell.day}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}>{calendarPillContent(item, isCalendarEventRecord(item) ? '일정' : '작업')}</span>)}
       </button>)}
     </div>}
     {calView === 'week' && <div className="week-grid">
       {weekCells.map((cell) => <section className="week-col" data-today={cell.today} data-selected={cell.selected} key={cell.date}>
         <button className="week-head" onClick={() => { setCalDate(cell.date); setCalView('day'); }}><span>{cell.weekday}</span><strong>{cell.day}</strong></button>
         <div className="week-events" onDragOver={allowCalendarDrop} onDrop={(event) => dropOnCalendar(event, cell.date)} onClick={() => openNewTask(cell.date)}>
-          {cell.items.map((item, index) => <button className={`week-event ${calendarItemClass(item)}`} draggable={text(item.origin) !== 'agent'} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${cell.date}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><small>{[text(item.agentTaskLabel), text(item.agent), text(item.agentTaskEngineLabel), text(item.time || item.t, index % 2 ? '오후 2:00' : '오전 9:00')].filter(Boolean).join(' · ')}</small>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</button>)}
+          {cell.items.map((item, index) => <button className={`week-event ${calendarItemClass(item)}`} draggable={canDragEntry(item)} data-source-kind={text(item.sourceKind || item.source)} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${cell.date}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><small>{[entrySourceBadge(item), text(item.agentTaskLabel), text(item.agent), text(item.agentTaskEngineLabel), text(item.time || item.t, index % 2 ? '오후 2:00' : '오전 9:00')].filter(Boolean).join(' · ')}</small>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</button>)}
         </div>
       </section>)}
     </div>}
@@ -3179,14 +3867,14 @@ function CalendarScreen({ tasks, events, openNewTask, openTask, toggleTask, patc
           }
         }}>
           <span>{formatTime(row.time).replace(':00', '시')}</span>
-          <div>{row.items.map((item, index) => <em className={calendarItemClass(item)} draggable={text(item.origin) !== 'agent'} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${row.time}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><b>{formatTime(text(item.time || item.t, row.time))}</b> {itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}{text(item.agentTaskLabel) && <small> · {[text(item.agentTaskLabel), text(item.agent), text(item.agentTaskEngineLabel)].filter(Boolean).join(' · ')}</small>}</em>)}</div>
+          <div>{row.items.map((item, index) => <em className={calendarItemClass(item)} draggable={canDragEntry(item)} data-source-kind={text(item.sourceKind || item.source)} aria-label={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} title={text(item.origin) === 'agent' ? calendarItemDescription(item) : undefined} key={`${row.time}-${index}`} onDragStart={(event) => beginDrag(event, item)} onDragEnd={() => setDraggingItem(null)} onClick={(event) => { event.stopPropagation(); openTask(item); }}><b>{formatTime(text(item.time || item.t, row.time))}</b> {entrySourceBadge(item) && <small className="source-badge">{entrySourceBadge(item)}</small>} {itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}{text(item.agentTaskLabel) && <small> · {[text(item.agentTaskLabel), text(item.agent), text(item.agentTaskEngineLabel)].filter(Boolean).join(' · ')}</small>}</em>)}</div>
         </button>)}
       </div>
       <aside className="day-side">
         <h3>{dayDateObj.getMonth() + 1}월 {dayDateObj.getDate()}일 ({weekdays[dayDateObj.getDay()]})</h3>
         <p>{placingTask ? `"${itemTitle(placingTask, '작업')}" 배치할 시간 슬롯을 선택하세요` : <>하루 종일 · 시간 미지정 <span>· "시간 잡기"로 타임블록</span></>}</p>
-        {allDayItems.slice(0, 4).map((item, index) => <div className="day-all-day" data-event={isCalendarEventRecord(item)} data-done={isDone(item)} role="button" tabIndex={0} key={index} onClick={() => openTask(item)} onKeyDown={(event) => { if (event.key === 'Enter') openTask(item); }}>
-          {!isCalendarEventRecord(item) && <i onClick={(event) => { event.stopPropagation(); toggleTask(item); }}>{isDone(item) ? '✓' : ''}</i>}<span>{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</span>{!isCalendarEventRecord(item) && <b onClick={(event) => { event.stopPropagation(); setPlacingTaskId(itemId(item, `day-${index}`)); }}>⏰ 시간 잡기</b>}
+        {allDayItems.slice(0, 4).map((item, index) => <div className="day-all-day" data-event={isCalendarEventRecord(item)} data-done={isDone(item)} data-source-kind={text(item.sourceKind || item.source)} role="button" tabIndex={0} key={index} onClick={() => openTask(item)} onKeyDown={(event) => { if (event.key === 'Enter') openTask(item); }}>
+          {!isCalendarEventRecord(item) && <i onClick={(event) => { event.stopPropagation(); toggleTask(item); }}>{isDone(item) ? '✓' : ''}</i>}<span>{entrySourceBadge(item) ? `[${entrySourceBadge(item)}] ` : ''}{itemTitle(item, isCalendarEventRecord(item) ? '일정' : '작업')}</span>{!isCalendarEventRecord(item) && <b onClick={(event) => { event.stopPropagation(); setPlacingTaskId(itemId(item, `day-${index}`)); }}>⏰ 시간 잡기</b>}
         </div>)}
       </aside>
     </div>}
@@ -3204,14 +3892,14 @@ function TodayScreen({ tasks, runs, approveRun, quickText, setQuickText, submitQ
   }).slice(0, 4);
   const reviewRuns = runs.filter((run) => /done|완료|review|검토/i.test(text(run.status)) && !/approved|승인/i.test(text(run.status))).slice(0, 3);
   const suggestions = active.filter((task) => !text(task.date)).slice(0, 3);
-  const stats = [
-    ['지연', overdue.length, overdue.length ? '#C0533B' : '#3E9B72'],
-    ['오늘 할 일', todayTasks.length, '#2B2620'],
-    ['검토 대기', reviewRuns.length, reviewRuns.length ? '#9A7322' : '#3E9B72'],
+  const stats: ReadonlyArray<[string, number, 'danger' | 'success' | 'neutral' | 'warning']> = [
+    ['지연', overdue.length, overdue.length ? 'danger' : 'success'],
+    ['오늘 할 일', todayTasks.length, 'neutral'],
+    ['검토 대기', reviewRuns.length, reviewRuns.length ? 'warning' : 'success'],
   ];
   return <div className="plan-screen screen-in">
     <div className="quick-row plan-quick"><span>+</span><input value={quickText} onChange={(event) => setQuickText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submitQuick(); }} placeholder="오늘 할 일 추가  ·  예: 오후3시 롯데리아 #업무 !높음 @agent" /><button onClick={submitQuick}>추가</button></div>
-    <div className="plan-stats">{stats.map(([label, value, color]) => <div key={String(label)}><span>{label}</span><strong style={{ color: String(color) }}>{value}</strong></div>)}</div>
+    <div className="plan-stats">{stats.map(([label, value, tone]) => <div key={label}><span>{label}</span><strong data-tone={tone}>{value}</strong></div>)}</div>
 
     <section className="plan-section">
       <h2>📅 오늘 할 일</h2>
@@ -3443,10 +4131,10 @@ function TaskInspectorPane({ task, patchTask, toggleTask, openTask, close }: { t
 
 function KanbanScreen({ tasks, openTask }: { tasks: Item[]; openTask: (task: Item) => void }) {
   const colDefs = [
-    { key: 'todo', label: '기본', color: '#C7BCA6' },
-    { key: 'doing', label: '진행 중', color: '#3B7DD8' },
-    { key: 'review', label: '검토', color: '#E0913B' },
-    { key: 'done', label: '완료', color: '#3E9B72' },
+    { key: 'todo', label: '기본', tone: 'neutral' },
+    { key: 'doing', label: '진행 중', tone: 'active' },
+    { key: 'review', label: '검토', tone: 'warning' },
+    { key: 'done', label: '완료', tone: 'success' },
   ];
   const belongs = (task: Item, key: string) => {
     const status = text(task.status || task.state).toLowerCase();
@@ -3459,7 +4147,7 @@ function KanbanScreen({ tasks, openTask }: { tasks: Item[]; openTask: (task: Ite
     {colDefs.map((col) => {
       const cards = tasks.filter((task) => belongs(task, col.key));
       return <section className="kanban-col" key={col.key}>
-        <h3><i style={{ background: col.color }} /><strong>{col.label}</strong><span>{cards.length}</span></h3>
+        <h3><i data-tone={col.tone} /><strong>{col.label}</strong><span>{cards.length}</span></h3>
         <div>{cards.map((task, index) => {
           const owner = taskOwner(task);
           return <button className="kanban-card" key={`${col.key}-${itemId(task, String(index))}`} onClick={() => openTask(task)}>
@@ -3469,1343 +4157,6 @@ function KanbanScreen({ tasks, openTask }: { tasks: Item[]; openTask: (task: Ite
         })}</div>
       </section>;
     })}
-  </div>;
-}
-
-function MailScreen({ inbox, activeMailId, setActiveMailId, addTaskFromMail, archiveMail, delegateMail, toggleStar, gmailEmail, setGmailEmail, gmailPassword, setGmailPassword, mailSyncing, mailStatus, mailLoadError, reloadMail, connectGmail }: { inbox: Item[]; activeMailId: string; setActiveMailId: (id: string) => void; addTaskFromMail: (mail: Item) => void; archiveMail: (mail: Item) => void; delegateMail: (mail: Item, reply?: boolean) => void; toggleStar: (mail: Item) => void; gmailEmail: string; setGmailEmail: (value: string) => void; gmailPassword: string; setGmailPassword: (value: string) => void; mailSyncing: boolean; mailStatus: string; mailLoadError: string; reloadMail: () => void; connectGmail: () => void }) {
-  const items = inbox;
-  const active = items.find((mail, index) => itemId(mail, `mail-${index}`) === activeMailId) || items[0];
-  const activeId = itemId(active || {}, '');
-  const unread = items.filter((mail) => mail.unread !== false && !mail.read).length;
-  const avatar = (mail: Item) => text(mail.from || mail.sender || mail.sourceLabel, 'H').trim().slice(0, 1).toUpperCase();
-  return <div className="mail screen-in">
-    <aside className="mail-list">
-      <header><strong>✉️ 받은편지함</strong><em>{unread} 안 읽음</em><button onClick={connectGmail} disabled={mailSyncing}>⟳</button></header>
-      <section className="gmail-connect">
-        <label>Gmail 연결</label>
-        <input value={gmailEmail} onChange={(event) => setGmailEmail(event.target.value)} placeholder="name@gmail.com" autoComplete="username" />
-        <input value={gmailPassword} onChange={(event) => setGmailPassword(event.target.value)} placeholder="Google 앱 비밀번호" type="password" autoComplete="current-password" />
-        <button onClick={connectGmail} disabled={mailSyncing}>{mailSyncing ? '동기화 중' : '연결 · 동기화'}</button>
-        {mailStatus && <small>{mailStatus}</small>}
-      </section>
-      <div>
-        {mailLoadError && <div className="mail-list-empty mail-list-error" role="alert"><strong>메일을 불러오지 못했습니다.</strong><small>기존 메일 데이터는 변경하지 않았습니다.</small><button type="button" onClick={reloadMail}>메일 다시 불러오기</button></div>}
-        {!items.length && !mailLoadError && <p className="mail-list-empty">연결된 메일이 없습니다.<small>Gmail을 연결하거나 동기화하세요.</small></p>}
-        {items.map((mail, index) => {
-          const id = itemId(mail, `mail-${index}`);
-          const from = text(mail.from || mail.sender || mail.sourceLabel, 'Agent Calendar');
-          const subject = text(mail.subject || mail.title, '메일');
-          const preview = text(mail.preview || mail.body || mail.snippet, '메일 내용을 확인하세요.');
-          const starred = !!(mail.star || mail.starred || mail.important);
-          return <button className="mail-item" data-active={id === activeId} data-unread={mail.unread !== false && !mail.read} key={id} onClick={() => setActiveMailId(id)}>
-            <i />
-            <span className="mail-avatar">{avatar(mail)}</span>
-            <span className="mail-copy">
-              <span className="mail-line"><b>{from}</b><small>{starred && <mark>★</mark>}{text(mail.time || mail.createdAt, '방금')}</small></span>
-              <strong>{subject}</strong>
-              <em>{preview}</em>
-            </span>
-          </button>;
-        })}
-      </div>
-    </aside>
-    <article className="mail-reader">
-      {active ? <div className="mail-reader-inner">
-        <section className="mail-head">
-          <div><h2>{text(active.subject || active.title, '메일을 선택하세요')}</h2><button aria-label="별표" onClick={() => toggleStar(active)}>{active.star || active.starred || active.important ? '★' : '☆'}</button></div>
-          <footer><span className="mail-avatar large">{avatar(active)}</span><span><b>{text(active.from || active.sender || active.sourceLabel, 'Agent Calendar')}</b><small>{text(active.email || active.addr || active.address, 'agents@calendar.local')}</small></span><time>{text(active.time || active.createdAt, '방금')}</time></footer>
-        </section>
-        <div className="action-row mail-actions">
-          <button onClick={() => addTaskFromMail(active)}>⊕ 작업으로 추가</button>
-          <button className="delegate" onClick={() => delegateMail(active)}>⚡ 에이전트에 위임</button>
-          <button onClick={() => delegateMail(active, true)}>✦ 답장 초안</button>
-          <button className="archive" onClick={() => archiveMail(active)}>보관</button>
-          {text(active.actionStatus) && <span>{text(active.actionStatus)}</span>}
-        </div>
-        <section className="mail-body">{text(active.body || active.preview || active.snippet, '메일 내용을 작업, 위임, 답장 초안으로 전환할 수 있습니다.')}</section>
-      </div> : <div className="mail-empty">메일을 연결하면 이곳에서 내용을 확인할 수 있습니다.</div>}
-    </article>
-  </div>;
-}
-
-function NotesScreen({ docs, activeNoteId, setActiveNoteId, newNote }: { docs: Item[]; activeNoteId: string; setActiveNoteId: (id: string) => void; newNote: () => void }) {
-  const active = docs.find((doc, index) => itemId(doc, `note-${index}`) === activeNoteId) || docs[0];
-  return <div className="notes-editor screen-in">
-    <aside className="note-list">
-      <header><strong>📝 생각노트</strong><span>{docs.length}</span><button onClick={newNote}>+ 메모</button></header>
-      <div>{docs.map((doc, index) => {
-        const id = itemId(doc, `note-${index}`);
-        return <button className="note-item" data-active={id === itemId(active || {}, '')} key={id} onClick={() => setActiveNoteId(id)}>
-          <span><i>📄</i><b>{itemTitle(doc, '노트')}</b></span>
-          <em>{text(doc.body || doc.summary || doc.extract || doc.excerpt, '내용 없음')}</em>
-        </button>;
-      })}</div>
-    </aside>
-    <section className="note-editor">
-      {active ? <div><input value={itemTitle(active, '')} readOnly placeholder="제목 없음" /><small>{text(active.date || active.updated || active.tag, '방금 수정')}</small><textarea value={text(active.body || active.summary || active.extract || active.excerpt)} readOnly placeholder="백엔드에 저장된 노트를 선택하세요" /></div> : <p>메모를 선택하세요</p>}
-    </section>
-  </div>;
-}
-
-function ReviewScreen({ tasks, patchTask, generateRetroDraft, createReviewGoal, saveRetro }: { tasks: Item[]; patchTask: (task: Item, patch: Item) => void; generateRetroDraft: (summary: { range: string; done: number; total: number; overdue: number; delegated: number; goals: string[] }) => Promise<string>; createReviewGoal: (title: string) => Promise<boolean>; saveRetro: (body: string) => void }) {
-  const done = tasks.filter(isDone).length;
-  const [goalInput, setGoalInput] = useState('');
-  const [drafting, setDrafting] = useState(false);
-  const [savingGoal, setSavingGoal] = useState(false);
-  const [retro, setRetro] = useState('');
-  const range = weekRangeLabel();
-  const goals = tasks
-    .filter((task) => /goal|objective|목표/i.test(text(task.kind || task.type || task.list || task.category || task.project || (Array.isArray(task.tags) ? task.tags.join(' ') : task.tags))))
-    .map((task) => ({ task, text: itemTitle(task, '목표'), done: isDone(task) }));
-  const overdue = tasks.filter((task) => text(task.date) && text(task.date) < todayKey() && !isDone(task)).length;
-  const delegated = tasks.filter((task) => taskOwner(task) === 'Agent' || taskOwner(task) === 'Hybrid').length;
-  const kpis = [
-    ['완료율', `${Math.round((done / Math.max(tasks.length, 1)) * 100)}%`, `${done}/${tasks.length} 완료`, '#2B2620'],
-    ['완료', done, '이번 주', '#3E9B72'],
-    ['지연', overdue, '정리 필요', '#C0533B'],
-    ['위임', delegated, '에이전트', '#3E7A52'],
-  ];
-  const addGoal = async () => {
-    const value = goalInput.trim();
-    if (!value || savingGoal) return;
-    setSavingGoal(true);
-    try {
-      const created = await createReviewGoal(value);
-      if (created) setGoalInput('');
-    } finally {
-      setSavingGoal(false);
-    }
-  };
-  const generateRetro = async () => {
-    if (drafting) return;
-    setDrafting(true);
-    try {
-      const draft = await generateRetroDraft({
-        range,
-        done,
-        total: tasks.length,
-        overdue,
-        delegated,
-        goals: goals.map((goal) => `${goal.done ? '[완료]' : '[진행]'} ${goal.text}`),
-      });
-      setRetro(draft || '백엔드 회고 생성 결과가 비어 있습니다.');
-    } catch (error) {
-      setRetro((current) => current || (error instanceof Error ? `회고 생성 실패: ${error.message}` : '회고 생성 실패'));
-    } finally {
-      setDrafting(false);
-    }
-  };
-  return <div className="review-screen screen-in">
-    <p className="review-range">{range} · 이번 주 목표와 KPI를 점검하고 회고를 남기세요.</p>
-    <div className="review-kpis">{kpis.map(([label, value, sub, color]) => <div key={String(label)}><span>{label}</span><strong style={{ color: String(color) }}>{value}</strong><small>{sub}</small></div>)}</div>
-    <section className="review-goals">
-      <h2>🎯 이번 주 목표</h2>
-      <div>
-        {goals.map((goal, index) => <button className="review-goal" data-done={goal.done} key={`${goal.text}-${index}`} onClick={() => patchTask(goal.task, { status: goal.done ? 'Planned' : 'Done', done: !goal.done })}>
-          <i>{goal.done ? '✓' : ''}</i><span>{goal.text}</span>
-        </button>)}
-        <label className="review-add"><span>+</span><input value={goalInput} disabled={savingGoal} onChange={(event) => setGoalInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addGoal(); }} placeholder={savingGoal ? '저장 중' : '목표 추가'} /></label>
-      </div>
-    </section>
-    <section className="review-retro">
-      <header><h2>📝 주간 회고</h2><span /><button className="primary" onClick={generateRetro} disabled={drafting}>{drafting ? '생성 중' : '자동 생성'}</button>{retro && <button onClick={() => saveRetro(retro)}>위키에 저장</button>}</header>
-      {retro && <article>{retro}</article>}
-    </section>
-  </div>;
-}
-
-function wikiDetail(payload: ApiEnvelope) {
-  const selected = obj(payload, 'selectedNote');
-  if (Object.keys(selected).length) return selected;
-  const index = obj(payload, 'wikiIndex');
-  return obj(index, 'selectedNote');
-}
-
-function wikiList(payload: ApiEnvelope) {
-  const index = obj(payload, 'wikiIndex');
-  const graph = obj(payload, 'graph');
-  const indexGraph = obj(index, 'graph');
-  return [
-    ...arr(payload, 'notes'),
-    ...arr(payload, 'documents'),
-    ...arr(index, 'notes'),
-    ...arr(index, 'documents'),
-    ...arr(graph, 'nodes'),
-    ...arr(indexGraph, 'nodes'),
-  ];
-}
-
-function isJournalDoc(item: Item) {
-  const kind = text(item.kind || item.type).toLowerCase();
-  const haystack = [
-    item.path,
-    item.wikiPath,
-    item.folder,
-    item.group,
-    item.category,
-    item.tag,
-    ...(Array.isArray(item.tags) ? item.tags : []),
-  ].map((value) => text(value).toLowerCase()).join(' ');
-  return kind === 'diary'
-    || kind === 'journal'
-    || haystack.includes('4_journal')
-    || haystack.includes('journal')
-    || haystack.includes('diary')
-    || itemTitle(item).includes('일기');
-}
-
-function wikiJournalDocs(payload: ApiEnvelope) {
-  return mergeDocsByIdentity([], wikiList(payload).filter(isJournalDoc));
-}
-
-function mergeDocsByIdentity(primary: Item[], secondary: Item[]) {
-  const seen = new Set<string>();
-  const merged: Item[] = [];
-  [...primary, ...secondary].forEach((item, index) => {
-    const key = docIdentity(item, `doc-${index}`);
-    if (seen.has(key)) return;
-    seen.add(key);
-    merged.push(item);
-  });
-  return merged;
-}
-
-function wikiBody(item: Item) {
-  return text(item.content || item.body || item.markdown || item.summary || item.extract || item.excerpt, '');
-}
-
-function stripWikiExtension(value: string) {
-  return value.replace(/\.md$/i, '');
-}
-
-function wikiBasename(value: string) {
-  return stripWikiExtension(value.split('/').filter(Boolean).pop() || value);
-}
-
-function cleanWikiTarget(rawTarget = '') {
-  const target = String(rawTarget || '')
-    .split('|')[0]
-    .split('#')[0]
-    .trim()
-    .replace(/^<|>$/g, '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '');
-  try {
-    return decodeURIComponent(target);
-  } catch (error) {
-    if (error instanceof URIError) return target;
-    throw error;
-  }
-}
-
-function buildWikiGraphFallbackEdges(nodes: Item[]) {
-  const maps = {
-    byPath: new Map<string, string>(),
-    byPathNoExt: new Map<string, string>(),
-    byBasename: new Map<string, string>(),
-    byTitle: new Map<string, string>(),
-  };
-  nodes.forEach((node, index) => {
-    const id = text(node.path || node.wikiPath || node.id || node._id || node.key, `wiki-${index}`);
-    const pathValue = text(node.path || node.wikiPath || node.id || node._id || node.key, id);
-    const titleValue = text(node.title || node.label, '');
-    maps.byPath.set(pathValue.toLowerCase(), id);
-    maps.byPathNoExt.set(stripWikiExtension(pathValue).toLowerCase(), id);
-    if (!maps.byBasename.has(wikiBasename(pathValue).toLowerCase())) maps.byBasename.set(wikiBasename(pathValue).toLowerCase(), id);
-    if (titleValue && !maps.byTitle.has(titleValue.toLowerCase())) maps.byTitle.set(titleValue.toLowerCase(), id);
-  });
-
-  const edges = new Map<string, Item>();
-  nodes.forEach((node, index) => {
-    const from = text(node.path || node.wikiPath || node.id || node._id || node.key, `wiki-${index}`);
-    const sourcePath = text(node.path || node.wikiPath || node.id || node._id || node.key, from);
-    const sourceDir = sourcePath.includes('/') ? sourcePath.split('/').slice(0, -1).join('/') : '';
-    for (const match of wikiBody(node).matchAll(/!?\[\[([^\]]+)\]\]|(?<!!)\[[^\]]+\]\(([^)]+)\)/g)) {
-      const rawTarget = cleanWikiTarget(match[1] || match[2] || '');
-      if (!rawTarget || /^[a-z]+:/i.test(rawTarget)) continue;
-      const ext = rawTarget.split('/').pop()?.match(/\.[^.]+$/)?.[0].toLowerCase() || '';
-      if (ext && ext !== '.md') continue;
-      const direct = stripWikiExtension(rawTarget);
-      const relative = sourceDir ? `${sourceDir}/${rawTarget}`.replace(/\/+/g, '/') : rawTarget;
-      const candidates = [rawTarget, `${direct}.md`, direct, relative, `${stripWikiExtension(relative)}.md`, stripWikiExtension(relative), wikiBasename(rawTarget)];
-      const to = candidates
-        .map((candidate) => maps.byPath.get(candidate.toLowerCase()) || maps.byPathNoExt.get(stripWikiExtension(candidate).toLowerCase()) || maps.byTitle.get(stripWikiExtension(candidate).toLowerCase()) || maps.byBasename.get(wikiBasename(candidate).toLowerCase()) || '')
-        .find(Boolean) || '';
-      if (!to || to === from) continue;
-      const pair = [from, to].sort().join('::');
-      if (!edges.has(pair)) edges.set(pair, { id: `fallback-${pair}`, from, to });
-    }
-  });
-  return [...edges.values()];
-}
-
-function hashText(value: string) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-type WikiGraphLayoutOptions = {
-  centerForce?: number;
-  repelForce?: number;
-  linkDistance?: number;
-};
-
-function buildWikiGraphLayout(rawNodes: Item[], fallbackNodes: Item[], rawEdges: Item[], options: WikiGraphLayoutOptions = {}) {
-  const sourceNodes = rawNodes.length ? rawNodes : fallbackNodes;
-  const width = 960;
-  const height = 620;
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const centerForce = Number.isFinite(options.centerForce) ? Number(options.centerForce) : 1;
-  const repelForce = Number.isFinite(options.repelForce) ? Number(options.repelForce) : 1;
-  const linkDistance = Number.isFinite(options.linkDistance) ? Number(options.linkDistance) : 1;
-  const groups = Array.from(new Set(sourceNodes.map((node) => text(node.group || node.folder || node.kind, '기타'))));
-  const nodeId = (node: Item, index: number) => text(node.path || node.wikiPath || node.id || node._id || node.key, `wiki-${index}`);
-  const nodeAliases = (node: Item, id: string) => [
-    id,
-    text(node.id),
-    text(node._id),
-    text(node.key),
-    text(node.path),
-    text(node.wikiPath),
-    text(node.title),
-    text(node.label),
-  ].filter(Boolean);
-  const nodes = sourceNodes.map((node, index) => {
-    const id = nodeId(node, index);
-    const seed = hashText(`${id}:${text(node.title || node.path)}`);
-    const angle = ((seed % 10000) / 10000) * Math.PI * 2;
-    const radius = 36 + (((seed >>> 8) % 1000) / 1000) * 82;
-    const group = text(node.group || node.folder || node.kind, '기타');
-    const seededX = centerX + Math.cos(angle) * radius;
-    const seededY = centerY + Math.sin(angle) * radius * .78;
-    return {
-      node,
-      id,
-      x: Number.isFinite(Number(node.x)) ? Number(node.x) : seededX,
-      y: Number.isFinite(Number(node.y)) ? Number(node.y) : seededY,
-      vx: 0,
-      vy: 0,
-      r: 4,
-      label: text(node.label || node.title || node.path, '노트'),
-      group,
-      linkCount: 0,
-    };
-  });
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const aliases = new Map<string, string>();
-  nodes.forEach((node) => {
-    nodeAliases(node.node, node.id).forEach((alias) => aliases.set(alias, node.id));
-  });
-  const edges = rawEdges
-    .map((edge, index) => {
-      const from = aliases.get(text(edge.from)) || text(edge.from);
-      const to = aliases.get(text(edge.to)) || text(edge.to);
-      return {
-        id: text(edge.id, `edge-${index}`),
-        from,
-        to,
-      };
-    })
-    .filter((edge) => edge.from && edge.to && byId.has(edge.from) && byId.has(edge.to));
-
-  const adjacency = new Map(nodes.map((node) => [node.id, new Set<string>()]));
-  edges.forEach((edge) => {
-    const from = byId.get(edge.from);
-    const to = byId.get(edge.to);
-    if (from) from.linkCount += 1;
-    if (to) to.linkCount += 1;
-    adjacency.get(edge.from)?.add(edge.to);
-    adjacency.get(edge.to)?.add(edge.from);
-  });
-
-  nodes.forEach((node) => {
-    const explicitRadius = Number(node.node.r);
-    node.r = Number.isFinite(explicitRadius)
-      ? explicitRadius
-      : node.linkCount
-        ? Math.min(13, 3.4 + Math.sqrt(node.linkCount) * 2.35)
-        : 2.8;
-  });
-
-  const linkedNodes = nodes.filter((node) => node.linkCount > 0);
-  const isolatedNodes = nodes.filter((node) => node.linkCount === 0);
-  const usesOpenGraphBounds = nodes.length > 220;
-  const components: typeof nodes[] = [];
-  const visited = new Set<string>();
-  linkedNodes
-    .slice()
-    .sort((a, b) => b.linkCount - a.linkCount || a.label.localeCompare(b.label))
-    .forEach((start) => {
-      if (visited.has(start.id)) return;
-      const component: typeof nodes = [];
-      const stack = [start.id];
-      visited.add(start.id);
-      while (stack.length) {
-        const currentId = stack.pop() || '';
-        const current = byId.get(currentId);
-        if (current) component.push(current);
-        adjacency.get(currentId)?.forEach((nextId) => {
-          const next = byId.get(nextId);
-          if (!next || next.linkCount === 0 || visited.has(nextId)) return;
-          visited.add(nextId);
-          stack.push(nextId);
-        });
-      }
-      components.push(component);
-    });
-
-  components.sort((a, b) => b.length - a.length);
-  const componentCenters = new Map<string, { x: number; y: number }>();
-  components.forEach((component, componentIndex) => {
-    const satelliteAngle = ((componentIndex - 1) / Math.max(components.length - 1, 1)) * Math.PI * 2 - Math.PI / 2;
-    const baseCenter = componentIndex === 0
-      ? { x: centerX - 10, y: centerY + 12 }
-      : {
-        x: centerX + Math.cos(satelliteAngle) * 210,
-        y: centerY + Math.sin(satelliteAngle) * 145,
-      };
-    const componentRadius = Math.min(165, Math.max(44, 25 + Math.sqrt(component.length) * 22)) * linkDistance;
-    component
-      .slice()
-      .sort((a, b) => b.linkCount - a.linkCount || a.label.localeCompare(b.label))
-      .forEach((node, index) => {
-        const seed = hashText(`${node.id}:linked:${componentIndex}`);
-        const angle = index === 0
-          ? 0
-          : ((index - 1) / Math.max(component.length - 1, 1)) * Math.PI * 2 + ((seed % 1000) / 1000) * .28;
-        const radius = index === 0
-          ? 0
-          : componentRadius * (.45 + (((seed >>> 9) % 1000) / 1000) * .4);
-        node.x = baseCenter.x + Math.cos(angle) * radius;
-        node.y = baseCenter.y + Math.sin(angle) * radius * .78;
-        componentCenters.set(node.id, baseCenter);
-      });
-  });
-
-  const orderedIsolates = isolatedNodes
-    .slice()
-    .sort((a, b) => hashText(a.id) - hashText(b.id) || a.label.localeCompare(b.label));
-  orderedIsolates.forEach((node, index) => {
-    const seed = hashText(`${node.id}:isolate`);
-    const scatter = (shift: number) => (((seed >>> shift) % 1000) / 1000);
-    const lane = (index + (seed % 7)) % 5;
-    const left = 58 + scatter(3) * 252;
-    const right = width - 58 - scatter(5) * 252;
-    const top = 58 + scatter(7) * 128;
-    const bottom = height - 58 - scatter(9) * 128;
-    const middleX = 180 + scatter(11) * 600;
-    const middleY = 112 + scatter(13) * 396;
-    const base = lane === 0
-      ? { x: left, y: 92 + scatter(15) * 438 }
-      : lane === 1
-        ? { x: right, y: 92 + scatter(17) * 438 }
-        : lane === 2
-          ? { x: middleX, y: top }
-          : lane === 3
-            ? { x: middleX, y: bottom }
-            : { x: 86 + scatter(19) * 788, y: 74 + scatter(21) * 472 };
-    const forceScale = .5 + Math.sqrt(Math.max(.1, repelForce)) * .5;
-    const dx = (base.x - centerX) * forceScale;
-    const dy = (base.y - centerY) * forceScale;
-    const centerEllipse = (dx * dx) / (180 * 180) + (dy * dy) / (125 * 125);
-    if (centerEllipse < 1) {
-      const angle = Math.atan2(dy || .1, dx || .1);
-      node.x = Math.min(width - 58, Math.max(58, centerX + Math.cos(angle) * 238 * Math.sqrt(repelForce)));
-      node.y = Math.min(height - 58, Math.max(58, centerY + Math.sin(angle) * 172 * Math.sqrt(repelForce)));
-    } else {
-      node.x = Math.min(width - 58, Math.max(58, centerX + dx));
-      node.y = Math.min(height - 58, Math.max(58, centerY + dy));
-    }
-  });
-
-  const iterations = linkedNodes.length > 650 ? 90 : linkedNodes.length > 320 ? 120 : 165;
-  const repelDistance = linkedNodes.length > 650 ? 130 : 210;
-  for (let step = 0; step < iterations; step += 1) {
-    for (let left = 0; left < linkedNodes.length; left += 1) {
-      const a = linkedNodes[left];
-      for (let right = left + 1; right < linkedNodes.length; right += 1) {
-        const b = linkedNodes[right];
-        let dx = a.x - b.x;
-        let dy = a.y - b.y;
-        let distanceSq = dx * dx + dy * dy;
-        if (distanceSq < .01) {
-          const jitter = hashText(`${a.id}:${b.id}`) / 0xffffffff;
-          dx = Math.cos(jitter * Math.PI * 2) * .1;
-          dy = Math.sin(jitter * Math.PI * 2) * .1;
-          distanceSq = dx * dx + dy * dy;
-        }
-        if (distanceSq > repelDistance * repelDistance) continue;
-        const distance = Math.sqrt(distanceSq);
-        const force = ((72 + a.r * b.r * 6.2) * repelForce) / distanceSq;
-        const fx = (dx / distance) * force;
-        const fy = (dy / distance) * force;
-        a.vx += fx;
-        a.vy += fy;
-        b.vx -= fx;
-        b.vy -= fy;
-      }
-    }
-
-    edges.forEach((edge) => {
-      const from = byId.get(edge.from);
-      const to = byId.get(edge.to);
-      if (!from || !to) return;
-      const dx = to.x - from.x;
-      const dy = to.y - from.y;
-      const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-      const target = (48 + Math.min(34, (from.r + to.r) * 2.2)) * linkDistance;
-      const force = (distance - target) * .021;
-      const fx = (dx / distance) * force;
-      const fy = (dy / distance) * force;
-      from.vx += fx;
-      from.vy += fy;
-      to.vx -= fx;
-      to.vy -= fy;
-    });
-
-    linkedNodes.forEach((node) => {
-      const target = componentCenters.get(node.id) || { x: centerX, y: centerY };
-      const centerPull = (node.linkCount > 2 ? .0024 : .0015) * centerForce;
-      node.vx += (target.x - node.x) * centerPull + (centerX - node.x) * .0008;
-      node.vy += (target.y - node.y) * centerPull + (centerY - node.y) * .0008;
-      node.vx *= .76;
-      node.vy *= .76;
-      node.x = usesOpenGraphBounds
-        ? Math.min(width + 240, Math.max(-240, node.x + node.vx))
-        : Math.min(width - 58, Math.max(58, node.x + node.vx));
-      node.y = usesOpenGraphBounds
-        ? Math.min(height + 155, Math.max(-155, node.y + node.vy))
-        : Math.min(height - 58, Math.max(58, node.y + node.vy));
-    });
-  }
-
-  return {
-    nodes: nodes.map(({ vx: _vx, vy: _vy, ...node }) => node),
-    edges,
-    groups,
-    viewBox: `0 0 ${width} ${height}`,
-  };
-}
-
-function stripFrontmatter(value: string) {
-  return value.replace(/^---\s*\n[\s\S]*?\n---\s*/u, '').trim();
-}
-
-function journalBody(item: Item) {
-  return stripFrontmatter(wikiBody(item));
-}
-
-function journalDateKey(item: Item, fallback = '') {
-  const direct = text(item.date || item.day || item.journalDate, '');
-  if (/^\d{4}-\d{2}-\d{2}/.test(direct)) return direct.slice(0, 10);
-  const bodyDate = wikiBody(item).match(/^---[\s\S]*?\bdate:\s*['"]?(\d{4}-\d{2}-\d{2})/mu)?.[1];
-  if (bodyDate) return bodyDate;
-  const pathDate = [
-    item.path,
-    item.wikiPath,
-    item.title,
-    item.createdAt,
-    item.updatedAt,
-  ].map((value) => text(value)).join(' ').match(/(20\d{2})[-_/](\d{2})[-_/](\d{2})/);
-  if (pathDate) return `${pathDate[1]}-${pathDate[2]}-${pathDate[3]}`;
-  const timestamp = text(item.createdAt || item.updatedAt, '');
-  if (/^\d{4}-\d{2}-\d{2}/.test(timestamp)) return timestamp.slice(0, 10);
-  return fallback;
-}
-
-function journalTime(item: Item) {
-  const date = journalDateKey(item);
-  const timestamp = date ? Date.parse(`${date}T00:00:00`) : 0;
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function hasWikiFullBody(item: Item) {
-  return Boolean(text(item.content || item.body || item.markdown || item.extract, ''));
-}
-
-function WikiArticle({ content }: { content: string }) {
-  return <article>{content.split('\n').map((line, index) => {
-    if (!line.trim()) return <br key={index} />;
-    if (/^#{1,3}\s+/.test(line)) {
-      const level = line.match(/^#+/)?.[0].length || 1;
-      const body = line.replace(/^#{1,3}\s+/, '');
-      return level === 1 ? <h1 key={index}>{body}</h1> : <h2 key={index}>{body}</h2>;
-    }
-    if (/^[-*]\s+/.test(line)) return <p className="wiki-bullet" key={index}>{line.replace(/^[-*]\s+/, '')}</p>;
-    if (/^\d+\.\s+/.test(line)) return <p className="wiki-number" key={index}>{line}</p>;
-    if (/^---$/.test(line.trim())) return <hr key={index} />;
-    return <p key={index}>{line}</p>;
-  })}</article>;
-}
-
-function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, setReaderOpen, question, setQuestion, answer, sources, answerMeta, includeJournal, setIncludeJournal, includeRaw, setIncludeRaw, asking, ask, dismissAnswer }: { wiki: ApiEnvelope; docs: Item[]; activeWikiId: string; setActiveWikiId: (id: string) => void; readerOpen: boolean; setReaderOpen: (value: boolean) => void; question: string; setQuestion: (value: string) => void; answer: string; sources: Item[]; answerMeta: Item; includeJournal: boolean; setIncludeJournal: (value: boolean) => void; includeRaw: boolean; setIncludeRaw: (value: boolean) => void; asking: boolean; ask: () => void; dismissAnswer: () => void }) {
-  const [details, setDetails] = useState<Record<string, Item>>({});
-  const [loadingPath, setLoadingPath] = useState('');
-  const [graphZoom, setGraphZoom] = useState(1);
-  const [graphPan, setGraphPan] = useState({ x: 0, y: 0 });
-  const [graphPanning, setGraphPanning] = useState(false);
-  const [graphSettingsOpen, setGraphSettingsOpen] = useState(false);
-  const [graphTimelapseActive, setGraphTimelapseActive] = useState(false);
-  const [graphShowLabels, setGraphShowLabels] = useState(true);
-  const [graphNodeScale, setGraphNodeScale] = useState(1);
-  const [graphLinkScale, setGraphLinkScale] = useState(1);
-  const [graphLinkOpacity, setGraphLinkOpacity] = useState(.62);
-  const [graphCenterForce, setGraphCenterForce] = useState(1);
-  const [graphRepelForce, setGraphRepelForce] = useState(1);
-  const [graphLinkDistance, setGraphLinkDistance] = useState(1);
-  const [graphFilterQuery, setGraphFilterQuery] = useState('');
-  const [graphShowOrphans, setGraphShowOrphans] = useState(true);
-  const [graphLocalMode, setGraphLocalMode] = useState(false);
-  const [graphBannerInteractive, setGraphBannerInteractive] = useState(false);
-  const [graphFocusMode, setGraphFocusMode] = useState(false);
-  const [hoveredGraphId, setHoveredGraphId] = useState('');
-  const [draggedGraphPositions, setDraggedGraphPositions] = useState<Record<string, { x: number; y: number }>>({});
-  const [treeQuery, setTreeQuery] = useState('');
-  const [openTreeGroups, setOpenTreeGroups] = useState<Set<string>>(() => new Set());
-  const graphCanvasRef = useRef<HTMLDivElement | null>(null);
-  const graphDragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
-  const graphNodeDragRef = useRef<{ id: string; x: number; y: number; nodeX: number; nodeY: number; moved: boolean } | null>(null);
-  const lastGraphClickRef = useRef<{ id: string; at: number } | null>(null);
-  const suppressGraphClickRef = useRef(false);
-  const graph = obj(wiki, 'graph');
-  const graphNodesRaw = arr(graph, 'nodes');
-  const graphEdgesRaw = arr(graph, 'edges');
-  const wikiNotes = arr(wiki, 'notes').length ? arr(wiki, 'notes') : (arr(wiki, 'documents').length ? arr(wiki, 'documents') : docs);
-  const list = wikiNotes;
-  const selectedFromApi = wikiDetail(wiki);
-  const activeMatch = list.find((node, index) => itemId(node, `wiki-${index}`) === activeWikiId || text(node.path) === activeWikiId);
-  const activeBase = activeMatch || (activeWikiId
-    ? { id: activeWikiId, path: activeWikiId, title: wikiBasename(activeWikiId) }
-    : (Object.keys(selectedFromApi).length ? selectedFromApi : list[0]));
-  const activePath = text(activeBase?.path || activeBase?.id || activeWikiId);
-  const active = activePath && details[activePath] ? { ...activeBase, ...details[activePath] } : activeBase;
-
-  useEffect(() => {
-    if (!readerOpen || !activePath || hasWikiFullBody(active)) return;
-    let cancelled = false;
-    setLoadingPath(activePath);
-    hermesApi.getWiki({ path: activePath })
-      .then((payload) => {
-        if (cancelled) return;
-        const detail = wikiDetail(payload);
-        if (Object.keys(detail).length) setDetails((current) => ({ ...current, [activePath]: detail }));
-      })
-      .catch((error) => setDetails((current) => ({ ...current, [activePath]: { ...active, content: `본문을 불러오지 못했습니다: ${error instanceof Error ? error.message : 'unknown error'}` } })))
-      .finally(() => { if (!cancelled) setLoadingPath(''); });
-    return () => { cancelled = true; };
-  }, [activePath, readerOpen]);
-
-  const colors: Record<string, string> = { 업무: 'var(--accent)', 주식: '#7C5CBF', 인생: '#C99A3B', 회고: '#3E9B72', 일기: '#3B7DD8', 기타: '#9A9080', '0_inbox': '#D7613D', '1_raw': '#C7963C', '2_wiki': '#3B7DD8', '3_output': '#3E9B72', '4_journal': '#7C6DD8', '5_conversation': '#A75F48', '6_agents': '#5D8A7D', '7_automation': '#8E7A58' };
-  const folders = Array.from(new Set(list.map((node) => text(node.folder || node.tag || node.category || node.kind, '기타')))).slice(0, 12);
-  const treeNeedle = treeQuery.trim().toLowerCase();
-  const matchesTreeQuery = (node: Item) => !treeNeedle || [
-    itemTitle(node, ''),
-    text(node.path || node.wikiPath || node.folder || node.kind),
-    wikiBody(node),
-  ].join(' ').toLowerCase().includes(treeNeedle);
-  const docGroups = folders
-    .map((tag) => ({ tag, docs: list.filter((node) => text(node.folder || node.tag || node.category || node.kind, '기타') === tag && matchesTreeQuery(node)) }))
-    .filter((group) => group.docs.length);
-  const obsidianVaultFolders = ['0_inbox', '1_raw', '2_wiki', '3_output', '4_journal']
-    .map((tag) => ({ tag, docs: docGroups.find((group) => group.tag === tag)?.docs || [] }))
-    .slice(0, 5);
-  const graphEdges = useMemo(() => graphEdgesRaw.length ? graphEdgesRaw : buildWikiGraphFallbackEdges(list), [graphEdgesRaw, list]);
-  const graphLayout = useMemo(() => buildWikiGraphLayout(graphNodesRaw, list, graphEdges, {
-    centerForce: graphCenterForce,
-    repelForce: graphRepelForce,
-    linkDistance: graphLinkDistance,
-  }), [graphNodesRaw, list, graphEdges, graphCenterForce, graphRepelForce, graphLinkDistance]);
-  const graphGroups = (Array.isArray(graph.groups) ? graph.groups.map(String) : graphLayout.groups).slice(0, 8);
-  const graphNodes = graphLayout.nodes.map((entry) => {
-    const draggedPosition = draggedGraphPositions[entry.id];
-    return draggedPosition ? { ...entry, x: draggedPosition.x, y: draggedPosition.y } : entry;
-  });
-  const graphLayoutEdges = graphLayout.edges;
-  const activeGraphId = activePath || itemId(active || {}, '');
-  const activeLocalGraphIds = new Set<string>();
-  if (activeGraphId) {
-    activeLocalGraphIds.add(activeGraphId);
-    graphLayoutEdges.forEach((edge) => {
-      const from = text(edge.from);
-      const to = text(edge.to);
-      if (from === activeGraphId) activeLocalGraphIds.add(to);
-      if (to === activeGraphId) activeLocalGraphIds.add(from);
-    });
-  }
-  const localGraphHasActive = Boolean(activeGraphId && graphNodes.some((entry) => entry.id === activeGraphId));
-  const localGraphScopeActive = graphLocalMode && localGraphHasActive;
-  const localGraphCenter = { x: 480, y: 310 };
-  const localGraphNodeOrder = new Map(
-    graphNodes
-      .filter((entry) => activeLocalGraphIds.has(entry.id) && entry.id !== activeGraphId)
-      .sort((left, right) => right.linkCount - left.linkCount || left.label.localeCompare(right.label))
-      .map((entry, index) => [entry.id, index]),
-  );
-  const localGraphNeighborCount = localGraphNodeOrder.size;
-  const scopedGraphNodes = localGraphScopeActive
-    ? graphNodes.map((entry) => {
-      if (!activeLocalGraphIds.has(entry.id)) return entry;
-      if (draggedGraphPositions[entry.id]) return entry;
-      if (entry.id === activeGraphId) return { ...entry, x: localGraphCenter.x, y: localGraphCenter.y };
-      const neighborIndex = localGraphNodeOrder.get(entry.id);
-      if (neighborIndex === undefined) return entry;
-      const angle = localGraphNeighborCount === 1
-        ? -Math.PI / 2
-        : -Math.PI / 2 + (neighborIndex / localGraphNeighborCount) * Math.PI * 2;
-      const radius = Math.min(180, 112 + Math.sqrt(localGraphNeighborCount) * 8);
-      return {
-        ...entry,
-        x: localGraphCenter.x + Math.cos(angle) * radius,
-        y: localGraphCenter.y + Math.sin(angle) * radius * .86,
-      };
-    })
-    : graphNodes;
-  const graphInteractive = !localGraphScopeActive || graphBannerInteractive;
-  useEffect(() => {
-    if (!localGraphScopeActive || !graphBannerInteractive) return undefined;
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && graphCanvasRef.current?.contains(target)) return;
-      setGraphBannerInteractive(false);
-    };
-    document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [localGraphScopeActive, graphBannerInteractive]);
-  const graphFilterNeedle = graphFilterQuery.trim().toLowerCase();
-  const visibleGraphNodes = scopedGraphNodes.filter((entry) => {
-    if (localGraphScopeActive && !activeLocalGraphIds.has(entry.id)) return false;
-    if (!graphShowOrphans && entry.linkCount === 0) return false;
-    if (!graphFilterNeedle) return true;
-    return [entry.label, entry.id, entry.group, text(entry.node.path || entry.node.wikiPath || '')]
-      .join(' ')
-      .toLowerCase()
-      .includes(graphFilterNeedle);
-  });
-  const visibleGraphIds = new Set(visibleGraphNodes.map((entry) => entry.id));
-  const visibleGraphEdges = graphLayoutEdges.filter((edge) => visibleGraphIds.has(text(edge.from)) && visibleGraphIds.has(text(edge.to)));
-  const graphById = new Map(visibleGraphNodes.map((entry) => [entry.id, entry]));
-  const activeGraphNode = graphById.get(activeGraphId);
-  const connected = new Set<string>();
-  visibleGraphEdges.forEach((edge) => {
-    if (text(edge.from) === activeGraphId) connected.add(text(edge.to));
-    if (text(edge.to) === activeGraphId) connected.add(text(edge.from));
-  });
-  const hoveredConnected = new Set<string>();
-  if (hoveredGraphId) {
-    hoveredConnected.add(hoveredGraphId);
-    visibleGraphEdges.forEach((edge) => {
-      const from = text(edge.from);
-      const to = text(edge.to);
-      if (from === hoveredGraphId) hoveredConnected.add(to);
-      if (to === hoveredGraphId) hoveredConnected.add(from);
-    });
-  }
-  const graphViewBox = graphLayout.viewBox;
-  const viewBoxParts = graphViewBox.split(/\s+/).map(Number);
-  const graphBox = {
-    x: Number.isFinite(viewBoxParts[0]) ? viewBoxParts[0] : 0,
-    y: Number.isFinite(viewBoxParts[1]) ? viewBoxParts[1] : 0,
-    width: Number.isFinite(viewBoxParts[2]) ? viewBoxParts[2] : 960,
-    height: Number.isFinite(viewBoxParts[3]) ? viewBoxParts[3] : 620,
-  };
-  const denseFocusZoomLabels = graphFocusMode && graphZoom >= 1.35 && (visibleGraphNodes.length > 220 || visibleGraphEdges.length > 180);
-  const focusZoomRankedNodes = graphFocusMode && graphZoom >= 1.35
-    ? visibleGraphNodes
-      .filter((entry) => entry.linkCount > 0 && entry.id !== activeGraphId)
-      .map((entry) => {
-        const anchor = activeGraphNode || { x: graphBox.x + graphBox.width / 2, y: graphBox.y + graphBox.height / 2 };
-        const distance = Math.hypot(entry.x - anchor.x, entry.y - anchor.y);
-        const activeNeighborScore = connected.has(entry.id) ? 100000 : 0;
-        return {
-          id: entry.id,
-          score: activeNeighborScore + entry.linkCount * 1000 - distance,
-          label: entry.label,
-        };
-      })
-      .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label))
-    : [];
-  const denseFocusProjectedPan = denseFocusZoomLabels && activeGraphNode
-    ? {
-      x: graphBox.x + graphBox.width * .52 - activeGraphNode.x * graphZoom,
-      y: graphBox.y + graphBox.height * .105 - activeGraphNode.y * graphZoom,
-    }
-    : null;
-  type SvgTextAnchor = 'start' | 'middle' | 'end' | 'inherit';
-  type DenseFocusContextNode = {
-    id: string;
-    label: string;
-    key: string;
-    nodeRatio: { x: number; y: number };
-    labelRatio: { x: number; y: number };
-    labelLimit: number;
-    labelAnchor: SvgTextAnchor;
-    score: number;
-  };
-  const denseFocusContextNodes = denseFocusProjectedPan
-    ? (() => {
-      const slots: Array<Omit<DenseFocusContextNode, 'id' | 'label' | 'score'>> = [
-      {
-        key: 'left-context',
-        nodeRatio: { x: .02, y: .58 },
-        labelRatio: { x: .01, y: .648 },
-        labelLimit: 36,
-        labelAnchor: 'middle',
-      },
-      {
-        key: 'right-context',
-        nodeRatio: { x: .66, y: .92 },
-        labelRatio: { x: .60, y: .617 },
-        labelLimit: 38,
-        labelAnchor: 'start',
-      },
-      ];
-      const selectedIds = new Set<string>();
-      return slots.map((slot) => {
-        const preferredGroup = slot.key === 'left-context' ? '1_raw' : '3_output';
-        const selected = visibleGraphNodes
-          .filter((entry) => entry.id !== activeGraphId && entry.linkCount > 0 && !selectedIds.has(entry.id))
-          .map((entry) => {
-            const projected = {
-              x: (entry.x * graphZoom + denseFocusProjectedPan.x - graphBox.x) / graphBox.width,
-              y: (entry.y * graphZoom + denseFocusProjectedPan.y - graphBox.y) / graphBox.height,
-            };
-            const distance = Math.hypot(projected.x - slot.nodeRatio.x, projected.y - slot.nodeRatio.y);
-            return {
-              id: entry.id,
-              label: entry.label,
-              key: slot.key,
-              nodeRatio: slot.nodeRatio,
-              labelRatio: slot.labelRatio,
-              labelLimit: slot.labelLimit,
-              labelAnchor: slot.labelAnchor,
-              score: (entry.group === preferredGroup || entry.id.startsWith(`${preferredGroup}/`) ? 200000 : 0) + (connected.has(entry.id) ? 100000 : 0) + entry.linkCount * 1000 - distance,
-            };
-          })
-          .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label))[0];
-        if (selected) selectedIds.add(selected.id);
-        return selected;
-      }).filter((entry): entry is DenseFocusContextNode => Boolean(entry));
-    })()
-    : [];
-  const denseFocusContextById = new Map(denseFocusContextNodes.map((entry) => [entry.id, entry]));
-  const focusZoomLabelIds = new Set<string>();
-  if (focusZoomRankedNodes.length) {
-    const labelLimit = denseFocusZoomLabels ? 0 : visibleGraphNodes.length;
-    focusZoomRankedNodes
-      .slice(0, labelLimit)
-      .forEach((entry) => focusZoomLabelIds.add(entry.id));
-  }
-  denseFocusContextNodes.forEach((entry) => focusZoomLabelIds.add(entry.id));
-  const focusZoomRenderIds = new Set<string>();
-  const focusZoomEdgeIds = new Set<string>();
-  if (denseFocusZoomLabels) {
-    if (activeGraphId) focusZoomRenderIds.add(activeGraphId);
-    if (activeGraphId) focusZoomEdgeIds.add(activeGraphId);
-    focusZoomRankedNodes.slice(0, 40).forEach((entry) => focusZoomEdgeIds.add(entry.id));
-    denseFocusContextNodes.forEach((entry) => focusZoomRenderIds.add(entry.id));
-    denseFocusContextNodes.forEach((entry) => focusZoomEdgeIds.add(entry.id));
-  }
-  const renderedGraphNodes = denseFocusZoomLabels
-    ? visibleGraphNodes.filter((entry) => focusZoomRenderIds.has(entry.id))
-    : visibleGraphNodes;
-  const renderedGraphEdges = denseFocusZoomLabels
-    ? visibleGraphEdges
-      .filter((edge) => focusZoomEdgeIds.has(text(edge.from)) && focusZoomEdgeIds.has(text(edge.to)))
-      .sort((left, right) => {
-        const leftFrom = text(left.from);
-        const leftTo = text(left.to);
-        const rightFrom = text(right.from);
-        const rightTo = text(right.to);
-        const scoreEdge = (from: string, to: string) => (
-          (from === activeGraphId || to === activeGraphId ? 1000 : 0) +
-          (denseFocusContextById.has(from) || denseFocusContextById.has(to) ? 100 : 0)
-        );
-        return scoreEdge(rightFrom, rightTo) - scoreEdge(leftFrom, leftTo) || text(left.id).localeCompare(text(right.id));
-      })
-      .slice(0, 36)
-    : visibleGraphEdges;
-  const activeGraphX = activeGraphNode?.x;
-  const activeGraphY = activeGraphNode?.y;
-  const clampGraphZoom = (value: number) => Math.min(3, Math.max(.45, value));
-  const resetGraphView = () => {
-    setGraphZoom(1);
-    setGraphPan({ x: 0, y: 0 });
-  };
-  const toggleTreeGroup = (tag: string) => {
-    setOpenTreeGroups((current) => {
-      const next = new Set(current);
-      if (next.has(tag)) next.delete(tag);
-      else next.add(tag);
-      return next;
-    });
-  };
-  const graphPoint = (event: { currentTarget: Element; clientX: number; clientY: number }) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return {
-      x: graphBox.x + ((event.clientX - rect.left) / rect.width) * graphBox.width,
-      y: graphBox.y + ((event.clientY - rect.top) / rect.height) * graphBox.height,
-    };
-  };
-  const graphContentPoint = (event: { currentTarget: Element; clientX: number; clientY: number }) => {
-    const point = graphPoint(event);
-    return {
-      x: (point.x - graphPan.x) / graphZoom,
-      y: (point.y - graphPan.y) / graphZoom,
-    };
-  };
-  const zoomAt = (nextZoom: number, anchor: { x: number; y: number }) => {
-    const clamped = clampGraphZoom(nextZoom);
-    setGraphPan({
-      x: anchor.x - ((anchor.x - graphPan.x) / graphZoom) * clamped,
-      y: anchor.y - ((anchor.y - graphPan.y) / graphZoom) * clamped,
-    });
-    setGraphZoom(clamped);
-  };
-  const graphCenter = { x: graphBox.x + graphBox.width / 2, y: graphBox.y + graphBox.height / 2 };
-  useEffect(() => {
-    if (!denseFocusZoomLabels || !Number.isFinite(activeGraphX) || !Number.isFinite(activeGraphY)) return;
-    const target = { x: graphBox.x + graphBox.width * .52, y: graphBox.y + graphBox.height * .075 };
-    const nextPan = {
-      x: target.x - Number(activeGraphX) * graphZoom,
-      y: target.y - Number(activeGraphY) * graphZoom,
-    };
-    setGraphPan((current) => (
-      Math.hypot(current.x - nextPan.x, current.y - nextPan.y) < .5 ? current : nextPan
-    ));
-  }, [denseFocusZoomLabels, activeGraphX, activeGraphY, graphBox.x, graphBox.y, graphBox.width, graphBox.height, graphZoom]);
-  const fitLocalGraphView = () => {
-    const localNodes = graphNodes.filter((entry) => activeLocalGraphIds.has(entry.id));
-    if (!localNodes.length) return;
-    const xs = localNodes.map((entry) => entry.x);
-    const ys = localNodes.map((entry) => entry.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const localWidth = Math.max(120, maxX - minX + 104);
-    const localHeight = Math.max(100, maxY - minY + 88);
-    const nextZoom = Math.min(2.25, clampGraphZoom(Math.min(graphBox.width / localWidth, graphBox.height / localHeight) * .74));
-    const localCenter = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-    setGraphZoom(nextZoom);
-    setGraphPan({
-      x: graphCenter.x - localCenter.x * nextZoom,
-      y: graphCenter.y - localCenter.y * nextZoom,
-    });
-  };
-  const updateGraphLocalMode = (enabled: boolean) => {
-    setGraphLocalMode(enabled);
-    setGraphBannerInteractive(false);
-    if (enabled && localGraphHasActive) window.requestAnimationFrame(fitLocalGraphView);
-    else resetGraphView();
-  };
-  const suggest = ['UniPort BM 요약', '트레이딩 규칙은?', '이번 주에 뭘 배웠지?'];
-  const engineLabel = text(answerMeta.agent || answerMeta.model || answerMeta.provider, '');
-  const fallbackLabel = answerMeta.gatewayFallback === true ? '검색 fallback' : '';
-  return <div className="wiki screen-in" data-graph-focus={graphFocusMode}>
-    <div className="askbar"><div><span>H</span><input value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') ask(); }} placeholder="위키에게 물어보세요 — AI가 쌓인 지식으로 답합니다" /></div><button disabled={asking} onClick={ask}>{asking ? '답변 중' : '질문'}</button></div>
-    <div className="wiki-suggest">{suggest.map((item) => <button key={item} onClick={() => setQuestion(item)}>{item}</button>)}</div>
-    <div className="wiki-scope">
-      <label><input type="checkbox" checked={includeJournal} onChange={(event) => setIncludeJournal(event.target.checked)} /> 일기 포함</label>
-      <label><input type="checkbox" checked={includeRaw} onChange={(event) => setIncludeRaw(event.target.checked)} /> raw 포함</label>
-    </div>
-    {answer && <div className="wiki-answer"><span>H</span><p>{answer}{sources.length > 0 && <small className="wiki-answer-sources">{sources.slice(0, 3).map((source, index) => {
-      const sourceTitle = text(source.title || source.path, '참조 문서');
-      const sourceId = text(source.path || source.wikiPath || source.documentPath || source.documentId || source.id, `wiki-source-${index}`);
-      const sourceContent = text(source.content || source.text || source.snippet || source.excerpt || source.extract, '검색된 근거 요약이 없습니다.');
-      return <button type="button" aria-label={`출처 열기: ${sourceTitle}`} key={`${sourceId}-${index}`} onClick={() => {
-        setDetails((current) => ({ ...current, [sourceId]: { ...source, id: sourceId, path: sourceId, title: sourceTitle, content: sourceContent } }));
-        setActiveWikiId(sourceId); setReaderOpen(true);
-      }}>{sourceTitle}</button>;
-    })}</small>}{(engineLabel || fallbackLabel) && <small>{[engineLabel, fallbackLabel].filter(Boolean).join(' · ')}</small>}</p><button className="wiki-answer-dismiss" aria-label="위키 답변 닫기" onClick={dismissAnswer}>✕</button></div>}
-    {graphFocusMode && <div className="wiki-obsidian-titlebar" aria-hidden="true">
-      <div className="wiki-obsidian-titlebar-workspace">
-        <div className="wiki-obsidian-window-dots">
-          <span className="wiki-obsidian-window-dot" />
-          <span className="wiki-obsidian-window-dot" />
-          <span className="wiki-obsidian-window-dot" />
-        </div>
-        {['folder', 'search', 'bookmark', 'split'].map((name) => <span className="wiki-obsidian-title-icon" key={name}>
-          <svg aria-hidden="true" viewBox="0 0 24 24">
-            {name === 'folder' && <path d="M4 7h6l2 2h8v10H4zM4 7V5h6l2 2" />}
-            {name === 'search' && <path d="m15.5 15.5 4 4M10.5 17a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z" />}
-            {name === 'bookmark' && <path d="M7 4h10v16l-5-3-5 3z" />}
-            {name === 'split' && <path d="M5 5h14v14H5zM13 5v14" />}
-          </svg>
-        </span>)}
-      </div>
-      <div className="wiki-obsidian-tabs">
-        <div className="wiki-obsidian-tab" data-active="true"><span>그래프 뷰</span><i>×</i></div>
-        <div className="wiki-obsidian-new-tab">+</div>
-      </div>
-      <div className="wiki-obsidian-title-actions">
-        <span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 9 5 5 5-5" /></svg></span>
-        <span><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="16" rx="2" /><path d="M15 4v16" /></svg></span>
-      </div>
-    </div>}
-    <div className="wiki-main" data-graph-focus={graphFocusMode}>
-      <aside className="wiki-obsidian-shell" aria-label="Obsidian vault navigator">
-        <nav className="wiki-obsidian-rail" aria-label="Obsidian tools">
-          {['file', 'search', 'bookmark', 'graph', 'calendar', 'terminal', 'list'].map((name) => <span data-active={name === 'graph'} aria-hidden="true" key={name}>
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              {name === 'file' && <path d="M7 4h7l3 3v13H7zM14 4v4h4" />}
-              {name === 'search' && <path d="m15.5 15.5 4 4M10.5 17a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z" />}
-              {name === 'bookmark' && <path d="M7 4h10v16l-5-3-5 3z" />}
-              {name === 'graph' && <><circle cx="7" cy="8" r="2" /><circle cx="17" cy="7" r="2" /><circle cx="12" cy="17" r="2" /><path d="m9 9 6 6M15.2 8.6 13 15M8.2 9.6 11 15" /></>}
-              {name === 'calendar' && <path d="M6 5h12v14H6zM6 9h12M9 3v4M15 3v4" />}
-              {name === 'terminal' && <path d="m7 8 4 4-4 4M13 17h5" />}
-              {name === 'list' && <path d="M8 7h11M8 12h11M8 17h11M4 7h.1M4 12h.1M4 17h.1" />}
-            </svg>
-          </span>)}
-        </nav>
-        <div className="wiki-obsidian-tree">
-          <div className="wiki-obsidian-tree-toolbar" aria-hidden="true">
-            {[
-              { control: 'new-note', label: '새 노트' },
-              { control: 'new-folder', label: '새 폴더' },
-              { control: 'sort', label: '정렬' },
-              { control: 'collapse', label: '접기' },
-              { control: 'close', label: '닫기' },
-            ].map((item) => <span aria-label={item.label} data-obsidian-toolbar-control={item.control} key={item.control}>
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                {item.control === 'new-note' && <><path d="M6.5 4.5h8l3 3v12h-11z" /><path d="M14.5 4.5v4h4M9.5 14.5h5M12 12v5" /></>}
-                {item.control === 'new-folder' && <><path d="M4.5 8h6l1.7 2h7.3v8.5h-15z" /><path d="M4.5 8V5.5h5.8l1.7 2H18" /><path d="M12 12.5v4M10 14.5h4" /></>}
-                {item.control === 'sort' && <><path d="M7 7h10M9 12h8M11 17h6" /><path d="m5 8 2-2 2 2M5 16l2 2 2-2" /></>}
-                {item.control === 'collapse' && <><path d="M6.5 7.5h11M8.5 12h7M10.5 16.5h3" /><path d="m7 10 5-4 5 4M7 14l5 4 5-4" /></>}
-                {item.control === 'close' && <path d="M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5" />}
-              </svg>
-            </span>)}
-          </div>
-          <div className="wiki-obsidian-folders">
-            {obsidianVaultFolders.map((group) => {
-              const expanded = group.tag === '4_journal' || openTreeGroups.has(group.tag);
-              return <div className="wiki-obsidian-folder" data-open={expanded} key={group.tag}>
-                <button className="wiki-obsidian-folder-row" type="button" onClick={() => toggleTreeGroup(group.tag)}>
-                  <i>{expanded ? '⌄' : '›'}</i><span>{group.tag}</span>
-                </button>
-                {expanded && group.tag === '4_journal' && <button className="wiki-obsidian-folder-child" type="button" onClick={() => setTreeQuery('4_journal/_me')}>_me</button>}
-                {expanded && group.docs
-                  .slice()
-                  .sort((a, b) => group.tag === '4_journal' ? journalDateKey(a).localeCompare(journalDateKey(b)) : 0)
-                  .slice(0, group.tag === '4_journal' ? 26 : 16)
-                  .map((node, index) => {
-                  const pathValue = text(node.path || node.wikiPath || node.id || '', '');
-                  const label = stripWikiExtension(pathValue.split('/').filter(Boolean).pop() || itemTitle(node, `note-${index}`));
-                  return <button className="wiki-obsidian-folder-child" type="button" key={`${group.tag}-${pathValue || index}`} onClick={() => { setActiveWikiId(pathValue || itemId(node, `wiki-${index}`)); setReaderOpen(true); }}>{label}</button>;
-                })}
-              </div>;
-            })}
-          </div>
-          <div className="wiki-obsidian-vault">
-            <span className="wiki-obsidian-vault-control" aria-label="vault switcher">
-              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 9 4-4 4 4M8 15l4 4 4-4" /></svg>
-            </span>
-            <strong>LLM-Wiki</strong>
-            <i />
-            <span className="wiki-obsidian-vault-control" aria-label="help">?</span>
-            <span className="wiki-obsidian-vault-control" aria-label="settings">
-              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M4.8 7.2l2.1 2.1M17.1 14.7l2.1 2.1M3 12h3M18 12h3M4.8 16.8l2.1-2.1M17.1 9.3l2.1-2.1" /></svg>
-            </span>
-          </div>
-        </div>
-      </aside>
-      <section className="wiki-graph-panel">
-        <header><strong>지식 그래프</strong><small>{localGraphScopeActive ? '로컬 그래프 · ' : ''}{visibleGraphNodes.length}개 노트 · {visibleGraphEdges.length}개 링크</small><i />{graphGroups.slice(0, 5).map((tag) => <span className="wiki-legend" key={tag}><b style={{ background: colors[tag] || colors.기타 }} />{tag}</span>)}</header>
-        <div ref={graphCanvasRef} className="wiki-graph-canvas view-content graph-banner-content" data-panning={graphPanning} data-interactive={graphInteractive} data-scope={localGraphScopeActive ? 'local' : 'global'} data-sparse={visibleGraphNodes.length > 0 && visibleGraphNodes.length <= 6} data-dense-focus={denseFocusZoomLabels} data-focus-zoom={graphFocusMode && graphZoom >= 1.35} data-timelapse={graphTimelapseActive} style={{ '--wiki-edge-opacity': graphLinkOpacity, '--wiki-edge-scale': graphLinkScale } as CSSProperties} tabIndex={0} onKeyDown={(event) => {
-          if (!event.metaKey && !event.ctrlKey) return;
-          if (event.key === '+' || event.key === '=') {
-            event.preventDefault();
-            zoomAt(graphZoom * 1.42, graphCenter);
-          } else if (event.key === '-' || event.key === '_') {
-            event.preventDefault();
-            zoomAt(graphZoom / 1.42, graphCenter);
-          } else if (event.key === '0') {
-            event.preventDefault();
-            resetGraphView();
-          }
-        }} onWheel={(event) => { event.preventDefault(); zoomAt(graphZoom * (event.deltaY > 0 ? .86 : 1.16), graphPoint(event)); }}>
-          {graphTimelapseActive && <div className="wiki-graph-timelapse" aria-label="타임랩스 재생 중"><span /></div>}
-          {graphFocusMode && <div className="wiki-graph-pane-chrome" aria-hidden="true"><span>‹</span><span>›</span><strong>그래프 뷰</strong><em>•••</em></div>}
-          {localGraphScopeActive && <button className="wiki-graph-banner-overlay graph-banner-overlay" type="button" aria-label="로컬 그래프 활성화" onClick={(event) => { event.stopPropagation(); setGraphBannerInteractive(true); }} onPointerUp={(event) => { event.stopPropagation(); setGraphBannerInteractive(true); }} />}
-          <div className={`wiki-graph-controls graph-controls${graphInteractive ? '' : ' is-close'}`} aria-label="그래프 확대 축소">
-            <button aria-label="그래프 확대" onClick={() => zoomAt(graphZoom * 1.18, graphCenter)}>+</button>
-            <button aria-label="그래프 축소" onClick={() => zoomAt(graphZoom / 1.18, graphCenter)}>−</button>
-            <button aria-label="그래프 위치 초기화" onClick={resetGraphView}>⌂</button>
-            <span>{Math.round(graphZoom * 100)}%</span>
-          </div>
-          <svg className="wiki-graph-svg" viewBox={graphViewBox} preserveAspectRatio="xMidYMid meet" onPointerDown={(event) => {
-            if (!graphInteractive) return;
-            const target = event.target as Element;
-            if (target.closest('.wiki-svg-node')) return;
-            graphDragRef.current = { x: event.clientX, y: event.clientY, panX: graphPan.x, panY: graphPan.y };
-            setGraphPanning(true);
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }} onPointerMove={(event) => {
-            if (graphNodeDragRef.current) {
-              const point = graphContentPoint(event);
-              const drag = graphNodeDragRef.current;
-              const nextX = drag.nodeX + point.x - drag.x;
-              const nextY = drag.nodeY + point.y - drag.y;
-              const moved = drag.moved || Math.hypot(point.x - drag.x, point.y - drag.y) > 4;
-              graphNodeDragRef.current = { ...drag, moved };
-              if (moved) suppressGraphClickRef.current = true;
-              setDraggedGraphPositions((current) => ({ ...current, [drag.id]: { x: nextX, y: nextY } }));
-              return;
-            }
-            if (!graphDragRef.current) return;
-            const rect = event.currentTarget.getBoundingClientRect();
-            setGraphPan({
-              x: graphDragRef.current.panX + ((event.clientX - graphDragRef.current.x) * graphBox.width / rect.width),
-              y: graphDragRef.current.panY + ((event.clientY - graphDragRef.current.y) * graphBox.height / rect.height),
-            });
-          }} onPointerUp={(event) => {
-            if (graphNodeDragRef.current) {
-              const finishedDrag = graphNodeDragRef.current;
-              if (finishedDrag.moved) {
-                suppressGraphClickRef.current = true;
-                window.setTimeout(() => { suppressGraphClickRef.current = false; }, 0);
-              } else {
-                const now = Date.now();
-                const previous = lastGraphClickRef.current;
-                setActiveWikiId(finishedDrag.id);
-                if (previous?.id === finishedDrag.id && now - previous.at < 360) setReaderOpen(true);
-                lastGraphClickRef.current = { id: finishedDrag.id, at: now };
-              }
-              graphNodeDragRef.current = null;
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-              return;
-            }
-            graphDragRef.current = null;
-            setGraphPanning(false);
-            if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-          }} onPointerCancel={() => {
-            graphNodeDragRef.current = null;
-            graphDragRef.current = null;
-            setGraphPanning(false);
-          }}>
-            <rect className="wiki-graph-bg" x="0" y="0" width="100%" height="100%" />
-            <g className="wiki-graph-viewport" transform={`translate(${graphPan.x} ${graphPan.y}) scale(${graphZoom})`}>
-              {renderedGraphEdges.map((edge, index) => {
-                const from = graphById.get(text(edge.from));
-                const to = graphById.get(text(edge.to));
-                if (!from || !to) return null;
-                const hot = from.id === activeGraphId || to.id === activeGraphId;
-                const focus = Boolean(hoveredGraphId && (from.id === hoveredGraphId || to.id === hoveredGraphId));
-                const muted = Boolean(hoveredGraphId && !focus);
-                return <line className="wiki-edge" data-hot={hot} data-focus={focus} data-muted={muted} key={text(edge.id, `edge-${index}`)} x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
-              })}
-              {renderedGraphNodes.map((entry) => {
-                const activeNode = entry.id === activeGraphId;
-                const contextPlacement = denseFocusContextById.get(entry.id);
-                const contextPinned = contextPlacement && !draggedGraphPositions[entry.id] ? contextPlacement : undefined;
-                const pinnedDenseLabel = Boolean(denseFocusZoomLabels && focusZoomLabelIds.has(entry.id));
-                const nodeX = contextPinned
-                  ? (graphBox.x + graphBox.width * contextPinned.nodeRatio.x - graphPan.x) / graphZoom
-                  : entry.x;
-                const nodeY = contextPinned
-                  ? (graphBox.y + graphBox.height * contextPinned.nodeRatio.y - graphPan.y) / graphZoom
-                  : entry.y;
-                const labelOverride = contextPinned
-                  ? {
-                    x: (graphBox.x + graphBox.width * contextPinned.labelRatio.x - graphPan.x) / graphZoom,
-                    y: (graphBox.y + graphBox.height * contextPinned.labelRatio.y - graphPan.y) / graphZoom,
-                  }
-                  : null;
-                const focusZoomLabel = graphFocusMode && graphZoom >= 1.35 && (entry.linkCount > 0 || focusZoomLabelIds.has(entry.id)) && (!denseFocusZoomLabels || focusZoomLabelIds.has(entry.id));
-                const visibleLabel = activeNode || (graphShowLabels && (denseFocusZoomLabels ? focusZoomLabel : (entry.linkCount > 4 || focusZoomLabel)));
-                const focus = Boolean(hoveredGraphId && hoveredConnected.has(entry.id));
-                const muted = Boolean(hoveredGraphId && !hoveredConnected.has(entry.id) && !activeNode && !pinnedDenseLabel);
-                const labelSource = activeGraphNode || { x: graphBox.x + graphBox.width / 2, y: graphBox.y + graphBox.height / 2 };
-                const labelAngle = activeNode ? -.22 : Math.atan2(nodeY - labelSource.y, nodeX - labelSource.x);
-                const labelVectorX = Math.cos(labelAngle);
-                const labelVectorY = Math.sin(labelAngle);
-                const labelOffset = entry.r * graphNodeScale + (focusZoomLabel ? 24 : 5);
-                const labelX = labelOverride?.x ?? (focusZoomLabel || activeNode ? nodeX + labelVectorX * labelOffset : nodeX + labelOffset);
-                const labelY = labelOverride?.y ?? (focusZoomLabel || activeNode ? nodeY + labelVectorY * labelOffset + 1 : nodeY + 4);
-                const labelAnchor = labelOverride ? (contextPlacement?.labelAnchor || 'middle') : focusZoomLabel || activeNode
-                  ? labelVectorX < -.22 ? 'end' : labelVectorX > .22 ? 'start' : 'middle'
-                  : 'start';
-                const graphLabel = denseFocusZoomLabels
-                  ? wikiBasename(text(entry.node.path || entry.node.wikiPath || entry.id, entry.label))
-                  : entry.label;
-                const labelLimit = contextPlacement?.labelLimit ?? 28;
-                return <g className="wiki-svg-node" data-active={activeNode} data-connected={connected.has(entry.id)} data-isolated={entry.linkCount === 0 ? 'true' : 'false'} data-hub={entry.linkCount > 3 ? 'true' : 'false'} data-focus={focus} data-muted={muted} data-context={Boolean(contextPlacement)} key={entry.id} onPointerEnter={() => { if (graphInteractive) setHoveredGraphId(entry.id); }} onPointerLeave={() => { if (graphInteractive && !graphNodeDragRef.current) setHoveredGraphId(''); }} onPointerDown={(event) => {
-                  if (!graphInteractive) return;
-                  event.stopPropagation();
-                  const point = graphContentPoint({ currentTarget: event.currentTarget.ownerSVGElement || event.currentTarget, clientX: event.clientX, clientY: event.clientY });
-                  graphNodeDragRef.current = { id: entry.id, x: point.x, y: point.y, nodeX: entry.x, nodeY: entry.y, moved: false };
-                  setHoveredGraphId(entry.id);
-                  event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId);
-                }} onClick={(event) => {
-                  if (suppressGraphClickRef.current) {
-                    event.preventDefault();
-                    suppressGraphClickRef.current = false;
-                    return;
-                  }
-                  setActiveWikiId(entry.id);
-                  if (event.detail >= 2) setReaderOpen(true);
-                }}>
-                  <circle cx={nodeX} cy={nodeY} r={entry.r * graphNodeScale} />
-                  <title>{graphLabel}</title>
-                  {visibleLabel && <text x={labelX} y={labelY} textAnchor={labelAnchor} dominantBaseline="middle">{graphLabel.slice(0, labelLimit)}</text>}
-                </g>;
-              })}
-            </g>
-          </svg>
-          <div className="wiki-graph-side-actions" aria-label="Obsidian graph controls">
-            <button type="button" aria-label={graphFocusMode ? '문서 트리 같이 보기' : '그래프 집중 보기'} data-active={graphFocusMode} data-obsidian-control="fullscreen" onClick={() => setGraphFocusMode((value) => !value)}>
-              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4" /><path d="M9 9 4.8 4.8M15 9l4.2-4.2M9 15l-4.2 4.2M15 15l4.2 4.2" /></svg>
-            </button>
-            <button type="button" aria-label={graphLocalMode ? '전체 그래프 보기' : '로컬 그래프 보기'} data-active={graphLocalMode} data-obsidian-control="local-graph" onClick={() => updateGraphLocalMode(!graphLocalMode)}>
-              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" /><path d="M12 4v3M12 17v3M4 12h3M17 12h3M6.6 6.6l2.1 2.1M15.3 15.3l2.1 2.1M17.4 6.6l-2.1 2.1M8.7 15.3l-2.1 2.1" /></svg>
-            </button>
-            <button type="button" aria-label="그래프 설정 열기" data-active={graphSettingsOpen} data-obsidian-control="settings" onClick={() => setGraphSettingsOpen((value) => !value)}>
-              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M4.8 7.2l2.1 2.1M17.1 14.7l2.1 2.1M3 12h3M18 12h3M4.8 16.8l2.1-2.1M17.1 9.3l2.1-2.1" /></svg>
-            </button>
-            <button type="button" aria-label="타임랩스 애니메이션 시작" data-active={graphTimelapseActive} data-obsidian-control="timelapse" onClick={() => setGraphTimelapseActive((value) => !value)}>
-              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12c2.4-4.8 5.6-4.8 8 0s5.6 4.8 8 0" /><path d="M4 17c2.4-4.8 5.6-4.8 8 0s5.6 4.8 8 0" /></svg>
-            </button>
-          </div>
-          {graphSettingsOpen && <aside className="wiki-graph-settings" aria-label="그래프 설정">
-            <header><strong>그래프 설정</strong><button type="button" aria-label="그래프 설정 닫기" onClick={() => setGraphSettingsOpen(false)}>×</button></header>
-            <section>
-              <h4>필터</h4>
-              <label className="wiki-graph-search"><span>⌕</span><input aria-label="그래프 필터" value={graphFilterQuery} onChange={(event) => setGraphFilterQuery(event.target.value)} placeholder="파일 검색" /></label>
-              <label className="wiki-graph-toggle"><input aria-label="선택 노트 로컬 그래프" type="checkbox" checked={graphLocalMode} onChange={(event) => updateGraphLocalMode(event.target.checked)} /> 선택 노트 로컬 그래프</label>
-              <label className="wiki-graph-toggle"><input aria-label="고립 노드 표시" type="checkbox" checked={graphShowOrphans} onChange={(event) => setGraphShowOrphans(event.target.checked)} /> 고립 노드 표시</label>
-            </section>
-            <section>
-              <h4>그룹</h4>
-              <div className="wiki-graph-groups">
-                {graphGroups.slice(0, 6).map((tag) => <span key={tag}><b style={{ background: colors[tag] || colors.기타 }} />{tag}<em>{graphNodes.filter((node) => node.group === tag).length}</em></span>)}
-              </div>
-            </section>
-            <section>
-              <h4>표시</h4>
-              <label className="wiki-graph-toggle"><input type="checkbox" checked={graphShowLabels} onChange={(event) => setGraphShowLabels(event.target.checked)} /> 이름 표시</label>
-              <label><span>노드 크기</span><input type="range" min=".7" max="1.7" step=".05" value={graphNodeScale} onChange={(event) => setGraphNodeScale(Number(event.target.value))} /></label>
-              <label><span>링크 두께</span><input type="range" min=".6" max="1.9" step=".05" value={graphLinkScale} onChange={(event) => setGraphLinkScale(Number(event.target.value))} /></label>
-              <label><span>링크 밝기</span><input type="range" min=".18" max=".9" step=".04" value={graphLinkOpacity} onChange={(event) => setGraphLinkOpacity(Number(event.target.value))} /></label>
-            </section>
-            <section>
-              <h4>동작</h4>
-              <label><span>중심 힘</span><input aria-label="중심 힘" type="range" min=".4" max="1.8" step=".05" value={graphCenterForce} onChange={(event) => { setGraphCenterForce(Number(event.target.value)); setDraggedGraphPositions({}); }} /></label>
-              <label><span>반발 힘</span><input aria-label="반발 힘" type="range" min=".65" max="1.55" step=".05" value={graphRepelForce} onChange={(event) => { setGraphRepelForce(Number(event.target.value)); setDraggedGraphPositions({}); }} /></label>
-              <label><span>링크 거리</span><input aria-label="링크 거리" type="range" min=".65" max="1.55" step=".05" value={graphLinkDistance} onChange={(event) => { setGraphLinkDistance(Number(event.target.value)); setDraggedGraphPositions({}); }} /></label>
-              <button type="button" onClick={resetGraphView}>화면 맞추기</button>
-              <button type="button" onClick={() => setDraggedGraphPositions({})}>노드 위치 초기화</button>
-            </section>
-          </aside>}
-          {readerOpen && active && <div className="wiki-reader">
-            <button className="wiki-reader-close" type="button" aria-label="위키 문서 팝업 닫기" title="닫기" onClick={() => setReaderOpen(false)}>×</button>
-            <header>
-              <div>
-                <strong>{itemTitle(active, 'Wiki 문서')}</strong>
-                <small>{text(active.folder || active.kind, '📄 문서')} · {text(active.updatedAt || active.date || active.tag || active.path, '위키 문서')}</small>
-              </div>
-            </header>
-            {loadingPath === activePath && <div className="wiki-loading">본문 불러오는 중...</div>}
-            <WikiArticle content={wikiBody(active) || '선택한 위키 문서의 본문입니다. 관련 작업과 런 결과가 이곳에 누적됩니다.'} />
-          </div>}
-        </div>
-      </section>
-      <aside className="wiki-side">
-        <label><span>⌕</span><input value={treeQuery} onChange={(event) => setTreeQuery(event.target.value)} placeholder="위키 내용 검색" /></label>
-        <div className="tree"><h3>트리 구조</h3>{docGroups.map((group) => {
-          const isOpen = openTreeGroups.has(group.tag);
-          return <section key={group.tag} data-open={isOpen}>
-            <button className="tree-group-toggle" aria-expanded={isOpen} onClick={() => toggleTreeGroup(group.tag)}>
-              <span className="tree-caret">{isOpen ? '▾' : '▸'}</span>
-              <b style={{ background: colors[group.tag] || colors.기타 }} />
-              <strong>{group.tag}</strong>
-              <small>{group.docs.length}</small>
-            </button>
-            {isOpen && group.docs.map((node, index) => {
-              const originalIndex = list.findIndex((entry) => entry === node || itemId(entry, '') === itemId(node, ''));
-              const id = itemId(node, `wiki-${originalIndex >= 0 ? originalIndex : index}`);
-              const path = text(node.path || id, id);
-              return <button data-active={path === activePath || id === activePath} key={id} onClick={() => { setActiveWikiId(path); setReaderOpen(true); }}><span>{text(node.kind) === 'diary' ? '📔' : '📄'} {itemTitle(node, 'Wiki 문서')}</span><small>{text(node.updatedAt || node.updated || node.date || node.path, '최근')}</small></button>;
-            })}
-          </section>;
-        })}</div>
-      </aside>
-    </div>
-  </div>;
-}
-
-function DiaryScreen({ docs, diaryText, setDiaryText, diaryMood, setDiaryMood, saveDiary }: { docs: Item[]; diaryText: string; setDiaryText: (value: string) => void; diaryMood: string; setDiaryMood: (value: string) => void; saveDiary: () => void }) {
-  const [wikiDetails, setWikiDetails] = useState<Record<string, Item>>({});
-  const diarySummaries = useMemo(() => docs.filter(isJournalDoc), [docs]);
-  useEffect(() => {
-    let cancelled = false;
-    const targets = diarySummaries
-      .filter((entry, index) => {
-        const path = text(entry.path || entry.wikiPath, '');
-        const key = docIdentity(entry, `past-${index}`);
-        return path && !hasWikiFullBody(entry) && !wikiDetails[key] && !wikiDetails[path];
-      })
-      .slice(0, 20);
-    targets.forEach((entry, index) => {
-      const path = text(entry.path || entry.wikiPath, '');
-      const key = docIdentity(entry, path || `past-${index}`);
-      hermesApi.getWiki({ path })
-        .then((payload) => {
-          if (cancelled) return;
-          const detail = wikiDetail(payload);
-          if (!Object.keys(detail).length) return;
-          setWikiDetails((current) => current[key] || current[path] ? current : { ...current, [key]: detail, [path]: detail });
-        })
-        .catch(() => {});
-    });
-    return () => { cancelled = true; };
-  }, [diarySummaries, wikiDetails]);
-  const diaryDocs = diarySummaries
-    .map((entry, index) => {
-      const path = text(entry.path || entry.wikiPath, '');
-      const key = docIdentity(entry, path || `past-${index}`);
-      return wikiDetails[key] || wikiDetails[path] ? { ...entry, ...(wikiDetails[key] || wikiDetails[path]) } : entry;
-    })
-    .sort((a, b) => journalTime(b) - journalTime(a));
-  const past = diaryDocs;
-  const prompts = ['오늘 가장 기억에 남는 일은?', '무엇을 배웠나?', '내일은 무엇을 다르게?', '감사한 것 3가지'];
-  const stats = [
-    ['🔥', '연속 기록', `${Math.max(1, diaryDocs.length)}일`],
-    ['📔', '일기', `${past.length}개`],
-    ['🙂', '기분', diaryMood || '미선택'],
-  ];
-  return <div className="diary-screen screen-in">
-    <main>
-      <div className="diary-inner">
-        <div className="diary-stats">{stats.map(([icon, label, value]) => <div key={String(label)}><span>{icon} {label}</span><strong>{value}</strong></div>)}</div>
-        <section className="diary-card">
-          <header><h2>오늘의 일기</h2><span>{dateLabel()}</span></header>
-          <p>저장하면 위키에 일기로 쌓여 질문 검색에 활용됩니다.</p>
-          <label>오늘의 기분</label>
-          <div className="diary-moods">{['😊', '😌', '😐', '😔', '😤', '🤔'].map((mood) => <button data-active={diaryMood === mood} key={mood} onClick={() => setDiaryMood(diaryMood === mood ? '' : mood)}>{mood}</button>)}</div>
-          <textarea value={diaryText} onChange={(event) => setDiaryText(event.target.value)} placeholder="오늘 하루는 어땠나요? 무엇을 배웠고, 내일은 무엇을 다르게 할까요?" />
-          <div className="diary-prompts">{prompts.map((prompt) => <button key={prompt} onClick={() => setDiaryText(`${diaryText}${diaryText ? '\n\n' : ''}· ${prompt}\n`)}>+ {prompt}</button>)}</div>
-          <footer><span>매일 기록이 위키의 컨텍스트가 됩니다</span><button className="primary" onClick={saveDiary}>위키에 저장</button></footer>
-        </section>
-      </div>
-    </main>
-    <aside>
-      <header><strong>지난 일기</strong><span>타임라인</span></header>
-      <div className="diary-timeline">
-        {past.map((entry, index) => {
-          const body = journalBody(entry) || '기록된 일기';
-          const mood = body.match(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})/u)?.[0] || '📔';
-          const dateKey = journalDateKey(entry, addDaysKey(todayKey(), -index - 1));
-          const day = dateKey.slice(-2);
-          return <button key={itemId(entry, `past-${index}`)} onClick={() => setDiaryText(body.replace(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})\s*/u, ''))}>
-            <i>{mood}</i><span><b>{Number(day) || index + 1}</b><small>{formatDateChip(dateKey)}</small><em>{body.replace(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})\s*/u, '').slice(0, 72)}</em></span>
-          </button>;
-        })}
-      </div>
-    </aside>
   </div>;
 }
 
@@ -4875,7 +4226,7 @@ function AgentsScreen({ agents, runs, missionText, setMissionText, selectedAgent
     const selectable = isAgentSelectable(agent);
     return <article className="agent-card" data-active={selectedAgentId === id} data-selectable={selectable} key={id} onClick={() => { if (selectable) setSelectedAgentId(id); }}>
       <header><div className="agent-avatar">{agentEmoji(agent)}</div><span><h3>{name}</h3><small>{text(agent.model, 'Agent Calendar')}</small></span><em>{agentStatusLabel(agent)}</em></header>
-      <p>{text(agent.role || agent.persona, '리서치·문서 — 자료 정리, 위키 작성, 분석을 담당.')}</p>
+      <p>{text(agent.role || agent.persona, '리서치와 문서 정리, 위키 작성, 분석을 담당.')}</p>
       <footer><span><small>진행 중</small><b>{activeCount}</b></span><span><small>완료</small><b>{doneCount}</b></span><i /><button disabled={!selectable} onClick={(event) => { event.stopPropagation(); if (selectable) setSelectedAgentId(id); }}>{selectable ? '선택' : '설정 필요'}</button></footer>
     </article>;
   })}</div>
@@ -4905,155 +4256,219 @@ function DeploymentStatus({ status }: { status: ApiEnvelope }) {
   </section>;
 }
 
-function SettingsScreen({ settings, gatewayStatus, setSettings, refresh }: { settings: DesktopSettingsState; gatewayStatus: ApiEnvelope; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void> }) {
+function DesktopReleasePanel({
+  status,
+  busy,
+  error,
+  onCheck,
+  onDownload,
+  onInstall,
+}: {
+  status: HermesDesktopReleaseStatus;
+  busy: '' | 'check' | 'download' | 'install';
+  error: string;
+  onCheck: () => void;
+  onDownload: () => void;
+  onInstall: () => void;
+}) {
+  const working = Boolean(busy) || ['checking', 'downloading', 'installing'].includes(status.phase);
+  const versionCopy = status.availableVersion
+    ? `${status.currentVersion || '현재 버전'} → ${status.availableVersion}`
+    : status.currentVersion || '버전 확인 중';
+  return (
+    <div
+      className="desktop-release-panel"
+      data-testid="desktop-release-panel"
+      data-phase={status.phase}
+    >
+      <div className="desktop-release-copy">
+        <span><b>{versionCopy}</b><small>{status.message}</small></span>
+        {typeof status.progressPercent === 'number' && (
+          <progress max="100" value={status.progressPercent}>
+            {status.progressPercent}%
+          </progress>
+        )}
+        {error && <p role="alert">{error}</p>}
+      </div>
+      <div className="desktop-release-actions">
+        <button
+          type="button"
+          data-testid="desktop-release-check"
+          disabled={!status.supported || working}
+          onClick={onCheck}
+        >
+          {busy === 'check' || status.phase === 'checking' ? '확인 중…' : '업데이트 확인'}
+        </button>
+        {status.phase === 'available' && (
+          <button
+            type="button"
+            className="primary"
+            data-testid="desktop-release-download"
+            disabled={working}
+            onClick={onDownload}
+          >
+            {busy === 'download' ? '다운로드 중…' : '다운로드'}
+          </button>
+        )}
+        {status.phase === 'ready' && (
+          <button
+            type="button"
+            className="primary"
+            data-testid="desktop-release-install"
+            disabled={working}
+            onClick={onInstall}
+          >
+            설치하고 다시 열기
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SettingsScreen({ settings, gatewayStatus, setSettings, refresh, openRunnerSetup, openOnboarding, desktopReleaseStatus, desktopReleaseBusy, desktopReleaseError, onCheckDesktopRelease, onDownloadDesktopRelease, onInstallDesktopRelease }: { settings: DesktopSettingsState; gatewayStatus: ApiEnvelope; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; openRunnerSetup?: () => void; openOnboarding?: () => void; desktopReleaseStatus: HermesDesktopReleaseStatus; desktopReleaseBusy: '' | 'check' | 'download' | 'install'; desktopReleaseError: string; onCheckDesktopRelease: () => void; onDownloadDesktopRelease: () => void; onInstallDesktopRelease: () => void }) {
   const [apiBaseUrl, setApiBaseUrlInput] = useState(settings.apiBaseUrl);
-  const [apiToken, setApiToken] = useState('');
   const [theme, setTheme] = useState<DesktopTheme>(settings.theme);
+  const isProductionDesktop = Boolean(window.hermesDesktop);
   async function save() {
-    const next = await window.hermesDesktop?.saveSettings({ apiBaseUrl, apiToken, theme });
+    // Production never accepts a Railway bearer from the renderer — Workspace app session
+    // is attached by the Electron proxy from the secure session store.
+    const next = await window.hermesDesktop?.saveSettings({ apiBaseUrl, theme });
     if (next) setSettings(desktopSettingsState(next));
     await refresh();
   }
-  return <div className="settings screen-in"><Panel title="Railway API"><label>API Base URL<input value={apiBaseUrl} onChange={(event) => setApiBaseUrlInput(event.target.value)} /></label><label>Bearer Token<input type="password" value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder={settings.hasApiToken ? '저장됨 · 새 값 입력 시 교체' : '선택 사항'} /></label><button onClick={() => void save()}>저장하고 재연결</button></Panel><Panel title="배포 상태"><DeploymentStatus status={gatewayStatus} /></Panel><Panel title="테마"><div className="theme-row">{(['default', 'warm', 'dark', 'sage', 'mono'] as DesktopTheme[]).map((item) => <button data-active={theme === item} key={item} onClick={() => setTheme(item)}>{item}</button>)}</div></Panel></div>;
-}
-
-function LoginScreen({ email, setEmail, password, setPassword, loginWithProvider, authBusyProvider, passwordAuthBusy, loginStatus, authenticateWithPassword }: { email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; loginWithProvider: (provider: AuthProvider) => void; authBusyProvider: AuthProvider | null; passwordAuthBusy: boolean; loginStatus: string; authenticateWithPassword: (mode: 'login' | 'signup') => void }) {
-  return <AgentCalendarLoginExperience mode="page" email={email} setEmail={setEmail} password={password} setPassword={setPassword} authenticateWithPassword={authenticateWithPassword} loginWithProvider={loginWithProvider} authBusyProvider={authBusyProvider} passwordAuthBusy={passwordAuthBusy} loginStatus={loginStatus} />;
-}
-
-function AgentCalendarLoginExperience({ mode, email, setEmail, password, setPassword, authenticateWithPassword, loginWithProvider, authBusyProvider, passwordAuthBusy, loginStatus }: { mode: 'overlay' | 'page'; email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; authenticateWithPassword: (mode: 'login' | 'signup') => void; loginWithProvider: (provider: AuthProvider) => void; authBusyProvider: AuthProvider | null; passwordAuthBusy: boolean; loginStatus: string }) {
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
-  const [recoverySent, setRecoverySent] = useState(false);
-  const googleBusy = authBusyProvider === 'google';
-  const passwordLabel = authMode === 'signup' ? '계정 만들기' : '로그인';
-  return <div className={mode === 'overlay' ? 'login-overlay' : 'login screen-in'}>
-    <section className="login-card">
-      <aside className="login-splash" aria-label="Agent Calendar splash">
-        <div className="splash-orbit" aria-hidden="true">
-          <SystemIcon name="orbit" className="splash-orbit-icon" />
-          <span className="orbit-node large" />
-          <span className="orbit-node medium" />
-          <span className="orbit-node small" />
-          <span className="orbit-center"><LogoMark className="orbit-logo" /></span>
+  return (
+    <div className="settings screen-in">
+      <Panel title="연결">
+        <label>API Base URL<input value={apiBaseUrl} onChange={(event) => setApiBaseUrlInput(event.target.value)} /></label>
+        {isProductionDesktop ? (
+          <p className="settings-session-note" data-testid="production-session-auth-note">
+            인증은 AuthKit 작업공간 세션으로 처리됩니다. Bearer 토큰은 설정에 저장되지 않으며 렌더러에 노출되지 않습니다.
+          </p>
+        ) : (
+          <p className="settings-session-note">브라우저 미리보기 · Electron에서 AuthKit 세션이 연결됩니다.</p>
+        )}
+        <button onClick={() => void save()}>저장하고 재연결</button>
+      </Panel>
+      <Panel title="Runner">
+        <p className="settings-session-note">
+          Workspace에 바인딩된 실행 호스트를 등록합니다. 계정 로그인 · 소유자 지문 확인 · 호스트 측 제공자 자격 증명.
+        </p>
+        <button type="button" data-testid="settings-open-runner" onClick={() => openRunnerSetup?.()}>Runner 설정 열기</button>
+      </Panel>
+      <Panel title="AI 실행">
+        <WorkspaceInferencePolicyPanel
+          loadSettings={() => hermesApi.getSettings()}
+          saveSettings={(payload) => hermesApi.saveSettings(payload)}
+        />
+      </Panel>
+      <Panel title="시작 가이드">
+        <p className="settings-session-note">캘린더, Runner, Wiki, Calendar AI의 연결 상태를 다시 확인합니다.</p>
+        <button type="button" data-testid="settings-open-onboarding" onClick={() => openOnboarding?.()}>시작 가이드 다시 열기</button>
+      </Panel>
+      <Panel title="배포 상태"><DeploymentStatus status={gatewayStatus} /></Panel>
+      <Panel title="Desktop 업데이트">
+        <DesktopReleasePanel
+          status={desktopReleaseStatus}
+          busy={desktopReleaseBusy}
+          error={desktopReleaseError}
+          onCheck={onCheckDesktopRelease}
+          onDownload={onDownloadDesktopRelease}
+          onInstall={onInstallDesktopRelease}
+        />
+      </Panel>
+      <Panel title="테마">
+        <div className="theme-row">
+          {(['default', 'warm', 'dark', 'sage', 'mono'] as DesktopTheme[]).map((item) => (
+            <button data-active={theme === item} key={item} onClick={() => setTheme(item)}>{item}</button>
+          ))}
         </div>
-        <span className="splash-kicker">Agent Calendar</span>
-        <h1>일은 나눠서,<br />하루는 한눈에.</h1>
-        <p>할 일을 에이전트에게 넘기고, 진행과 결과를 같은 캘린더에서 받아보세요.</p>
-      </aside>
-
-      <form className="login-form" onSubmit={(event) => { event.preventDefault(); authenticateWithPassword(authMode); }}>
-        <div className="login-form-brand">
-          <LogoMark className="login-brand-mark" />
-          <span><strong>Agent Calendar</strong><small>에이전트 캘린더</small></span>
-        </div>
-        <h2>{authMode === 'signup' ? '계정을 만들어 시작하세요' : '다시 만나서 반가워요'}</h2>
-        <p>{authMode === 'signup' ? '이메일과 비밀번호로 Agent Calendar 계정을 만드세요' : '계정으로 로그인하고 이어서 계획하세요'}</p>
-
-        <label htmlFor="hermes-login-email">이메일</label>
-        <div className="login-field">
-          <SystemIcon name="mail" />
-          <input id="hermes-login-email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" type="email" />
-        </div>
-
-        <label htmlFor="hermes-login-password">비밀번호</label>
-        <div className="login-field">
-          <SystemIcon name="key" />
-          <input id="hermes-login-password" value={password} onChange={(event) => setPassword(event.target.value)} type="password" placeholder="••••••••" />
-        </div>
-
-        <div className="login-options">
-          <label><input type="checkbox" defaultChecked />로그인 상태 유지</label>
-          <button type="button" onClick={() => setRecoverySent(true)}>비밀번호를 잊으셨나요?</button>
-        </div>
-        {recoverySent && <div className="login-recovery">복구 링크 안내를 준비했습니다. 저장된 계정 메일을 확인하세요.</div>}
-        {loginStatus && <div className="login-status" role="status">{loginStatus}</div>}
-        <button className="primary login-submit" type="submit" disabled={passwordAuthBusy}><SystemIcon name="check" />{passwordAuthBusy ? '처리 중' : passwordLabel}</button>
-        <button className="login-mode-toggle" type="button" onClick={() => setAuthMode(authMode === 'signup' ? 'login' : 'signup')}>
-          {authMode === 'signup' ? '이미 계정이 있나요? 로그인' : '계정이 없나요? 회원가입'}
-        </button>
-        <div className="login-divider"><span />또는<span /></div>
-        <div className="social-row">
-          <button type="button" onClick={() => loginWithProvider('google')} disabled={Boolean(authBusyProvider)}><SystemIcon name="google" />{googleBusy ? 'Google 로그인 중' : 'Google로 계속하기'}</button>
-        </div>
-      </form>
-    </section>
-  </div>;
-}
-
-function ScheduleDraftCards({ drafts, warnings = [], conflicts = [], registerDrafts }: { drafts: ScheduleDraft[]; warnings?: string[]; conflicts?: Item[]; registerDrafts: (drafts: ScheduleDraft[]) => Promise<void> }) {
-  const [items, setItems] = useState<ScheduleDraft[]>(() => drafts.map((draft) => ({ ...draft, selected: draft.selected !== false })));
-  const [cancelled, setCancelled] = useState(false);
-  const [saving, setSaving] = useState(false);
-  if (cancelled) return <div className="draft-cancelled">초안을 취소했습니다.</div>;
-  const updateDraft = (index: number, patch: Partial<ScheduleDraft>) => {
-    setItems((current) => current.map((draft, draftIndex) => (draftIndex === index ? { ...draft, ...patch } : draft)));
-  };
-  const conflictText = (index: number) => conflicts
-    .filter((conflict) => Number(conflict.draftIndex) === index)
-    .map((conflict) => {
-      const existing = obj(conflict, 'existing');
-      return text(existing.title || conflict.title || conflict.existing, '기존 일정');
-    })
-    .join(' · ');
-  return <div className="draft-list">
-    {warnings.length > 0 && <div className="draft-warning">{warnings.join('\n')}</div>}
-    {items.map((draft, index) => {
-      const conflict = conflictText(index);
-      return <section className="draft-card" key={`${draft.title}-${index}`}>
-        <label className="draft-check"><input type="checkbox" checked={draft.selected !== false} onChange={(event) => updateDraft(index, { selected: event.target.checked })} /><span>{draft.kind === 'task' ? '할 일' : '일정'}</span>{draft.confidence === 'low' && <b>확인 필요</b>}</label>
-        <input aria-label="초안 제목" value={draft.title} onChange={(event) => updateDraft(index, { title: event.target.value })} />
-        <div className="draft-grid">
-          <input aria-label="초안 날짜" value={draft.date} onChange={(event) => updateDraft(index, { date: event.target.value })} />
-          <input aria-label="초안 시작 시간" value={draft.start || ''} onChange={(event) => updateDraft(index, { start: event.target.value || null })} />
-          <input aria-label="초안 종료 시간" value={draft.end || ''} onChange={(event) => updateDraft(index, { end: event.target.value || null })} />
-        </div>
-        {draft.notes && <small>{draft.notes}</small>}
-        {conflict && <em>충돌: {conflict}</em>}
-      </section>;
-    })}
-    <div className="draft-actions">
-      <button disabled={saving || !items.some((draft) => draft.selected !== false)} onClick={async () => { setSaving(true); await registerDrafts(items); setSaving(false); }}>
-        {saving ? '등록 중' : '선택 항목 등록'}
-      </button>
-      <button onClick={() => setCancelled(true)}>취소</button>
+      </Panel>
     </div>
-  </div>;
+  );
 }
 
-function ChatDrawer({ messages, input, setInput, attachment, setAttachment, send, setChip, close, registerDrafts }: { messages: ChatMessage[]; input: string; setInput: (value: string) => void; attachment: File | null; setAttachment: (value: File | null) => void; send: () => Promise<void>; setChip: (value: string) => void; close: () => void; registerDrafts: (drafts: ScheduleDraft[]) => Promise<void> }) {
-  const [attachmentError, setAttachmentError] = useState('');
-  const chooseAttachment = (file: File | undefined) => {
-    if (!file) return;
-    if (!['image/png', 'image/jpeg', 'image/heic'].includes(file.type)) {
-      setAttachmentError('png, jpeg, heic 이미지만 첨부할 수 있어요.');
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setAttachmentError('이미지는 10MB 이하만 첨부할 수 있어요.');
-      return;
-    }
-    setAttachmentError('');
-    setAttachment(file);
-  };
-  return <aside className="chat">
-    <header><LogoMark className="chat-mark" /><div><strong>캘린더 AI</strong><span>일정 Q&A · 추천</span></div><button onClick={close} aria-label="캘린더 AI 닫기">✕</button></header>
-    <div className="messages">{messages.map((message, index) => <div className={`message ${message.role}`} key={index}><span>{message.text || '응답 수신 중...'}</span>{message.drafts?.length ? <ScheduleDraftCards drafts={message.drafts} warnings={message.warnings} conflicts={message.conflicts} registerDrafts={registerDrafts} /> : null}</div>)}</div>
-    <div className="chat-chips">{['이번 주 완료율?', '오늘 할 일 정리해줘', '이번 주 빈 시간 알려줘'].map((chip) => <button key={chip} onClick={() => setChip(chip)}>{chip}</button>)}</div>
-    <footer>
-      <div className="chat-compose">
-        {attachment && <div className="chat-attachment"><span>{attachment.name}</span><button type="button" onClick={() => setAttachment(null)} aria-label="첨부 이미지 제거">×</button></div>}
-        {attachmentError && <div className="chat-attachment-error">{attachmentError}</div>}
-        <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="일정이나 할 일을 물어보세요" />
-      </div>
-      <div className="chat-send-stack">
-        <label className="chat-attach-button" title="이미지 첨부">
-          <input type="file" accept="image/png,image/jpeg,image/heic" onChange={(event) => chooseAttachment(event.target.files?.[0])} />
-          <span>첨부</span>
-        </label>
-        <button onClick={() => void send()}>전송</button>
-      </div>
-    </footer>
-  </aside>;
+function LoginScreen({
+  loginWithAuthKit,
+  authBusy,
+  authPhase,
+  loginStatus,
+}: {
+  loginWithAuthKit: () => void;
+  authBusy: boolean;
+  authPhase: 'idle' | 'opening' | 'waiting' | 'completing' | 'error';
+  loginStatus: string;
+}) {
+  return (
+    <AgentCalendarLoginExperience
+      mode="page"
+      loginWithAuthKit={loginWithAuthKit}
+      authBusy={authBusy}
+      authPhase={authPhase}
+      loginStatus={loginStatus}
+    />
+  );
+}
+
+function AgentCalendarLoginExperience({
+  mode,
+  loginWithAuthKit,
+  authBusy,
+  authPhase,
+  loginStatus,
+}: {
+  mode: 'overlay' | 'page';
+  loginWithAuthKit: () => void;
+  authBusy: boolean;
+  authPhase: 'idle' | 'opening' | 'waiting' | 'completing' | 'error';
+  loginStatus: string;
+}) {
+  const phaseLabel = authPhase === 'opening'
+    ? '브라우저를 여는 중…'
+    : authPhase === 'waiting'
+      ? '브라우저에서 로그인을 완료하세요'
+      : authPhase === 'completing'
+        ? '세션을 확인하는 중…'
+        : authPhase === 'error'
+          ? '로그인에 문제가 있습니다'
+          : 'Google 또는 이메일 매직 링크로 계속하세요';
+  const buttonLabel = authBusy
+    ? (authPhase === 'waiting' ? '브라우저에서 계속…' : '로그인 중…')
+    : 'AuthKit으로 계속하기';
+
+  return (
+    <div className={mode === 'overlay' ? 'login-overlay' : 'login screen-in'} data-auth-phase={authPhase}>
+      <section className="login-card login-card-authkit login-workspace-entry" aria-busy={authBusy || undefined}>
+        <div className="login-form" role="form" aria-labelledby="authkit-login-title">
+          <div className="login-form-brand">
+            <LogoMark className="login-brand-mark" />
+            <span><strong>Agent Calendar</strong></span>
+          </div>
+          <h2 id="authkit-login-title">작업공간 로그인</h2>
+          <p className="login-lede">{phaseLabel}</p>
+
+          {loginStatus && (
+            <div className="login-status" role="alert" aria-live="assertive">{loginStatus}</div>
+          )}
+          {!loginStatus && authBusy && (
+            <div className="login-status login-status-progress" role="status" aria-live="polite">{phaseLabel}</div>
+          )}
+
+          <button
+            className="primary login-submit login-authkit"
+            type="button"
+            onClick={() => loginWithAuthKit()}
+            disabled={authBusy}
+            aria-disabled={authBusy}
+          >
+            {buttonLabel}
+          </button>
+
+          <p className="login-boundary-note">세션은 이 기기에서 암호화됩니다.</p>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, close, delegate }: { selectedTask: Item; lists: TaxonomyItem[]; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; close: () => void; delegate: () => void }) {
@@ -5280,13 +4695,13 @@ function TaskDetailModal({ selectedTask, lists, patchTask, patchCalendarEvent, r
   </div>;
 }
 
-function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, newTask, createTask, lists, tags, agents, runs, selectedRun, selectedTask, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, delegateText, setDelegateText, delegateAgentId, setDelegateAgentId, startPlan, openRunArtifact, approveRun, newAgentName, setNewAgentName, newAgentRole, setNewAgentRole, newAgentEmoji, setNewAgentEmoji, createAgent, settings, gatewayStatus, setSettings, refresh, setApiError, loggedIn, setLoggedIn, logout, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { modal: ModalId; setModal: (modal: ModalId) => void; newTitle: string; setNewTitle: (value: string) => void; newDesc: string; setNewDesc: (value: string) => void; newTask: NewTaskControls; createTask: (extraNotes?: string) => Promise<void>; lists: TaxonomyItem[]; tags: TaxonomyItem[]; agents: Item[]; runs: Item[]; selectedRun?: Item; selectedTask?: Item; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; delegateText: string; setDelegateText: (value: string) => void; delegateAgentId: string; setDelegateAgentId: (value: string) => void; startPlan: () => void; openRunArtifact: (run?: Item) => void; approveRun: (run: Item) => void; newAgentName: string; setNewAgentName: (value: string) => void; newAgentRole: string; setNewAgentRole: (value: string) => void; newAgentEmoji: string; setNewAgentEmoji: (value: string) => void; createAgent: () => void; settings: DesktopSettingsState; gatewayStatus: ApiEnvelope; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
+function Modal({ modal, setModal, newTitle, setNewTitle, newDesc, setNewDesc, newTask, createTask, lists, tags, agents, runs, selectedRun, selectedTask, patchTask, patchCalendarEvent, removeTask, removeCalendarEvent, toggleTask, delegateText, setDelegateText, delegateAgentId, setDelegateAgentId, startPlan, openRunArtifact, approveRun, newAgentName, setNewAgentName, newAgentRole, setNewAgentRole, newAgentEmoji, setNewAgentEmoji, createAgent, settings, gatewayStatus, setSettings, refresh, setApiError, loggedIn, setLoggedIn, logout, loginWithAuthKit, authBusy, authPhase, loginStatus, prefs, updatePrefs, openOnboarding, desktopReleaseStatus, desktopReleaseBusy, desktopReleaseError, onCheckDesktopRelease, onDownloadDesktopRelease, onInstallDesktopRelease }: { modal: ModalId; setModal: (modal: ModalId) => void; newTitle: string; setNewTitle: (value: string) => void; newDesc: string; setNewDesc: (value: string) => void; newTask: NewTaskControls; createTask: (extraNotes?: string) => Promise<void>; lists: TaxonomyItem[]; tags: TaxonomyItem[]; agents: Item[]; runs: Item[]; selectedRun?: Item; selectedTask?: Item; patchTask: (task: Item, patch: Item) => boolean | Promise<boolean>; patchCalendarEvent: (task: Item, patch: Item) => boolean | Promise<boolean>; removeTask: (task: Item) => boolean | Promise<boolean>; removeCalendarEvent: (task: Item) => boolean | Promise<boolean>; toggleTask: (task: Item) => void; delegateText: string; setDelegateText: (value: string) => void; delegateAgentId: string; setDelegateAgentId: (value: string) => void; startPlan: () => void; openRunArtifact: (run?: Item) => void; approveRun: (run: Item) => void; newAgentName: string; setNewAgentName: (value: string) => void; newAgentRole: string; setNewAgentRole: (value: string) => void; newAgentEmoji: string; setNewAgentEmoji: (value: string) => void; createAgent: () => void; settings: DesktopSettingsState; gatewayStatus: ApiEnvelope; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginWithAuthKit: () => void; authBusy: boolean; authPhase: 'idle' | 'opening' | 'waiting' | 'completing' | 'error'; loginStatus: string; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void>; openOnboarding: () => void; desktopReleaseStatus: HermesDesktopReleaseStatus; desktopReleaseBusy: '' | 'check' | 'download' | 'install'; desktopReleaseError: string; onCheckDesktopRelease: () => void; onDownloadDesktopRelease: () => void; onInstallDesktopRelease: () => void }) {
   if (!modal) return null;
   if (modal === 'new') {
     return <div className="modal-backdrop new-task-backdrop" onMouseDown={() => setModal(null)}><NewTaskModal title={newTitle} setTitle={setNewTitle} desc={newDesc} setDesc={setNewDesc} controls={newTask} lists={lists} close={() => setModal(null)} submit={createTask} /></div>;
   }
   if (modal === 'settings') {
-    return <SettingsOverlay settings={settings} gatewayStatus={gatewayStatus} setSettings={setSettings} refresh={refresh} setApiError={setApiError} close={() => setModal(null)} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginEmail={loginEmail} setLoginEmail={setLoginEmail} loginPw={loginPw} setLoginPw={setLoginPw} prefs={prefs} updatePrefs={updatePrefs} />;
+    return <SettingsOverlay settings={settings} gatewayStatus={gatewayStatus} setSettings={setSettings} refresh={refresh} setApiError={setApiError} close={() => setModal(null)} loggedIn={loggedIn} setLoggedIn={setLoggedIn} logout={logout} loginWithAuthKit={loginWithAuthKit} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} prefs={prefs} updatePrefs={updatePrefs} openOnboarding={openOnboarding} desktopReleaseStatus={desktopReleaseStatus} desktopReleaseBusy={desktopReleaseBusy} desktopReleaseError={desktopReleaseError} onCheckDesktopRelease={onCheckDesktopRelease} onDownloadDesktopRelease={onDownloadDesktopRelease} onInstallDesktopRelease={onInstallDesktopRelease} />;
   }
   if (modal === 'task' && selectedTask) {
     return <TaskDetailModal selectedTask={selectedTask} lists={lists} patchTask={patchTask} patchCalendarEvent={patchCalendarEvent} removeTask={removeTask} removeCalendarEvent={removeCalendarEvent} toggleTask={toggleTask} close={() => setModal(null)} delegate={() => { setDelegateText(itemTitle(selectedTask, '')); setModal('delegate'); }} />;
@@ -5630,13 +5045,23 @@ function NewAccordionRow({ label, value, panel, controls }: { label: string; val
   return <button className="new-accordion-row" onClick={() => controls.setSubPanel(active ? null : panel)}><b>{label}</b><em>{value}</em><i>{active ? '▾' : '›'}</i></button>;
 }
 
-function SettingsOverlay({ settings, gatewayStatus, setSettings, refresh, setApiError, close, loggedIn, setLoggedIn, logout, loginEmail, setLoginEmail, loginPw, setLoginPw, prefs, updatePrefs }: { settings: DesktopSettingsState; gatewayStatus: ApiEnvelope; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; close: () => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginEmail: string; setLoginEmail: (value: string) => void; loginPw: string; setLoginPw: (value: string) => void; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void> }) {
-  const themes: Array<[DesktopTheme, string, string]> = [
-    ['default', 'Terracotta', '#D7613D'],
-    ['warm', 'Warm', '#C95035'],
-    ['dark', 'Dark', '#3F362F'],
-    ['sage', 'Sage', '#4F7D68'],
-    ['mono', 'Mono', '#3F3A34'],
+function SettingsOverlay({ settings, gatewayStatus, setSettings, refresh, setApiError, close, loggedIn, setLoggedIn, logout, loginWithAuthKit, authBusy, authPhase, loginStatus, prefs, updatePrefs, openOnboarding, desktopReleaseStatus, desktopReleaseBusy, desktopReleaseError, onCheckDesktopRelease, onDownloadDesktopRelease, onInstallDesktopRelease }: { settings: DesktopSettingsState; gatewayStatus: ApiEnvelope; setSettings: (settings: DesktopSettingsState) => void; refresh: () => Promise<void>; setApiError: (value: string) => void; close: () => void; loggedIn: boolean; setLoggedIn: (value: boolean) => void; logout: () => Promise<void>; loginWithAuthKit: () => void; authBusy: boolean; authPhase: 'idle' | 'opening' | 'waiting' | 'completing' | 'error'; loginStatus: string; prefs: UiPreferences; updatePrefs: (value: UiPreferences) => Promise<void>; openOnboarding: () => void; desktopReleaseStatus: HermesDesktopReleaseStatus; desktopReleaseBusy: '' | 'check' | 'download' | 'install'; desktopReleaseError: string; onCheckDesktopRelease: () => void; onDownloadDesktopRelease: () => void; onInstallDesktopRelease: () => void }) {
+  type SettingsPaneId = 'account' | 'ai' | 'theme' | 'runtime' | 'release' | 'preferences';
+  const [activeSettingsPane, setActiveSettingsPane] = useState<SettingsPaneId>('account');
+  const settingsPanes: ReadonlyArray<{ id: SettingsPaneId; label: string; description: string }> = [
+    { id: 'account', label: '계정', description: '현재 작업공간과 로그인 세션을 관리합니다.' },
+    { id: 'ai', label: 'AI 실행', description: 'Calendar AI와 Wiki AI가 실행될 위치를 선택합니다.' },
+    { id: 'theme', label: '화면', description: '이 기기에서 사용할 화면 테마를 선택합니다.' },
+    { id: 'runtime', label: 'Runtime', description: 'Desktop과 서버 배포의 연결 상태를 확인합니다.' },
+    { id: 'release', label: '업데이트', description: '새 Desktop 버전을 확인하고 설치합니다.' },
+    { id: 'preferences', label: '알림', description: '일정과 에이전트 작업의 기본 알림을 설정합니다.' },
+  ];
+  const themes: Array<[DesktopTheme, string]> = [
+    ['default', 'Terracotta'],
+    ['warm', 'Warm'],
+    ['dark', 'Dark'],
+    ['sage', 'Sage'],
+    ['mono', 'Mono'],
   ];
   const prefRows: Array<[keyof typeof prefs, string, string]> = [
     ['notify', '리마인더 알림', '정각 일정·마감 작업 알림'],
@@ -5660,30 +5085,98 @@ function SettingsOverlay({ settings, gatewayStatus, setSettings, refresh, setApi
       console.warn('Agent Calendar theme save failed', error);
     }
   }
-  const submitLogin = () => {
-    setLoggedIn(true);
-    setLoginPw('');
-    close();
-  };
-  const accountName = settings.authProfile?.name || 'Yunseo';
-  const accountEmail = settings.authProfile?.email || 'yunseo@agent.calendar';
+  const accountName = settings.authProfile?.name || 'Operator';
+  const accountEmail = settings.authProfile?.email || '';
   const accountInitial = (accountName || accountEmail || 'A').trim().slice(0, 1).toUpperCase();
-  return <div className="settings-backdrop" onMouseDown={close}><div className="settings-overlay" onMouseDown={(event) => event.stopPropagation()}>
-    <header><h2>설정</h2><button onClick={close}>✕</button></header>
-    <div className="settings-body">
-      <div className="settings-label">계정</div>
-      <section className="account-box">{settings.authProfile?.picture ? <img className="avatar large" src={settings.authProfile.picture} alt="" /> : <div className="avatar large">{accountInitial}</div>}<div><strong>{accountName}</strong><span>{loggedIn ? accountEmail : '로그인이 필요합니다'}</span></div>{loggedIn ? <button onClick={() => void logout()}>로그아웃</button> : <button className="primary" onClick={submitLogin}>로그인</button>}</section>
-      {!loggedIn && <section className="login-inline"><input value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submitLogin(); }} placeholder="yunseo@agent.calendar" /><input value={loginPw} onChange={(event) => setLoginPw(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submitLogin(); }} type="password" placeholder="••••••••" /><button className="primary" onClick={submitLogin}>로그인</button></section>}
-      <div className="settings-label">테마 · 강조 색상</div>
-      <section className="theme-grid">{themes.map(([key, label, color]) => <button data-active={settings.theme === key} key={key} onClick={() => void saveTheme(key)}><span style={{ background: color }}>{settings.theme === key ? '✓' : ''}</span><b>{label}</b></button>)}</section>
-      <section className="theme-preview"><span>H</span><b>선택한 색상이 버튼·강조·캘린더 전반에 즉시 적용됩니다</b></section>
-      <div className="settings-label">배포 상태</div>
-      <DeploymentStatus status={gatewayStatus} />
-      <div className="settings-label">환경설정</div>
-      <section className="pref-box">{prefRows.map(([key, label, desc]) => <div className="pref-row" key={key}><span className="pref-copy"><b>{label}</b><small>{desc}</small></span><button className="switch" data-active={prefs[key]} onClick={() => void updatePrefs({ ...prefs, [key]: !prefs[key] })}><span /></button></div>)}</section>
+  const activePane = settingsPanes.find((pane) => pane.id === activeSettingsPane) || settingsPanes[0];
+  return <div className="settings-backdrop" onMouseDown={close}>
+    <div className="settings-overlay" onMouseDown={(event) => event.stopPropagation()}>
+      <aside className="settings-sidebar">
+        <button className="settings-sidebar-title" type="button" onClick={close}>
+          <CaretLeft size={15} weight="bold" aria-hidden="true" />
+          <LogoMark />
+          <strong>Agent Calendar</strong>
+        </button>
+        <nav aria-label="설정 영역">
+          <button
+            className="settings-nav-button settings-setup-guide-button"
+            type="button"
+            data-testid="settings-open-onboarding"
+            onClick={openOnboarding}
+          >
+            <span><strong>시작 설정</strong><small>연결 항목 확인</small></span>
+          </button>
+          {settingsPanes.map((pane) => (
+            <button
+              className="settings-nav-button"
+              type="button"
+              key={pane.id}
+              data-testid={`settings-nav-${pane.id}`}
+              data-active={activeSettingsPane === pane.id}
+              onClick={() => setActiveSettingsPane(pane.id)}
+            >
+              {pane.label}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-sidebar-account">
+          {settings.authProfile?.picture
+            ? <img className="avatar" src={settings.authProfile.picture} alt="" />
+            : <span className="avatar">{accountInitial}</span>}
+          <span><strong>{accountName}</strong><small>{accountEmail || '세션 활성'}</small></span>
+        </div>
+      </aside>
+
+      <div className="settings-main">
+        <header>
+          <div><h2>{activePane.label}</h2><p>{activePane.description}</p></div>
+          <button aria-label="설정 닫기" onClick={close}><X size={16} weight="regular" aria-hidden="true" /></button>
+        </header>
+        <div className="settings-body">
+          {activeSettingsPane === 'account' && <section className="settings-section" id="settings-account" aria-labelledby="settings-account-title">
+            <div className="settings-section-head"><h3 id="settings-account-title">작업공간 계정</h3><p>이 기기에 연결된 현재 세션입니다.</p></div>
+            <div className="account-box">{settings.authProfile?.picture ? <img className="avatar large" src={settings.authProfile.picture} alt="" /> : <div className="avatar large">{accountInitial}</div>}<div><strong>{accountName}</strong><span>{loggedIn ? (accountEmail || '세션 활성') : '로그인이 필요합니다'}</span></div>{loggedIn ? <button onClick={() => void logout()}>로그아웃</button> : <button className="primary" onClick={() => loginWithAuthKit()} disabled={authBusy}>{authBusy ? '로그인 중…' : 'AuthKit으로 계속하기'}</button>}</div>
+            {!loggedIn && <div className="login-inline authkit-inline"><p>시스템 브라우저에서 Google 또는 이메일로 로그인합니다.</p>{loginStatus ? <div className="login-status" role="alert">{loginStatus}</div> : null}<button className="primary" onClick={() => loginWithAuthKit()} disabled={authBusy}>{authBusy ? '브라우저에서 계속…' : '로그인'}</button></div>}
+          </section>}
+
+          {activeSettingsPane === 'theme' && <section className="settings-section" id="settings-theme" aria-labelledby="settings-theme-title">
+            <div className="settings-section-head"><h3 id="settings-theme-title">테마</h3><p>선택한 테마는 이 기기에 바로 적용됩니다.</p></div>
+            <div className="settings-theme-list">{themes.map(([key, label]) => <button data-active={settings.theme === key} key={key} onClick={() => void saveTheme(key)}><i data-theme-swatch={key} /><span><b>{label}</b><small>{settings.theme === key ? '사용 중' : ''}</small></span></button>)}</div>
+          </section>}
+
+          {activeSettingsPane === 'ai' && <section className="settings-section" id="settings-ai" aria-labelledby="settings-ai-title">
+            <div className="settings-section-head"><h3 id="settings-ai-title">Workspace AI 실행</h3><p>Calendar AI와 Wiki AI는 같은 정책을 사용하며 다른 작업공간의 Runner를 사용하지 않습니다.</p></div>
+            <WorkspaceInferencePolicyPanel
+              loadSettings={() => hermesApi.getSettings()}
+              saveSettings={(payload) => hermesApi.saveSettings(payload)}
+            />
+          </section>}
+
+          {activeSettingsPane === 'runtime' && <section className="settings-section" id="settings-runtime" aria-labelledby="settings-runtime-title">
+            <div className="settings-section-head"><h3 id="settings-runtime-title">연결 상태</h3><p>Desktop과 Gateway가 같은 배포를 보고 있는지 확인합니다.</p></div>
+            <DeploymentStatus status={gatewayStatus} />
+          </section>}
+
+          {activeSettingsPane === 'release' && <section className="settings-section" id="settings-release" aria-labelledby="settings-release-title">
+            <div className="settings-section-head"><h3 id="settings-release-title">Desktop 업데이트</h3><p>새 버전은 확인한 뒤 직접 설치합니다.</p></div>
+            <DesktopReleasePanel
+              status={desktopReleaseStatus}
+              busy={desktopReleaseBusy}
+              error={desktopReleaseError}
+              onCheck={onCheckDesktopRelease}
+              onDownload={onDownloadDesktopRelease}
+              onInstall={onInstallDesktopRelease}
+            />
+          </section>}
+
+          {activeSettingsPane === 'preferences' && <section className="settings-section" id="settings-preferences" aria-labelledby="settings-pref-title">
+            <div className="settings-section-head"><h3 id="settings-pref-title">알림 및 일정</h3><p>이 기기에서 사용할 기본 동작입니다.</p></div>
+            <div className="pref-box">{prefRows.map(([key, label, desc]) => <div className="pref-row" key={key}><span className="pref-copy"><b>{label}</b><small>{desc}</small></span><button className="switch" aria-label={`${label} ${prefs[key] ? '끄기' : '켜기'}`} data-active={prefs[key]} onClick={() => void updatePrefs({ ...prefs, [key]: !prefs[key] })}><span /></button></div>)}</div>
+          </section>}
+        </div>
+      </div>
     </div>
-    <footer><span>Agent Calendar · v0.9 · 로컬 저장</span><button className="primary" onClick={close}>완료</button></footer>
-  </div></div>;
+  </div>;
 }
 
 function RunReport({ run: selected, close, openArtifact, approveRun }: { run?: Item; close: () => void; openArtifact: (run?: Item) => void; approveRun: (run: Item) => void }) {

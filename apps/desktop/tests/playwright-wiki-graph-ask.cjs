@@ -93,10 +93,10 @@ async function main() {
   assert.equal(await page.getByRole('button', { name: '출처 열기: UniPort 전략' }).count(), 0);
   const searchCall = calls.find((call) => call.method === 'POST' && call.path === '/api/wiki/search');
   const streamCall = calls.find((call) => call.method === 'POST' && call.path === '/api/chat/stream');
-  assert.equal(Boolean(searchCall), true);
+  assert.equal(Boolean(searchCall), false);
   assert.equal(Boolean(streamCall), true);
-  assert.equal(searchCall.body.includeJournal, false);
-  assert.equal(searchCall.body.includeRaw, false);
+  assert.equal(streamCall.body.includeJournal, false);
+  assert.equal(streamCall.body.includeRaw, false);
   assert.equal(streamCall.body.agent, 'wikicurator');
   assert.equal(streamCall.body.message, 'UniPort 전략은?');
   assert.equal(streamCall.body.model, undefined);

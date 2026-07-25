@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "kind": "clean_account_ete",
+  "capturedAt": "2026-07-25T03:28:13.377Z",
+  "binding": {
+    "deploymentId": "local-unreleased-snapshot-codex",
+    "commit": "16d59256801d822e3430cdd30eaa7b56d58ecab9",
+    "environmentId": "local-ephemeral-dirty",
+    "serviceId": "local-gateway"
+  },
+  "checks": {
+    "workspaceLogin": true,
+    "runnerEnrollment": true,
+    "engineAuthentication": true,
+    "delegatedWork": true,
+    "realtimeCheckpoints": true,
+    "calendarResult": true,
+    "reconnectRecovery": true
+  }
+}

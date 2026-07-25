@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "slice": "phase7-automation-federation",
+  "date": "2026-07-25",
+  "status": "verified",
+  "durationMs": 10499,
+  "workspaces": {
+    "a": "ws_b5df6013a7cd636db3f246ebf99f1346",
+    "b": "ws_a0ad9ab61e3336c5f8b6ce9fc167621d"
+  },
+  "counts": {
+    "sources_a": 1,
+    "sources_b": 0,
+    "automations_a": 2,
+    "automations_b": 0,
+    "occurrences_a": 2,
+    "occurrences_b": 0
+  },
+  "sourceCalls": [
+    "list",
+    "create",
+    "update",
+    "resume",
+    "pause",
+    "resume",
+    "run"
+  ],
+  "screenshotHashes": {
+    "setup": "dda8add323a2a3b4fbeade4503f617893153147295a999d066cbea3fe15d390a",
+    "connected": "b7f13527120d911b890f28f6231dbd6f8e40820c05fd78a738b05b5fe6273c59",
+    "created": "89e37d17039ae2cfead19b6038cf77a387a31146c44c047909556b9b0c2ed211",
+    "calendar": "00df43e975c50b9d8f01c9fa2adcba5a55f23f09ca461e02fead406bf766e14b",
+    "isolated": "0f8204be667132a0099c5702a655fb65ab36ddec5e915a7be05d1af383e63c94",
+    "restarted": "f26d74a6f73e06fdf64cddce64ff0e3a09e95ae3dca0ff467387a41a976d5657"
+  },
+  "runnerDeviceNeutrality": {
+    "defaultSourceNamePlaceholder": "예: 내 Hermes Runner",
+    "hardcodedMacMiniCopyCount": 0,
+    "userSuppliedSourceNamePreserved": true
+  },
+  "restart": "source, automations, receipts, and occurrences survived server and Desktop restart"
+}

@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "phase": "phase10-production-observability",
+  "date": "2026-07-25",
+  "status": "verified-slice",
+  "scope": {
+    "livenessReadinessSplit": true,
+    "operatorBearerSeparated": true,
+    "requestCorrelation": true,
+    "routeTemplateMetrics": true,
+    "boundedSloWindow": true,
+    "redactionSafeStructuredLogs": true,
+    "singleRunAlertCollectorImplemented": true,
+    "persistentAlertStateContractVerified": true,
+    "localAlertTransitionsObserved": true,
+    "externalCollectorConnected": false,
+    "liveProductionReady": false
+  },
+  "red": {
+    "command": "node --test tests/phase10-production-observability.test.cjs",
+    "result": "failed as expected",
+    "summary": "production-observability module did not exist"
+  },
+  "verification": [
+    {
+      "command": "node --test tests/phase10-production-observability.test.cjs",
+      "result": "pass",
+      "summary": "5/5 monitor, readiness, auth, route inventory, and real HTTP tests"
+    },
+    {
+      "command": "npm run backend:check",
+      "result": "pass"
+    },
+    {
+      "command": "npm run test:backend",
+      "result": "pass",
+      "summary": "415/415 Backend tests"
+    },
+    {
+      "command": "npm test",
+      "result": "pass",
+      "summary": "Backend 415/415, Desktop 243/243, Runner 19/19"
+    }
+  ],
+  "manualQa": {
+    "surface": "real local Gateway HTTP server in production auth mode without injected product runtime",
+    "health": 200,
+    "healthStatus": "alive",
+    "ready": 503,
+    "readyStatus": "not_ready",
+    "operationsWithoutBearer": 401,
+    "operationsWithBearer": 200,
+    "expectedFalseChecks": [
+      "database",
+      "productRuntime",
+      "authKit"
+    ],
+    "secretOrTenantLeakDetected": false,
+    "sloState": "insufficient_data"
+  },
+  "externalGates": [
+    "Set an independent production operations bearer",
+    "Configure live WorkOS AuthKit and PostgreSQL runtime",
+    "Deploy the single-run collector on a persistent external scheduler",
+    "Connect long-term metrics retention, dashboard, and alert destinations",
+    "Observe live production readiness and alert delivery"
+  ],
+  "knownObservations": [
+    "The existing Desktop test environment emits non-failing WebSocket port 24678 warnings.",
+    "TypeScript/JavaScript LSP is not installed; syntax checks and test suites served as diagnostics."
+  ]
+}

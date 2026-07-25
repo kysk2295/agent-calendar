@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { agentTaskAppearance, agentTaskCause } from './agentTaskAppearance';
-import { executionEngineLabel } from './executionContracts';
+import { executionEngineLabel, resolvedExecutionEngineLabel } from './executionContracts';
 import { deliverableFormatLabel, deliverableKindLabel, preserveWorkClosingPhrase } from './workConversationPresentation';
 import type { AgentMission, AgentTask, AgentTaskAction } from './types';
 import type { AgentResolvedExecutionEngine } from './workConversationTypes';
@@ -58,7 +58,7 @@ export function AgentWorkDetails(props: AgentWorkDetailsProps) {
   return (
     <aside className="agent-work-details">
       <details open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}><summary aria-label="고급 작업 정보">작업 정보</summary><div className="agent-work-details-body">
-        <dl><div><dt>담당 에이전트</dt><dd>{props.responsibleAgentName}</dd></div><div><dt>배정 이유</dt><dd>{props.assignmentCopy}</dd></div><div><dt>요청 방식</dt><dd>{props.mission.executionEngine === 'auto' ? '자동 선택' : `직접 지정 · ${executionEngineLabel(props.mission.executionEngine)}`}</dd></div><div><dt>실제 실행</dt><dd>{props.resolvedExecutionEngine ? executionEngineLabel(props.resolvedExecutionEngine) : '확인 불가'}</dd></div><div><dt>결과 형식</dt><dd>{deliverableKindLabel(props.mission.deliverable.kind)} · {deliverableFormatLabel(props.mission.deliverable.format)}</dd></div></dl>
+        <dl><div><dt>담당 에이전트</dt><dd>{props.responsibleAgentName}</dd></div><div><dt>배정 이유</dt><dd>{props.assignmentCopy}</dd></div><div><dt>요청 방식</dt><dd>{props.mission.executionEngine === 'auto' ? '자동 선택' : `직접 지정 · ${executionEngineLabel(props.mission.executionEngine)}`}</dd></div><div><dt>실제 실행</dt><dd data-testid="agent-work-resolved-engine">{props.resolvedExecutionEngine ? resolvedExecutionEngineLabel(props.resolvedExecutionEngine) : '확인 불가'}</dd></div><div><dt>결과 형식</dt><dd>{deliverableKindLabel(props.mission.deliverable.kind)} · {deliverableFormatLabel(props.mission.deliverable.format)}</dd></div></dl>
         <section><header><strong>실행 계획</strong><span>{props.tasks.filter((task) => task.status === 'completed').length}/{props.tasks.length}</span></header>
           {!props.tasks.length && <button className="agent-work-primary-action" type="button" disabled={props.busy === props.mission.id} onClick={() => void run(() => props.onPlanMission(props.mission.id))}>계획 만들기</button>}
           {proposed > 0 && <button className="agent-work-primary-action" type="button" disabled={props.busy === props.mission.id} onClick={() => void run(() => props.onApprovePlan(props.mission.id))}>전체 승인</button>}

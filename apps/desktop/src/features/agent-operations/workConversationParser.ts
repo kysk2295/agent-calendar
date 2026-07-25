@@ -43,10 +43,17 @@ function assignment(value: unknown, agentId: string): AgentAssignment {
 }
 
 function resolvedExecutionEngine(value: unknown): AgentResolvedExecutionEngine | null {
-  if (value === undefined) return null;
+  if (value === undefined || value === null || value === '') return null;
   switch (value) {
     case 'hermes': return 'hermes';
     case 'codex': return 'codex';
+    case 'claude': return 'claude';
+    case 'grok': return 'grok';
+    case 'fake': return 'fake';
+    // Requested-only / unknown as resolved: fail closed rather than inventing a label.
+    case 'auto':
+    case 'local_llm':
+      throw new AgentWorkParseError('work.resolvedExecutionEngine');
     default: throw new AgentWorkParseError('work.resolvedExecutionEngine');
   }
 }

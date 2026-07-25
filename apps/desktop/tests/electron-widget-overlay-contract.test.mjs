@@ -35,7 +35,9 @@ test('renderer overlay mode renders only planned widgets on a transparent surfac
   assert.match(styleSource, /html\[data-overlay="widgets"\][\s\S]*background:\s*transparent/);
   assert.match(styleSource, /\.widget-overlay-root[\s\S]*pointer-events:\s*none/);
   assert.match(styleSource, /\.widget-overlay-root \.widgets-title[\s\S]*display:\s*none/);
-  assert.match(styleSource, /\.widget-overlay-root \.widget-card[\s\S]*rgba\(126,147,178,\.58\)/);
+  assert.match(styleSource, /\.widget-overlay-root \.widget-card[\s\S]*background:\s*var\(--panel\)/);
+  assert.match(styleSource, /\.widget-overlay-root \.widget-card[\s\S]*border:\s*1px solid var\(--line-strong\)/);
+  assert.match(styleSource, /\.widget-overlay-root \.widget-card[\s\S]*box-shadow:\s*none/);
   assert.match(styleSource, /\.widget-overlay-root \.widget-month-grid[\s\S]*border-top/);
-  assert.match(styleSource, /\.widget-overlay-root \.widget-day\[data-today="true"\] > span[\s\S]*#E06436/);
+  assert.match(styleSource, /\.widget-overlay-root \.widget-day\[data-today="true"\] > span[\s\S]*background:\s*var\(--accent\)/);
 });

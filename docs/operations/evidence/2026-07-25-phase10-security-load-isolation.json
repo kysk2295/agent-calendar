@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-24T22:20:03.247Z",
+  "ok": true,
+  "scope": "local_production_gateway_fixture",
+  "primary": {
+    "normalLoad": {
+      "requests": 100,
+      "concurrency": 20,
+      "successful": 100,
+      "p95ClientMs": 34,
+      "maxClientMs": 43,
+      "gatewayP95Ms": 1
+    },
+    "bodyLimit": {
+      "streamedChunked": true,
+      "status": 413,
+      "error": "PAYLOAD_TOO_LARGE"
+    },
+    "rateIsolation": {
+      "acceptedBeforeLimit": 5,
+      "limitedStatus": 429,
+      "retryAfterSeconds": 60,
+      "isolatedCallerStatus": 200
+    },
+    "requestSafety": {
+      "schemaVersion": 1,
+      "inFlight": 1,
+      "accepted": 108,
+      "rejectedRate": 1,
+      "rejectedCapacity": 0
+    }
+  },
+  "capacity": {
+    "rejectedStatus": 503,
+    "rejectedError": "gateway_over_capacity",
+    "healthStatusDuringPressure": 200,
+    "originalStatusAfterRelease": 200,
+    "recoveredStatus": 200
+  },
+  "redaction": {
+    "aggregateOnly": true,
+    "tokenValuesAbsent": true,
+    "networkAddressesAbsent": true,
+    "workspaceIdentifiersAbsent": true
+  }
+}

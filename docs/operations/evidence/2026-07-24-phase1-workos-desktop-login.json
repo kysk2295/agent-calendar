@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 2,
+  "slice": "phase1-workos-desktop-login",
+  "date": "2026-07-24",
+  "ok": true,
+  "plan": "docs/plans/2026-07-24-phase1-workos-desktop-login.md",
+  "rootCauseRestartRestore": {
+    "bug": "scrubLegacyPlaintextAuthSettings always nulled auth and reported hadSecrets whenever any auth profile existed, including public AuthKit profiles without tokens; main cleared secure session on every restart",
+    "fix": "scrub only when apiToken or provider token fields present; public AuthKit profile survives; main clears session only when hadSecrets"
+  },
+  "workosSdk": {
+    "package": "@workos-inc/node",
+    "version": "10.8.0",
+    "lockfileUpdated": true,
+    "methodsUsed": [
+      "userManagement.getAuthorizationUrlWithPKCE",
+      "userManagement.authenticateWithCodeAndVerifier"
+    ],
+    "installIsManualGate": false
+  },
+  "green": {
+    "workosAdapterUnit": "4/4",
+    "backendNarrowLogin": "3/3",
+    "backendCheck": true,
+    "backendFull": "344/344",
+    "desktopTypecheck": true,
+    "desktopUnit": "167/167",
+    "desktopBuild": true,
+    "electronE2e": {
+      "command": "AGENT_CALENDAR_E2E_TIMEOUT_MS=90000 node apps/desktop/tests/playwright-workos-authkit-login-e2e.cjs",
+      "ok": true,
+      "completeCount": 1,
+      "restartRestore": true,
+      "safeStorage": true,
+      "screenshots": {
+        "before": "apps/desktop/test-results/workos-authkit-login/login-before-auth.png",
+        "after": "apps/desktop/test-results/workos-authkit-login/calendar-after-login.png"
+      },
+      "asserted": [
+        "settings.json has no access/refresh/API/provider tokens",
+        "app-session.enc is non-plaintext encrypted bytes",
+        "safeStorage.isEncryptionAvailable() === true on real macOS Electron",
+        "getSessionStatus().signedIn after relaunch without second complete",
+        "hard timeout cleared on success"
+      ],
+      "orphanProcessesAfter": false
+    }
+  },
+  "liveWorkosCredentialGate": {
+    "claimed": false,
+    "sdkInstallRequired": false,
+    "required": [
+      "WORKOS_API_KEY",
+      "WORKOS_CLIENT_ID",
+      "AuthKit redirect allowlist agent-calendar://auth/callback",
+      "Hosted Google + email magic link enabled in WorkOS dashboard"
+    ]
+  }
+}

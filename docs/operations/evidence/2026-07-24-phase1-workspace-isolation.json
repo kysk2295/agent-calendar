@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "kind": "phase1-workspace-isolation-qa",
+  "ok": true,
+  "clusterStopped": true,
+  "workDir": "$WORK_DIR",
+  "migrationsApplied": [
+    "0001_core_loop.sql",
+    "0002_state_meta.sql",
+    "0003_workboard_pages.sql",
+    "0004_documents_wiki_chunks.sql",
+    "0005_agent_operations.sql",
+    "0006_restore_agent_task_profiles.sql",
+    "0007_restore_agent_task_sessions.sql",
+    "0008_identity_workspace_foundation.sql",
+    "0009_tasks_calendar_workspace_ownership.sql"
+  ],
+  "preMigrationCounts": {
+    "tasks": 1,
+    "calendar_events": 1,
+    "agents": 1
+  },
+  "postMigrationCounts": {
+    "tasks": 1,
+    "calendar_events": 1,
+    "agents": 1
+  },
+  "checks": {
+    "countsPreserved": true,
+    "legacyOwned": true,
+    "legacyMembership": "legacy-owner-user",
+    "sameScopeList": true,
+    "sameScopeDirect": true,
+    "crossScopeDirectNull": true,
+    "sameScopeEvents": true,
+    "otherScopeList": true,
+    "nonMemberRejected": true,
+    "handBuiltScopeRejected": true,
+    "roleElevationRejected": true,
+    "memberRolePreserved": true,
+    "plainObjectScopeRejected": true,
+    "inactiveUserRejected": true,
+    "inactiveWorkspaceRejected": true,
+    "crossWorkspaceTaskLinkRejected": true,
+    "taskDeleteNullsTaskIdOnly": true
+  },
+  "error": "",
+  "generatedAt": "2026-07-24T12:00:00.000Z",
+  "durationMs": 736
+}

@@ -7,6 +7,7 @@ function record(value: unknown): Record<string, unknown> {
 export async function consumeConsoleChatStream(
   response: Response,
   onText: (text: string) => void,
+  onDone?: (payload: Record<string, unknown>) => void,
 ): Promise<string> {
   if (!response.ok || !response.body) throw new Error(`console stream ${response.status}`);
   const reader = response.body.getReader();
@@ -26,11 +27,16 @@ export async function consumeConsoleChatStream(
     if (event === 'error' && typeof payload.error === 'string' && payload.error) {
       throw new Error(payload.error);
     }
-    if (event !== 'delta' && event !== 'done') return;
+    const payloadType = typeof payload.type === 'string' ? payload.type : '';
+    const effectiveEvent = event === 'message'
+      ? (payloadType === 'token' ? 'delta' : payloadType)
+      : event;
+    if (effectiveEvent !== 'delta' && effectiveEvent !== 'done') return;
     if (typeof payload.text !== 'string' || !payload.text) return;
-    if (event === 'delta') answer += payload.text;
-    if (event === 'done' && !answer) answer = payload.text;
+    if (effectiveEvent === 'delta') answer += payload.text;
+    if (effectiveEvent === 'done' && !answer) answer = payload.text;
     onText(answer);
+    if (effectiveEvent === 'done') onDone?.(payload);
   };
 
   while (true) {

@@ -10,12 +10,16 @@ const ENVIRONMENT_ID = '7629b09d-3447-4f74-9b06-2f9b8aafb80a';
 const SERVICE_ID = 'b7bd75ff-cc24-4a6d-9387-1628fcaff9d6';
 const EXPECTED_COMMIT = '0123456789abcdef0123456789abcdef01234567';
 
-async function runDeployScript({ sourceRepo = 'kysk2295/agent-calendar' } = {}) {
+async function runDeployScript({
+  sourceRepo = 'kysk2295/agent-calendar',
+  preflight = 'valid',
+} = {}) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-deploy-script-'));
   const binDir = path.join(tempDir, 'bin');
   const logPath = path.join(tempDir, 'railway.log');
   const repoRoot = path.resolve(__dirname, '../../..');
   const scriptPath = path.join(repoRoot, 'scripts', 'deploy-railway-main.sh');
+  const preflightPath = path.join(tempDir, 'preflight.json');
   await mkdir(binDir, { recursive: true });
   await writeFile(path.join(binDir, 'git'), `#!/usr/bin/env bash
 case "$*" in
@@ -43,6 +47,38 @@ esac
 `, 'utf8');
   await chmod(path.join(binDir, 'git'), 0o755);
   await chmod(path.join(binDir, 'railway'), 0o755);
+  if (preflight === 'valid') {
+    const verifiedAtMs = Date.now();
+    const verifiedAt = new Date(verifiedAtMs).toISOString();
+    const expiresAt = new Date(verifiedAtMs + 30 * 60 * 1000).toISOString();
+    await writeFile(preflightPath, `${JSON.stringify({
+      ok: true,
+      action: 'promote_candidate',
+      candidateCommit: EXPECTED_COMMIT,
+      candidateDeploymentId: 'staging-candidate',
+      lastKnownGoodDeploymentId: 'production-known-good',
+      stagingEnvironmentId: 'staging-environment',
+      stagingServiceId: 'staging-service',
+      schemaVersion: 3,
+      verifiedAt,
+      expiresAt,
+    })}\n`, 'utf8');
+  } else if (preflight === 'expired') {
+    await writeFile(preflightPath, `${JSON.stringify({
+      ok: true,
+      action: 'promote_candidate',
+      candidateCommit: EXPECTED_COMMIT,
+      candidateDeploymentId: 'staging-candidate',
+      lastKnownGoodDeploymentId: 'production-known-good',
+      stagingEnvironmentId: 'staging-environment',
+      stagingServiceId: 'staging-service',
+      schemaVersion: 3,
+      verifiedAt: '2000-01-01T00:00:00.000Z',
+      expiresAt: '2000-01-01T00:30:00.000Z',
+    })}\n`, 'utf8');
+  } else if (preflight === 'failed') {
+    await writeFile(preflightPath, '{"ok":false,"action":"stop_release"}\n', 'utf8');
+  }
 
   try {
     const result = spawnSync('bash', [scriptPath], {
@@ -52,6 +88,7 @@ esac
         ...process.env,
         PATH: `${binDir}:${process.env.PATH}`,
         DEPLOY_LOG: logPath,
+        RAILWAY_RELEASE_PREFLIGHT_PATH: preflight === 'missing' ? '' : preflightPath,
       },
     });
     const log = await readFile(logPath, 'utf8').catch(() => '');
@@ -80,4 +117,13 @@ test('Railway deploy script rejects a service still sourced from Hermes OS', asy
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /source.*kysk2295\/agent-calendar/i);
   assert.doesNotMatch(log, /redeploy/);
+});
+
+test('Railway deploy script refuses production without a matching successful staging preflight', async () => {
+  for (const preflight of ['missing', 'failed', 'expired']) {
+    const { result, log } = await runDeployScript({ preflight });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /preflight|staging/i);
+    assert.doesNotMatch(log, /redeploy/);
+  }
 });

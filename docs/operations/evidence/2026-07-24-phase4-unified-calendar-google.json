@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "slice": "phase4-unified-calendar-google",
+  "date": "2026-07-24",
+  "status": "verified",
+  "liveGoogleOAuth": "not exercised (fail-closed production path covered in backend tests)",
+  "durationMs": 19053,
+  "workspaceId": "ws_7fddbe6f9ec7ea281173e34cf5815a4b",
+  "coverageBeforeSync": "incomplete",
+  "screenshotHashes": {
+    "afterLogin": "17aa76262d52d408793755d64fccdf2c3cde8276cfa6b00c09ec5c542e4ee220",
+    "connected": "883e8cbf638a7acce14692c878d4530222a5849d7f3eb759f28246f4298cc8e4",
+    "synced": "f8de7d3ca11c09bae3c3cfca2fbf75b3a91f1c7a017ea8a13ff3fbe8933805b4",
+    "externalCreate": "f9552b2ac75294f6a54c970a97b2bfe2fa1627273bd441090c9bfb310b411d30",
+    "afterBackendRestart": "b2f33d8c2aea4d9734c7c2e57c179701258a82e4a479c648932d6c7778ae5e5f",
+    "afterDesktopRestart": "c41f54d77605a5a801fc56674fb49bc4909c3ffaebe6271ae603d123807bb78a"
+  },
+  "uniqueScreenshotCount": 6,
+  "mutationReceipts": [
+    {
+      "status": "reconciled",
+      "operation": "create"
+    }
+  ],
+  "isolation": {
+    "workspaceBSources": 0,
+    "crossSyncStatus": 404
+  },
+  "gatesNote": "full monorepo gates recorded after this ETE in plan/evidence",
+  "personalScreenshotInspection": "passed-2026-07-25-primary-agent"
+}

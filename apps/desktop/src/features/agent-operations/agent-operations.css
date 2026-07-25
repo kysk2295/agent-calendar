@@ -708,51 +708,220 @@
 .hermes-automation-row > b { color: var(--muted-dark); font-size: 9px; }
 .agent-command-grid p { margin: 0; padding: 18px 2px; color: var(--muted); font-size: 10px; }
 
-.hermes-automations-layout {
+.connected-automations-layout {
   min-width: 0;
   min-height: 0;
   flex: 1;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: 250px 320px minmax(0, 1fr);
   overflow: hidden;
+  background: var(--main);
 }
-.hermes-automation-list {
+
+.automation-source-rail,
+.automation-queue {
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 12px;
   overflow: auto;
+}
+.automation-source-rail {
+  padding: 14px 12px;
   background: var(--sidebar);
   border-right: 1px solid var(--line);
 }
-.hermes-automation-list > header { min-height: 42px; display: flex; align-items: flex-start; gap: 8px; padding: 2px 4px 8px; }
-.hermes-automation-list > header > div { min-width: 0; flex: 1; display: grid; gap: 2px; }
-.hermes-automation-list > header strong { font-size: 12px; }
-.hermes-automation-list > header span { color: var(--muted); font-size: 9.5px; }
-.hermes-automation-list > header b { color: var(--muted); font-size: 10px; }
+.automation-source-rail > header,
+.automation-queue > header {
+  min-height: 48px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 2px 4px 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.automation-source-rail > header > div,
+.automation-queue > header > div:first-child { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.automation-source-rail > header strong,
+.automation-queue > header strong { font-size: 12px; }
+.automation-source-rail > header span,
+.automation-queue > header span { color: var(--muted); font-size: 9.5px; }
+.automation-source-rail > header b { color: var(--muted); font-size: 10px; }
+.automation-source-list { display: grid; gap: 7px; padding: 10px 0; }
+.automation-source-card {
+  overflow: hidden;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.automation-source-card[data-active="true"] {
+  background: var(--panel);
+  border-color: var(--accent-line);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-shadow) 16%, transparent);
+}
+.automation-source-card > button {
+  width: 100%;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 8px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+.automation-source-card > button > span { min-width: 0; display: grid; gap: 4px; }
+.automation-source-card > button strong { overflow: hidden; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.automation-source-card > button small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.automation-source-card i {
+  width: 7px;
+  height: 7px;
+  background: var(--muted);
+  border-radius: 50%;
+}
+.automation-source-card i[data-status="connected"] { background: var(--green); }
+.automation-source-card i[data-status="stale"] { background: var(--amber); }
+.automation-source-card i[data-status="error"] { background: var(--red); }
+.automation-source-card > footer {
+  min-height: 31px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 10px;
+  background: color-mix(in srgb, var(--bar) 78%, transparent);
+  border-top: 1px solid var(--line-soft);
+}
+.automation-source-card > footer span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.automation-source-card > footer button {
+  padding: 3px 6px;
+  color: var(--accent-dark);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 9px;
+  font-weight: 800;
+}
+.automation-source-empty {
+  display: grid;
+  gap: 5px;
+  padding: 14px 5px;
+  color: var(--muted);
+}
+.automation-source-empty strong { color: var(--muted-dark); font-size: 10.5px; }
+.automation-source-empty p { margin: 0; font-size: 9.5px; line-height: 1.5; }
+.automation-source-connect {
+  min-height: 38px;
+  margin-top: auto;
+  padding: 8px 10px;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: 7px;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+.automation-inline-form {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 10px;
+  padding: 11px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+}
+.automation-inline-form > header { display: flex; align-items: center; gap: 8px; }
+.automation-inline-form > header strong { min-width: 0; flex: 1; font-size: 10.5px; }
+.automation-inline-form > header button {
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  font-size: 9px;
+}
+.automation-inline-form label { display: grid; gap: 5px; }
+.automation-inline-form label > span { color: var(--muted); font-size: 9px; font-weight: 800; }
+.automation-inline-form input,
+.automation-inline-form select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font-size: 10px;
+}
+.automation-inline-form > small { color: var(--muted); font-size: 8.5px; line-height: 1.45; }
+.automation-inline-form > button.primary {
+  min-height: 34px;
+  color: var(--input);
+  background: var(--accent-dark);
+  border: 1px solid var(--accent-dark);
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.automation-queue {
+  padding: 14px 10px;
+  background: color-mix(in srgb, var(--sidebar) 44%, var(--main));
+  border-right: 1px solid var(--line);
+}
+.automation-queue > header > div:last-child { display: flex; align-items: center; gap: 5px; }
+.automation-queue > header button {
+  min-height: 29px;
+  padding: 5px 8px;
+  color: var(--muted-dark);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font-size: 9.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.automation-queue > header button.primary {
+  color: var(--input);
+  background: var(--accent-dark);
+  border-color: var(--accent-dark);
+}
+.automation-queue-list { display: grid; padding: 8px 0; }
 .hermes-automation-row {
   min-width: 0;
-  min-height: 74px;
+  min-height: 76px;
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 8px 9px;
+  padding: 9px 8px;
   color: var(--text);
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: 0;
   text-align: left;
 }
 .hermes-automation-row:hover { background: color-mix(in srgb, var(--panel) 65%, transparent); }
-.hermes-automation-row[data-active="true"] { background: var(--panel); border-color: var(--line-strong); }
+.hermes-automation-row[data-active="true"] {
+  background: var(--panel);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
 
 .hermes-automation-inspector {
   min-width: 0;
   min-height: 0;
-  padding: 18px 22px 28px;
+  padding: 20px 24px 30px;
   overflow: auto;
+  background: var(--main);
 }
 .hermes-automation-inspector > header { display: flex; align-items: flex-start; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line-soft); }
 .hermes-automation-inspector > header > div { min-width: 0; flex: 1; }
@@ -763,12 +932,36 @@
 .hermes-automation-inspector > header > strong[data-status="active"] { color: var(--green); }
 .hermes-automation-inspector > header > strong[data-status="failed"] { color: var(--red); }
 .hermes-automation-inspector > header > strong[data-status="paused"] { color: var(--amber); }
-.hermes-automation-runtime { display: grid; gap: 4px; padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
-.hermes-automation-runtime span,
+.hermes-automation-inspector > header > button {
+  min-height: 30px;
+  padding: 5px 8px;
+  color: var(--muted-dark);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font-size: 9.5px;
+  font-weight: 800;
+}
+.automation-receipt {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--panel) 78%, var(--green) 4%);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+}
+.automation-receipt > div { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.automation-receipt span,
 .hermes-automation-facts span,
 .hermes-automation-next > span { color: var(--muted); font-size: 9px; font-weight: 800; }
-.hermes-automation-runtime strong { font-size: 11.5px; }
-.hermes-automation-runtime small { color: var(--muted); font-size: 9.5px; }
+.automation-receipt strong { font-size: 11px; }
+.automation-receipt small { color: var(--muted); font-size: 9px; }
+.automation-receipt[data-status="succeeded"] { border-color: color-mix(in srgb, var(--green) 32%, var(--line)); }
+.automation-receipt[data-status="unknown"],
+.automation-receipt[data-status="conflict"] { border-color: color-mix(in srgb, var(--amber) 42%, var(--line)); }
+.automation-receipt[data-status="failed"] { border-color: color-mix(in srgb, var(--red) 38%, var(--line)); }
 .hermes-automation-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid var(--line-soft); }
 .hermes-automation-facts > section { min-width: 0; display: grid; gap: 5px; padding: 13px 14px 13px 0; border-bottom: 1px solid var(--line-soft); }
 .hermes-automation-facts > section:nth-child(2n) { padding-left: 14px; border-left: 1px solid var(--line-soft); }
@@ -806,6 +999,31 @@
   background: var(--red-soft);
   border-color: color-mix(in srgb, var(--red) 28%, var(--line));
 }
+.automation-approval-gate {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 11px 12px;
+  background: var(--amber-soft);
+  border: 1px solid color-mix(in srgb, var(--amber) 34%, var(--line));
+  border-radius: 8px;
+}
+.automation-approval-gate > div { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.automation-approval-gate strong { color: var(--text); font-size: 10.5px; }
+.automation-approval-gate p { margin: 0; color: var(--muted-dark); font-size: 9.5px; line-height: 1.45; }
+.automation-approval-gate button {
+  min-height: 34px;
+  flex-shrink: 0;
+  padding: 7px 10px;
+  color: var(--input);
+  background: var(--accent-dark);
+  border: 1px solid var(--accent-dark);
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
 .hermes-automation-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -816,7 +1034,8 @@
 .hermes-automation-form label { min-width: 0; display: grid; gap: 6px; }
 .hermes-automation-form label > span { color: var(--muted); font-size: 9px; font-weight: 800; }
 .hermes-automation-form input,
-.hermes-automation-form textarea {
+.hermes-automation-form textarea,
+.hermes-automation-form select {
   width: 100%;
   min-width: 0;
   padding: 8px 10px;
@@ -834,9 +1053,9 @@
 .hermes-automation-form .primary {
   min-height: 38px;
   padding: 8px 12px;
-  color: var(--accent-dark);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-line);
+  color: var(--input);
+  background: var(--accent-dark);
+  border: 1px solid var(--accent-dark);
   border-radius: 6px;
   font: inherit;
   font-size: 10.5px;
@@ -863,35 +1082,38 @@
   font-size: 10.5px;
   font-weight: 700;
 }
-.hermes-automation-actions .danger {
-  color: var(--red);
-  background: var(--red-soft);
-  border-color: color-mix(in srgb, var(--red) 32%, var(--line));
+.automation-inspector-empty {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 7px;
+  padding: 28px;
+  text-align: center;
 }
-.hermes-automation-delete-confirm {
-  grid-column: 2 / -1;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.hermes-automation-delete-confirm > span { color: var(--red); font-size: 9.5px; font-weight: 700; }
-.hermes-automation-delete-confirm button {
-  min-height: 38px;
-  padding: 8px 10px;
-  color: var(--text);
-  background: var(--panel);
-  border: 1px solid var(--line-strong);
+.automation-inspector-empty strong { font-size: 13px; }
+.automation-inspector-empty p { max-width: 360px; margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.55; }
+.automation-inspector-empty button {
+  min-height: 34px;
+  margin-top: 4px;
+  padding: 7px 10px;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
   border-radius: 6px;
-  font: inherit;
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .agent-command-center button:focus-visible,
 .agent-command-center textarea:focus-visible,
-.hermes-automations-layout button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.connected-automations-layout button:focus-visible,
+.connected-automations-layout input:focus-visible,
+.connected-automations-layout textarea:focus-visible,
+.connected-automations-layout select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.connected-automations-layout button:active:not(:disabled) { transform: translateY(1px); }
+.connected-automations-layout button:disabled { cursor: default; opacity: .48; }
 
 @media (max-width: 980px) {
   .agent-command-center { padding: 14px; }
@@ -899,7 +1121,7 @@
   .agent-command-metrics > div:nth-child(2) { border-right: 0; }
   .agent-command-metrics > div:nth-child(-n + 2) { border-bottom: 1px solid var(--line-soft); }
   .agent-command-grid { gap: 14px; }
-  .hermes-automations-layout { grid-template-columns: 238px minmax(0, 1fr); }
+  .connected-automations-layout { grid-template-columns: 220px 276px minmax(0, 1fr); }
   .agent-missions-layout { grid-template-columns: 188px minmax(0, 1fr); }
   .mission-contract { padding: 16px; }
   .mission-live-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -918,15 +1140,20 @@
 }
 
 @media (max-width: 980px) {
-  .hermes-automations-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(180px, 34%) minmax(0, 1fr); }
-  .hermes-automation-list { border-right: 0; border-bottom: 1px solid var(--line); }
+  .connected-automations-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-rows: minmax(190px, 36%) minmax(0, 1fr);
+  }
+  .automation-source-rail { grid-row: 1 / 3; }
+  .automation-queue { grid-column: 2; grid-row: 1; border-right: 0; border-bottom: 1px solid var(--line); }
+  .hermes-automation-inspector,
+  .automation-inspector-empty { grid-column: 2; grid-row: 2; }
   .hermes-automation-inspector { padding: 16px; }
   .hermes-automation-form { grid-template-columns: minmax(0, 1fr); }
   .hermes-automation-form .wide,
   .hermes-automation-form footer { grid-column: auto; }
   .hermes-automation-actions { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
   .hermes-automation-actions > button { justify-self: start; }
-  .hermes-automation-delete-confirm { grid-column: auto; justify-content: flex-start; }
 }
 
 @media (max-width: 720px) {
@@ -934,8 +1161,9 @@
   .agent-operations-tabs > button { height: 40px; min-width: 0; flex: 1 1 20%; padding: 0 4px; }
   .agent-daemon { width: 100%; height: 28px; flex: 0 0 100%; order: -1; display: flex; align-items: center; justify-content: flex-end; margin-left: 0; padding-right: 4px; }
   .agent-command-grid { grid-template-columns: 1fr; }
-  .hermes-automations-layout { display: block; overflow: auto; }
-  .hermes-automation-list { max-height: 212px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .connected-automations-layout { display: block; overflow: auto; }
+  .automation-source-rail,
+  .automation-queue { max-height: 230px; border-right: 0; border-bottom: 1px solid var(--line); }
   .hermes-automation-inspector { overflow: visible; padding: 16px; }
   .agent-missions-layout { display: block; overflow: auto; }
   .agent-mission-list { max-height: 152px; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -982,6 +1210,8 @@
   .hermes-automation-facts > section,
   .hermes-automation-facts > section:nth-child(2n) { padding: 11px 0; border-bottom: 1px solid var(--line-soft); border-left: 0; }
   .hermes-automation-facts > section:last-child { border-bottom: 0; }
+  .automation-approval-gate { align-items: stretch; flex-direction: column; }
+  .automation-approval-gate button { align-self: flex-start; }
   .task-session-composer { grid-template-columns: 1fr; }
   .task-session-composer button { justify-self: end; }
 }

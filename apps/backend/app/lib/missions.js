@@ -28,14 +28,14 @@ const MISSION_TEMPLATES = [
   },
   {
     id: 'remote-ops',
-    label: 'Remote Mac mini ops',
-    description: '원격 Mac mini의 Hermes 작업 상태를 이어받아 실행, 점검, 기록합니다.',
+    label: 'Remote Runner ops',
+    description: '원격 Workspace Runner의 Hermes 작업 상태를 이어받아 실행, 점검, 기록합니다.',
     agent: 'default',
     model: 'Codex',
     modelReason: 'Codex is preferred for terminal-driven local automation and codebase-aware task continuation.',
     durationHours: 8,
     cadence: 'checkpoint every 30 minutes',
-    defaultGoal: '원격 Mac mini에서 진행 중인 Hermes 작업을 확인하고 끊긴 작업을 이어서 처리',
+    defaultGoal: '원격 Workspace Runner에서 진행 중인 Hermes 작업을 확인하고 끊긴 작업을 이어서 처리',
     successCriteria: [
       'current running jobs and blockers are identified',
       'safe queued work is continued without human approval',

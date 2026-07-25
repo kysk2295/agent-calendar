@@ -123,7 +123,7 @@ export function AgentWorkTimeline(props: AgentWorkTimelineProps) {
           : undefined;
         const approvalAvailable = !props.readOnly && checkpoint.kind === 'approval_request' && task?.status === 'proposed' && checkpoint.metadata.applicationMode !== 'unsupported_external_request';
         const delivery = checkpoint.metadata.deliveryStatus && checkpoint.metadata.applicationMode
-          ? deliveryCopy(checkpoint.metadata.deliveryStatus, checkpoint.metadata.applicationMode).split(' — ', 2)
+          ? deliveryCopy(checkpoint.metadata.deliveryStatus, checkpoint.metadata.applicationMode).split('. ', 2)
           : null;
         return <article className="agent-checkpoint" data-kind={checkpoint.kind} key={checkpoint.id}>
           <header><span>{checkpointLabel(checkpoint.kind)}</span><time dateTime={checkpoint.createdAt}>{timeLabel(checkpoint.createdAt)}</time></header>

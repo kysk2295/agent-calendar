@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "phase": "phase8-desktop-release-safety",
+  "date": "2026-07-25",
+  "status": "verified",
+  "reviewedHead": "16d59256801d822e3430cdd30eaa7b56d58ecab9",
+  "scope": {
+    "stableUpdaterPolicy": true,
+    "boundedRendererCrashRecovery": true,
+    "draftReleaseWorkflow": true,
+    "artifactNameIntegrity": true,
+    "rendererNavigationTrust": true,
+    "preloadIpcTrust": true,
+    "publicNotarizedRelease": false
+  },
+  "red": [
+    {
+      "command": "node --test apps/desktop/tests/desktop-release-artifacts.test.mjs apps/desktop/tests/desktop-release-contract.test.mjs apps/desktop/tests/desktop-renderer-trust.test.mjs",
+      "result": "failed as expected",
+      "summary": "Configured files used spaces while update metadata used hyphens; renderer trust module and guards were absent."
+    }
+  ],
+  "verification": [
+    {
+      "command": "node --test apps/desktop/tests/desktop-renderer-trust.test.mjs apps/desktop/tests/desktop-release-artifacts.test.mjs apps/desktop/tests/desktop-release-contract.test.mjs apps/desktop/tests/proxy-renderer-auth.test.mjs apps/desktop/tests/agent-calendar-deep-link.test.mjs",
+      "result": "pass",
+      "summary": "18/18 focused release, navigation, IPC, proxy, and deep-link tests"
+    },
+    {
+      "command": "EVIDENCE_DIR=apps/desktop/test-results/phase8-renderer-trust node apps/desktop/tests/playwright-desktop-renderer-trust.cjs",
+      "result": "pass",
+      "summary": "Actual packaged renderer blocked HTTPS and local-file navigation while retaining the guarded preload bridge"
+    },
+    {
+      "command": "AGENT_CALENDAR_E2E_TIMEOUT_MS=90000 node apps/desktop/tests/playwright-phase8-desktop-release.cjs",
+      "result": "pass",
+      "summary": "Light update-ready, restart restore, and third-crash safe recovery"
+    },
+    {
+      "command": "AGENT_CALENDAR_E2E_THEME=dark AGENT_CALENDAR_E2E_TIMEOUT_MS=90000 node apps/desktop/tests/playwright-phase8-desktop-release.cjs",
+      "result": "pass",
+      "summary": "Dark update-ready, restart restore, and third-crash safe recovery"
+    },
+    {
+      "command": "npx electron-builder --mac dmg zip --arm64 --publish never",
+      "result": "pass",
+      "summary": "Local Apple Development signed arm64 DMG and ZIP; public publishing disabled; notarization skipped because credentials are unavailable"
+    },
+    {
+      "command": "node apps/desktop/tools/desktop-release-artifacts.mjs finalize ... && shasum -a 256 -c SHA256SUMS",
+      "result": "pass",
+      "summary": "Five release inputs finalized and verified with identical Agent-Calendar names"
+    },
+    {
+      "command": "npm run backend:check",
+      "result": "pass"
+    },
+    {
+      "command": "npm run build:desktop",
+      "result": "pass"
+    },
+    {
+      "command": "npm --workspace apps/desktop run test",
+      "result": "pass",
+      "summary": "243/243 Desktop tests"
+    },
+    {
+      "command": "npm test",
+      "result": "pass",
+      "summary": "Backend 410/410, Desktop 243/243, Runner 19/19"
+    }
+  ],
+  "artifacts": {
+    "dmg": {
+      "path": "apps/desktop/release/Agent-Calendar-0.1.0-arm64.dmg",
+      "bytes": 133683437,
+      "sha256": "f3e5494b9c8ca0ebf24aefdd6be27feb9e36be4067ac607124898447a24b5eaf"
+    },
+    "zip": {
+      "path": "apps/desktop/release/Agent-Calendar-0.1.0-arm64.zip",
+      "bytes": 131338269,
+      "sha256": "377c596c875432bc39b4cd7d44e1ddc3c588252a5ae1503ea2c28769da0fae03"
+    },
+    "latestMac": {
+      "path": "apps/desktop/release/latest-mac.yml",
+      "sha256": "fc89a87e21ffad0bc2f760f525716141c9c47b341507b9301edf922083f9c2c2"
+    },
+    "rendererTrust": {
+      "path": "apps/desktop/test-results/phase8-renderer-trust/renderer-trust.json",
+      "sha256": "2e240aa153199130ecc1d62fe0c945cdd35d2973e42bd93f65fe7863fb3812bf"
+    },
+    "lightReleaseReady": {
+      "path": "apps/desktop/test-results/phase8-desktop-release/01-release-ready.png",
+      "sha256": "2795bc29d15655bbcbee2458746d59b7fab4283da717fbe5da59852788b49950"
+    },
+    "lightSafeRecovery": {
+      "path": "apps/desktop/test-results/phase8-desktop-release/02-safe-recovery.png",
+      "sha256": "c3bd175ba10ab316df563f6e96d4643dd68d78728a976a3f77631a7ac7e63101"
+    },
+    "darkReleaseReady": {
+      "path": "apps/desktop/test-results/phase8-desktop-release-dark/01-release-ready.png",
+      "sha256": "f35b0ea3a041e2900f9388dc996c3eae89749c6e58c46e21389e5e69a39cf160"
+    },
+    "darkSafeRecovery": {
+      "path": "apps/desktop/test-results/phase8-desktop-release-dark/02-safe-recovery.png",
+      "sha256": "af141c838a0b3b4d36106d2f8219d653f79fbdd20bed7968d543ab25da8dbcf7"
+    },
+    "review": ".omo/evidence/phase8-desktop-release-safety-remediation-review.md"
+  },
+  "independentReview": {
+    "reviewer": "phase8_offline_review",
+    "reviewedHead": "16d59256801d822e3430cdd30eaa7b56d58ecab9",
+    "verdict": "PASS / APPROVE",
+    "focusedRecheck": "13/13 passed"
+  },
+  "externalGates": [
+    "Developer ID Application certificate",
+    "Apple notarization credentials and observed notarization",
+    "approved GitHub desktop-release environment and draft publication"
+  ],
+  "knownObservations": [
+    "The first full-suite run exposed a pre-existing parallel Calendar AI test race; the failing test passed alone and the complete suite passed on rerun.",
+    "The local ignored release directory still contains old space-named build leftovers; clean-checkout CI has no such inputs.",
+    "The renderer retains the pre-existing Vite chunk-size warning above 500kB.",
+    "The test environment logs a non-failing WebSocket port 24678 warning.",
+    "TypeScript LSP is not installed; the user previously declined installation, so TypeScript compilation and tests served as diagnostics."
+  ]
+}

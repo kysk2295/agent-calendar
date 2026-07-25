@@ -15,7 +15,7 @@ const SETUP_ACTIONS = {
   remote: {
     id: 'setup-remote',
     target: 'Remote access',
-    detail: 'Set the public base URL and a bearer access token so the Mac mini can be reached from the web.',
+    detail: 'Set the public base URL and an access token so the Runner host can be reached from the web.',
     primary: 'Set URL and token',
     view: 'settings',
     focusId: 'settingsPublicBaseUrl',
@@ -42,7 +42,7 @@ const SETUP_ACTIONS = {
   runner: {
     id: 'setup-runner',
     target: 'Hermes runner',
-    detail: 'Switch runner mode to local-command, allow shell execution, and point command/cwd at the Hermes runtime on the Mac mini.',
+    detail: 'Switch runner mode to local-command, allow shell execution, and point command/cwd at the Hermes runtime on the Runner host.',
     primary: 'Configure runner',
     view: 'settings',
     focusId: 'settingsRunnerCommand',

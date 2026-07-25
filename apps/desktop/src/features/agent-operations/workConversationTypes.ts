@@ -40,7 +40,8 @@ export type AgentAssignment =
   | Readonly<{ kind: 'default'; agentId: string }>
   | Readonly<{ kind: 'legacy'; agentId: string }>;
 
-export type AgentResolvedExecutionEngine = 'hermes' | 'codex';
+/** Actual engine that ran (or will run) — never the requested `auto` selector. */
+export type AgentResolvedExecutionEngine = 'hermes' | 'codex' | 'claude' | 'grok' | 'fake';
 
 export type AgentWorkRevisionState = {
   readonly revisionCounter: number;

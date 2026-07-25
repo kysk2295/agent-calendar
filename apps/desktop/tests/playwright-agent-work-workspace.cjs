@@ -146,6 +146,62 @@ async function main() {
   const { server, url } = await startVite();
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const fixtureTheme = process.env.AGENT_CALENDAR_E2E_THEME === 'dark' ? 'dark' : 'default';
+  await page.addInitScript((theme) => {
+    const releaseStatus = {
+      supported: false,
+      phase: 'unsupported',
+      currentVersion: '0.1.0',
+      availableVersion: null,
+      progressPercent: null,
+      checkedAt: null,
+      message: '테스트 환경',
+    };
+    window.hermesDesktop = {
+      getSettings: async () => ({
+        apiBaseUrl: '',
+        hasApiToken: false,
+        hasSession: true,
+        theme,
+        authProfile: {
+          provider: 'authkit',
+          id: 'agent-work-qa',
+          email: 'qa@example.test',
+          name: 'Agent Work QA',
+          updatedAt: '2026-07-25T00:00:00.000Z',
+        },
+        session: {
+          signedIn: true,
+          workspaceId: 'workspace-agent-work-qa',
+          userId: 'agent-work-qa',
+          role: 'owner',
+        },
+        uiPreferences: { notify: true, agentShare: true, weekStartMon: true },
+      }),
+      getSessionStatus: async () => ({
+        signedIn: true,
+        sessionId: 'session-agent-work-qa',
+        userId: 'agent-work-qa',
+        workspaceId: 'workspace-agent-work-qa',
+        role: 'owner',
+        email: 'qa@example.test',
+        displayName: 'Agent Work QA',
+        accessExpiresAt: null,
+      }),
+      getHermesConnection: async () => ({ baseUrl: '', credential: '' }),
+      getDesktopReleaseStatus: async () => releaseStatus,
+      consumeDesktopRecoveryStatus: async () => ({
+        phase: 'none',
+        crashCount: 0,
+        reason: null,
+        occurredAt: null,
+        message: '',
+      }),
+      onDesktopReleaseStatus: () => () => {},
+      onAuthSessionChanged: () => () => {},
+      onAuthLoginError: () => () => {},
+    };
+  }, fixtureTheme);
   const calls = [];
   const consoleErrors = [];
   let failedMessageAttempts = 0;
@@ -275,7 +331,7 @@ async function main() {
     if (method === 'POST' && followUpMatch) { operationState = { ...operationState, reports: operationState.reports.map((report) => report.id === followUpMatch[1] ? { ...report, followUpDecisions: [{ index: body.index, decision: body.decision, decidedAt: new Date().toISOString() }] } : report) }; await route.fulfill({ json: { ok: true } }); return; }
     const sessionMatch = apiPath.match(/^\/api\/agent-operations\/sessions\/([^/]+)$/);
     if (method === 'GET' && sessionMatch) { await route.fulfill({ json: { ok: true, session: { id: sessionMatch[1], missionId: baseMission.id, taskId: 'task-research', type: 'task', title: '가격 정책 수집', status: 'completed', pendingInstructions: [], createdAt: baseMission.createdAt, updatedAt: baseMission.updatedAt }, events: [{ id: 'session-event', sessionId: sessionMatch[1], sequence: 1, kind: 'completion', text: '세부 실행을 완료했습니다.', createdAt: baseMission.updatedAt }] } }); return; }
-    await route.fulfill({ json: { ok: true, tasks: [], events: [], agents: [], runs: [], documents: [], notes: [], graph: { nodes: [], edges: [] }, items: [], commands: [], jobs: [], messages: [], channels: [], tools: [], settings: { uiPreferences: {} }, uiPreferences: {} } });
+    await route.fulfill({ json: { ok: true, tasks: [], events: [], agents: [], runs: [], documents: [], notes: [], graph: { nodes: [], edges: [] }, items: [], commands: [], jobs: [], messages: [], channels: [], tools: [], onboarding: { version: 1, status: 'completed' }, settings: { uiPreferences: {} }, uiPreferences: {} } });
   });
 
   try {
@@ -284,9 +340,49 @@ async function main() {
     await page.waitForSelector('.agent-control-room');
     assert.equal(await page.locator('.agent-work-conversation').count(), 0);
     assert.equal(await page.locator('.agent-scheduler-card button').count(), 0);
+    const controlHomeLayouts = [];
     for (const viewport of [{ width: 1280, height: 900, name: 'desktop' }, { width: 768, height: 900, name: 'tablet' }, { width: 375, height: 812, name: 'mobile' }]) {
       await page.setViewportSize(viewport);
       await capture(page, `${viewport.name}-control-home`);
+      controlHomeLayouts.push(await page.locator('.agent-control-workbench').evaluate((workbench, viewportName) => {
+        const primary = workbench.querySelector('.agent-control-primary');
+        const rail = workbench.querySelector('.agent-control-rail');
+        if (!(primary instanceof HTMLElement) || !(rail instanceof HTMLElement)) throw new Error('Control Home layout is incomplete');
+        const primaryBox = primary.getBoundingClientRect();
+        const railBox = rail.getBoundingClientRect();
+        const railStyle = getComputedStyle(rail);
+        return {
+          name: viewportName,
+          viewportWidth: window.innerWidth,
+          documentWidth: document.documentElement.scrollWidth,
+          columns: getComputedStyle(workbench).gridTemplateColumns,
+          primary: primaryBox.toJSON(),
+          rail: railBox.toJSON(),
+          railBorderLeft: railStyle.borderLeftWidth,
+          railBorderTop: railStyle.borderTopWidth,
+          railRadius: railStyle.borderRadius,
+          railShadow: railStyle.boxShadow,
+        };
+      }, viewport.name));
+    }
+    if (process.env.AGENT_CALENDAR_E2E_CONTROL_HOME_ONLY === '1') {
+      const [desktopLayout, ...compactLayouts] = controlHomeLayouts;
+      assert.equal(desktopLayout.documentWidth <= desktopLayout.viewportWidth, true);
+      assert.equal(desktopLayout.rail.width >= 300 && desktopLayout.rail.width <= 340, true);
+      assert.equal(desktopLayout.rail.left >= desktopLayout.primary.right - 1, true);
+      assert.notEqual(desktopLayout.railBorderLeft, '0px');
+      assert.equal(desktopLayout.railRadius, '0px');
+      assert.equal(desktopLayout.railShadow, 'none');
+      for (const layout of compactLayouts) {
+        assert.equal(layout.documentWidth <= layout.viewportWidth, true);
+        assert.equal(layout.rail.top >= layout.primary.bottom, true);
+        assert.notEqual(layout.railBorderTop, '0px');
+      }
+      const unexpectedConsoleErrors = consoleErrors.filter((message) => !message.includes('503 (Service Unavailable)'));
+      assert.equal(unexpectedConsoleErrors.length, 0, unexpectedConsoleErrors.join('\n'));
+      fs.writeFileSync(path.join(evidenceDir, 'control-home.json'), JSON.stringify({ theme: fixtureTheme, layouts: controlHomeLayouts, consoleErrors }, null, 2));
+      console.log(JSON.stringify({ ok: true, theme: fixtureTheme, screenshots: 3, layouts: controlHomeLayouts.map(({ name, columns }) => ({ name, columns })) }, null, 2));
+      return;
     }
     await page.setViewportSize({ width: 1280, height: 900 });
     const sourceCard = page.locator('.agent-running-card', { hasText: '가격 정책 수집' });

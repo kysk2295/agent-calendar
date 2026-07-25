@@ -114,8 +114,10 @@ async function routeLargeWikiApis(page) {
 }
 
 async function main() {
-  const appSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'App.tsx'), 'utf8');
-  assert.doesNotMatch(appSource, /youtube-6aa|document-analysis-benchmark-evidence-paper/i, 'graph focus selection must not depend on one reference vault filename');
+  const wikiScreenSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'features', 'knowledge', 'WikiScreen.tsx'), 'utf8');
+  const wikiGraphPanelSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'features', 'knowledge', 'WikiGraphPanel.tsx'), 'utf8');
+  const graphDomainSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'domains', 'knowledge', 'graphLayout.ts'), 'utf8');
+  assert.doesNotMatch(`${wikiScreenSource}\n${wikiGraphPanelSource}\n${graphDomainSource}`, /youtube-6aa|document-analysis-benchmark-evidence-paper/i, 'graph focus selection must not depend on one reference vault filename');
 
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1320, height: 824 } });

@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "slice": "phase3-durable-execution-engines",
+  "date": "2026-07-24",
+  "status": "verified",
+  "workSize": "Large|Boundary",
+  "plan": "docs/plans/2026-07-24-phase3-durable-execution-engines.md",
+  "phase2Dependency": "verified; enrollment/device auth reused",
+  "rootReauditAtoH": {
+    "A": "preferred_runner ON DELETE SET NULL (preferred_runner_id only); attempts.offer_id FK to offers; runner delete test",
+    "B": "ackCancel requires cancellation_requested; offered cancel withdraws offers via service path + terminals job",
+    "C": "POST /api/runner/device/attempt-heartbeat; execution-loop serialized heartbeats; cancel-ack only when server requested; timers cleared",
+    "D": "spawnSafe ordered awaitable callback chain drained before resolve; rejection aborts",
+    "E": "Codex/Claude curated assistant text only; real-schema fixtures; no raw JSONL artifacts",
+    "F": "deterministic offer expiry→accepted; dead_letter; revoke-vs-event; cancel-ack-without-request; offered cancel; leaseOffer expiry commits then 409",
+    "G": "outboxHandler required; SSE publishWorkspace on job.completed; not_configured when no handler; done only after success",
+    "H": "capabilities.js merges adapter capabilityContract (Grok/Hermes streaming:false)"
+  },
+  "phase1IdempotencyDiagnosis": {
+    "rootCause": "Concurrent idempotency INSERT unique violation aborted the PG transaction (25P02); subsequent re-read failed with 500",
+    "fix": "SAVEPOINT around idempotency insert + ROLLBACK TO SAVEPOINT on 23505; awaitReplay always returns 200/409; gateway maps 23505 to 409",
+    "verification": "10 consecutive phase1 cutover concurrent runs pass after SAVEPOINT fix"
+  },
+  "migration": "0018_durable_execution_engines.sql",
+  "securityMatrix": {
+    "test": "apps/backend/tests/phase3-durable-execution.test.cjs",
+    "result": "10/10 pass"
+  },
+  "runnerTests": "17/17 pass",
+  "desktopTests": "177/177 pass",
+  "goldenEte": {
+    "script": "apps/desktop/tests/playwright-phase3-golden-ete.cjs",
+    "result": "pass",
+    "durationMs": 28469,
+    "backendRestart": true,
+    "desktopRestart": true,
+    "completeCount": 1,
+    "terminals": 1,
+    "calendarEvents": 1,
+    "screenshotHashes": {
+      "queued": "5a7c1a1ca33d588fe9975b9172df726bdb73c734edb7fa204d7252619d18e508",
+      "live": "4c61e53983cc145b71b2d397baa6929dc54cd6c6e6d3ce64c437b74ac4ae1d9e",
+      "completed": "22b4df88b49a7403b1d063dfee9150331e9a9d6520e025e19f83f477224bb187",
+      "calendar": "f68930366345651a8697858907c90e68c001202156228fe58252b8ee3a6d714d",
+      "rehydrated": "c298598441f8ea5027173b98ac0b8d1630879d43c7e04279dde0b0122cebf436"
+    },
+    "visibleAssertions": {
+      "completed": "실제 실행 Fake; Artifact ready",
+      "calendar": "Agent result on Jul 24",
+      "rehydrated": "persisted checkpoints after Desktop restart"
+    },
+    "personalScreenshotInspection": "inspected completed/calendar/rehydrated; Fake engine visible; calendar non-blank; distinct hashes"
+  },
+  "gates": {
+    "backend:check": "pass",
+    "phase3": "10/10",
+    "npm test": "pass (backend suite + desktop 177 + runner 17)",
+    "typecheck": "pass",
+    "goldenEte": "pass",
+    "git diff --check": "pass"
+  },
+  "macMiniExternalGate": "not exercised",
+  "notes": "Root re-audit A–H closed. No stage/commit."
+}

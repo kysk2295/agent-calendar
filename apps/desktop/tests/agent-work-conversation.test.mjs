@@ -225,6 +225,29 @@ test('conversation parser accepts only observed public engine values and preserv
   );
 });
 
+test('conversation parser preserves Phase 3 resolved engines including Fake for completed work UI', () => {
+  for (const engine of ['hermes', 'codex', 'claude', 'grok', 'fake']) {
+    const page = apiModule.parseAgentWorkConversationPage({
+      ...CONVERSATION_FIXTURE,
+      work: {
+        ...BASE_WORK,
+        executionEngine: 'auto',
+        resolvedExecutionEngine: engine,
+        status: 'completed',
+      },
+    });
+    assert.equal(page.work.executionEngine, 'auto', `requested engine remains auto for ${engine}`);
+    assert.equal(page.work.resolvedExecutionEngine, engine);
+    assert.equal(apiModule.resolvedExecutionEngineLabel(engine), {
+      hermes: 'Hermes',
+      codex: 'Codex',
+      claude: 'Claude',
+      grok: 'Grok',
+      fake: 'Fake',
+    }[engine]);
+  }
+});
+
 test('live polling delay is bounded, visibility-aware, and slows terminal stable work', () => {
   assert.equal(apiModule.agentWorkPollDelay({ visible: false, terminal: false }), 15_000);
   assert.equal(apiModule.agentWorkPollDelay({ visible: true, terminal: false }), 2_000);

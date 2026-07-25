@@ -1,0 +1,152 @@
+name: Draft signed macOS desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable Desktop package version, without the v prefix
+        required: true
+        type: string
+      stagingPercentage:
+        description: Percentage of eligible installs offered this release
+        required: true
+        default: '10'
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: desktop-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Sign, notarize, attest, and create draft
+    runs-on: macos-14
+    environment: desktop-release
+    timeout-minutes: 60
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      STAGING_PERCENTAGE: ${{ inputs.stagingPercentage }}
+      CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out the requested release ref
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate release request and signed tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          node apps/desktop/tools/desktop-release-artifacts.mjs validate \
+            --package apps/desktop/package.json \
+            --version "$RELEASE_VERSION" \
+            --staging-percentage "$STAGING_PERCENTAGE"
+          release_tag="v${RELEASE_VERSION}"
+          tag_commit="$(git rev-parse "refs/tags/${release_tag}^{commit}")"
+          test "$tag_commit" = "$GITHUB_SHA"
+
+      - name: Require signing and notarization credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          required_values=(
+            "$CSC_LINK"
+            "$CSC_KEY_PASSWORD"
+            "$APPLE_API_KEY_P8"
+            "$APPLE_API_KEY_ID"
+            "$APPLE_API_ISSUER"
+            "$APPLE_TEAM_ID"
+          )
+          for value in "${required_values[@]}"; do
+            test -n "$value"
+          done
+
+      - name: Materialize the temporary Apple API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          apple_key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          umask 077
+          printf '%s' "$APPLE_API_KEY_P8" > "$apple_key_path"
+          echo "APPLE_API_KEY=$apple_key_path" >> "$GITHUB_ENV"
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Verify production contracts
+        run: npm run verify:beta
+
+      - name: Verify two-account Runner isolation
+        run: npm run verify:multi-user-ete
+
+      - name: Build signed and notarized macOS artifacts
+        run: npm --workspace apps/desktop run dist:mac -- --publish never
+
+      - name: Finalize staged update metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          node apps/desktop/tools/desktop-release-artifacts.mjs finalize \
+            --package apps/desktop/package.json \
+            --version "$RELEASE_VERSION" \
+            --staging-percentage "$STAGING_PERCENTAGE" \
+            --release-directory apps/desktop/release \
+            --commit-sha "$GITHUB_SHA"
+
+      - name: Generate CycloneDX SBOM
+        shell: bash
+        run: npm sbom --omit=dev --sbom-format cyclonedx > apps/desktop/release/agent-calendar-sbom.cdx.json
+
+      - name: Verify SHA-256 artifact checksums
+        working-directory: apps/desktop/release
+        run: shasum -a 256 -c SHA256SUMS
+
+      - name: Attest release provenance
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
+        with:
+          subject-path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest-mac.yml
+            apps/desktop/release/SHA256SUMS
+            apps/desktop/release/release-manifest.json
+            apps/desktop/release/agent-calendar-sbom.cdx.json
+
+      - name: Create draft GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="v${RELEASE_VERSION}"
+          gh release create "$release_tag" \
+            apps/desktop/release/*.dmg \
+            apps/desktop/release/*.zip \
+            apps/desktop/release/*.blockmap \
+            apps/desktop/release/latest-mac.yml \
+            apps/desktop/release/SHA256SUMS \
+            apps/desktop/release/release-manifest.json \
+            apps/desktop/release/agent-calendar-sbom.cdx.json \
+            --draft \
+            --verify-tag \
+            --target "$GITHUB_SHA" \
+            --title "Agent Calendar ${RELEASE_VERSION}" \
+            --notes "Staged macOS arm64 release. Initial offer: ${STAGING_PERCENTAGE}%."

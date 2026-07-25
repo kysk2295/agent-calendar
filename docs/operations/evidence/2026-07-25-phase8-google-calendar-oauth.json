@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "phase": "phase8-production-google-calendar-oauth-desktop",
+  "recordedAt": "2026-07-25T01:45:00+09:00",
+  "baseCommit": "16d59256801d822e3430cdd30eaa7b56d58ecab9",
+  "branch": "main",
+  "result": "pass",
+  "scope": {
+    "mainProcessOAuth": true,
+    "strictCalendarCallback": true,
+    "rendererCredentialIsolation": true,
+    "workspaceSessionBearer": true,
+    "immediateSync": true,
+    "firstRunGuide": true,
+    "orcaInspiredCompactUi": true,
+    "lightAndDarkQa": true
+  },
+  "electronEte": {
+    "command": "node apps/desktop/tests/playwright-phase8-google-calendar-oauth.cjs",
+    "authKitCompleteCount": 1,
+    "googleAuthorizeCount": 2,
+    "googleFinalizeCount": 1,
+    "googleSyncCount": 1,
+    "forgedStateFinalizeCount": 0,
+    "safeStorage": true,
+    "restartRestore": true,
+    "lastSyncedAt": "2026-07-25T03:00:00.000Z"
+  },
+  "screenshots": [
+    {
+      "path": "apps/desktop/test-results/phase8-google-calendar-oauth/02-first-run-guide.png",
+      "bytes": 82656,
+      "sha256": "c3c4212a260aa7b52f26627479640d4abc40b4b0f303c0ac8ec553f93c98077e",
+      "manualQa": "pass"
+    },
+    {
+      "path": "apps/desktop/test-results/phase8-google-calendar-oauth/03-google-config-error.png",
+      "bytes": 89441,
+      "sha256": "17c2a3daf2536770253a3c48c23bc38b073aa7f08a7c2c8de5200302a8d893be",
+      "manualQa": "pass"
+    },
+    {
+      "path": "apps/desktop/test-results/phase8-google-calendar-oauth/04-google-synced-guide.png",
+      "bytes": 89806,
+      "sha256": "d936132bd531e4afb6a58541c853831aa894d78b7888af3a40db75e8dcbacf4f",
+      "manualQa": "pass"
+    },
+    {
+      "path": "apps/desktop/test-results/phase8-google-calendar-oauth/06-restarted-calendar.png",
+      "bytes": 78507,
+      "sha256": "a6fa90a0d78024420428bb01359f0b46c3801885dcb254f64ca2da63c2ceea6f",
+      "manualQa": "pass"
+    },
+    {
+      "path": "apps/desktop/test-results/phase8-google-calendar-oauth-dark/03-google-config-error.png",
+      "bytes": 88964,
+      "sha256": "0d346788958ae84d9e26f73516bf0dd0c075ca7359b3a7a932711a90828de597",
+      "manualQa": "pass"
+    },
+    {
+      "path": "apps/desktop/test-results/phase8-google-calendar-oauth-dark/04-google-synced-guide.png",
+      "bytes": 89450,
+      "sha256": "0ab0a166af128edb290a8120f3952d68cd0942afe60896bea49abf6d1dbb5d59",
+      "manualQa": "pass"
+    },
+    {
+      "path": "apps/desktop/test-results/phase8-google-calendar-oauth-dark/06-restarted-calendar.png",
+      "bytes": 78377,
+      "sha256": "dd061ee9e429c28bdccffd0f0ec2da8fa72c4ce41afe0054866097879aaec3aa",
+      "manualQa": "pass"
+    }
+  ],
+  "verification": [
+    {
+      "command": "node --test apps/desktop/tests/agent-calendar-deep-link.test.mjs apps/desktop/tests/google-calendar-oauth.test.mjs apps/desktop/tests/onboarding-readiness.test.mjs",
+      "result": "pass",
+      "tests": 13
+    },
+    {
+      "command": "npm run build:desktop",
+      "result": "pass"
+    },
+    {
+      "command": "node apps/desktop/tests/playwright-workos-authkit-login-e2e.cjs",
+      "result": "pass",
+      "completeCount": 1
+    },
+    {
+      "command": "node apps/desktop/tests/playwright-phase4-unified-calendar.cjs",
+      "result": "pass",
+      "uniqueScreenshots": 6,
+      "workspaceBSources": 0,
+      "crossSyncStatus": 404
+    },
+    {
+      "command": "npm test",
+      "result": "pass",
+      "backendTests": 410,
+      "desktopTests": 196,
+      "runnerTests": 19
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "cleanup": {
+    "matchingElectronOrEteProcesses": 0,
+    "temporaryOrcaReferenceDirectoryRemoved": true
+  },
+  "knownNonBlockingObservations": [
+    "Vite reports the existing port 24678 as in use while source-importing tests; all suites pass.",
+    "The renderer production bundle remains above Vite's 500 kB warning threshold.",
+    "TypeScript and Biome LSP servers are unavailable by prior user choice; typecheck and build are blocking substitutes."
+  ],
+  "externalGatesNotClaimed": [
+    "Live Google Cloud OAuth client credentials, consent screen, redirect registration, quota, and revocation behavior",
+    "Developer ID signing, notarization, updater, and signed release-candidate custom-protocol registration"
+  ]
+}

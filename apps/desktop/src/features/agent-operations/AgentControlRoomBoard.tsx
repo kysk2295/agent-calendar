@@ -1,3 +1,11 @@
+import {
+  ArrowClockwise,
+  CaretRight,
+  CheckCircle,
+  Clock,
+  WarningCircle,
+} from '@phosphor-icons/react';
+
 import { missionStatusLabel } from './AgentOperationViews';
 import { agentTaskAppearance, agentTaskCause } from './agentTaskAppearance';
 import { hermesAutomationLastStatusLabel, hermesAutomationStatusLabel } from './hermesAutomation';
@@ -125,10 +133,16 @@ function SchedulerStatusCard({ jobs }: { readonly jobs: readonly HermesAutomatio
   const scheduleStatus = next ? `다음 실행 ${timeLabel(next.nextRunAt)}` : active.length ? '다음 실행 확인 필요' : unknown.length ? '활성 여부 확인 필요' : '예약 없음';
   return (
     <article className="agent-status-card agent-scheduler-card">
-      <header><span>↻</span><div><strong>스케줄러</strong><small data-tone={next ? 'running' : active.length || unknown.length ? 'attention' : 'ready'}>{scheduleStatus}</small></div></header>
+      <header><span><ArrowClockwise size={14} weight="regular" aria-hidden="true" /></span><div><strong>스케줄러</strong><small data-tone={next ? 'running' : active.length || unknown.length ? 'attention' : 'ready'}>{scheduleStatus}</small></div></header>
       <footer>{next ? <><span><b>{next.name}</b></span><span>{next.schedule}</span></> : unknown.length && !active.length ? <span>상태 확인 필요 <b>{unknown.length}개</b></span> : <span>활성 자동화 <b>{active.length}개</b></span>}</footer>
     </article>
   );
+}
+
+function ActivityMark({ tone }: { readonly tone: ActivityItem['tone'] }) {
+  if (tone === 'done') return <CheckCircle size={14} weight="regular" />;
+  if (tone === 'idea' || tone === 'attention') return <WarningCircle size={14} weight="regular" />;
+  return <Clock size={14} weight="regular" />;
 }
 
 function AutomationSummaryCard({ job }: { readonly job: HermesAutomationJob }) {
@@ -156,29 +170,16 @@ export function AgentControlRoomBoard(props: AgentControlRoomBoardProps) {
     .slice(0, 4);
   return (
     <div className="agent-control-room-board">
-      <section className="agent-status-grid" aria-label="에이전트 상태">
-        {props.agents.map((agent) => <AgentStatusCard key={agent.id} agent={agent} tasks={props.state.tasks.filter((task) => task.agent === agent.id)} />)}
-        {!!props.automationJobs.length && <SchedulerStatusCard jobs={props.automationJobs} />}
-        {!props.agents.length && <p className="agent-control-empty">연결된 Hermes 에이전트가 없습니다.</p>}
-      </section>
-
-      {!!visibleAutomations.length && <section className="agent-automation-section" aria-label="기존 자동화">
-        <header className="agent-control-section-title"><strong>기존 자동화</strong><span>{props.automationJobs.length}</span></header>
-        <p className="agent-control-section-note">Hermes에 저장된 일정과 최근 실행 상태를 읽기 전용으로 표시합니다.</p>
-        <div className="agent-automation-grid">{visibleAutomations.map((job) => <AutomationSummaryCard job={job} key={job.id} />)}</div>
-        {props.automationJobs.length > visibleAutomations.length && <p className="agent-automation-more">외 {props.automationJobs.length - visibleAutomations.length}개 자동화가 연결되어 있습니다.</p>}
-      </section>}
-
-      <div className="agent-control-columns">
-        <section className="agent-control-column">
+      <div className="agent-control-workbench">
+        <div className="agent-control-primary">
+          <section className="agent-control-block">
           <header className="agent-control-section-title"><strong>진행 및 확인 필요</strong><span>{running.length}</span></header>
-          <p className="agent-control-section-note">카드를 열어 진행 상황과 실패 원인을 확인하고 다음 행동을 선택하세요.</p>
           <div className="agent-running-list">
             {running.map((task) => {
               const appearance = agentTaskAppearance(task.status);
               return (
                 <button className="agent-running-card" data-status={task.status} data-work-mission={task.missionId} data-work-origin={`running:${task.id}`} type="button" key={task.id} onClick={() => props.onOpenMission(task.missionId, `running:${task.id}`)}>
-                  <span><strong>{task.title}</strong><small>{task.status === 'failed' ? '작업 열기 · 재시도 확인' : task.status === 'blocked' ? '작업 열기 · 해결 확인' : '작업 열기'} ›</small></span>
+                  <span><strong>{task.title}</strong><small><span>{task.status === 'failed' ? '재시도 확인' : task.status === 'blocked' ? '해결 확인' : '열기'}</span><CaretRight size={12} weight="bold" aria-hidden="true" /></small></span>
                   <p>{task.agent} · {task.status === 'blocked' || task.status === 'failed' ? agentTaskCause(task) : task.reason}</p>
                   <em>{appearance.label}</em>
                 </button>
@@ -186,47 +187,67 @@ export function AgentControlRoomBoard(props: AgentControlRoomBoardProps) {
             })}
             {!running.length && <p className="agent-control-empty">진행 중이거나 확인이 필요한 작업이 없습니다.</p>}
           </div>
+          </section>
 
-          <header className="agent-control-section-title agent-control-section-gap"><strong>승인 대기</strong><span data-tone="attention">{proposed.length}</span></header>
-          <div className="agent-approval-queue">
-            {proposed.map((task) => (
-              <article className="agent-approval-card" key={task.id}>
-                <button className="agent-approval-open" data-work-mission={task.missionId} data-work-origin={`approval:${task.id}`} type="button" onClick={() => props.onOpenMission(task.missionId, `approval:${task.id}`)}>
-                  <small><b>{task.agent}</b>의 제안 · {task.reason}</small>
-                  <strong>{task.title}</strong>
+          <section className="agent-control-block">
+            <header className="agent-control-section-title"><strong>승인 대기</strong><span data-tone="attention">{proposed.length}</span></header>
+            <div className="agent-approval-queue">
+              {proposed.map((task) => (
+                <article className="agent-approval-card" key={task.id}>
+                  <button className="agent-approval-open" data-work-mission={task.missionId} data-work-origin={`approval:${task.id}`} type="button" onClick={() => props.onOpenMission(task.missionId, `approval:${task.id}`)}>
+                    <small><b>{task.agent}</b>의 제안 · {task.reason}</small>
+                    <strong>{task.title}</strong>
+                  </button>
+                  <div><span>실행 계획</span><p>{task.expectedOutput || '결과 형식 확인 필요'} · {task.estimatedMinutes ? `예상 ${task.estimatedMinutes}분` : '예상 시간 미정'}</p></div>
+                  <footer>{!props.readOnly && <><button className="approve" type="button" disabled={props.busy === task.id} onClick={() => void props.onTaskAction(task.id, 'approve')}>승인</button><button type="button" disabled={props.busy === task.id} onClick={() => void props.onTaskAction(task.id, 'cancel')}>거절</button></>}<time>{timeLabel(task.dueAt || task.scheduledAt)}까지</time></footer>
+                </article>
+              ))}
+              {!proposed.length && <p className="agent-control-empty">승인을 기다리는 제안이 없습니다.</p>}
+            </div>
+          </section>
+
+          <section className="agent-control-block">
+            <header className="agent-control-section-title" data-work-focus-fallback tabIndex={-1}><strong>최근 작업 대화</strong><span>{recentWork.length}</span></header>
+            <div className="agent-recent-work-list">
+              {recentWork.map((mission) => (
+                <button className="agent-recent-work-card" data-work-mission={mission.id} data-work-origin={`conversation:${mission.id}`} type="button" key={mission.id} onClick={() => props.onOpenMission(mission.id, `conversation:${mission.id}`)}>
+                  <span><strong>{mission.title}</strong><small><span>열기</span><CaretRight size={12} weight="bold" aria-hidden="true" /></small></span>
+                  <p>{mission.agentId} · {controlHomeMissionStatusLabel(mission.status)}</p>
                 </button>
-                <div><span>실행 계획</span><p>{task.expectedOutput || '결과 형식 확인 필요'} · {task.estimatedMinutes ? `예상 ${task.estimatedMinutes}분` : '예상 시간 미정'}</p></div>
-                <footer>{!props.readOnly && <><button className="approve" type="button" disabled={props.busy === task.id} onClick={() => void props.onTaskAction(task.id, 'approve')}>✓ 승인</button><button type="button" disabled={props.busy === task.id} onClick={() => void props.onTaskAction(task.id, 'cancel')}>거절</button></>}<time>{timeLabel(task.dueAt || task.scheduledAt)}까지</time></footer>
-              </article>
-            ))}
-            {!proposed.length && <p className="agent-control-empty">승인을 기다리는 제안이 없습니다.</p>}
-          </div>
-        </section>
+              ))}
+              {!recentWork.length && <p className="agent-control-empty">저장된 위임 작업이 없습니다.</p>}
+            </div>
+          </section>
+        </div>
 
-        <section className="agent-control-column" aria-label="활동">
-          <header className="agent-control-section-title" data-work-focus-fallback tabIndex={-1}><strong>최근 작업 대화</strong><span>{recentWork.length}</span></header>
-          <p className="agent-control-section-note">저장된 위임 작업을 다시 열어 대화를 이어가거나 결과를 검토하세요.</p>
-          <div className="agent-recent-work-list">
-            {recentWork.map((mission) => (
-              <button className="agent-recent-work-card" data-work-mission={mission.id} data-work-origin={`conversation:${mission.id}`} type="button" key={mission.id} onClick={() => props.onOpenMission(mission.id, `conversation:${mission.id}`)}>
-                <span><strong>{mission.title}</strong><small>작업 대화 열기 ›</small></span>
-                <p>{mission.agentId} · {controlHomeMissionStatusLabel(mission.status)}</p>
-              </button>
-            ))}
-            {!recentWork.length && <p className="agent-control-empty">저장된 위임 작업이 없습니다.</p>}
-          </div>
+        <aside className="agent-control-rail" aria-label="실행 환경과 최근 활동">
+          <section className="agent-control-block">
+            <header className="agent-control-section-title"><strong>실행 환경</strong><span>{props.agents.length + Number(Boolean(props.automationJobs.length))}</span></header>
+            <div className="agent-status-grid" aria-label="에이전트 상태">
+              {props.agents.map((agent) => <AgentStatusCard key={agent.id} agent={agent} tasks={props.state.tasks.filter((task) => task.agent === agent.id)} />)}
+              {!!props.automationJobs.length && <SchedulerStatusCard jobs={props.automationJobs} />}
+              {!props.agents.length && <p className="agent-control-empty">연결된 Hermes 에이전트가 없습니다.</p>}
+            </div>
+          </section>
 
-          <header className="agent-control-section-title agent-control-section-gap"><strong>최근 활동</strong></header>
-          <div className="agent-activity-timeline">
-            <b>최근</b>
-            {activity.map((item) => (
-              <button type="button" data-tone={item.tone} data-work-mission={item.missionId || undefined} data-work-origin={item.missionId ? `activity:${item.id}` : undefined} disabled={!item.missionId} key={item.id} onClick={() => item.missionId && props.onOpenMission(item.missionId, `activity:${item.id}`)}>
-                <time>{item.time}</time><i aria-hidden="true">{item.tone === 'done' ? '✓' : item.tone === 'idea' || item.tone === 'attention' ? '!' : '◷'}</i><span><strong>{item.title}</strong><small>{item.meta}</small></span>
-              </button>
-            ))}
-            {!activity.length && <p className="agent-control-empty">표시할 활동이 없습니다.</p>}
-          </div>
-        </section>
+          {!!visibleAutomations.length && <section className="agent-control-block agent-automation-section" aria-label="기존 자동화">
+            <header className="agent-control-section-title"><strong>기존 자동화</strong><span>{props.automationJobs.length}</span></header>
+            <div className="agent-automation-grid">{visibleAutomations.map((job) => <AutomationSummaryCard job={job} key={job.id} />)}</div>
+            {props.automationJobs.length > visibleAutomations.length && <p className="agent-automation-more">외 {props.automationJobs.length - visibleAutomations.length}개 자동화가 연결되어 있습니다.</p>}
+          </section>}
+
+          <section className="agent-control-block">
+            <header className="agent-control-section-title"><strong>최근 활동</strong></header>
+            <div className="agent-activity-timeline">
+              {activity.map((item) => (
+                <button type="button" data-tone={item.tone} data-work-mission={item.missionId || undefined} data-work-origin={item.missionId ? `activity:${item.id}` : undefined} disabled={!item.missionId} key={item.id} onClick={() => item.missionId && props.onOpenMission(item.missionId, `activity:${item.id}`)}>
+                  <time>{item.time}</time><i aria-hidden="true"><ActivityMark tone={item.tone} /></i><span><strong>{item.title}</strong><small>{item.meta}</small></span>
+                </button>
+              ))}
+              {!activity.length && <p className="agent-control-empty">표시할 활동이 없습니다.</p>}
+            </div>
+          </section>
+        </aside>
       </div>
     </div>
   );

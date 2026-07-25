@@ -1,0 +1,225 @@
+.app-root:has(.onboarding-guide) .content {
+  padding: 0;
+  overflow: hidden;
+}
+
+.onboarding-guide {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--main);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.onboarding-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 62px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.onboarding-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.onboarding-head strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.onboarding-head span {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.onboarding-head > span {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.onboarding-layout {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.onboarding-workspace {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--main);
+}
+
+.onboarding-steps {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: 10px 8px;
+  overflow-y: auto;
+  background: var(--sidebar);
+  border-right: 1px solid var(--line);
+}
+
+.onboarding-steps button {
+  min-width: 0;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  color: var(--muted-dark);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  text-align: left;
+  transition: background-color .12s ease, color .12s ease;
+}
+
+.onboarding-steps button:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 58%, var(--sidebar));
+}
+
+.onboarding-steps button[data-active="true"] {
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.onboarding-step-index {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.onboarding-steps button[data-ready="true"] .onboarding-step-index {
+  color: var(--text);
+  background: var(--panel);
+}
+
+.onboarding-step-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.onboarding-step-copy strong,
+.onboarding-step-state {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-step-copy strong {
+  color: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.onboarding-step-state {
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
+.onboarding-detail {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 16px;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.onboarding-detail-copy {
+  max-width: 640px;
+}
+
+.onboarding-detail-copy h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -.02em;
+}
+
+.onboarding-detail-copy p {
+  max-width: 520px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .onboarding-head {
+    min-height: 56px;
+    padding-inline: 14px;
+  }
+
+  .onboarding-layout {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+
+  .onboarding-steps {
+    padding-inline: 6px;
+  }
+
+  .onboarding-detail {
+    padding: 20px;
+  }
+
+  .onboarding-footer {
+    padding-inline: 20px;
+  }
+}
+
+@media (max-width: 620px) {
+  .onboarding-head > div > span {
+    display: none;
+  }
+
+  .onboarding-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .onboarding-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 6px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .onboarding-steps button {
+    min-height: 42px;
+  }
+
+  .onboarding-footer {
+    align-items: stretch;
+  }
+}

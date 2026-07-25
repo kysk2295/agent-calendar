@@ -2,7 +2,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { homedir } from 'node:os';
 import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { askHermesWithSources, askRailwayWithSources } from './hermesChat.js';
 import { buildLocalWikiGraph } from './localWikiGraph.js';
 import { scanWikiVaultIndex } from './wikiScanner.js';
 import { searchWikiChunks } from './wikiSearch.js';
@@ -11,7 +10,6 @@ import type { WikiAskRequest } from './wikiTypes.js';
 export { buildLocalWikiGraph } from './localWikiGraph.js';
 
 const DEFAULT_VAULT = path.join(homedir(), 'Library', 'Mobile Documents', 'com~apple~CloudDocs', 'LLM-Wiki');
-const DEFAULT_RAILWAY_BASE_URL = 'https://hermes-os-production-e174.up.railway.app';
 
 export class LocalWikiPathError extends Error {
   readonly name = 'LocalWikiPathError';
@@ -103,14 +101,6 @@ function sendJson(res: ServerResponse, status: number, payload: unknown) {
   res.end(JSON.stringify(payload));
 }
 
-function fallbackAnswerFor(error: unknown) {
-  const message = error instanceof Error ? error.message : 'unknown error';
-  if (/timeout|timed out|시간 초과/i.test(message)) {
-    return `Hermes가 시간 내 자연어 답변을 생성하지 못했어요. 검색 근거는 확보됐지만, 답변 생성은 실패했습니다: ${message}`;
-  }
-  return `Hermes가 자연어 답변을 생성하지 못했어요. 검색 근거는 확보됐지만, 답변 생성은 실패했습니다: ${message}`;
-}
-
 async function chunksForVault(root: string) {
   return (await indexForVault(root)).chunks;
 }
@@ -127,14 +117,10 @@ export function isLocalWikiRoute(method = 'GET', requestUrl = '') {
   const pathName = new URL(requestUrl, 'http://127.0.0.1').pathname;
   if (method.toUpperCase() === 'GET' && pathName === '/api/wiki') return true;
   return method.toUpperCase() === 'POST'
-    && ['/api/wiki/search', '/api/search', '/api/wiki/ask', '/api/ask'].includes(pathName);
+    && ['/api/wiki/search', '/api/search'].includes(pathName);
 }
 
-export async function handleLocalWikiRoute(req: IncomingMessage, res: ServerResponse, options: {
-  fetchImpl?: typeof fetch;
-  railwayBaseUrl?: string;
-  railwayApiToken?: string;
-} = {}) {
+export async function handleLocalWikiRoute(req: IncomingMessage, res: ServerResponse) {
   const pathName = new URL(req.url || '/', 'http://127.0.0.1').pathname;
   const root = rootFromEnv();
   if (req.method?.toUpperCase() === 'GET' && pathName === '/api/wiki') {
@@ -156,61 +142,5 @@ export async function handleLocalWikiRoute(req: IncomingMessage, res: ServerResp
     sendJson(res, 200, { ok: true, query, results });
     return;
   }
-
-  const baseUrl = process.env.HERMES_API_BASE || 'http://127.0.0.1:8642/v1';
-  const apiKey = process.env.HERMES_API_KEY || process.env.API_SERVER_KEY || '';
-  const agent = process.env.HERMES_WIKI_AGENT || process.env.HERMES_MODEL || 'wiki-curator';
-  const railwayBaseUrl = process.env.HERMES_RAILWAY_BASE_URL || options.railwayBaseUrl || DEFAULT_RAILWAY_BASE_URL;
-  const railwayApiToken = process.env.HERMES_RAILWAY_API_TOKEN || options.railwayApiToken || '';
-  const directHermes = process.env.WIKI_ASK_DIRECT_HERMES === '1';
-
-  try {
-    const hermes = directHermes
-      ? await askHermesWithSources({
-        baseUrl,
-        apiKey,
-        agent,
-        model: agent,
-        question: query,
-        sources: results,
-        fetchImpl: options.fetchImpl,
-      })
-      : await askRailwayWithSources({
-        baseUrl: railwayBaseUrl,
-        apiToken: railwayApiToken,
-        agent,
-        model: agent,
-        question: query,
-        sources: results,
-        fetchImpl: options.fetchImpl,
-      });
-    sendJson(res, 200, {
-      ok: true,
-      answer: hermes.answer,
-      sources: results.map(({ id, path, title, heading, snippet, score }) => ({ id, path, title, heading, snippet, score })),
-      search: { query, results },
-      engine: {
-        provider: directHermes ? 'hermes' : 'railway-hermes',
-        baseUrl: directHermes ? baseUrl : railwayBaseUrl,
-        model: hermes.model,
-        agent: hermes.agent,
-        source: 'source' in hermes ? hermes.source : undefined,
-      },
-      gatewayFallback: 'gatewayFallback' in hermes ? hermes.gatewayFallback : false,
-    });
-  } catch (error) {
-    sendJson(res, 200, {
-      ok: true,
-      answer: fallbackAnswerFor(error),
-      sources: results.map(({ id, path, title, heading, snippet, score }) => ({ id, path, title, heading, snippet, score })),
-      search: { query, results },
-      engine: {
-        provider: directHermes ? 'hermes' : 'railway-hermes',
-        baseUrl: directHermes ? baseUrl : railwayBaseUrl,
-        model: agent,
-        agent,
-      },
-      gatewayFallback: true,
-    });
-  }
+  sendJson(res, 404, { ok: false, error: 'Local Wiki inference is not available' });
 }
