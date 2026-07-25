@@ -50,6 +50,13 @@ function createCleanAccountEteEvidence({
   if (!LIVE_ENGINES.has(String(report.selectedEngine || '').toLowerCase())) {
     throw new Error('a live execution engine is required for release evidence');
   }
+  if (
+    report.identityProvider !== 'workos_authkit'
+    || report.identityProviderLive !== true
+    || report.authAdapterInjected !== false
+  ) {
+    throw new Error('live WorkOS AuthKit identity evidence is required');
+  }
   if (!exactIsoTime(capturedAt)) {
     throw new Error('release evidence timestamp is invalid');
   }
@@ -75,10 +82,15 @@ function createCleanAccountEteEvidence({
   }
   assertScreenshotEvidence(report);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'clean_account_ete',
     capturedAt,
     binding: normalizeBinding(binding),
+    identity: {
+      provider: 'workos_authkit',
+      liveTenant: true,
+      injectedAdapter: false,
+    },
     checks: {
       workspaceLogin: true,
       runnerEnrollment: true,

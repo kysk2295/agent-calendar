@@ -38,8 +38,10 @@ candidate-bound `clean_account_ete` JSON으로 산출한다.
 - [x] evidence binding은 full commit SHA와 deployment/environment/service ID를 요구하고
       raw ETE report의 사용자·경로·오류 문자열을 반사하지 않는다.
 - [x] Phase 3 Golden ETE가 실제 관찰한 일곱 필수 check를 명시적으로 보고한다.
-- [x] live Codex ETE가 로컬 candidate binding으로 JSON evidence를 생성하고 release gate
-      contract validator를 통과한다.
+- [x] local Codex ETE는 injected AuthKit provenance를 명시하고 production release
+      evidence 생성을 거부한다.
+- [x] production evidence는 live WorkOS AuthKit tenant와 non-injected adapter를
+      요구하는 schema 2로 제한한다.
 
 ## Edge Cases
 
@@ -106,9 +108,10 @@ Runner credential, Railway environment에는 변경이 없다.
   - passed in 28.1 seconds with one login, one attempt, one Calendar result, restart/reconnect, and
     five distinct screenshots; release evidence was not written.
 - live Codex Phase 3 Golden ETE
-  - passed in 31.3 seconds; candidate-bound evidence written with mode `0600`.
-- local release preflight simulation
-  - exact local binding passed; the same evidence against actual Railway returned `stop_release`.
+  - passed as product-surface evidence, but its injected AuthKit login is now explicitly
+    release-ineligible.
+- release preflight
+  - schema 1 or injected/fake identity evidence is rejected even when Engine and journey checks pass.
 - `npm run backend:check`
   - passed.
 - Phase 3 ETE Desktop build
@@ -120,5 +123,5 @@ Runner credential, Railway environment에는 변경이 없다.
 
 ## Remaining Risks
 
-- 실제 staging candidate binding과 WorkOS tenant 로그인을 사용한 재실행이 남는다.
+- 실제 staging candidate binding과 WorkOS tenant 로그인을 사용한 schema 2 evidence가 남는다.
 - Railway Public API의 `canRollback` snapshot 자동화가 다음 운영 slice로 남는다.

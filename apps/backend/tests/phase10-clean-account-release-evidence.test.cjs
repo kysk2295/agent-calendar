@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
@@ -9,6 +11,10 @@ const {
 
 const COMMIT = 'c'.repeat(40);
 const CAPTURED_AT = '2026-07-25T12:00:00.000Z';
+const LOCAL_ETE = path.resolve(
+  __dirname,
+  '../../desktop/tests/playwright-phase3-golden-ete.cjs',
+);
 
 function validBinding() {
   return {
@@ -24,6 +30,9 @@ function validReport() {
     ok: true,
     mode: 'single-account',
     selectedEngine: 'codex',
+    identityProvider: 'workos_authkit',
+    identityProviderLive: true,
+    authAdapterInjected: false,
     backendRestart: true,
     desktopRestart: true,
     runnerEnrolled: true,
@@ -58,10 +67,15 @@ test('live clean-account report becomes bounded candidate-bound release evidence
   });
 
   assert.deepEqual(evidence, {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'clean_account_ete',
     capturedAt: CAPTURED_AT,
     binding: validBinding(),
+    identity: {
+      provider: 'workos_authkit',
+      liveTenant: true,
+      injectedAdapter: false,
+    },
     checks: {
       workspaceLogin: true,
       runnerEnrollment: true,
@@ -73,6 +87,37 @@ test('live clean-account report becomes bounded candidate-bound release evidence
     },
   });
   assert.doesNotMatch(JSON.stringify(evidence), /workspace-must-not-leak|\/Users\/private/);
+});
+
+test('fake or injected AuthKit cannot become production release evidence', () => {
+  for (const mutate of [
+    (report) => { delete report.identityProvider; },
+    (report) => { report.identityProvider = 'fake_authkit'; },
+    (report) => { report.identityProviderLive = false; },
+    (report) => { report.authAdapterInjected = true; },
+  ]) {
+    const report = validReport();
+    mutate(report);
+    assert.throws(
+      () => createCleanAccountEteEvidence({
+        report,
+        binding: validBinding(),
+        capturedAt: CAPTURED_AT,
+      }),
+      /WorkOS|identity|AuthKit/i,
+    );
+  }
+});
+
+test('local Phase 3 ETE declares its injected AuthKit and refuses release output', () => {
+  const source = fs.readFileSync(LOCAL_ETE, 'utf8');
+  assert.match(source, /identityProvider:\s*'workos_authkit_test_adapter'/);
+  assert.match(source, /identityProviderLive:\s*false/);
+  assert.match(source, /authAdapterInjected:\s*true/);
+  assert.match(
+    source,
+    /local injected AuthKit ETE cannot write production release evidence/,
+  );
 });
 
 test('Fake Engine and terminal failure reports cannot become release success evidence', () => {

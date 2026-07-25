@@ -37,6 +37,8 @@ commit, environment, service에 결속된 구조화 증거일 때만 production 
 - [x] 두 증거는 유효한 ISO 시각이며 preflight 기준 30분보다 오래되면 거부된다.
 - [x] staging DB isolation evidence가 production/staging service instance와 비밀 없는
       endpoint fingerprint를 비교하며 같은 endpoint 승격을 거부한다.
+- [x] clean-account evidence는 실제 WorkOS AuthKit tenant와 non-injected adapter를
+      증명하는 schema 2만 허용한다.
 - [x] preflight 출력에는 만료 시각이 있고 production deploy consumer가 만료된 파일을 거부한다.
 - [x] 기존 `--candidate-ready`, `--smoke-passed` boolean CLI 입력을 제거한다.
 - [x] gate 출력은 bounded identifier와 failure code만 포함하고 credential/사용자 데이터를
@@ -129,6 +131,14 @@ commit, environment, service에 결속된 구조화 증거일 때만 production 
     database name, credential을 출력하지 않는 endpoint fingerprint만 저장한다.
   - 현재 production-only project에서는 bounded `staging_environment_missing`으로
     fail closed함을 다시 관찰했다.
+
+## Identity hardening follow-up
+
+- `docs/plans/2026-07-25-phase10-live-workos-release-evidence.md`
+  - 실제 Engine을 사용한 local ETE라도 injected AuthKit이면 release evidence로
+    승격하지 않는다.
+  - schema 2 clean-account evidence는 `workos_authkit`, live tenant,
+    non-injected adapter를 모두 요구한다.
 
 ## Follow-up Evidence Producer
 

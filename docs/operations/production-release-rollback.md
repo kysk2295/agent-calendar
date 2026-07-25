@@ -98,7 +98,12 @@ readiness 증거는 `schemaVersion=1`, `kind=gateway_readiness`, 수집 시각, 
 deployment/commit/environment/service 결속값, `/api/ready`와 `/api/health`의 HTTP 200
 및 `ok=true`, `/api/gateway-status`의 exact deployment ID와 matching commit prefix를
 가진다.
-clean-account ETE 증거는 같은 결속값과 다음 일곱 결과를 모두 `true`로 가진다.
+clean-account ETE 증거는 schema 2이며 같은 결속값, 실제 WorkOS AuthKit
+identity provenance와 다음 일곱 결과를 모두 가진다.
+
+- `identity.provider=workos_authkit`
+- `identity.liveTenant=true`
+- `identity.injectedAdapter=false`
 
 - Workspace 로그인
 - Runner 등록

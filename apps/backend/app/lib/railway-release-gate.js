@@ -264,6 +264,7 @@ function validateCandidateEvidence({
   evaluatedAtMs,
   failurePrefix,
   payloadValid,
+  schemaVersion = 1,
 }) {
   if (!evidence || typeof evidence !== 'object') {
     return {
@@ -273,7 +274,7 @@ function validateCandidateEvidence({
   }
   const failures = [];
   if (
-    evidence.schemaVersion !== 1
+    evidence.schemaVersion !== schemaVersion
     || evidence.kind !== kind
     || !payloadValid(evidence)
   ) {
@@ -378,9 +379,13 @@ function evaluateRailwayPreflight({
     expectedBinding,
     evaluatedAtMs,
     failurePrefix: 'candidate_smoke_evidence',
+    schemaVersion: 2,
     payloadValid: (value) => (
       value.checks
       && REQUIRED_CLEAN_ACCOUNT_CHECKS.every((name) => value.checks[name] === true)
+      && value.identity?.provider === 'workos_authkit'
+      && value.identity?.liveTenant === true
+      && value.identity?.injectedAdapter === false
     ),
   });
   failures.push(...smoke.failures);

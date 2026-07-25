@@ -231,10 +231,15 @@ function validReadinessEvidence() {
 
 function validSmokeEvidence() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'clean_account_ete',
     capturedAt: '2026-07-25T10:05:00.000Z',
     binding: candidateBinding(),
+    identity: {
+      provider: 'workos_authkit',
+      liveTenant: true,
+      injectedAdapter: false,
+    },
     checks: {
       workspaceLogin: true,
       runnerEnrollment: true,
@@ -400,6 +405,26 @@ test('preflight rejects incomplete clean-account ETE and ignores legacy boolean 
   assert.equal(incompleteResult.ok, false);
   assert.equal(
     incompleteResult.failures.includes('candidate_smoke_evidence_invalid'),
+    true,
+  );
+
+  const fakeIdentity = validSmokeEvidence();
+  fakeIdentity.identity.liveTenant = false;
+  fakeIdentity.identity.injectedAdapter = true;
+  const fakeIdentityResult = evaluateValidPreflight({ smokeEvidence: fakeIdentity });
+  assert.equal(fakeIdentityResult.ok, false);
+  assert.equal(
+    fakeIdentityResult.failures.includes('candidate_smoke_evidence_invalid'),
+    true,
+  );
+
+  const legacyEvidence = validSmokeEvidence();
+  legacyEvidence.schemaVersion = 1;
+  delete legacyEvidence.identity;
+  const legacyEvidenceResult = evaluateValidPreflight({ smokeEvidence: legacyEvidence });
+  assert.equal(legacyEvidenceResult.ok, false);
+  assert.equal(
+    legacyEvidenceResult.failures.includes('candidate_smoke_evidence_invalid'),
     true,
   );
 

@@ -2,8 +2,9 @@
 
 /**
  * Phase 3 golden ETE — UI-only journey (no acceptWork / issueSession journey-driving).
- * fake AuthKit + production + ephemeral PG + real apps/runner + Electron.
+ * injected test AuthKit + production-mode dispatch + ephemeral PG + real apps/runner + Electron.
  * Fake Engine only as Engine adapter inside real Runner protocol.
+ * This harness is product ETE evidence, never live WorkOS production release evidence.
  */
 
 const assert = require('node:assert/strict');
@@ -47,6 +48,11 @@ assert.ok(!releaseEvidencePath || !twoAccountMode, 'release evidence requires th
 assert.ok(
   !releaseEvidencePath || (!useFakeEngine && !expectFailure),
   'release evidence requires a successful live Engine ETE',
+);
+assert.equal(
+  releaseEvidencePath,
+  '',
+  'local injected AuthKit ETE cannot write production release evidence',
 );
 const expectedEngineLabel = selectedEngine === 'fake'
   ? 'Fake'
@@ -1486,6 +1492,9 @@ async function main() {
       ok: true,
       mode: 'single-account',
       selectedEngine,
+      identityProvider: 'workos_authkit_test_adapter',
+      identityProviderLive: false,
+      authAdapterInjected: true,
       durationMs: Date.now() - started,
       backendRestart: true,
       desktopRestart: true,
