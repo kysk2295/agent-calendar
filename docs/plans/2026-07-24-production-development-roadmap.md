@@ -877,7 +877,12 @@ Mobile-specific gate:
       rollback snapshot remain external. A separate single-run operations collector now preserves
       bounded alert streaks outside the Gateway, evaluates readiness/SLO/5xx/latency/auth/admission
       rules, and emits redaction-safe raised/resolved transitions with P1 exit status; scheduler
-      deployment, long-term retention, dashboards, and actual on-call delivery remain external
+      deployment, long-term retention, dashboards, and actual on-call delivery remain external.
+      The Mobile-facing `client-v1` manifest, negotiation, Desktop renderer/Electron headers,
+      mutation idempotency contract, and Google Calendar OAuth main-process closure are verified
+      (`docs/plans/2026-07-25-phase10-client-v1-contract-freeze.md`,
+      `docs/plans/2026-07-25-phase10-google-calendar-client-v1-contract.md`).
+      Operations evidence:
       (`docs/plans/2026-07-25-phase10-production-observability.md`,
       `docs/plans/2026-07-25-phase10-operations-alert-collector.md`,
       `docs/plans/2026-07-25-phase10-disaster-recovery-rehearsal.md`,
@@ -890,7 +895,7 @@ Mobile-specific gate:
       **Still open:** external collector deployment/retention/delivery, Railway managed backup retention and live restore,
       isolated Railway staging and observed production rollback, signed/notarized public Runner
       release and remote rollout, external edge/WAF and independent penetration testing,
-      four-week private beta stability window, and v1 contract freeze.
+      and the four-week private beta stability window.
 - [ ] Phase 11: Mobile Agent Calendar — final product implementation Phase
 
 ## Verification Notes

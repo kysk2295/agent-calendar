@@ -1,3 +1,11 @@
+import { randomUUID } from 'node:crypto';
+
+import {
+  CLIENT_IDEMPOTENCY_KEY_HEADER,
+  CLIENT_REQUEST_ID_HEADER,
+  clientV1JsonHeaders,
+} from './clientContract.js';
+
 export type GoogleCalendarOAuthCallback = Readonly<{
   kind: 'google-calendar-callback';
   code: string;
@@ -26,6 +34,7 @@ export type DesktopGoogleCalendarOAuthOptions = Readonly<{
   getAccessToken: () => Promise<string | null>;
   fetchImpl?: typeof fetch;
   openExternal: (url: string) => Promise<void>;
+  createRequestId?: () => string;
   timeoutMs?: number;
 }>;
 
@@ -122,12 +131,14 @@ export function createDesktopGoogleCalendarOAuth(
   options: DesktopGoogleCalendarOAuthOptions,
 ) {
   const fetchImpl = options.fetchImpl || fetch;
+  const createRequestId = options.createRequestId || randomUUID;
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
   let pending: PendingAttempt | null = null;
 
   const request = async (
     path: string,
     init: RequestInit = {},
+    policy: Readonly<{ idempotent?: boolean }> = {},
   ): Promise<JsonRecord> => {
     const token = await options.getAccessToken();
     if (!token) {
@@ -145,13 +156,19 @@ export function createDesktopGoogleCalendarOAuth(
         500,
       );
     }
+    const method = String(init.method || 'GET').toUpperCase();
+    const headers = new Headers(clientV1JsonHeaders({
+      authorization: `Bearer ${token}`,
+    }));
+    if (method !== 'GET') {
+      const requestId = createRequestId();
+      headers.set(CLIENT_REQUEST_ID_HEADER, requestId);
+      if (policy.idempotent) headers.set(CLIENT_IDEMPOTENCY_KEY_HEADER, requestId);
+    }
+    new Headers(init.headers).forEach((value, name) => headers.set(name, value));
     const response = await fetchImpl(`${base}${path}`, {
       ...init,
-      headers: {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/json',
-        ...init.headers,
-      },
+      headers,
     });
     const payload = await response.json().catch(() => ({})) as JsonRecord;
     if (!response.ok || payload.ok === false) throw responseError(response.status, payload);
@@ -231,14 +248,14 @@ export function createDesktopGoogleCalendarOAuth(
           code: callback.code,
           state: callback.state,
         }),
-      });
+      }, { idempotent: true });
       const connectedSource = publicSource(completed.source);
       let sync: DesktopGoogleCalendarOAuthResult['sync'] = { ok: true };
       try {
         await request(`/api/calendar/sources/${encodeURIComponent(connectedSource.id)}/sync`, {
           method: 'POST',
           body: JSON.stringify({ full: false }),
-        });
+        }, { idempotent: true });
       } catch (error) {
         sync = {
           ok: false,

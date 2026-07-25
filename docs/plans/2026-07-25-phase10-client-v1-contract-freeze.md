@@ -66,6 +66,8 @@ are two real adapters of the same HTTP interface. No Mobile-specific server adap
 - [x] Existing clients that request ordinary JSON remain backward compatible.
 - [x] Desktop JSON and SSE requests identify `client-v1`; mutation requests carry a stable
       request identity/idempotency key.
+- [x] Electron main-process Google Calendar OAuth start/callback/first-sync requests identify
+      `client-v1`, and the OAuth start/callback routes are frozen in the manifest.
 - [x] Backend and Desktop verification gates pass.
 
 ## Edge Cases
@@ -133,6 +135,8 @@ Product code follows the failing tests.
   discovery, supported negotiation, mutation identity, and unsupported-version rejection.
 - Evidence:
   `docs/operations/evidence/2026-07-25-phase10-client-v1-contract.md`
+- Google Calendar main-process closure:
+  `docs/operations/evidence/2026-07-25-phase10-google-calendar-client-v1-contract.md`
 
 ## Rollback / Fallback
 
@@ -148,3 +152,5 @@ remain the fallback throughout this slice.
   live operations, and legacy-removal evidence outside this slice.
 - A future Mobile adapter must reuse client-generated idempotency keys across retries instead of
   generating a new key for each retry attempt.
+- Live Google OAuth remains a staging release gate until production Google Cloud credentials and
+  the registered callback are available.

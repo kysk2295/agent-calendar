@@ -68,6 +68,8 @@ test('client-v1 manifest freezes the seven Mobile-entry route families', () => {
   assert.equal(new Set(operationIds).size, operationIds.length);
   assert.ok(operationIds.length >= 45);
   assert.ok(operationIds.includes('calendar.schedule-ingest'));
+  assert.ok(operationIds.includes('calendar.google-authorize'));
+  assert.ok(operationIds.includes('calendar.google-callback'));
 });
 
 test('client-v1 manifest matches the production registry and fails closed on drift', () => {

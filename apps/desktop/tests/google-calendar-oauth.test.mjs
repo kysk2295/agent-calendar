@@ -25,13 +25,19 @@ function response(status, payload) {
 function createHappyHarness() {
   const requests = [];
   const opened = [];
+  let requestSequence = 0;
   const fetchImpl = async (url, init = {}) => {
     const pathname = new URL(String(url)).pathname;
     const body = init.body ? JSON.parse(String(init.body)) : {};
+    const headers = new Headers(init.headers);
     requests.push({
       pathname,
       method: init.method || 'GET',
-      authorization: new Headers(init.headers).get('authorization'),
+      authorization: headers.get('authorization'),
+      accept: headers.get('accept'),
+      contract: headers.get('x-agent-calendar-contract'),
+      clientRequestId: headers.get('x-client-request-id'),
+      idempotencyKey: headers.get('idempotency-key'),
       body,
     });
     if (pathname.endsWith('/authorize')) {
@@ -85,6 +91,7 @@ function createHappyHarness() {
     openExternal: async (url) => {
       opened.push(url);
     },
+    createRequestId: () => `calendar-request-${++requestSequence}`,
     timeoutMs: 5_000,
   });
   return { coordinator, requests, opened };
@@ -129,6 +136,37 @@ test('Google Calendar OAuth stays in main, finalizes once, syncs, and returns pu
   assert.equal(
     requests.every((request) => request.authorization === 'Bearer workspace-access-token'),
     true,
+  );
+  assert.equal(
+    requests.every((request) => (
+      request.accept === 'application/vnd.agent-calendar.client-v1+json, application/json'
+      && request.contract === 'client-v1'
+    )),
+    true,
+  );
+  assert.deepEqual(
+    requests.map((request) => ({
+      clientRequestId: request.clientRequestId,
+      idempotencyKey: request.idempotencyKey,
+    })),
+    [
+      {
+        clientRequestId: 'calendar-request-1',
+        idempotencyKey: null,
+      },
+      {
+        clientRequestId: 'calendar-request-2',
+        idempotencyKey: 'calendar-request-2',
+      },
+      {
+        clientRequestId: 'calendar-request-3',
+        idempotencyKey: 'calendar-request-3',
+      },
+      {
+        clientRequestId: null,
+        idempotencyKey: null,
+      },
+    ],
   );
   assert.deepEqual(requests[1].body, {
     code: 'calendar-code-1',

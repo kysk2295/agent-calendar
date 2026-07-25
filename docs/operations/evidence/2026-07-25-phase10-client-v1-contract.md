@@ -9,7 +9,7 @@
 
 `client-v1` exposes one tenant-free manifest at `GET /api/contracts/client-v1`.
 
-The manifest contains 55 supported operations across exactly these seven families:
+The manifest contains 57 supported operations across exactly these seven families:
 
 1. identity
 2. unified-calendar
@@ -18,6 +18,10 @@ The manifest contains 55 supported operations across exactly these seven familie
 5. automation
 6. knowledge
 7. notifications
+
+The two operations added after the original freeze are the Workspace-scoped Google Calendar
+OAuth start and callback routes. This closes the Electron main-process Calendar connection flow;
+the first sync and source list were already frozen.
 
 The compatibility rule is additive-only within `client-v1`. A breaking change requires a new
 major contract identifier. The production route assertion fails startup/tests if a frozen
@@ -56,6 +60,8 @@ Expected RED:
 - Electron proxy test failed because contract/request/idempotency headers were neither allowed
   by preflight nor forwarded upstream.
 - Main-process contract test failed because the shared Electron contract module did not exist.
+- Follow-up Google Calendar test failed because main-process OAuth requests did not yet send the
+  contract/request/idempotency headers and the manifest omitted authorize/callback.
 
 GREEN:
 

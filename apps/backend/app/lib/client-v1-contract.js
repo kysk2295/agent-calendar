@@ -94,6 +94,8 @@ const clientV1ContractManifest = deepFreeze({
       operation('calendar.schedule-ingest', 'POST', '/api/assistant/ingest', 'assistant_ingest_scoped', 'scoped_product', 'read', false, 'member'),
       operation('calendar.unified-range', 'GET', '/api/calendar/unified', 'calendar_unified_range', 'scoped_product', 'read', true, 'member'),
       operation('calendar.sources-list', 'GET', '/api/calendar/sources', 'calendar_sources_list', 'scoped_product', 'read', true, 'member'),
+      operation('calendar.google-authorize', 'POST', '/api/calendar/sources/google/authorize', 'calendar_google_authorize', 'scoped_product', 'write', false, 'owner'),
+      operation('calendar.google-callback', 'POST', '/api/calendar/sources/google/callback', 'calendar_google_callback', 'scoped_product', 'write', true, 'owner'),
       operation('calendar.source-sync', 'POST', '/api/calendar/sources/:id/sync', 'calendar_source_sync', 'scoped_product', 'write', true, 'member'),
       operation('calendar.source-disconnect', 'POST', '/api/calendar/sources/:id/disconnect', 'calendar_source_disconnect', 'scoped_product', 'write', true, 'owner'),
       operation('calendar.external-create', 'POST', '/api/calendar/external/events', 'calendar_external_create', 'scoped_product', 'write', true, 'member'),
