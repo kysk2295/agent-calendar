@@ -43,7 +43,7 @@ test('Work Conversation header exposes a scannable status and assignment summary
   assert.match(conversationSource, /className="agent-work-status-badge"/);
   assert.match(conversationSource, /className="agent-work-assignment"/);
   assert.match(conversationSource, /className="agent-work-attention"/);
-  const focusedTitle = rule('.agent-work-header h1:focus');
+  const focusedTitle = rule('.agent-work-header h1:focus-visible');
   assert.match(focusedTitle, /outline:\s*2px\s+solid/);
   assert.doesNotMatch(focusedTitle, /outline:\s*none/);
 });

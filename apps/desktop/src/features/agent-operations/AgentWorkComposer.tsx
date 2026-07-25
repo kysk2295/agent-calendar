@@ -42,7 +42,7 @@ export function AgentWorkComposer(props: AgentWorkComposerProps) {
       {delivery && <p className="agent-work-delivery" role="status">{deliveryCopy(delivery.status, delivery.applicationMode)}</p>}
       {visibleError && <p className="agent-work-message-error" role="alert">{visibleError}</p>}
       <div><textarea aria-label="작업 대화 메시지" rows={2} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={keyDown} placeholder="방향을 바꾸거나, 결과를 수정하거나, 다음 행동을 요청하세요" /><button type="button" aria-label="작업 대화에 보내기" disabled={!draft.trim() || sending || props.streaming} onClick={() => void submit()}>{sending ? '전송 중' : props.streaming ? '응답 중' : '보내기'}</button></div>
-      <small>Enter로 전송 · Shift+Enter로 줄바꿈</small>
+      <small className="agent-work-composer-hint"><span>같은 작업 대화에 이어서 보냅니다.</span><span>Enter로 전송 · Shift+Enter로 줄바꿈</span></small>
     </section>
   );
 }

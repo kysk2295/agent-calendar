@@ -41,6 +41,29 @@ function checkpointLabel(kind: AgentWorkCheckpoint['kind']): string {
   }
 }
 
+type CheckpointPresentation = 'user' | 'assistant' | 'activity' | 'decision' | 'result';
+
+function checkpointPresentation(kind: AgentWorkCheckpoint['kind']): CheckpointPresentation {
+  switch (kind) {
+    case 'user_message': return 'user';
+    case 'agent_message': return 'assistant';
+    case 'plan':
+    case 'progress':
+    case 'tool':
+    case 'revision_started':
+      return 'activity';
+    case 'approval_request':
+    case 'approval_response':
+    case 'blocked':
+    case 'error':
+      return 'decision';
+    case 'artifact':
+    case 'completion':
+    case 'revision_completed':
+      return 'result';
+  }
+}
+
 function timeLabel(value: string): string {
   const timestamp = Date.parse(value);
   if (Number.isNaN(timestamp)) return '';
@@ -126,8 +149,10 @@ export function AgentWorkTimeline(props: AgentWorkTimelineProps) {
         const delivery = checkpoint.metadata.deliveryStatus && checkpoint.metadata.applicationMode
           ? deliveryCopy(checkpoint.metadata.deliveryStatus, checkpoint.metadata.applicationMode).split('. ', 2)
           : null;
-        return <article className="agent-checkpoint" data-kind={checkpoint.kind} key={checkpoint.id}>
-          <header><span>{checkpointLabel(checkpoint.kind)}</span><time dateTime={checkpoint.createdAt}>{timeLabel(checkpoint.createdAt)}</time></header>
+        const presentation = checkpointPresentation(checkpoint.kind);
+        return <article className="agent-checkpoint" data-kind={checkpoint.kind} data-presentation={presentation} key={checkpoint.id}>
+          {presentation === 'assistant' && <span className="agent-checkpoint-avatar" aria-hidden="true">{props.responsibleAgentName.trim().slice(0, 1) || 'A'}</span>}
+          <header><span>{checkpoint.kind === 'agent_message' ? props.responsibleAgentName : checkpointLabel(checkpoint.kind)}</span><time dateTime={checkpoint.createdAt}>{timeLabel(checkpoint.createdAt)}</time></header>
           <p>{preserveWorkClosingPhrase(displayedText)}</p>
           {delivery && <small className="agent-checkpoint-delivery"><span>{delivery[0]}</span>{delivery[1] && <span className="agent-checkpoint-delivery-outcome">{delivery[1]}</span>}</small>}
           {checkpoint.kind === 'approval_request' && task && <div className="agent-checkpoint-approval"><dl><div><dt>영향</dt><dd>{task.expectedOutput}</dd></div><div><dt>범위</dt><dd>{task.reason}</dd></div><div><dt>담당 에이전트</dt><dd>{props.responsibleAgentName}</dd></div></dl>{approvalAvailable && <div><button type="button" disabled={props.busy === task.id} onClick={() => void props.onTaskAction(task.id, 'approve')}>이 제안 승인</button><button type="button" disabled={props.busy === task.id} onClick={() => void props.onTaskAction(task.id, 'cancel')}>이 제안 거절</button></div>}</div>}
@@ -136,8 +161,9 @@ export function AgentWorkTimeline(props: AgentWorkTimelineProps) {
           {checkpoint.metadata.revisionNumber !== undefined && <small>수정 차수 {checkpoint.metadata.revisionNumber}</small>}
         </article>;
       })}
-      {(props.liveTurn.active || props.liveTurn.text || props.liveTurn.error) && <article className="agent-checkpoint agent-work-live-turn" data-kind={props.liveTurn.error ? 'error' : 'agent_message'} aria-live={props.liveTurn.error ? 'assertive' : 'polite'} role={props.liveTurn.error ? 'alert' : undefined}>
-        <header><span>{props.liveTurn.error ? '오류' : '담당 에이전트'}</span><time>{props.liveTurn.error ? '응답 연결 실패' : '응답 중'}</time></header>
+      {(props.liveTurn.active || props.liveTurn.text || props.liveTurn.error) && <article className="agent-checkpoint agent-work-live-turn" data-kind={props.liveTurn.error ? 'error' : 'agent_message'} data-presentation={props.liveTurn.error ? 'decision' : 'assistant'} aria-live={props.liveTurn.error ? 'assertive' : 'polite'} role={props.liveTurn.error ? 'alert' : undefined}>
+        {!props.liveTurn.error && <span className="agent-checkpoint-avatar" aria-hidden="true">{props.responsibleAgentName.trim().slice(0, 1) || 'A'}</span>}
+        <header><span>{props.liveTurn.error ? '오류' : props.responsibleAgentName}</span><time>{props.liveTurn.error ? '응답 연결 실패' : '응답 중'}</time></header>
         {props.liveTurn.error ? <>
           {props.liveTurn.text && <p className="agent-work-live-partial"><strong>부분 응답</strong>{preserveWorkClosingPhrase(props.liveTurn.text)}</p>}
           <p className="agent-work-live-error-copy">{props.liveTurn.error}</p>

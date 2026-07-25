@@ -4,6 +4,7 @@ import { missionStatusLabel } from './AgentOperationViews';
 import { AgentWorkComposer } from './AgentWorkComposer';
 import { AgentWorkDetails } from './AgentWorkDetails';
 import { AgentWorkTimeline } from './AgentWorkTimeline';
+import { resolvedExecutionEngineLabel } from './executionContracts';
 import { preserveWorkClosingPhrase, responsibleAgentAssignmentCopy } from './workConversationPresentation';
 import type { AgentMission, AgentReport, AgentTask, AgentTaskAction } from './types';
 import type { AgentWorkConversationPage, AgentWorkDelivery } from './workConversationTypes';
@@ -73,6 +74,8 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
       : missionStatusLabel(props.mission.status));
   const statusTone = taskAttentionStatus?.tone || props.mission.status;
   const attention = attentionSummary(props);
+  const resolvedEngine = props.conversation?.work.resolvedExecutionEngine;
+  const engineLabel = resolvedEngine ? resolvedExecutionEngineLabel(resolvedEngine) : '엔진 확인 중';
   useEffect(() => { headingRef.current?.focus(); }, [props.mission.id]);
   const taskAction = async (taskId: string, action: AgentTaskAction) => {
     const label = action === 'approve' ? '승인' : action === 'cancel' ? '거절' : action === 'pause' ? '일시정지' : action === 'resume' ? '재개' : '재시도';
@@ -97,13 +100,15 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
     <main className="agent-work-conversation">
       <header className="agent-work-header">
         <button className="agent-work-back" type="button" aria-label="관제 홈으로 돌아가기" onClick={props.onBack}><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m12.5 4-6 6 6 6" /></svg><span>관제 홈</span></button>
-        <div className="agent-work-header-content">
-          <span className="agent-work-kicker">작업 대화</span>
-          <h1 ref={headingRef} tabIndex={-1}>{preserveWorkClosingPhrase(props.mission.title)}</h1>
-          <div className="agent-work-status-line">
-            <b className="agent-work-status-badge" data-status={statusTone}>{statusLabel}</b>
-            <span className="agent-work-assignment"><span>담당 에이전트</span><strong>{props.responsibleAgentName}</strong></span>
-            <span className="agent-work-assignment"><span>배정 이유</span><strong>{assignmentCopy}</strong></span>
+        <div className="agent-work-session-bar">
+          <div className="agent-work-header-content">
+            <h1 ref={headingRef} tabIndex={-1}>{preserveWorkClosingPhrase(props.mission.title)}</h1>
+            <div className="agent-work-status-line">
+              <b className="agent-work-status-badge" data-status={statusTone}>{statusLabel}</b>
+              <span className="agent-work-assignment"><span>담당</span><strong>{props.responsibleAgentName}</strong></span>
+              <span className="agent-work-session-engine"><span>실행</span><strong>{engineLabel}</strong></span>
+              <span className="agent-work-assignment agent-work-assignment-reason"><span>배정</span><strong>{assignmentCopy}</strong></span>
+            </div>
           </div>
           <p className="agent-work-attention">{attention}</p>
         </div>
