@@ -23,6 +23,22 @@
 다시 관찰할 때까지 완료가 아니다. 기존 자동화 테스트와 screenshot은 회귀 증거로만
 유지한다.
 
+## 2026-07-25 strict identity preflight correction
+
+서로 다른 `CODEX_HOME` 경로만 확인하는 release gate도 충분하지 않다. 같은 Codex
+계정을 두 디렉터리에 각각 로그인하면 파일과 경로는 달라도 provider identity는
+같을 수 있다. strict two-account ETE는 실행 전에 각 provider home의 로컬
+credential에서 account identity를 메모리 안에서만 파생해 비교하고 다음을
+fail-closed로 강제한다.
+
+- 두 provider home의 canonical path와 credential 파일은 서로 달라야 한다.
+- 두 credential이 모두 유효한 account identity를 제공해야 한다.
+- account identity digest가 서로 달라야 한다.
+- raw account id, token, cookie, email 또는 credential 내용은 로그, evidence,
+  assertion message, Gateway request에 기록하지 않는다.
+- 같은 identity이거나 identity를 검증할 수 없으면 실제 provider 명령을 실행하기
+  전에 ETE를 중단한다.
+
 ## Goal
 
 사용자가 Claude, Codex, Grok, Hermes 앱을 따로 열지 않고 Agent Calendar의 Agent Work
@@ -194,6 +210,8 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
         session id로 재시도되는 test
   - [x] Runner A/B가 서로 다른 `CODEX_HOME`의 catalog/session만 읽고 상대 profile을
         열거하지 못하는 test
+  - [x] 서로 다른 경로라도 같은 provider account identity이면 strict ETE가 provider
+        실행 전에 거부하고 raw identity를 출력하지 않는 test
 - GREEN:
   - [x] 최소 DB contract와 `ProviderAgentBridge`
   - [x] 최소 Runner connector/adapter continuity
@@ -263,6 +281,8 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
       고정하고 단절 재시도를 검증한다.
 - [ ] Step 10: 각 Runner의 provider home을 명시적으로 분리한 hostile isolation ETE를
       통과시킨다.
+- [x] Step 11: strict ETE가 provider account identity 자체의 차이를 검증하고 같은
+      계정의 중복 로그인을 독립 사용자 증거로 인정하지 않게 한다.
 
 ## Verification Notes
 
@@ -285,6 +305,10 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
     handler 실행 전 거부된다.
   - strict two-account live ETE는 서로 독립적으로 인증된
     `AGENT_CALENDAR_E2E_CODEX_HOME_A/B`가 없으면 시작 자체를 거부한다.
+  - strict preflight는 canonical provider home과 local account identity digest를 모두
+    비교한다. 현재 발견된 두 로그인 홈은 서로 다른 파일이지만 같은 account
+    identity이므로 `PROVIDER_IDENTITIES_NOT_DISTINCT`로 provider 실행 전에 거부됐다.
+    raw identity와 credential은 출력하거나 evidence에 기록하지 않았다.
 - Prior regression evidence (not final release evidence):
   - `provider_agent_sessions`가 Work Conversation, agent, Runner, provider external session을
     Workspace 안에서 1:1로 유지한다.

@@ -24,6 +24,9 @@ const {
 const { createPhase1Runtime } = require('../../backend/app/lib/phase1-auth-routes');
 const { resolvePostgresBinDir } = require('../../backend/app/lib/phase0-snapshot-restore');
 const { RunnerClient } = require('../../runner/lib/client');
+const {
+  assertDistinctCodexProviderIdentities,
+} = require('./helpers/provider-home-identity.cjs');
 
 const desktopRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopRoot, '../..');
@@ -694,6 +697,7 @@ async function runTwoAccountIsolation({ pool, baseUrl, authState }) {
       assert.notEqual(codexHomeA, codexHomeB, 'two-account live Codex ETE requires distinct provider homes');
       assert.ok(fs.statSync(codexHomeA).isDirectory(), 'CODEX_HOME_A must be a directory');
       assert.ok(fs.statSync(codexHomeB).isDirectory(), 'CODEX_HOME_B must be a directory');
+      assertDistinctCodexProviderIdentities(codexHomeA, codexHomeB);
       runnerProviderEnvironments.set(path.resolve(runnerA), { CODEX_HOME: codexHomeA });
       runnerProviderEnvironments.set(path.resolve(runnerB), { CODEX_HOME: codexHomeB });
     }

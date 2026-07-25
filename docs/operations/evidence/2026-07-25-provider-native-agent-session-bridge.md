@@ -5,6 +5,32 @@
   Work Conversation durability, Unified Calendar, Workspace isolation
 - Result: REGRESSION PASS ONLY — final completion evidence withdrawn
 
+## Strict provider identity preflight correction
+
+The two-account live harness now verifies both the canonical provider home and an in-memory
+digest of the local Codex account identity before starting either Runner/provider journey.
+It returns only booleans on success and uses generic error messages on failure; raw account id,
+email, token, cookie, credential content, and provider-home paths are not written to evidence.
+
+Verification:
+
+- `node --test apps/desktop/tests/provider-home-identity.test.mjs`
+  - distinct account identities accepted;
+  - duplicate account identity rejected;
+  - same canonical home rejected;
+  - unverifiable/API-key-only identity rejected;
+  - assertion messages contain no fixture account or credential material.
+- Actual strict ETE preflight with the two authenticated Codex homes available on this host:
+  - expected rejection: `PROVIDER_IDENTITIES_NOT_DISTINCT`;
+  - rejection occurred before Runner/provider work began;
+  - both files were distinct, but the private identity comparison showed the same provider
+    account;
+  - no raw identity or credential material was emitted.
+
+This closes the false-positive release-gate defect. It does not close the release gate itself:
+two independently authenticated provider accounts and production WorkOS clean-account login are
+still unavailable in this environment.
+
 ## Completion-evidence correction
 
 This run remains useful regression evidence, but it is not final proof of the product contract.
