@@ -65,6 +65,9 @@ async function handleExecutionDeviceRouteWithPath({
       case 'runner_device_event':
         sendJson(res, 200, await execution.postEvent(runner, body || {}));
         return true;
+      case 'runner_device_provider_session_bind':
+        sendJson(res, 200, await execution.bindProviderSession(runner, body || {}));
+        return true;
       case 'runner_device_artifact':
         sendJson(res, 200, await execution.postArtifact(runner, body || {}));
         return true;

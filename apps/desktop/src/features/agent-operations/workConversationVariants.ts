@@ -16,6 +16,7 @@ export function parseCheckpointKind(value: unknown): AgentWorkCheckpointKind | n
     case 'approval_request':
     case 'approval_response':
     case 'progress':
+    case 'tool':
     case 'artifact':
     case 'error':
     case 'completion':

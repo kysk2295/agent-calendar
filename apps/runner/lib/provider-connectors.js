@@ -148,18 +148,18 @@ function listCodexAgents(codexHome) {
     .filter(Boolean);
 }
 
-function claudeAgentDirectories(homeDir, cwd) {
+function claudeAgentDirectories(claudeHome, cwd) {
   const candidates = [
-    path.join(homeDir, '.claude', 'agents'),
+    path.join(claudeHome, 'agents'),
     path.join(cwd, '.claude', 'agents'),
   ];
   return [...new Set(candidates)];
 }
 
-function listClaudeAgents(homeDir, cwd) {
+function listClaudeAgents(claudeHome, cwd) {
   const seen = new Set();
   const entries = [];
-  for (const directory of claudeAgentDirectories(homeDir, cwd)) {
+  for (const directory of claudeAgentDirectories(claudeHome, cwd)) {
     for (const filePath of listFiles(directory, '.md')) {
       const source = readBoundedText(filePath);
       const externalAgentId = path.basename(filePath, '.md');
@@ -249,12 +249,15 @@ function listGrokSessions(stdout) {
 }
 
 function createProviderConnector(options = {}) {
-  const homeDir = path.resolve(String(options.homeDir || process.env.HOME || process.cwd()));
-  const codexHome = path.resolve(String(options.codexHome || path.join(homeDir, '.codex')));
+  const env = options.env || process.env;
+  const homeDir = path.resolve(String(options.homeDir || env.HOME || process.cwd()));
+  const codexHome = path.resolve(String(options.codexHome || env.CODEX_HOME || path.join(homeDir, '.codex')));
+  const claudeHome = path.resolve(String(options.claudeHome || env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude')));
   const cwd = path.resolve(String(options.cwd || process.cwd()));
   const execFile = options.execFile || (async (command, args) => {
     const result = await execFileAsync(command, args, {
       cwd,
+      env,
       encoding: 'utf8',
       maxBuffer: 256 * 1024,
       timeout: 15_000,
@@ -279,7 +282,7 @@ function createProviderConnector(options = {}) {
         throw connectorError('CONNECTOR_PROVIDER_UNSUPPORTED', 'unsupported provider connector');
       }
       if (provider === 'codex') return listCodexAgents(codexHome);
-      if (provider === 'claude') return listClaudeAgents(homeDir, cwd);
+      if (provider === 'claude') return listClaudeAgents(claudeHome, cwd);
       if (provider === 'hermes') {
         const result = await execFile('hermes', ['profile', 'list']);
         if (Number(result?.code || 0) !== 0) {
@@ -301,7 +304,7 @@ function createProviderConnector(options = {}) {
         throw connectorError('CONNECTOR_PROVIDER_UNSUPPORTED', 'unsupported provider connector');
       }
       if (provider === 'codex') return listFileSessions('codex', path.join(codexHome, 'sessions'));
-      if (provider === 'claude') return listFileSessions('claude', path.join(homeDir, '.claude', 'projects'));
+      if (provider === 'claude') return listFileSessions('claude', path.join(claudeHome, 'projects'));
       if (provider === 'hermes') {
         const result = await execFile('hermes', ['sessions', 'list', '--limit', '200']);
         if (Number(result?.code || 0) !== 0) {

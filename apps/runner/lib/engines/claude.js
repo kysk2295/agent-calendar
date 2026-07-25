@@ -63,6 +63,9 @@ function parseClaudeStreamJsonLine(line) {
   const subtype = String(obj.subtype || '').toLowerCase();
   const sessionId = obj.session_id || obj.sessionId || null;
   const text = redactLine(extractText(obj));
+  const toolUse = Array.isArray(obj.message?.content)
+    ? obj.message.content.find((content) => ['tool_use', 'server_tool_use'].includes(String(content?.type || '')))
+    : null;
 
   if (type === 'error' || obj.is_error) {
     return { kind: 'error', text: redactLine(obj.error || obj.message || 'Claude error'), sessionId };
@@ -71,6 +74,11 @@ function parseClaudeStreamJsonLine(line) {
     return { kind: 'plan', text: text || 'Claude session initialized', sessionId };
   }
   if (type === 'system') return null;
+  if (toolUse) {
+    const rawName = String(toolUse.name || 'tool');
+    const name = /^[A-Za-z0-9_.:-]{1,80}$/.test(rawName) ? rawName : 'tool';
+    return { kind: 'tool', text: `Claude 도구 · ${name}`, sessionId };
+  }
   if (type === 'assistant') {
     return { kind: 'progress', text: text || 'Claude assistant message', sessionId, assistantText: text || null };
   }
@@ -103,22 +111,48 @@ async function runClaude(input = {}) {
     const parsed = parseClaudeStreamJsonLine(line);
     if (!parsed) return;
     if (parsed.sessionId) resumeSessionId = parsed.sessionId;
+    const providerSession = parsed.sessionId
+      ? { externalSessionId: String(parsed.sessionId) }
+      : undefined;
     if (parsed.assistantText) {
       curatedFinalText = `${curatedFinalText}${parsed.assistantText}`.slice(0, 4000);
     }
     if (typeof onCheckpoint !== 'function') return;
     if (parsed.kind === 'plan') {
-      await onCheckpoint({ phase: 'plan', text: parsed.text, kind: 'checkpoint' });
+      await onCheckpoint({
+        phase: 'plan',
+        text: parsed.text,
+        kind: 'checkpoint',
+        ...(providerSession ? { providerSession } : {}),
+      });
       return;
     }
     if (parsed.kind === 'progress' || parsed.kind === 'malformed' || parsed.kind === 'error') {
       progressCount += 1;
       if (progressCount <= 40) {
-        await onCheckpoint({ phase: 'progress', text: parsed.text, kind: 'checkpoint' });
+        await onCheckpoint({
+          phase: 'progress',
+          text: parsed.text,
+          kind: 'checkpoint',
+          ...(providerSession ? { providerSession } : {}),
+        });
       }
     }
+    if (parsed.kind === 'tool') {
+      await onCheckpoint({
+        phase: 'tool',
+        text: parsed.text,
+        kind: 'tool',
+        ...(providerSession ? { providerSession } : {}),
+      });
+    }
     if (parsed.kind === 'result') {
-      await onCheckpoint({ phase: 'progress', text: parsed.text, kind: 'checkpoint' });
+      await onCheckpoint({
+        phase: 'progress',
+        text: parsed.text,
+        kind: 'checkpoint',
+        ...(providerSession ? { providerSession } : {}),
+      });
     }
   };
 

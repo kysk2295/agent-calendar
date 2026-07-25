@@ -24,7 +24,6 @@ const {
 const { createPhase1Runtime } = require('../../backend/app/lib/phase1-auth-routes');
 const { resolvePostgresBinDir } = require('../../backend/app/lib/phase0-snapshot-restore');
 const { RunnerClient } = require('../../runner/lib/client');
-const { runConnectorOnce } = require('../../runner/lib/connector-loop');
 
 const desktopRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopRoot, '../..');
@@ -135,6 +134,7 @@ const twoAccountProviderShots = Object.freeze({
   aRehydrated: path.join(artifactDir, '10-workspace-a-provider-rehydrated.png'),
   bRehydrated: path.join(artifactDir, '11-workspace-b-provider-rehydrated.png'),
 });
+const runnerProviderEnvironments = new Map();
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -386,6 +386,7 @@ function runRunner(args, { stateDir, env = {} } = {}) {
   const runnerEnv = {
     ...process.env,
     AGENT_CALENDAR_RUNNER_HOME: stateDir,
+    ...(runnerProviderEnvironments.get(path.resolve(stateDir)) || {}),
     ...env,
   };
   if (useFakeEngine) {
@@ -429,9 +430,11 @@ function runRunner(args, { stateDir, env = {} } = {}) {
 }
 
 async function runConnectorEventually(baseUrl, stateDir) {
-  const client = new RunnerClient({ baseUrl, stateDir });
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const result = await runConnectorOnce(client);
+    const output = await runRunner([
+      'connector-once', '--base-url', baseUrl, '--state-dir', stateDir,
+    ], { stateDir }).done;
+    const result = JSON.parse(output);
     if (result.requestId) return result;
     await sleep(100);
   }
@@ -683,6 +686,17 @@ async function runTwoAccountIsolation({ pool, baseUrl, authState }) {
   let providerJourneyB = null;
   const started = Date.now();
   try {
+    if (!useFakeEngine && selectedEngine === 'codex') {
+      const codexHomeA = path.resolve(String(process.env.AGENT_CALENDAR_E2E_CODEX_HOME_A || ''));
+      const codexHomeB = path.resolve(String(process.env.AGENT_CALENDAR_E2E_CODEX_HOME_B || ''));
+      assert.ok(process.env.AGENT_CALENDAR_E2E_CODEX_HOME_A, 'two-account live Codex ETE requires CODEX_HOME_A');
+      assert.ok(process.env.AGENT_CALENDAR_E2E_CODEX_HOME_B, 'two-account live Codex ETE requires CODEX_HOME_B');
+      assert.notEqual(codexHomeA, codexHomeB, 'two-account live Codex ETE requires distinct provider homes');
+      assert.ok(fs.statSync(codexHomeA).isDirectory(), 'CODEX_HOME_A must be a directory');
+      assert.ok(fs.statSync(codexHomeB).isDirectory(), 'CODEX_HOME_B must be a directory');
+      runnerProviderEnvironments.set(path.resolve(runnerA), { CODEX_HOME: codexHomeA });
+      runnerProviderEnvironments.set(path.resolve(runnerB), { CODEX_HOME: codexHomeB });
+    }
     ensureCleanUserData(baseUrl, contextA);
     ensureCleanUserData(baseUrl, contextB);
 
@@ -981,6 +995,8 @@ async function runTwoAccountIsolation({ pool, baseUrl, authState }) {
     fs.rmSync(runnerA, { recursive: true, force: true });
     fs.rmSync(runnerB, { recursive: true, force: true });
     fs.rmSync(knowledgeRoot, { recursive: true, force: true });
+    runnerProviderEnvironments.delete(path.resolve(runnerA));
+    runnerProviderEnvironments.delete(path.resolve(runnerB));
   }
 }
 
@@ -1079,8 +1095,11 @@ async function runLiveProviderSessionJourney({
   const providerSessionId = mappingBefore.rows[0].id;
 
   const continuityMarker = 'PROVIDER_SESSION_CONTINUITY_OK';
+  const toolMarker = 'Codex 도구';
   const workComposer = page.locator('.agent-work-composer');
-  await workComposer.locator('textarea').fill(`${continuityMarker}만 답해줘. 도구를 쓰거나 파일을 수정하지 마.`);
+  await workComposer.locator('textarea').fill(
+    `읽기 전용 shell 도구로 printf PROVIDER_SESSION_TOOL_OK를 실행하고, 최종 답은 ${continuityMarker}만 해줘. 파일은 수정하지 마.`,
+  );
   await workComposer.getByRole('button', { name: '보내기' }).click();
   const continued = await runRunner([
     'work-once', '--base-url', baseUrl, '--state-dir', runnerStateDir,
@@ -1088,7 +1107,9 @@ async function runLiveProviderSessionJourney({
   assert.match(continued, /completed/i);
   await page.waitForFunction((marker) => {
     const text = document.querySelector('.agent-work-timeline')?.textContent || '';
-    return text.includes(marker) && text.includes('Artifact ready: codex-result.txt');
+    return text.includes(marker)
+      && text.includes('Codex 도구')
+      && text.includes('Artifact ready: codex-result.txt');
   }, continuityMarker, { timeout: 120_000 });
 
   const mappingAfter = await pool.query(
@@ -1104,6 +1125,17 @@ async function runLiveProviderSessionJourney({
   assert.equal(mappingAfter.rowCount, 1);
   assert.equal(mappingAfter.rows[0].external_session_id, importedExternalSessionId);
   assert.equal(mappingAfter.rows[0].provider_session_id, providerSessionId);
+  const toolCheckpoint = await pool.query(
+    `select payload
+     from agent_session_events
+     where workspace_id = $1 and session_id = $2 and kind = 'tool'
+     order by sequence desc
+     limit 1`,
+    [workspaceId, mappingBefore.rows[0].work_conversation_id],
+  );
+  assert.equal(toolCheckpoint.rowCount, 1);
+  assert.match(String(toolCheckpoint.rows[0].payload?.text || ''), /Codex 도구/);
+  assert.doesNotMatch(JSON.stringify(toolCheckpoint.rows[0].payload), /printf|Users|\/home\/|\/private\/var/i);
 
   const renameButton = page.getByRole('button', { name: '이름 변경' }).first();
   await renameButton.click();
@@ -1123,6 +1155,7 @@ async function runLiveProviderSessionJourney({
     workConversationId: mappingBefore.rows[0].work_conversation_id,
     title: 'Live Codex continuity',
     continuityMarker,
+    toolMarker,
     workspaceId,
   };
 }
@@ -1143,10 +1176,12 @@ async function verifyLiveProviderSessionRehydrated(
   const sessionRow = page.locator('.agent-session-row').filter({ hasText: journey.title }).first();
   await sessionRow.waitFor({ state: 'visible', timeout: 20_000 });
   await sessionRow.locator('.agent-session-open').click();
-  await page.waitForFunction((marker) => {
+  await page.waitForFunction(({ marker, tool }) => {
     const text = document.querySelector('.agent-work-timeline')?.textContent || '';
-    return text.includes(marker) && text.includes('Artifact ready: codex-result.txt');
-  }, journey.continuityMarker, { timeout: 30_000 });
+    return text.includes(marker)
+      && text.includes(tool)
+      && text.includes('Artifact ready: codex-result.txt');
+  }, { marker: journey.continuityMarker, tool: journey.toolMarker }, { timeout: 30_000 });
   await page.screenshot({ path: screenshot, fullPage: true });
 
   await sessionRow.getByRole('button', { name: '보관' }).click();

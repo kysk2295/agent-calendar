@@ -147,6 +147,21 @@ test('codex real-schema fixtures: thread.started, item.completed nested, turn.co
   assert.match(item.assistantText || item.text, /hello/);
   assert.doesNotMatch(item.text, /sk-abcdefghijklmnopqrstuvwxyz/);
 
+  const tool = codex.parseCodexJsonlLine(JSON.stringify({
+    type: 'item.completed',
+    thread_id: 'thr_real_1',
+    item: {
+      type: 'command_execution',
+      command: 'cat /Users/alice/private/token.txt',
+      aggregated_output: 'sk-must-not-leak',
+      exit_code: 0,
+    },
+  }));
+  assert.equal(tool.kind, 'tool');
+  assert.equal(tool.threadId, 'thr_real_1');
+  assert.match(tool.text, /명령 실행/);
+  assert.doesNotMatch(tool.text, /cat|Users|alice|token|sk-/i);
+
   const turn = codex.parseCodexJsonlLine(JSON.stringify({
     type: 'turn.completed',
     thread_id: 'thr_real_1',
@@ -218,6 +233,22 @@ test('claude real-schema fixtures: system, assistant, content_block_delta, resul
   }));
   assert.equal(asst.kind, 'progress');
   assert.doesNotMatch(asst.text, /supersecret/);
+
+  const tool = claude.parseClaudeStreamJsonLine(JSON.stringify({
+    type: 'assistant',
+    session_id: 'c-sess',
+    message: {
+      content: [{
+        type: 'tool_use',
+        name: 'Read',
+        input: { file_path: '/Users/alice/private/token.txt' },
+      }],
+    },
+  }));
+  assert.equal(tool.kind, 'tool');
+  assert.equal(tool.sessionId, 'c-sess');
+  assert.equal(tool.text, 'Claude 도구 · Read');
+  assert.doesNotMatch(tool.text, /Users|alice|private|token/i);
 
   const delta = claude.parseClaudeStreamJsonLine(JSON.stringify({
     type: 'content_block_delta',

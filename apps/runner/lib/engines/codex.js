@@ -64,7 +64,8 @@ function parseCodexJsonlLine(line) {
 
   // Nested item fields (item.completed)
   const item = obj.item && typeof obj.item === 'object' ? obj.item : null;
-  if (item && String(item.type || '').toLowerCase() === 'error') {
+  const itemType = String(item?.type || '').toLowerCase();
+  if (item && itemType === 'error') {
     return null;
   }
   const nestedText = item
@@ -88,6 +89,25 @@ function parseCodexJsonlLine(line) {
     return {
       kind: 'error',
       text: redactLine(obj.error?.message || obj.message || 'Codex error'),
+      threadId,
+    };
+  }
+  if (type === 'item.completed' && [
+    'command_execution',
+    'file_change',
+    'mcp_tool_call',
+    'web_search',
+  ].includes(itemType)) {
+    const toolLabel = {
+      command_execution: '명령 실행',
+      file_change: '파일 변경',
+      mcp_tool_call: '연결 도구',
+      web_search: '웹 검색',
+    }[itemType];
+    const exitCode = Number.isInteger(item?.exit_code) ? ` · 종료 ${item.exit_code}` : '';
+    return {
+      kind: 'tool',
+      text: `Codex 도구 · ${toolLabel}${exitCode}`,
       threadId,
     };
   }
@@ -143,21 +163,39 @@ async function runCodex(input = {}) {
     const parsed = parseCodexJsonlLine(line);
     if (!parsed) return;
     if (parsed.threadId) resumeThreadId = parsed.threadId;
+    const providerSession = parsed.threadId
+      ? { externalSessionId: String(parsed.threadId) }
+      : undefined;
     if (parsed.assistantText) curatedFinalText = String(parsed.assistantText).slice(0, 4000);
     if (parsed.kind === 'malformed' || parsed.kind === 'error') {
       if (typeof onCheckpoint === 'function') {
-        await onCheckpoint({ phase: 'progress', text: parsed.text, kind: 'checkpoint' });
+        await onCheckpoint({
+          phase: 'progress',
+          text: parsed.text,
+          kind: 'checkpoint',
+          ...(providerSession ? { providerSession } : {}),
+        });
       }
       return;
     }
     if (parsed.kind === 'plan' && typeof onCheckpoint === 'function') {
       if (!planEmitted) {
         planEmitted = true;
-        await onCheckpoint({ phase: 'plan', text: parsed.text, kind: 'checkpoint' });
+        await onCheckpoint({
+          phase: 'plan',
+          text: parsed.text,
+          kind: 'checkpoint',
+          ...(providerSession ? { providerSession } : {}),
+        });
       } else {
         progressCount += 1;
         if (progressCount <= 40) {
-          await onCheckpoint({ phase: 'progress', text: parsed.text, kind: 'checkpoint' });
+          await onCheckpoint({
+            phase: 'progress',
+            text: parsed.text,
+            kind: 'checkpoint',
+            ...(providerSession ? { providerSession } : {}),
+          });
         }
       }
       return;
@@ -165,11 +203,29 @@ async function runCodex(input = {}) {
     if (parsed.kind === 'progress' && typeof onCheckpoint === 'function') {
       progressCount += 1;
       if (progressCount <= 40) {
-        await onCheckpoint({ phase: 'progress', text: parsed.text, kind: 'checkpoint' });
+        await onCheckpoint({
+          phase: 'progress',
+          text: parsed.text,
+          kind: 'checkpoint',
+          ...(providerSession ? { providerSession } : {}),
+        });
       }
     }
+    if (parsed.kind === 'tool' && typeof onCheckpoint === 'function') {
+      await onCheckpoint({
+        phase: 'tool',
+        text: parsed.text,
+        kind: 'tool',
+        ...(providerSession ? { providerSession } : {}),
+      });
+    }
     if (parsed.kind === 'result' && typeof onCheckpoint === 'function') {
-      await onCheckpoint({ phase: 'progress', text: parsed.text, kind: 'checkpoint' });
+      await onCheckpoint({
+        phase: 'progress',
+        text: parsed.text,
+        kind: 'checkpoint',
+        ...(providerSession ? { providerSession } : {}),
+      });
     }
   };
 

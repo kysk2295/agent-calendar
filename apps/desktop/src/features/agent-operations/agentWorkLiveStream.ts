@@ -15,7 +15,7 @@ const APPLICATION_MODES = new Set<AgentWorkApplicationMode>([
 ]);
 const CHECKPOINT_KINDS = new Set<AgentWorkCheckpointKind>([
   'user_message', 'agent_message', 'plan', 'approval_request', 'approval_response',
-  'progress', 'artifact', 'error', 'completion', 'revision_started', 'revision_completed', 'blocked',
+  'progress', 'tool', 'artifact', 'error', 'completion', 'revision_started', 'revision_completed', 'blocked',
 ]);
 
 function record(value: unknown): Readonly<Record<string, unknown>> | null {

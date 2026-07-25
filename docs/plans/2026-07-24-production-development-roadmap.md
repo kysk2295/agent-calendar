@@ -840,6 +840,12 @@ Mobile-specific gate:
       Decision inputs ready: ADR 0008 + Orca reference 2026-07-24; implementation not started.
 - [x] Phase 3: durable execution + Engine Adapters + golden ETE
       (2026-07-24 verified; customer-owned Runner external release gate open)
+      **Provider-native session corrective partial (2026-07-25):** terminal 이전 session-id
+      binding, Runner restart replay, Runner별 provider-home isolation contract, 실제 단일 계정
+      Codex session/tool/artifact/restart ETE는 통과했다
+      (`2026-07-25-provider-native-agent-session-bridge.md`).
+      **Still open:** 서로 독립적으로 인증된 두 provider home과 production WorkOS를 사용한
+      two-account Electron ETE. 이 gate 전에는 전체 Agent 기능 완료로 주장하지 않는다.
 - [ ] Phase 4: Unified Calendar and first external connector
       Decision input ready: Google Calendar first (ADR 0009); implementation not started.
 - [ ] Phase 5: Knowledge v2 and Wiki AI isolation

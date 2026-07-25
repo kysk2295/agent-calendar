@@ -226,6 +226,7 @@ async function dispatchProductionApi(req, res, requestUrl, {
     if (action === 'runner_device_next_offer'
       || action === 'runner_device_lease'
       || action === 'runner_device_event'
+      || action === 'runner_device_provider_session_bind'
       || action === 'runner_device_artifact'
       || action === 'runner_device_complete'
       || action === 'runner_device_fail'

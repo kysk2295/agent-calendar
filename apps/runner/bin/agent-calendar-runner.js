@@ -67,6 +67,7 @@ Commands:
   connect --base-url URL
   capabilities --base-url URL
   heartbeat --base-url URL
+  connector-once --base-url URL
   knowledge-add --source-id ID --path PATH [--label LABEL]
   knowledge-list
   knowledge-remove --source-id ID
@@ -252,6 +253,15 @@ Commands:
       forceFail: Boolean(args['force-fail']),
     });
     printJson({ ok: true, ...result });
+    return;
+  }
+
+  if (command === 'connector-once') {
+    const { ensureDeviceRequest } = require('../lib/execution-loop');
+    const { runConnectorOnce } = require('../lib/connector-loop');
+    ensureDeviceRequest(client);
+    const result = await runConnectorOnce(client);
+    printJson(result);
     return;
   }
 

@@ -31,6 +31,7 @@ function checkpointLabel(kind: AgentWorkCheckpoint['kind']): string {
     case 'approval_request': return '승인 요청';
     case 'approval_response': return '승인 응답';
     case 'progress': return '진행';
+    case 'tool': return '도구 실행';
     case 'artifact': return '산출물';
     case 'error': return '오류';
     case 'completion': return '결과';

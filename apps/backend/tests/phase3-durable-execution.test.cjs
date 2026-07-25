@@ -247,6 +247,7 @@ test('phase3 execution routes registered', () => {
   assert.ok(matchProductionRoute('POST', '/api/runner/device/next-offer'));
   assert.ok(matchProductionRoute('POST', '/api/runner/device/lease'));
   assert.ok(matchProductionRoute('POST', '/api/runner/device/event'));
+  assert.ok(matchProductionRoute('POST', '/api/runner/device/provider-session/bind'));
   assert.ok(matchProductionRoute('POST', '/api/runner/device/complete'));
   assert.ok(matchProductionRoute('POST', '/api/runner/device/attempt-heartbeat'));
 });
@@ -1636,7 +1637,9 @@ test('Work Conversation follow-up leases the same provider session and restores 
       const tokenA = await issueToken(pool, 'subject-a', 'ws-a');
       const tokenB = await issueToken(pool, 'subject-b', 'ws-b');
       const keysA = generateEd25519Keypair();
+      const keysB = generateEd25519Keypair();
       const runnerA = await enrollActiveRunner(baseUrl, tokenA, keysA, 'session-a');
+      const runnerB = await enrollActiveRunner(baseUrl, tokenB, keysB, 'session-b');
       await pool.query(
         `update runners
          set capabilities = $2::jsonb
@@ -1713,6 +1716,102 @@ test('Work Conversation follow-up leases the same provider session and restores 
       });
       assert.equal(lease.status, 200);
       assert.equal(lease.json.lease.providerSession.id, providerSessionId);
+
+      const secretBindBody = {
+        runnerId: runnerA.runnerId,
+        providerSessionId,
+        externalSessionId: 'sk-abcdefghijklmnopqrstuvwxyz123456',
+      };
+      const secretBind = await httpJson(
+        baseUrl,
+        'POST',
+        '/api/runner/device/provider-session/bind',
+        {
+          body: secretBindBody,
+          headers: deviceAuthHeaders({
+            keys: keysA,
+            runnerId: runnerA.runnerId,
+            credential: runnerA.credential,
+            method: 'POST',
+            path: '/api/runner/device/provider-session/bind',
+            body: secretBindBody,
+            sessionId: runnerA.sessionId,
+            cursor: runnerA.cursor,
+          }),
+        },
+      );
+      assert.equal(secretBind.status, 400);
+      assert.equal(secretBind.json.error, 'PROVIDER_SECRET_FORBIDDEN');
+      const unboundAfterSecret = await pool.query(
+        `select external_session_id
+         from provider_agent_sessions
+         where workspace_id = 'ws-a' and id = $1`,
+        [providerSessionId],
+      );
+      assert.equal(unboundAfterSecret.rows[0].external_session_id, '');
+
+      const bindBody = {
+        runnerId: runnerA.runnerId,
+        providerSessionId,
+        externalSessionId: 'codex-thread-a',
+      };
+      const boundBeforeTerminal = await httpJson(
+        baseUrl,
+        'POST',
+        '/api/runner/device/provider-session/bind',
+        {
+          body: bindBody,
+          headers: deviceAuthHeaders({
+            keys: keysA,
+            runnerId: runnerA.runnerId,
+            credential: runnerA.credential,
+            method: 'POST',
+            path: '/api/runner/device/provider-session/bind',
+            body: bindBody,
+            sessionId: runnerA.sessionId,
+            cursor: runnerA.cursor,
+          }),
+        },
+      );
+      assert.equal(boundBeforeTerminal.status, 200, JSON.stringify(boundBeforeTerminal.json));
+      assert.equal(boundBeforeTerminal.json.session.externalSessionId, 'codex-thread-a');
+      assert.equal(boundBeforeTerminal.json.session.status, 'active');
+
+      const persistedBeforeTerminal = await pool.query(
+        `select external_session_id, status
+         from provider_agent_sessions
+         where workspace_id = 'ws-a' and id = $1`,
+        [providerSessionId],
+      );
+      assert.deepEqual(persistedBeforeTerminal.rows[0], {
+        external_session_id: 'codex-thread-a',
+        status: 'active',
+      });
+
+      const foreignBindBody = {
+        runnerId: runnerB.runnerId,
+        providerSessionId,
+        externalSessionId: 'foreign-thread',
+      };
+      const foreignBind = await httpJson(
+        baseUrl,
+        'POST',
+        '/api/runner/device/provider-session/bind',
+        {
+          body: foreignBindBody,
+          headers: deviceAuthHeaders({
+            keys: keysB,
+            runnerId: runnerB.runnerId,
+            credential: runnerB.credential,
+            method: 'POST',
+            path: '/api/runner/device/provider-session/bind',
+            body: foreignBindBody,
+            sessionId: runnerB.sessionId,
+            cursor: runnerB.cursor,
+          }),
+        },
+      );
+      assert.equal(foreignBind.status, 404);
 
       const checkpointBody = {
         runnerId: runnerA.runnerId,

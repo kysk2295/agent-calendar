@@ -7,6 +7,7 @@ export type AgentWorkCheckpointKind =
   | 'approval_request'
   | 'approval_response'
   | 'progress'
+  | 'tool'
   | 'artifact'
   | 'error'
   | 'completion'

@@ -10,6 +10,23 @@ const { listKnowledgeSources } = require('./store');
 
 const HEARTBEAT_INTERVAL_MS = Number(process.env.AGENT_CALENDAR_ATTEMPT_HEARTBEAT_MS || 15_000);
 
+async function restoreCapturedProviderSession(client) {
+  const activeAttempt = client.state?.activeAttempt;
+  const providerSession = activeAttempt?.providerSession;
+  if (!providerSession?.id || !providerSession?.externalSessionId) return false;
+  await client.deviceRequest('POST', '/api/runner/device/provider-session/bind', {
+    providerSessionId: providerSession.id,
+    externalSessionId: providerSession.externalSessionId,
+  });
+  client.persist({
+    activeAttempt: {
+      ...activeAttempt,
+      providerSession: null,
+    },
+  });
+  return true;
+}
+
 async function runOnce(client, {
   allowFake = false,
   forceCrash = false,
@@ -19,6 +36,7 @@ async function runOnce(client, {
   heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS,
   adapterResolver = getEngineAdapter,
 } = {}) {
+  await restoreCapturedProviderSession(client);
   const offerRes = await client.deviceRequest('POST', '/api/runner/device/next-offer', {});
   if (!offerRes.offer) {
     return { ok: true, idle: true, reason: offerRes.reason || 'no_offer' };
@@ -36,6 +54,12 @@ async function runOnce(client, {
       engine: lease.engine,
       missionId: lease.missionId,
       sessionId: lease.sessionId,
+      providerSession: lease.providerSession?.id && lease.providerSession?.externalSessionId
+        ? {
+          id: lease.providerSession.id,
+          externalSessionId: lease.providerSession.externalSessionId,
+        }
+        : null,
     },
   });
 
@@ -90,10 +114,27 @@ async function runOnce(client, {
       forceFail,
       longRunMs,
       onCheckpoint: async (event) => {
+        const externalSessionId = String(event.providerSession?.externalSessionId || '').slice(0, 200);
+        if (lease.providerSession?.id && externalSessionId) {
+          const providerSession = {
+            id: lease.providerSession.id,
+            externalSessionId,
+          };
+          client.persist({
+            activeAttempt: {
+              ...client.state.activeAttempt,
+              providerSession,
+            },
+          });
+          await client.deviceRequest('POST', '/api/runner/device/provider-session/bind', {
+            providerSessionId: providerSession.id,
+            externalSessionId: providerSession.externalSessionId,
+          });
+        }
         await client.deviceRequest('POST', '/api/runner/device/event', {
           attemptId: lease.attemptId,
           leaseEpoch: lease.leaseEpoch,
-          kind: 'checkpoint',
+          kind: event.kind || 'checkpoint',
           phase: event.phase || 'progress',
           text: event.text || '',
           idempotencyKey: `cp:${event.phase}:${String(event.text || '').slice(0, 40)}`,
@@ -296,6 +337,7 @@ function ensureDeviceRequest(client) {
 
 module.exports = {
   runOnce,
+  restoreCapturedProviderSession,
   ensureDeviceRequest,
   HEARTBEAT_INTERVAL_MS,
 };

@@ -158,3 +158,122 @@ test('execution-loop sends the exact provider session to the adapter and returns
     externalSessionId: 'codex-thread-a',
   });
 });
+
+test('execution-loop durably binds a newly reported provider session before terminal completion', async () => {
+  const client = mockClient();
+  const persisted = [];
+  client.persist = function persist(patch) {
+    persisted.push(structuredClone(patch));
+    Object.assign(this.state, patch);
+  };
+  const providerSession = {
+    id: 'provider-session-new',
+    provider: 'codex',
+    externalSessionId: '',
+    status: 'pending',
+  };
+  client.deviceRequest = async function deviceRequest(method, path, body) {
+    this.calls.push({ method, path, body });
+    if (path === '/api/runner/device/next-offer') {
+      return {
+        offer: {
+          offerId: 'offer-new',
+          jobId: 'job-new',
+          missionId: 'mission-new',
+          sessionId: 'conversation-new',
+          goal: 'start provider session',
+          resolvedEngine: 'codex',
+          providerSession,
+        },
+      };
+    }
+    if (path === '/api/runner/device/lease') {
+      return {
+        lease: {
+          attemptId: 'attempt-new',
+          jobId: 'job-new',
+          missionId: 'mission-new',
+          sessionId: 'conversation-new',
+          leaseEpoch: 1,
+          engine: 'codex',
+          goal: 'start provider session',
+          providerSession,
+        },
+      };
+    }
+    if (path === '/api/runner/device/attempt-heartbeat') return { ok: true, cancellationRequested: false };
+    if (path === '/api/runner/device/provider-session/bind') return { ok: true, status: 'active' };
+    if (path === '/api/runner/device/event') return { ok: true };
+    if (path === '/api/runner/device/complete') return { ok: true, status: 'completed' };
+    return { ok: true };
+  };
+
+  const result = await runOnce(client, {
+    heartbeatIntervalMs: 0,
+    adapterResolver: () => ({
+      run: async ({ onCheckpoint }) => {
+        await onCheckpoint({
+          phase: 'plan',
+          kind: 'checkpoint',
+          text: 'provider session accepted',
+          providerSession: {
+            externalSessionId: 'codex-thread-new',
+          },
+        });
+        return {
+          ok: true,
+          summary: 'created',
+          resume: { threadId: 'codex-thread-new' },
+          artifacts: [],
+        };
+      },
+    }),
+  });
+
+  assert.equal(result.completed, true);
+  const bindIndex = client.calls.findIndex((call) => call.path === '/api/runner/device/provider-session/bind');
+  const eventIndex = client.calls.findIndex((call) => call.path === '/api/runner/device/event');
+  const completeIndex = client.calls.findIndex((call) => call.path === '/api/runner/device/complete');
+  assert.ok(bindIndex >= 0);
+  assert.ok(bindIndex < eventIndex);
+  assert.ok(bindIndex < completeIndex);
+  assert.deepEqual(client.calls[bindIndex].body, {
+    providerSessionId: 'provider-session-new',
+    externalSessionId: 'codex-thread-new',
+  });
+  assert.ok(persisted.some((patch) => (
+    patch.activeAttempt?.providerSession?.externalSessionId === 'codex-thread-new'
+  )));
+});
+
+test('execution-loop restores a locally captured provider session before polling another offer', async () => {
+  const client = mockClient();
+  client.state.activeAttempt = {
+    attemptId: 'attempt-interrupted',
+    jobId: 'job-interrupted',
+    providerSession: {
+      id: 'provider-session-interrupted',
+      externalSessionId: 'codex-thread-interrupted',
+    },
+  };
+  client.deviceRequest = async function deviceRequest(method, path, body) {
+    this.calls.push({ method, path, body });
+    if (path === '/api/runner/device/provider-session/bind') {
+      return { ok: true, status: 'active', replay: true };
+    }
+    if (path === '/api/runner/device/next-offer') {
+      return { offer: null, reason: 'active_attempt_recovery' };
+    }
+    return { ok: true };
+  };
+
+  const result = await runOnce(client, { heartbeatIntervalMs: 0 });
+
+  assert.equal(result.idle, true);
+  assert.equal(client.calls[0].path, '/api/runner/device/provider-session/bind');
+  assert.deepEqual(client.calls[0].body, {
+    providerSessionId: 'provider-session-interrupted',
+    externalSessionId: 'codex-thread-interrupted',
+  });
+  assert.equal(client.state.activeAttempt.providerSession, null);
+});

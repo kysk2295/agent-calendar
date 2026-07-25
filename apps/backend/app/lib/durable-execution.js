@@ -162,6 +162,7 @@ function phaseToCheckpointKind(phase) {
   const p = String(phase || '').toLowerCase();
   if (p === 'plan') return 'plan';
   if (p === 'progress' || p === 'leased' || p === 'retry' || p === 'accepted') return 'progress';
+  if (p === 'tool') return 'tool';
   if (p === 'artifact') return 'artifact';
   if (p === 'result' || p === 'completed') return 'completion';
   if (p === 'failed' || p === 'cancel' || p === 'cancelling') return 'error';
@@ -179,6 +180,16 @@ function providerSessionProjection(row) {
     status: row.status,
     title: row.title || '',
   };
+}
+
+function externalProviderSessionId(value, { required = true } = {}) {
+  const normalized = String(value || '').trim();
+  if (!normalized && !required) return '';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(normalized)) {
+    reject('PROVIDER_SESSION_ID_INVALID', 'Provider session identity is invalid', 400);
+  }
+  assertNoProviderSecrets({ value: normalized });
+  return normalized;
 }
 
 /** Service-owned transaction (device path; table owner, bypasses app least-privilege). */
@@ -1079,6 +1090,49 @@ class DurableExecution {
     });
   }
 
+  async bindProviderSession(runnerRow, {
+    providerSessionId = '',
+    externalSessionId = '',
+  } = {}) {
+    const id = String(providerSessionId || '').trim().slice(0, 160);
+    if (!id) reject('PROVIDER_SESSION_ID_REQUIRED', 'Provider session id is required', 400);
+    const externalId = externalProviderSessionId(externalSessionId);
+    return withServiceTransaction(this.pool, async (client) => {
+      const current = await client.query(
+        `select *
+         from provider_agent_sessions
+         where workspace_id = $1 and runner_id = $2 and id = $3
+         for update`,
+        [runnerRow.workspace_id, runnerRow.id, id],
+      );
+      if (!current.rowCount) {
+        reject('PROVIDER_SESSION_NOT_FOUND', 'Provider session was not found', 404);
+      }
+      const row = current.rows[0];
+      if (row.external_session_id && row.external_session_id !== externalId) {
+        reject('PROVIDER_SESSION_ID_MISMATCH', 'Provider session identity cannot be replaced', 409);
+      }
+      if (['auth_required', 'missing', 'deleted', 'quota_exhausted', 'archived'].includes(row.status)) {
+        reject('PROVIDER_SESSION_STATE_BLOCKED', `Provider session is ${row.status}`, 409);
+      }
+      const updated = await client.query(
+        `update provider_agent_sessions
+         set external_session_id = $4, status = 'active',
+             last_error_code = '', last_error_message = '',
+             last_activity_at = now(), updated_at = now()
+         where workspace_id = $1 and runner_id = $2 and id = $3
+         returning *`,
+        [runnerRow.workspace_id, runnerRow.id, id, externalId],
+      );
+      return {
+        ok: true,
+        replay: Boolean(row.external_session_id),
+        status: 'active',
+        session: providerSessionProjection(updated.rows[0]),
+      };
+    });
+  }
+
   async postArtifact(runnerRow, {
     attemptId,
     leaseEpoch,
@@ -1170,10 +1224,11 @@ class DurableExecution {
         : (isPublicResolvedEngine(att.resolved_engine) ? String(att.resolved_engine) : '');
       if (att.provider_session_id) {
         const providerSessionId = String(providerSession?.id || '');
-        const externalSessionId = String(providerSession?.externalSessionId || '').slice(0, 200);
-        if (providerSessionId !== att.provider_session_id || !externalSessionId) {
+        const rawExternalSessionId = String(providerSession?.externalSessionId || '').trim();
+        if (providerSessionId !== att.provider_session_id || !rawExternalSessionId) {
           reject('PROVIDER_SESSION_ID_REQUIRED', 'Provider session identity is required', 409);
         }
+        const externalSessionId = externalProviderSessionId(rawExternalSessionId);
         await client.query(
           `update provider_agent_sessions
            set external_session_id = $4, status = 'active',
@@ -1344,7 +1399,10 @@ class DurableExecution {
         if (providerSession?.id && String(providerSession.id) !== att.provider_session_id) {
           reject('PROVIDER_SESSION_MISMATCH', 'Provider session identity does not match', 409);
         }
-        const externalSessionId = String(providerSession?.externalSessionId || '').slice(0, 200);
+        const externalSessionId = externalProviderSessionId(
+          providerSession?.externalSessionId,
+          { required: false },
+        );
         const providerStatus = providerSessionFailureStatus(safeErrorCode);
         await client.query(
           `update provider_agent_sessions

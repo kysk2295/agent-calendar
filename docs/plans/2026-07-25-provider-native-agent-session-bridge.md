@@ -3,7 +3,25 @@
 - Date: 2026-07-25
 - Owner: Codex
 - Work size: Large / Boundary
-- Status: Complete
+- Status: In progress — interruption continuity and single-account live Codex verified;
+  strict two-account provider identity gate open
+
+## 2026-07-25 completion correction
+
+기존 `Complete`와 live ETE 표시는 최종 완료 증거로 사용할 수 없다.
+
+- 두 계정 ETE는 서로 다른 Workspace/Runner identity를 만들었지만 같은 호스트의
+  기본 `CODEX_HOME`과 provider credential/profile을 공유할 수 있었다. 따라서
+  “각 사용자의 Runner 로컬 provider identity” 격리를 증명하지 못했다.
+- 새 provider session id는 Adapter terminal result에서만 Gateway에 반영됐다.
+  provider가 session을 만든 뒤 Runner/Gateway/network가 끊기면 mapping이 비어 있는
+  상태로 재시도되어 조용히 새 provider session을 만들 수 있었다.
+- 기존 Electron ETE의 AuthKit은 injected test Adapter였다. 제품 흐름 검증에는
+  유효하지만 실제 production identity/provider credential 릴리스 증거는 아니다.
+
+이 계획은 위 결함을 닫고 서로 분리된 Runner provider home으로 실제 continuity를
+다시 관찰할 때까지 완료가 아니다. 기존 자동화 테스트와 screenshot은 회귀 증거로만
+유지한다.
 
 ## Goal
 
@@ -127,8 +145,10 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
 - [x] 앱/Gateway/Runner 재시작과 네트워크 단절 후 같은 mapping과 대화를 복구한다.
 - [x] provider session 만료/삭제/인증 만료를 구분하고 명시적 새 session 선택 전에는
       다른 session을 만들지 않는다.
-- [x] Workspace A/B의 catalog, agent id, session id, 대화, artifact, Runner 상태가
+- [ ] Workspace A/B의 catalog, agent id, session id, 대화, artifact, Runner 상태가
       상호 노출되지 않는다.
+      자동 hostile isolation과 서로 다른 Runner provider-home contract는 통과했지만,
+      서로 독립적으로 인증된 실제 provider home 두 개를 사용한 Electron ETE가 남았다.
 - [x] 예정/진행/완료/재작업 상태가 Unified Calendar에서 확인된다.
 - [x] credential/token/cookie/path 원문이 Gateway DB, logs, evidence, response에 없다.
 
@@ -170,6 +190,10 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
   - [x] connector output secret/path stripping
   - [x] full history/artifact/calendar state restore
   - [x] Desktop catalog import/session rail/search/rename/archive/status UI
+  - [x] provider session-start checkpoint 직후 terminal 이전 단절에서 같은 external
+        session id로 재시도되는 test
+  - [x] Runner A/B가 서로 다른 `CODEX_HOME`의 catalog/session만 읽고 상대 profile을
+        열거하지 못하는 test
 - GREEN:
   - [x] 최소 DB contract와 `ProviderAgentBridge`
   - [x] 최소 Runner connector/adapter continuity
@@ -193,21 +217,25 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
 - [x] `npm --workspace apps/desktop run test`
 - [x] `npm run build:desktop`
 - [x] `npm test`
-- [x] 실제 Electron two-account provider ETE
+- [ ] 실제 Electron two-account provider ETE
 
 ## Required live ETE
 
-- [x] clean account 로그인
+- [ ] production WorkOS clean account 로그인
 - [x] 해당 계정 Runner 등록/연결
 - [x] 실제 provider engine 인증
 - [x] 기존 Codex agent catalog 조회와 하나 가져오기
 - [x] 기존 Codex session 가져오기와 재개
 - [x] Work Conversation에서 메시지 전송
-- [x] 같은 provider session의 streaming, tool/Work Checkpoint, artifact 관찰
+- [x] 같은 provider session의 streaming, 안전한 tool/Work Checkpoint, artifact 관찰
 - [x] 후속 지시가 같은 external session id로 전달됨을 확인
 - [x] 앱 종료 및 재접속
 - [x] 동일 session/chat/work/artifact/calendar 결과 복구
-- [x] 두 계정 각각 수행하고 상호 격리 확인
+- [ ] 두 계정 각각 수행하고 상호 격리 확인
+
+위 체크는 실제 로컬 Codex CLI와 실제 Runner/Gateway/Electron 표면의 단일 계정
+관찰 결과다. 로그인만 injected AuthKit test adapter이므로 production identity
+릴리스 증거로 사용하지 않는다.
 
 ## Rollback / Fallback
 
@@ -230,11 +258,30 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
 - [x] Step 5: provider session create/resume/error continuity RED tests와 구현을 진행한다.
 - [x] Step 6: Desktop session rail/catalog import/status UX를 TDD로 구현한다.
 - [x] Step 7: 집중 gate와 전체 회귀를 통과시킨다.
-- [x] Step 8: 실제 two-account provider ETE와 재시작 복구를 관찰한다.
+- [ ] Step 8: 실제 two-account provider ETE와 재시작 복구를 관찰한다.
+- [x] Step 9: provider session-start identity를 terminal 이전에 durable mapping으로
+      고정하고 단절 재시도를 검증한다.
+- [ ] Step 10: 각 Runner의 provider home을 명시적으로 분리한 hostile isolation ETE를
+      통과시킨다.
 
 ## Verification Notes
 
-- Final implementation evidence:
+- 2026-07-25 corrective verification:
+  - Codex/Claude Adapter는 provider가 새 session identity를 내보내는 첫 checkpoint에서
+    Runner 로컬 active-attempt state에 저장한 뒤 terminal completion보다 먼저
+    same-Workspace Runner device route로 durable mapping을 고정한다.
+  - Runner가 bind 응답 이전 또는 직후 중단되면 다음 시작에서 로컬로 캡처한 mapping을
+    먼저 replay하고, 성공한 뒤에만 다음 offer를 조회한다.
+  - binding은 Workspace + Runner + provider-session row lock으로 제한되며 다른
+    Workspace/Runner는 404, 이미 연결된 다른 external id는 409다.
+  - provider connector와 CLI child process는 Runner별 `CODEX_HOME`,
+    `CLAUDE_CONFIG_DIR`, `HOME` 환경을 사용한다.
+  - 실제 단일 계정 Codex Electron ETE에서 catalog/session import, 같은 session
+    follow-up, 실제 shell tool checkpoint, artifact, Desktop/Gateway restart rehydration을
+    관찰했다. raw command, host path, credential은 durable event에 저장되지 않았다.
+  - strict two-account live ETE는 서로 독립적으로 인증된
+    `AGENT_CALENDAR_E2E_CODEX_HOME_A/B`가 없으면 시작 자체를 거부한다.
+- Prior regression evidence (not final release evidence):
   - `provider_agent_sessions`가 Work Conversation, agent, Runner, provider external session을
     Workspace 안에서 1:1로 유지한다.
   - Work Conversation 후속 지시는 저장된 external session id로 enqueue되고,
@@ -243,8 +290,8 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
     allowlist된 공개 필드만 Gateway로 반환한다.
   - Desktop에서 provider agent 가져오기, session 가져오기/새로 만들기/재개/검색/
     이름 변경/보관, streaming checkpoint, artifact, 오류 상태를 확인했다.
-  - Workspace A/B가 각자 실제 Codex Runner 세션을 수행한 Electron ETE에서 상호
-    catalog/session/work/artifact/calendar 노출이 없었다.
+  - Workspace A/B의 Agent Calendar row 격리는 관찰했지만 두 Runner의 local
+    `CODEX_HOME`은 분리되지 않아 provider identity 격리 완료 증거로는 부족했다.
 - Installed CLI contract:
   - Codex: `codex exec resume [SESSION_ID] [PROMPT] --json`
   - Claude: `--resume`, `--session-id`, `--agent`, `--output-format stream-json`
@@ -263,6 +310,9 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
   역수입하지는 않는다. 연결 이후의 Work Conversation 기록부터 내구성 있게 소유한다.
 - Hermes 현재 adapter의 classic CLI stdin은 resume streaming schema가 제한적이므로
   batch evidence를 정직하게 표시해야 한다.
+- Hermes/Grok은 새 session id를 안정적으로 내보내는 machine-readable 실행 stream이
+  확인되지 않은 상태에서는 새 session continuity를 지원한다고 표시할 수 없다.
+  기존 session resume와 batch 결과만 limited capability로 유지한다.
 - Grok 계정은 현재 quota exhausted 상태여서 성공 ETE는 잔액/권한 변경 전까지
   통과할 수 없으며 failure-state continuity만 검증 가능하다.
 - 이번 live provider ETE는 Codex로 통과했다. Claude/Hermes/Grok의 실계정 성공 ETE는

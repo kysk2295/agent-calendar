@@ -79,6 +79,38 @@ test('Codex and Claude local agent files become bounded public metadata only', a
   }
 });
 
+test('provider discovery is isolated by each Runner process provider home', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'provider-homes-'));
+  try {
+    const codexHomeA = path.join(root, 'runner-a-codex');
+    const codexHomeB = path.join(root, 'runner-b-codex');
+    write(path.join(codexHomeA, 'agents', 'agent-a.toml'), 'name = "Agent A"\n');
+    write(path.join(codexHomeB, 'agents', 'agent-b.toml'), 'name = "Agent B"\n');
+
+    const connectorA = createProviderConnector({
+      env: {
+        HOME: path.join(root, 'runner-a-home'),
+        CODEX_HOME: codexHomeA,
+      },
+    });
+    const connectorB = createProviderConnector({
+      env: {
+        HOME: path.join(root, 'runner-b-home'),
+        CODEX_HOME: codexHomeB,
+      },
+    });
+
+    const catalogA = await connectorA.listAgents('codex', { consent: true });
+    const catalogB = await connectorB.listAgents('codex', { consent: true });
+    assert.deepEqual(catalogA.map((entry) => entry.externalAgentId), ['agent-a']);
+    assert.deepEqual(catalogB.map((entry) => entry.externalAgentId), ['agent-b']);
+    assert.equal(JSON.stringify(catalogA).includes('agent-b'), false);
+    assert.equal(JSON.stringify(catalogB).includes('agent-a'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Claude catalog skips one invalid local entry without hiding valid agents', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'provider-connectors-invalid-claude-'));
   try {

@@ -3,7 +3,20 @@
 - Captured: 2026-07-25
 - Scope: Agent directory, Runner-local provider catalog, provider session continuity,
   Work Conversation durability, Unified Calendar, Workspace isolation
-- Result: PASS
+- Result: REGRESSION PASS ONLY — final completion evidence withdrawn
+
+## Completion-evidence correction
+
+This run remains useful regression evidence, but it is not final proof of the product contract.
+Both logical Runners could read the same host-default `CODEX_HOME`, and a newly created provider
+session id was persisted only at terminal completion. It therefore did not prove per-user local
+provider identity isolation or session continuity across a disconnect immediately after the
+provider accepted a turn.
+
+The reopened plan
+`docs/plans/2026-07-25-provider-native-agent-session-bridge.md` owns the corrective TDD and a new
+separately-homed Runner ETE. Until that gate passes, the agent feature must not be described as
+complete.
 
 ## Contract observed
 

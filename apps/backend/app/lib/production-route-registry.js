@@ -697,6 +697,11 @@ const PRODUCTION_ROUTES = [
     persistence: 'write', action: 'runner_device_event', idempotent: true, role: 'none',
   },
   {
+    method: 'POST', pathPattern: '/api/runner/device/provider-session/bind', class: 'runner_device',
+    persistence: 'write', action: 'runner_device_provider_session_bind', idempotent: true, role: 'none',
+    notes: 'Persist a newly observed provider session identity before terminal completion',
+  },
+  {
     method: 'POST', pathPattern: '/api/runner/device/artifact', class: 'runner_device',
     persistence: 'write', action: 'runner_device_artifact', idempotent: true, role: 'none',
   },
