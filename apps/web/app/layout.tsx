@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Agent Calendar — 일정에서 시작하는 에이전트 작업",
+    default: "Agent Calendar | 일정에서 시작하는 에이전트 작업",
     template: "%s · Agent Calendar",
   },
   description:
@@ -37,7 +37,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#f4f1eb",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f5f7f6" },
+    { media: "(prefers-color-scheme: dark)", color: "#101412" },
+  ],
 };
 
 export default function RootLayout({
