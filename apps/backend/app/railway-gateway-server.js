@@ -104,6 +104,7 @@ const { answerWikiQuestion, buildRetrievalOnlyAnswer } = require('./lib/wiki-rag
 const ROOT_DIR = path.resolve(__dirname, '..');
 const SNAPSHOT_DIR = path.join(ROOT_DIR, 'snapshots');
 const PORT = Number(process.env.PORT || 3000);
+const RELAY_SNAPSHOT_MAX_BYTES = 512 * 1024;
 const PROTECTED_AGENT_IDS = new Set(['default']);
 
 function envFlag(value) {
@@ -240,12 +241,43 @@ function buildTickTickSetupSummary({ requestUrl, env = process.env, state = 'her
   };
 }
 
-function readRequestBody(req) {
+function readRequestBody(req, maxBytes = Infinity) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
+    let totalBytes = 0;
+    let settled = false;
+    const rejectOversized = () => {
+      if (settled) return;
+      settled = true;
+      chunks.length = 0;
+      const error = new Error('Request body is too large');
+      error.code = 'request_body_too_large';
+      reject(error);
+    };
+    const contentLength = Number(req.headers?.['content-length'] || 0);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      rejectOversized();
+    }
+    req.on('data', (chunk) => {
+      if (settled) return;
+      const buffer = Buffer.from(chunk);
+      totalBytes += buffer.length;
+      if (totalBytes > maxBytes) {
+        rejectOversized();
+        return;
+      }
+      chunks.push(buffer);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
   });
 }
 
@@ -7552,7 +7584,23 @@ async function handleApi(
   }
 
   const method = req.method || 'GET';
-  const bodyBuffer = ['GET', 'HEAD'].includes(method) ? undefined : await readRequestBody(req);
+  const relaySnapshotUpload = (
+    method === 'POST'
+    && pathSegments[0] === 'relay'
+    && pathSegments[1] === 'snapshot'
+  );
+  let bodyBuffer;
+  try {
+    bodyBuffer = ['GET', 'HEAD'].includes(method)
+      ? undefined
+      : await readRequestBody(req, relaySnapshotUpload ? RELAY_SNAPSHOT_MAX_BYTES : Infinity);
+  } catch (error) {
+    if (relaySnapshotUpload && error?.code === 'request_body_too_large') {
+      sendJson(res, 413, { ok: false, error: 'relay_snapshot_too_large' });
+      return;
+    }
+    throw error;
+  }
   if (pathSegments[0] === 'relay') {
     if (!relayEnabled(env)) {
       sendJson(res, 404, { ok: false, error: 'relay_not_configured' });
