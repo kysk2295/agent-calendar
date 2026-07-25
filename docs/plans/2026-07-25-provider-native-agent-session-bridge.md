@@ -279,6 +279,10 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
   - 실제 단일 계정 Codex Electron ETE에서 catalog/session import, 같은 session
     follow-up, 실제 shell tool checkpoint, artifact, Desktop/Gateway restart rehydration을
     관찰했다. raw command, host path, credential은 durable event에 저장되지 않았다.
+  - `client-v1` closed Desktop surface 이후 동일 live Codex Electron ETE를 다시 실행해
+    101,338ms에 통과했다. Agent catalog/session route는 이제 112-operation manifest와
+    reverse drift gate 안에 있으며 manifest 밖 제품 route는 explicit client-v1에서
+    handler 실행 전 거부된다.
   - strict two-account live ETE는 서로 독립적으로 인증된
     `AGENT_CALENDAR_E2E_CODEX_HOME_A/B`가 없으면 시작 자체를 거부한다.
 - Prior regression evidence (not final release evidence):

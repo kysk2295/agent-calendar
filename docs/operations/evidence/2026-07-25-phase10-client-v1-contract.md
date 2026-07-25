@@ -9,21 +9,26 @@
 
 `client-v1` exposes one tenant-free manifest at `GET /api/contracts/client-v1`.
 
-The manifest now contains 65 supported operations across exactly these eight families:
+The manifest now contains 112 supported operations across exactly these ten families:
 
 1. identity
-2. unified-calendar
-3. calendar-ai
-4. agent-work
-5. runner-control
-6. automation
-7. knowledge
-8. notifications
+2. workspace-core
+3. unified-calendar
+4. calendar-ai
+5. agent-control
+6. agent-work
+7. runner-control
+8. automation
+9. knowledge
+10. notifications
 
 The additive closures after the original freeze are the Workspace-scoped Google Calendar OAuth
 start/callback routes and eight Runner Control operations. Runner list, release manifest,
 enrollment start/get/confirm/reject, connection test, and revoke now use the same supported
-interface as Desktop. The five Runner mutations advertise a required idempotency key.
+interface as Desktop. The five Runner mutations advertise a required idempotency key. The final
+Desktop closure adds all Workspace core, legacy Desktop adapter, Agent Control/provider catalog,
+provider session, scheduler, and Agent Work routes. No scoped/auth Desktop product route remains
+outside the manifest.
 
 The compatibility rule is additive-only within `client-v1`. A breaking change requires a new
 major contract identifier. The production route assertion fails startup/tests if a frozen
@@ -44,8 +49,9 @@ changes.
   `idempotency-key`
 
 An explicitly requested unsupported Agent Calendar contract returns `406` with the supported
-contract identifiers before authentication or Workspace access. Ordinary unversioned JSON
-requests retain their existing behavior.
+contract identifiers before authentication or Workspace access. An explicit `client-v1` request
+for a registered scoped/auth product route outside the manifest returns
+`client_route_not_in_contract`. Ordinary unversioned JSON requests retain their existing behavior.
 
 Desktop renderer JSON/SSE requests, main-process login/refresh/logout, and the Electron proxy
 now preserve this contract identity. The proxy CORS allowlist and upstream forwarding policy
@@ -67,16 +73,16 @@ Expected RED:
 
 GREEN:
 
-- Focused Backend contract: 5 passed.
+- Focused Backend client-v1/lifecycle: 15 passed.
 - Focused Desktop client/proxy/secure-session contract: 21 passed.
 
 ## Broad Verification
 
 - `npm run backend:check`: passed.
-- `npm test`: passed.
-  - Backend: 454 passed.
-  - Desktop: 258 passed.
-  - Runner: 23 passed.
+- Current full regression: passed.
+  - Backend: 506 passed.
+  - Desktop: 274 passed.
+  - Runner: 46 passed.
 - `npm run typecheck`: passed.
 - `npm run build:desktop`: passed.
 
@@ -84,9 +90,27 @@ The existing non-blocking Vite large-bundle warning remains unchanged.
 
 ## Manual QA Gate
 
+### Closed Desktop/provider surface
+
+An actual Electron run with the real local Codex CLI passed after the 112-operation closure:
+
+- provider agent catalog query/import;
+- existing provider session import;
+- two messages delivered to the same external provider session;
+- streaming checkpoint, curated tool checkpoint, and artifact;
+- Gateway and Desktop restart;
+- same Work Conversation, provider session, artifact, and Calendar result restored.
+
+The run completed in 101,338ms with two completed attempts and no failed attempt. It used the
+injected AuthKit adapter, so it is product-surface regression evidence rather than production
+identity release evidence. The final two-account provider gate remains open.
+
+Evidence:
+`docs/operations/evidence/2026-07-25-client-v1-closed-desktop-surface.md`.
+
 ### Current Runner Control additive closure
 
-The production Electron Runner Setup journey passed with the current 65-operation manifest:
+The production Electron Runner Setup journey passed with the then-current 65-operation manifest:
 
 - login and Workspace-owned enrollment;
 - QR decode and pending fingerprint;

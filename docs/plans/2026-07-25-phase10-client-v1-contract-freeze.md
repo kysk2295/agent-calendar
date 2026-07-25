@@ -7,7 +7,7 @@
 
 ## Goal
 
-Freeze one machine-readable `client-v1` interface for the supported Desktop client and the
+Freeze one closed, machine-readable `client-v1` interface for the supported Desktop client and the
 future compact Mobile client. The production gateway must advertise the interface, reject an
 explicitly requested unsupported Agent Calendar contract, and identify negotiated responses
 without exposing Workspace data.
@@ -57,7 +57,8 @@ are two real adapters of the same HTTP interface. No Mobile-specific server adap
 ## Success Criteria
 
 - [x] `GET /api/contracts/client-v1` returns a tenant-free, deeply immutable manifest for
-      identity, Unified Calendar, Calendar AI, Agent Work, Automation, Knowledge, and notifications.
+      identity, Workspace Core, Unified Calendar, Calendar AI, Agent Control, Agent Work,
+      Runner Control, Automation, Knowledge, and notifications.
 - [x] The manifest fails validation if a frozen route's method, path, action, class, persistence,
       role, or idempotency meaning drifts.
 - [x] Explicit `client-v1` negotiation adds `x-agent-calendar-contract: client-v1`.
@@ -70,6 +71,9 @@ are two real adapters of the same HTTP interface. No Mobile-specific server adap
       `client-v1`, and the OAuth start/callback routes are frozen in the manifest.
 - [x] Desktop Runner Control list/enrollment/confirm/reject/test/revoke routes are frozen;
       every Runner mutation requires a retry-stable idempotency key.
+- [x] Every Desktop scoped/auth product route, including provider agent catalog and session
+      management, is frozen; an explicit request for a registered product route outside the
+      manifest fails before authentication/handler execution.
 - [x] Backend and Desktop verification gates pass.
 
 ## Edge Cases
@@ -128,19 +132,21 @@ Product code follows the failing tests.
 
 ## Verification Notes
 
-- Focused Backend: 5 passed.
-- Focused Desktop client/proxy/secure-session: 21 passed.
+- Focused Backend client-v1/lifecycle: 15 passed.
+- Focused Desktop client/proxy/secure-session: passed in the 274-test Desktop suite.
 - Backend syntax: passed.
-- Full root suite: Backend 444, Desktop 258, Runner 23 passed.
+- Full current regression: Backend 506, Desktop 274, Runner 46 passed.
 - Desktop typecheck and production build: passed.
-- Manual QA: built Electron proxy to real local production Gateway passed preflight,
-  discovery, supported negotiation, mutation identity, and unsupported-version rejection.
+- Manual QA: actual Electron + real Codex Runner completed provider catalog/session import,
+  same-session follow-up, tool checkpoint, artifact, and Gateway/Desktop restart restoration.
 - Evidence:
   `docs/operations/evidence/2026-07-25-phase10-client-v1-contract.md`
 - Google Calendar main-process closure:
   `docs/operations/evidence/2026-07-25-phase10-google-calendar-client-v1-contract.md`
 - Runner Control retry-safety closure:
   `docs/operations/evidence/2026-07-25-runner-control-idempotency.md`
+- Closed Desktop/provider surface:
+  `docs/operations/evidence/2026-07-25-client-v1-closed-desktop-surface.md`
 
 ## Rollback / Fallback
 

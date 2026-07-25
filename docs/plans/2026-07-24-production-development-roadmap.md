@@ -622,14 +622,16 @@ Committed stories:
 4. Private beta triage and P0/P1 fixes — 4 days
 5. Freeze v1 Mobile-facing contracts and complete eligible legacy cleanup — 2 days
 
-2026-07-25 progress: the `client-v1` contract-freeze slice is verified for identity, Unified
-Calendar, Calendar AI, Agent Work, Automation, Knowledge, and notifications. The tenant-free
-manifest contains 55 Desktop/Mobile operations, rejects explicit unsupported versions, and
-requires retry-stable idempotency keys for negotiated product mutations. Eligible legacy cleanup
-remains open until supported-client usage evidence and explicit removal dates exist; see
+2026-07-25 progress: the closed `client-v1` contract is verified for identity, Workspace Core,
+Unified Calendar, Calendar AI, Agent Control, Agent Work, Runner Control, Automation, Knowledge,
+and notifications. The tenant-free manifest contains 112 Desktop/Mobile operations, rejects
+explicit unsupported versions and manifest 밖 registered product routes, and requires
+retry-stable idempotency keys for negotiated product mutations. Every Desktop scoped/auth product
+route, including provider agent catalog/session management, is now inside the manifest. Eligible
+legacy cleanup remains open until supported-client usage evidence and explicit removal dates exist; see
 `docs/operations/evidence/2026-07-25-phase10-client-v1-contract.md`.
 
-2026-07-25 route-lifecycle audit: all 156 production routes are now classified against
+2026-07-25 route-lifecycle audit: all 167 production routes are now classified against
 `client-v1`, Desktop, Runner, provider, operations, compatibility, tombstone, and removal
 policies. Removal now requires its explicit date plus 28 observed zero-traffic days. Mobile entry
 remains correctly blocked by 14 compatibility routes and 12 dated removal candidates. Desktop
@@ -850,6 +852,9 @@ Mobile-specific gate:
       (`2026-07-25-provider-native-agent-session-bridge.md`).
       **Still open:** 서로 독립적으로 인증된 두 provider home과 production WorkOS를 사용한
       two-account Electron ETE. 이 gate 전에는 전체 Agent 기능 완료로 주장하지 않는다.
+      Provider agent catalog/session route는 112-operation closed client-v1에 포함됐고,
+      실제 단일 계정 Codex Electron regression을 다시 통과했다
+      (`2026-07-25-client-v1-closed-desktop-surface.md`).
 - [ ] Phase 4: Unified Calendar and first external connector
       Decision input ready: Google Calendar first (ADR 0009); implementation not started.
 - [ ] Phase 5: Knowledge v2 and Wiki AI isolation

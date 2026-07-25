@@ -5,7 +5,11 @@ const http = require('node:http');
 const test = require('node:test');
 
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
-const { listProductionRoutes } = require('../app/lib/production-route-registry');
+const {
+  listDesktopApiPaths,
+  listProductionRoutes,
+  matchProductionRoute,
+} = require('../app/lib/production-route-registry');
 const {
   CLIENT_V1_CONTRACT_ID,
   CLIENT_V1_MEDIA_TYPE,
@@ -46,8 +50,10 @@ test('client-v1 manifest freezes supported Desktop and Mobile-entry route famili
     clientV1ContractManifest.families.map((family) => family.id),
     [
       'identity',
+      'workspace-core',
       'unified-calendar',
       'calendar-ai',
+      'agent-control',
       'agent-work',
       'runner-control',
       'automation',
@@ -76,6 +82,8 @@ test('client-v1 manifest freezes supported Desktop and Mobile-entry route famili
   assert.ok(operationIds.includes('runner-control.enrollment-reject'));
   assert.ok(operationIds.includes('runner-control.test'));
   assert.ok(operationIds.includes('runner-control.revoke'));
+  assert.ok(operationIds.includes('agent-control.catalog-request'));
+  assert.ok(operationIds.includes('agent-control.session-catalog-import'));
 });
 
 test('client-v1 manifest matches the production registry and fails closed on drift', () => {
@@ -105,6 +113,41 @@ test('client-v1 manifest matches the production registry and fails closed on dri
   assert.throws(
     () => assertClientV1Contract(drifted),
     /client_v1_route_drift/,
+  );
+
+  const operationKeys = new Set(
+    clientV1ContractManifest.families
+      .flatMap((family) => family.operations)
+      .map((operation) => `${operation.method} ${operation.pathPattern}`),
+  );
+  const missingDesktopProductRoutes = listDesktopApiPaths().filter((key) => {
+    const [method, pathPattern] = key.split(' ');
+    const matched = matchProductionRoute(method, pathPattern);
+    return matched
+      && ['scoped_product', 'auth_public', 'auth_session'].includes(matched.route.class)
+      && !operationKeys.has(key);
+  });
+  assert.deepEqual(missingDesktopProductRoutes, []);
+
+  const missingAgentProviderInventory = [
+    'PATCH /api/agents/:id',
+    'DELETE /api/agents/:id',
+    'POST /api/agents/:id/restore',
+    'POST /api/agents/catalog/requests',
+    'GET /api/agents/catalog/requests/:id',
+    'POST /api/agents/catalog/requests/:id/import',
+    'GET /api/agents/:id/sessions',
+    'PATCH /api/agent-sessions/:id',
+    'POST /api/agents/:id/sessions/catalog/requests',
+    'POST /api/agents/:id/sessions/catalog/requests/:requestId/import',
+  ].filter((key) => !listDesktopApiPaths().includes(key));
+  assert.deepEqual(missingAgentProviderInventory, []);
+  assert.throws(
+    () => assertClientV1Contract(
+      routes,
+      listDesktopApiPaths().concat('GET /api/phase1/tasks'),
+    ),
+    /client_v1_desktop_contract_missing:GET \/api\/phase1\/tasks/,
   );
 });
 
@@ -197,6 +240,57 @@ test('negotiated client-v1 mutations require a retry-stable idempotency key', ()
     status: 200,
     contractId: CLIENT_V1_CONTRACT_ID,
   });
+  assert.deepEqual(validateClientV1Request({
+    method: 'POST',
+    pathname: '/api/settings',
+    headers: { 'x-agent-calendar-contract': CLIENT_V1_CONTRACT_ID },
+  }), {
+    ok: false,
+    status: 400,
+    error: 'client_idempotency_key_required',
+    contractId: CLIENT_V1_CONTRACT_ID,
+  });
+  assert.deepEqual(validateClientV1Request({
+    method: 'POST',
+    pathname: '/api/agents/catalog/requests',
+    headers: { 'x-agent-calendar-contract': CLIENT_V1_CONTRACT_ID },
+  }), {
+    ok: false,
+    status: 400,
+    error: 'client_idempotency_key_required',
+    contractId: CLIENT_V1_CONTRACT_ID,
+  });
+});
+
+test('explicit client-v1 rejects registered product routes outside the frozen contract', () => {
+  assert.deepEqual(validateClientV1Request({
+    method: 'GET',
+    pathname: '/api/phase1/tasks',
+    headers: { 'x-agent-calendar-contract': CLIENT_V1_CONTRACT_ID },
+  }), {
+    ok: false,
+    status: 406,
+    error: 'client_route_not_in_contract',
+    contractId: CLIENT_V1_CONTRACT_ID,
+  });
+  assert.deepEqual(validateClientV1Request({
+    method: 'GET',
+    pathname: '/api/phase1/tasks',
+    headers: {},
+  }), {
+    ok: true,
+    status: 200,
+    contractId: null,
+  });
+  assert.deepEqual(validateClientV1Request({
+    method: 'GET',
+    pathname: '/api/gateway-status',
+    headers: { 'x-agent-calendar-contract': CLIENT_V1_CONTRACT_ID },
+  }), {
+    ok: true,
+    status: 200,
+    contractId: CLIENT_V1_CONTRACT_ID,
+  });
 });
 
 test('real production HTTP advertises client-v1 and returns 406 for an unsupported explicit contract', async () => {
@@ -257,6 +351,15 @@ test('real production HTTP advertises client-v1 and returns 406 for an unsupport
     });
     assert.equal(missingKeyResponse.status, 400);
     assert.equal((await missingKeyResponse.json()).error, 'client_idempotency_key_required');
+
+    const unlistedProductResponse = await fetch(`${baseUrl}/api/phase1/tasks`, {
+      headers: { accept: `${CLIENT_V1_MEDIA_TYPE}, application/json` },
+    });
+    assert.equal(unlistedProductResponse.status, 406);
+    assert.equal(
+      (await unlistedProductResponse.json()).error,
+      'client_route_not_in_contract',
+    );
   } finally {
     await close(server);
   }

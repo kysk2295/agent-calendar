@@ -51,6 +51,15 @@ test('compatibility routes have explicit replacements and removal dates', () => 
 test('Desktop has no production-disabled route dependencies', () => {
   const report = buildRouteLifecycleReport({ asOf: '2026-07-25' });
   assert.deepEqual(report.supportedClientDisabledRoutes, []);
+  assert.deepEqual(
+    report.routes
+      .filter((route) => (
+        route.lifecycle === 'stable-desktop'
+        && ['scoped_product', 'auth_public', 'auth_session'].includes(route.class)
+      ))
+      .map((route) => route.key),
+    [],
+  );
   assert.equal(report.mobileEntryReady, false);
   assert.throws(
     () => assertMobileEntryRouteLifecycle(report),

@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  listDesktopApiPaths,
   listProductionRoutes,
   matchProductionRoute,
 } = require('./production-route-registry');
@@ -86,11 +87,28 @@ const clientV1ContractManifest = deepFreeze({
       operation('identity.session-refresh', 'POST', '/api/phase1/auth/refresh', 'session_refresh', 'auth_session', 'write', false, 'none'),
       operation('identity.session-logout', 'POST', '/api/phase1/auth/logout', 'session_logout', 'auth_session', 'write', false, 'session'),
     ]),
+    family('workspace-core', [
+      operation('workspace.state', 'GET', '/api/state', 'state_aggregate', 'scoped_product', 'read', true, 'member'),
+      operation('workspace.tasks-list', 'GET', '/api/tasks', 'tasks_list', 'scoped_product', 'read', true, 'member'),
+      operation('workspace.task-create', 'POST', '/api/tasks', 'tasks_create', 'scoped_product', 'write', true, 'member'),
+      operation('workspace.task-update', 'PATCH', '/api/tasks/:id', 'tasks_update', 'scoped_product', 'write', true, 'member'),
+      operation('workspace.task-delete', 'DELETE', '/api/tasks/:id', 'tasks_delete', 'scoped_product', 'write', true, 'member'),
+      operation('workspace.mail-list', 'GET', '/api/mail/messages', 'mail_list', 'scoped_product', 'read', true, 'member'),
+      operation('workspace.workboard-list', 'GET', '/api/workboard', 'workboard_list', 'scoped_product', 'read', true, 'member'),
+      operation('workspace.documents-list', 'GET', '/api/documents', 'documents_list', 'scoped_product', 'read', true, 'member'),
+      operation('workspace.document-create', 'POST', '/api/documents', 'documents_create', 'scoped_product', 'write', true, 'member'),
+      operation('workspace.channels-status', 'GET', '/api/channels/status', 'channels_status', 'scoped_product', 'read', true, 'member'),
+      operation('workspace.usage', 'GET', '/api/usage', 'usage_empty', 'scoped_product', 'read', true, 'member'),
+      operation('workspace.tools', 'GET', '/api/tools', 'tools_empty', 'scoped_product', 'read', true, 'member'),
+      operation('workspace.settings-get', 'GET', '/api/settings', 'settings_get', 'scoped_product', 'read', true, 'member'),
+      operation('workspace.settings-save', 'POST', '/api/settings', 'settings_save', 'scoped_product', 'write', true, 'member'),
+    ]),
     family('unified-calendar', [
       operation('calendar.events-list', 'GET', '/api/calendar/events', 'calendar_list', 'scoped_product', 'read', true, 'member'),
       operation('calendar.event-create', 'POST', '/api/calendar/events', 'calendar_create', 'scoped_product', 'write', true, 'member'),
       operation('calendar.event-update', 'PATCH', '/api/calendar/events/:id', 'calendar_update', 'scoped_product', 'write', true, 'member'),
       operation('calendar.event-delete', 'DELETE', '/api/calendar/events/:id', 'calendar_delete', 'scoped_product', 'write', true, 'member'),
+      operation('calendar.quick-add', 'POST', '/api/calendar/quick-add', 'calendar_quick_add', 'scoped_product', 'write', true, 'member'),
       operation('calendar.schedule-ingest', 'POST', '/api/assistant/ingest', 'assistant_ingest_scoped', 'scoped_product', 'read', false, 'member'),
       operation('calendar.unified-range', 'GET', '/api/calendar/unified', 'calendar_unified_range', 'scoped_product', 'read', true, 'member'),
       operation('calendar.sources-list', 'GET', '/api/calendar/sources', 'calendar_sources_list', 'scoped_product', 'read', true, 'member'),
@@ -103,6 +121,9 @@ const clientV1ContractManifest = deepFreeze({
       operation('calendar.external-delete', 'DELETE', '/api/calendar/external/events/:providerEventId', 'calendar_external_delete', 'scoped_product', 'write', true, 'member'),
     ]),
     family('calendar-ai', [
+      operation('calendar-ai.assistant-ask', 'POST', '/api/assistant/ask', 'assistant_ask_scoped', 'scoped_product', 'write', true, 'member'),
+      operation('calendar-ai.chat-messages', 'GET', '/api/chat/messages', 'chat_messages_list', 'scoped_product', 'read', true, 'member'),
+      operation('calendar-ai.chat-stream', 'POST', '/api/chat/stream', 'chat_stream_scoped', 'scoped_product', 'stream', true, 'member'),
       operation('calendar-ai.conversations-list', 'GET', '/api/calendar-ai/conversations', 'calendar_ai_conversations_list', 'scoped_product', 'read', true, 'member'),
       operation('calendar-ai.conversation-create', 'POST', '/api/calendar-ai/conversations', 'calendar_ai_conversation_create', 'scoped_product', 'write', true, 'member'),
       operation('calendar-ai.conversation-get', 'GET', '/api/calendar-ai/conversations/:id', 'calendar_ai_conversation_get', 'scoped_product', 'read', true, 'member'),
@@ -115,17 +136,40 @@ const clientV1ContractManifest = deepFreeze({
       operation('calendar-ai.action-revise', 'POST', '/api/calendar-ai/actions/:id/revise', 'calendar_ai_action_revise', 'scoped_product', 'write', true, 'member'),
       operation('calendar-ai.action-cancel', 'POST', '/api/calendar-ai/actions/:id/cancel', 'calendar_ai_action_cancel', 'scoped_product', 'write', true, 'member'),
     ]),
+    family('agent-control', [
+      operation('agent-control.list', 'GET', '/api/agents', 'agents_list', 'scoped_product', 'read', true, 'member'),
+      operation('agent-control.create', 'POST', '/api/agents', 'agents_create', 'scoped_product', 'write', true, 'owner'),
+      operation('agent-control.update', 'PATCH', '/api/agents/:id', 'agents_update', 'scoped_product', 'write', true, 'owner'),
+      operation('agent-control.archive', 'DELETE', '/api/agents/:id', 'agents_delete', 'scoped_product', 'write', true, 'owner'),
+      operation('agent-control.restore', 'POST', '/api/agents/:id/restore', 'agents_restore', 'scoped_product', 'write', true, 'owner'),
+      operation('agent-control.catalog-request', 'POST', '/api/agents/catalog/requests', 'agent_catalog_request', 'scoped_product', 'write', true, 'owner'),
+      operation('agent-control.catalog-request-get', 'GET', '/api/agents/catalog/requests/:id', 'agent_catalog_request_get', 'scoped_product', 'read', true, 'owner'),
+      operation('agent-control.catalog-import', 'POST', '/api/agents/catalog/requests/:id/import', 'agent_catalog_import', 'scoped_product', 'write', true, 'owner'),
+      operation('agent-control.sessions-list', 'GET', '/api/agents/:id/sessions', 'provider_agent_sessions_list', 'scoped_product', 'read', true, 'member'),
+      operation('agent-control.session-update', 'PATCH', '/api/agent-sessions/:id', 'provider_agent_session_update', 'scoped_product', 'write', true, 'member'),
+      operation('agent-control.session-catalog-request', 'POST', '/api/agents/:id/sessions/catalog/requests', 'provider_agent_session_catalog_request', 'scoped_product', 'write', true, 'owner'),
+      operation('agent-control.session-catalog-import', 'POST', '/api/agents/:id/sessions/catalog/requests/:requestId/import', 'provider_agent_session_catalog_import', 'scoped_product', 'write', true, 'owner'),
+    ]),
     family('agent-work', [
       operation('agent-work.snapshot', 'GET', '/api/agent-operations', 'agent_ops_snapshot', 'scoped_product', 'read', true, 'member'),
       operation('agent-work.create', 'POST', '/api/agent-operations/work', 'agent_work_create_deferred', 'scoped_product', 'write', true, 'member'),
       operation('agent-work.conversation', 'GET', '/api/agent-operations/work/:missionId/conversation', 'agent_work_conversation', 'scoped_product', 'read', true, 'member'),
       operation('agent-work.message', 'POST', '/api/agent-operations/work/:missionId/messages', 'agent_work_message', 'scoped_product', 'write', true, 'member'),
       operation('agent-work.live', 'POST', '/api/agent-operations/work/:missionId/live', 'agent_work_live_deferred', 'scoped_product', 'stream', true, 'member'),
+      operation('agent-work.mission-create', 'POST', '/api/agent-operations/missions', 'missions_create_deferred', 'scoped_product', 'write', true, 'member'),
+      operation('agent-work.mission-plan', 'POST', '/api/agent-operations/missions/:id/plan', 'missions_plan_deferred', 'scoped_product', 'write', true, 'member'),
+      operation('agent-work.mission-activate', 'POST', '/api/agent-operations/missions/:id/activate', 'missions_activate_deferred', 'scoped_product', 'write', true, 'owner'),
       operation('agent-work.pause', 'POST', '/api/agent-operations/missions/:id/pause', 'missions_pause', 'scoped_product', 'write', true, 'owner'),
       operation('agent-work.cancel', 'POST', '/api/agent-operations/missions/:id/cancel', 'missions_cancel', 'scoped_product', 'write', true, 'owner'),
       operation('agent-work.task-transition', 'POST', '/api/agent-operations/tasks/:id/:action', 'agent_task_transition', 'scoped_product', 'write', true, 'owner'),
       operation('agent-work.session-get', 'GET', '/api/agent-operations/sessions/:id', 'agent_session_get', 'scoped_product', 'read', true, 'member'),
       operation('agent-work.session-message', 'POST', '/api/agent-operations/sessions/:id/messages', 'agent_session_message', 'scoped_product', 'write', true, 'member'),
+      operation('agent-work.report-feedback', 'POST', '/api/agent-operations/reports/:id/feedback', 'agent_report_feedback', 'scoped_product', 'write', true, 'member'),
+      operation('agent-work.report-follow-up', 'POST', '/api/agent-operations/reports/:id/follow-ups', 'agent_report_followups', 'scoped_product', 'write', true, 'member'),
+      operation('agent-work.run-create', 'POST', '/api/runs', 'runs_create_deferred', 'scoped_product', 'write', true, 'member'),
+      operation('agent-work.run-get', 'GET', '/api/runs/:id', 'runs_get', 'scoped_product', 'read', true, 'member'),
+      operation('agent-work.run-approve', 'POST', '/api/runs/:id/approve', 'runs_approve', 'scoped_product', 'write', true, 'owner'),
+      operation('agent-work.mission-launch', 'POST', '/api/missions/launch', 'missions_launch_deferred', 'scoped_product', 'write', true, 'member'),
     ]),
     family('runner-control', [
       operation('runner-control.list', 'GET', '/api/runners', 'runners_list', 'scoped_product', 'read', true, 'member'),
@@ -145,8 +189,16 @@ const clientV1ContractManifest = deepFreeze({
       operation('automation.occurrences-list', 'GET', '/api/automation/occurrences', 'automation_occurrences_list', 'scoped_product', 'read', true, 'member'),
       operation('automation.change-create', 'POST', '/api/automation/changes', 'automation_change_create', 'scoped_product', 'write', true, 'owner'),
       operation('automation.change-approve', 'POST', '/api/automation/changes/:id/approve', 'automation_change_approve', 'scoped_product', 'write', true, 'owner'),
+      operation('automation.scheduler-list', 'GET', '/api/scheduler/jobs', 'scheduler_list', 'scoped_product', 'read', true, 'member'),
+      operation('automation.scheduler-create', 'POST', '/api/scheduler/jobs', 'scheduler_create', 'scoped_product', 'write', true, 'owner'),
+      operation('automation.scheduler-update', 'PATCH', '/api/scheduler/jobs/:id', 'scheduler_update', 'scoped_product', 'write', true, 'owner'),
+      operation('automation.scheduler-delete', 'DELETE', '/api/scheduler/jobs/:id', 'scheduler_delete', 'scoped_product', 'write', true, 'owner'),
+      operation('automation.scheduler-run', 'POST', '/api/scheduler/jobs/:id/run', 'scheduler_run_deferred', 'scoped_product', 'write', true, 'owner'),
     ]),
     family('knowledge', [
+      operation('knowledge.wiki-list', 'GET', '/api/wiki', 'wiki_list', 'scoped_product', 'read', true, 'member'),
+      operation('knowledge.wiki-search', 'POST', '/api/wiki/search', 'wiki_search', 'scoped_product', 'read', true, 'member'),
+      operation('knowledge.wiki-ask', 'POST', '/api/wiki/ask', 'wiki_ask_scoped', 'scoped_product', 'write', true, 'member'),
       operation('knowledge.sources-list', 'GET', '/api/knowledge/sources', 'knowledge_sources_list', 'scoped_product', 'read', true, 'member'),
       operation('knowledge.source-create', 'POST', '/api/knowledge/sources', 'knowledge_sources_create', 'scoped_product', 'write', true, 'member'),
       operation('knowledge.source-revoke', 'POST', '/api/knowledge/sources/:id/revoke', 'knowledge_source_revoke', 'scoped_product', 'write', true, 'owner'),
@@ -167,7 +219,10 @@ function routeKey(route) {
   return `${String(route.method || '').toUpperCase()} ${String(route.pathPattern || '')}`;
 }
 
-function assertClientV1Contract(routes = listProductionRoutes()) {
+function assertClientV1Contract(
+  routes = listProductionRoutes(),
+  desktopPaths = listDesktopApiPaths(),
+) {
   const routeIndex = new Map();
   for (const route of routes) {
     const key = routeKey(route);
@@ -182,12 +237,18 @@ function assertClientV1Contract(routes = listProductionRoutes()) {
   }
 
   const operationIds = new Set();
+  const operationKeys = new Set();
   for (const familyEntry of clientV1ContractManifest.families) {
     for (const expected of familyEntry.operations) {
       if (operationIds.has(expected.id)) {
         throw new Error(`client_v1_operation_duplicate:${expected.id}`);
       }
       operationIds.add(expected.id);
+      const expectedKey = routeKey(expected);
+      if (operationKeys.has(expectedKey)) {
+        throw new Error(`client_v1_operation_route_duplicate:${expectedKey}`);
+      }
+      operationKeys.add(expectedKey);
       const matches = routeIndex.get(routeKey(expected)) || [];
       if (matches.length !== 1) {
         throw new Error(`client_v1_route_missing:${expected.id}`);
@@ -208,6 +269,19 @@ function assertClientV1Contract(routes = listProductionRoutes()) {
       ) {
         throw new Error(`client_v1_idempotency_policy_missing:${expected.id}`);
       }
+    }
+  }
+
+  for (const desktopPath of desktopPaths) {
+    const matches = routeIndex.get(desktopPath) || [];
+    if (matches.length !== 1) {
+      throw new Error(`client_v1_desktop_route_missing:${desktopPath}`);
+    }
+    if (
+      ['scoped_product', 'auth_public', 'auth_session'].includes(matches[0].class)
+      && !operationKeys.has(desktopPath)
+    ) {
+      throw new Error(`client_v1_desktop_contract_missing:${desktopPath}`);
     }
   }
 
@@ -295,6 +369,18 @@ function validateClientV1Request({
         && entry.pathPattern === matched.route.pathPattern
       ))
     : null;
+  if (
+    matched
+    && ['scoped_product', 'auth_public', 'auth_session'].includes(matched.route.class)
+    && !expected
+  ) {
+    return {
+      ok: false,
+      status: 406,
+      error: 'client_route_not_in_contract',
+      contractId: CLIENT_V1_CONTRACT_ID,
+    };
+  }
   if (
     expected
     && expected.idempotencyKey === 'required'
