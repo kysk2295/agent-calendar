@@ -104,7 +104,7 @@ const { answerWikiQuestion, buildRetrievalOnlyAnswer } = require('./lib/wiki-rag
 const ROOT_DIR = path.resolve(__dirname, '..');
 const SNAPSHOT_DIR = path.join(ROOT_DIR, 'snapshots');
 const PORT = Number(process.env.PORT || 3000);
-const RELAY_SNAPSHOT_MAX_BYTES = 512 * 1024;
+const RELAY_SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
 const PROTECTED_AGENT_IDS = new Set(['default']);
 
 function envFlag(value) {
@@ -245,39 +245,32 @@ function readRequestBody(req, maxBytes = Infinity) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let totalBytes = 0;
-    let settled = false;
-    const rejectOversized = () => {
-      if (settled) return;
-      settled = true;
-      chunks.length = 0;
+    const contentLength = Number(req.headers?.['content-length'] || 0);
+    let oversized = Number.isFinite(contentLength) && contentLength > maxBytes;
+    const oversizedError = () => {
       const error = new Error('Request body is too large');
       error.code = 'request_body_too_large';
-      reject(error);
+      return error;
     };
-    const contentLength = Number(req.headers?.['content-length'] || 0);
-    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-      rejectOversized();
-    }
     req.on('data', (chunk) => {
-      if (settled) return;
+      if (oversized) return;
       const buffer = Buffer.from(chunk);
       totalBytes += buffer.length;
       if (totalBytes > maxBytes) {
-        rejectOversized();
+        oversized = true;
+        chunks.length = 0;
         return;
       }
       chunks.push(buffer);
     });
     req.on('end', () => {
-      if (settled) return;
-      settled = true;
+      if (oversized) {
+        reject(oversizedError());
+        return;
+      }
       resolve(Buffer.concat(chunks));
     });
-    req.on('error', (error) => {
-      if (settled) return;
-      settled = true;
-      reject(error);
-    });
+    req.on('error', reject);
   });
 }
 
@@ -1865,6 +1858,30 @@ function projectPublicRuntimeHealth(health = {}) {
     ...(source.uptimeMs !== undefined ? { uptimeMs: Math.max(0, Number(source.uptimeMs) || 0) } : {}),
     gatewayFallback: false,
     runtimeReachable: true,
+  };
+}
+
+function compactRelaySnapshotForStorage(snapshot = {}) {
+  const source = snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : {};
+  const runtimeState = runtimeStateFromResponseBody(source);
+  const operationalState = {};
+  for (const key of ['agents', 'tools', 'skills', 'toolsets', 'mcpServers', 'runs', 'schedulerJobs', 'automationJobs']) {
+    if (Array.isArray(runtimeState[key])) operationalState[key] = runtimeState[key];
+  }
+  for (const key of ['profileReadiness', 'agentSourceStatus', 'remoteVerification']) {
+    if (runtimeState[key] && typeof runtimeState[key] === 'object' && !Array.isArray(runtimeState[key])) {
+      operationalState[key] = runtimeState[key];
+    }
+  }
+  const projected = projectPublicRelaySnapshot({
+    source: source.source,
+    state: operationalState,
+  });
+  return {
+    source: projected.source,
+    generatedAt: publicIsoTimestamp(source.generatedAt),
+    health: projectPublicRuntimeHealth(source.health),
+    state: projected.state,
   };
 }
 
@@ -7632,7 +7649,7 @@ async function handleApi(
     }
     if (method === 'POST' && pathSegments[1] === 'snapshot') {
       const body = parseJsonBuffer(bodyBuffer);
-      const snapshot = relay.updateSnapshot(body);
+      const snapshot = relay.updateSnapshot(compactRelaySnapshotForStorage(body));
       sendJson(res, 200, {
         ok: true,
         accepted: true,

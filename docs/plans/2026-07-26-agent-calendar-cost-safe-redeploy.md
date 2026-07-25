@@ -31,15 +31,16 @@
 
 ## Success Criteria
 
-- [x] 512 KiB를 넘는 Relay snapshot은 `413`으로 거부된다.
+- [x] 현재 1~2 MiB Relay snapshot은 호환하되 4 MiB를 넘으면 `413`으로 거부된다.
 - [x] 허용된 Relay snapshot 업로드 응답에는 snapshot 본문이 포함되지 않는다.
+- [x] Relay snapshot에서 DB와 중복되는 태스크·문서 본문은 메모리에 보관하지 않는다.
 - [ ] Agent Calendar API와 Postgres만 Railway에서 실행된다.
 - [ ] `hermes-os-web`은 배포 중지 상태로 유지된다.
 - [ ] 실제 Agent Calendar API health와 데이터 읽기가 정상이다.
 
 ## Edge Cases
 
-- `Content-Length`가 큰 요청은 본문을 메모리에 쌓기 전에 거부한다.
+- `Content-Length`가 한도를 넘으면 본문을 메모리에 쌓지 않고 스트림만 비운다.
 - chunked body도 누적 한도를 넘는 즉시 더 이상 메모리에 쌓지 않는다.
 - 일반 캘린더 API의 기존 요청 본문 계약은 변경하지 않는다.
 - DB 재시작 실패 시 API를 정상으로 오인하지 않고 배포를 중단한다.
@@ -49,10 +50,10 @@
 제품 코드보다 테스트를 먼저 작성한다.
 
 - RED:
-  - [x] 512 KiB 초과 Relay snapshot이 현재 `200`으로 수락되는 회귀 테스트를
-        먼저 실패시킨다.
+  - [x] 현재 크기의 Relay snapshot이 차단되고, 전체 상태가 그대로 보관되는
+        회귀 테스트를 먼저 실패시킨다.
 - GREEN:
-  - [x] Relay snapshot에만 전용 크기 제한을 적용하고 `413`을 반환한다.
+  - [x] 현재 입력을 운영 상태로 축소 저장하고 4 MiB 초과 입력만 `413`으로 반환한다.
 - REFACTOR:
   - [x] 기존 작은 확인 응답과 다른 API 본문 처리를 그대로 유지한다.
 
@@ -76,7 +77,7 @@
 ## Implementation Checklist
 
 - [x] Relay snapshot 과대 요청 회귀 테스트를 RED로 고정한다.
-- [x] snapshot 전용 요청 한도와 안전한 `413` 응답을 구현한다.
+- [x] snapshot 전용 요청 한도, 운영 상태 축소 저장, 안전한 `413` 응답을 구현한다.
 - [ ] 전체 로컬 검증 후 main에 반영한다.
 - [ ] Postgres를 먼저 재배포하고 Agent Calendar API를 source에서 재배포한다.
 - [ ] 실서비스 health, 데이터 읽기, 서비스 수를 확인한다.
@@ -92,9 +93,9 @@
 ## Verification Notes
 
 - Command: `node --test apps/backend/tests/relay-snapshot-cost-safety.test.cjs`
-  - Result: RED에서 `200 !== 413`을 확인했고 구현 후 1/1 통과했다.
+  - Result: RED에서 현재 snapshot 호환 실패를 확인했고 구현 후 2/2 통과했다.
 - Command: `npm run backend:check && npm run test:backend`
-  - Result: syntax check와 backend 285/285 통과.
+  - Result: syntax check와 backend 286/286 통과.
 - Command: `npm run typecheck && npm --workspace apps/desktop run test && npm run build:desktop`
   - Result: typecheck, desktop 141/141, production renderer/Electron build 통과.
 
