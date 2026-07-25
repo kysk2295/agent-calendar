@@ -36,7 +36,7 @@ function assertDeepFrozen(value) {
   for (const child of Object.values(value)) assertDeepFrozen(child);
 }
 
-test('client-v1 manifest freezes the seven Mobile-entry route families', () => {
+test('client-v1 manifest freezes supported Desktop and Mobile-entry route families', () => {
   assert.equal(CLIENT_V1_CONTRACT_ID, 'client-v1');
   assert.equal(CLIENT_V1_MEDIA_TYPE, 'application/vnd.agent-calendar.client-v1+json');
   assert.equal(CLIENT_V1_RESPONSE_HEADER, 'x-agent-calendar-contract');
@@ -49,6 +49,7 @@ test('client-v1 manifest freezes the seven Mobile-entry route families', () => {
       'unified-calendar',
       'calendar-ai',
       'agent-work',
+      'runner-control',
       'automation',
       'knowledge',
       'notifications',
@@ -70,6 +71,11 @@ test('client-v1 manifest freezes the seven Mobile-entry route families', () => {
   assert.ok(operationIds.includes('calendar.schedule-ingest'));
   assert.ok(operationIds.includes('calendar.google-authorize'));
   assert.ok(operationIds.includes('calendar.google-callback'));
+  assert.ok(operationIds.includes('runner-control.enrollment-start'));
+  assert.ok(operationIds.includes('runner-control.enrollment-confirm'));
+  assert.ok(operationIds.includes('runner-control.enrollment-reject'));
+  assert.ok(operationIds.includes('runner-control.test'));
+  assert.ok(operationIds.includes('runner-control.revoke'));
 });
 
 test('client-v1 manifest matches the production registry and fails closed on drift', () => {
@@ -164,6 +170,28 @@ test('negotiated client-v1 mutations require a retry-stable idempotency key', ()
     method: 'POST',
     pathname: '/api/phase1/auth/desktop/start',
     headers: { 'x-agent-calendar-contract': CLIENT_V1_CONTRACT_ID },
+  }), {
+    ok: true,
+    status: 200,
+    contractId: CLIENT_V1_CONTRACT_ID,
+  });
+  assert.deepEqual(validateClientV1Request({
+    method: 'POST',
+    pathname: '/api/runners/enrollments',
+    headers: { 'x-agent-calendar-contract': CLIENT_V1_CONTRACT_ID },
+  }), {
+    ok: false,
+    status: 400,
+    error: 'client_idempotency_key_required',
+    contractId: CLIENT_V1_CONTRACT_ID,
+  });
+  assert.deepEqual(validateClientV1Request({
+    method: 'POST',
+    pathname: '/api/runners/runner-a/revoke',
+    headers: {
+      'x-agent-calendar-contract': CLIENT_V1_CONTRACT_ID,
+      'idempotency-key': 'runner-revoke-01',
+    },
   }), {
     ok: true,
     status: 200,

@@ -254,9 +254,171 @@ test('phase2 registry has user + device runner routes, no runner_future', () => 
   assert.ok(matchProductionRoute('POST', '/api/runner/device/claim'));
   assert.ok(matchProductionRoute('POST', '/api/runner/device/connect'));
   assert.ok(matchProductionRoute('POST', '/api/runners/r1/revoke'));
+  for (const routePath of [
+    '/api/runners/enrollments',
+    '/api/runners/enrollments/enrollment-a/confirm',
+    '/api/runners/enrollments/enrollment-a/reject',
+    '/api/runners/runner-a/test',
+    '/api/runners/runner-a/revoke',
+  ]) {
+    assert.equal(matchProductionRoute('POST', routePath).route.idempotent, true);
+  }
   const counts = countRoutesByClass();
   assert.ok(counts.byClass.runner_device >= 7);
   assert.ok(counts.byClass.scoped_product >= 8);
+});
+
+test('client-v1 Runner enrollment retry replays once and isolates the same key by Workspace', async () => {
+  await withEphemeralPostgres(async ({ pool }) => {
+    await seedUsers(pool);
+    const runtime = createPhase1Runtime({
+      pool,
+      identityVerifier: null,
+      authKit: null,
+      workosConfig: null,
+    });
+    const server = createRailwayGatewayServer({
+      env: {
+        WORKSPACE_AUTH_MODE: 'production',
+        AGENT_CALENDAR_OBSERVABILITY_LOGS: '0',
+        PORT: '0',
+      },
+      phase1Pool: pool,
+      phase1Runtime: runtime,
+    });
+    const baseUrl = await listen(server);
+    try {
+      const tokenA = await issueToken(pool, 'subject-a', 'ws-a');
+      const tokenB = await issueToken(pool, 'subject-b', 'ws-b');
+      const body = { controlPlaneBaseUrl: baseUrl };
+      const contractHeaders = {
+        'x-agent-calendar-contract': 'client-v1',
+      };
+
+      const missingKey = await httpJson(baseUrl, 'POST', '/api/runners/enrollments', {
+        token: tokenA,
+        body,
+        headers: contractHeaders,
+      });
+      assert.equal(missingKey.status, 400);
+      assert.equal(missingKey.json.error, 'client_idempotency_key_required');
+
+      const retryHeaders = {
+        ...contractHeaders,
+        'idempotency-key': 'runner-enrollment-retry-1',
+      };
+      const firstA = await httpJson(baseUrl, 'POST', '/api/runners/enrollments', {
+        token: tokenA,
+        body,
+        headers: retryHeaders,
+      });
+      const replayA = await httpJson(baseUrl, 'POST', '/api/runners/enrollments', {
+        token: tokenA,
+        body,
+        headers: retryHeaders,
+      });
+      assert.equal(firstA.status, 200, JSON.stringify(firstA.json));
+      assert.equal(replayA.status, 200, JSON.stringify(replayA.json));
+      assert.deepEqual(replayA.json, firstA.json);
+      assertNoSecrets(firstA.json);
+
+      const rowsA = await pool.query(
+        `select id, status
+         from runner_enrollment_challenges
+         where workspace_id = 'ws-a'`,
+      );
+      assert.equal(rowsA.rowCount, 1);
+      assert.equal(rowsA.rows[0].status, 'issued');
+
+      const conflictA = await httpJson(baseUrl, 'POST', '/api/runners/enrollments', {
+        token: tokenA,
+        body: { controlPlaneBaseUrl: 'https://different.invalid' },
+        headers: retryHeaders,
+      });
+      assert.equal(conflictA.status, 409);
+      assert.equal(conflictA.json.error, 'idempotency_key_conflict');
+
+      const firstB = await httpJson(baseUrl, 'POST', '/api/runners/enrollments', {
+        token: tokenB,
+        body,
+        headers: retryHeaders,
+      });
+      assert.equal(firstB.status, 200, JSON.stringify(firstB.json));
+      assert.equal(firstB.json.enrollment.workspaceId, 'ws-b');
+      assert.notEqual(firstB.json.enrollment.id, firstA.json.enrollment.id);
+      assertNoSecrets(firstB.json);
+
+      const rowsB = await pool.query(
+        `select count(*)::int as count
+         from runner_enrollment_challenges
+         where workspace_id = 'ws-b'`,
+      );
+      assert.equal(rowsB.rows[0].count, 1);
+
+      const legacy = await httpJson(baseUrl, 'POST', '/api/runners/enrollments', {
+        token: tokenB,
+        body,
+      });
+      assert.equal(legacy.status, 200);
+
+      const mutationCases = [
+        {
+          methodName: 'confirmEnrollment',
+          path: '/api/runners/enrollments/enrollment-replay/confirm',
+        },
+        {
+          methodName: 'rejectEnrollment',
+          path: '/api/runners/enrollments/enrollment-replay/reject',
+        },
+        {
+          methodName: 'testConnection',
+          path: '/api/runners/runner-replay/test',
+        },
+        {
+          methodName: 'revokeRunner',
+          path: '/api/runners/runner-replay/revoke',
+        },
+      ];
+      const mutationCalls = Object.create(null);
+      for (const entry of mutationCases) {
+        mutationCalls[entry.methodName] = 0;
+        runtime.runnerControl[entry.methodName] = async (_scope, id) => {
+          mutationCalls[entry.methodName] += 1;
+          return {
+            ok: true,
+            operation: entry.methodName,
+            targetId: id,
+          };
+        };
+      }
+      for (const entry of mutationCases) {
+        const headers = {
+          ...contractHeaders,
+          'idempotency-key': `runner-control-${entry.methodName}`,
+        };
+        const first = await httpJson(baseUrl, 'POST', entry.path, {
+          token: tokenA,
+          body: {},
+          headers,
+        });
+        const replay = await httpJson(baseUrl, 'POST', entry.path, {
+          token: tokenA,
+          body: {},
+          headers,
+        });
+        assert.equal(first.status, 200, JSON.stringify(first.json));
+        assert.deepEqual(replay.json, first.json);
+        assert.equal(mutationCalls[entry.methodName], 1);
+        assertNoSecrets(first.json);
+      }
+    } finally {
+      if (runtime.durableExecution) runtime.durableExecution.stopBackgroundWorkers();
+      if (runtime.unifiedCalendar && runtime.unifiedCalendar.stopBackgroundWorkers) {
+        runtime.unifiedCalendar.stopBackgroundWorkers();
+      }
+      await close(server);
+    }
+  });
 });
 
 test('phase2 banned launch args list is non-empty', () => {

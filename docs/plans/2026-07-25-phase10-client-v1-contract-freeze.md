@@ -68,6 +68,8 @@ are two real adapters of the same HTTP interface. No Mobile-specific server adap
       request identity/idempotency key.
 - [x] Electron main-process Google Calendar OAuth start/callback/first-sync requests identify
       `client-v1`, and the OAuth start/callback routes are frozen in the manifest.
+- [x] Desktop Runner Control list/enrollment/confirm/reject/test/revoke routes are frozen;
+      every Runner mutation requires a retry-stable idempotency key.
 - [x] Backend and Desktop verification gates pass.
 
 ## Edge Cases
@@ -137,6 +139,8 @@ Product code follows the failing tests.
   `docs/operations/evidence/2026-07-25-phase10-client-v1-contract.md`
 - Google Calendar main-process closure:
   `docs/operations/evidence/2026-07-25-phase10-google-calendar-client-v1-contract.md`
+- Runner Control retry-safety closure:
+  `docs/operations/evidence/2026-07-25-runner-control-idempotency.md`
 
 ## Rollback / Fallback
 

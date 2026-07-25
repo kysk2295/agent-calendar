@@ -630,7 +630,7 @@ const PRODUCTION_ROUTES = [
   },
   {
     method: 'POST', pathPattern: '/api/runners/enrollments', class: 'scoped_product',
-    persistence: 'write', action: 'runners_enrollment_start', idempotent: false, role: 'owner',
+    persistence: 'write', action: 'runners_enrollment_start', idempotent: true, role: 'owner',
   },
   {
     method: 'GET', pathPattern: '/api/runners/enrollments/:id', class: 'scoped_product',
@@ -638,19 +638,19 @@ const PRODUCTION_ROUTES = [
   },
   {
     method: 'POST', pathPattern: '/api/runners/enrollments/:id/confirm', class: 'scoped_product',
-    persistence: 'write', action: 'runners_enrollment_confirm', idempotent: false, role: 'owner',
+    persistence: 'write', action: 'runners_enrollment_confirm', idempotent: true, role: 'owner',
   },
   {
     method: 'POST', pathPattern: '/api/runners/enrollments/:id/reject', class: 'scoped_product',
-    persistence: 'write', action: 'runners_enrollment_reject', idempotent: false, role: 'owner',
+    persistence: 'write', action: 'runners_enrollment_reject', idempotent: true, role: 'owner',
   },
   {
     method: 'POST', pathPattern: '/api/runners/:id/test', class: 'scoped_product',
-    persistence: 'write', action: 'runners_test', idempotent: false, role: 'owner',
+    persistence: 'write', action: 'runners_test', idempotent: true, role: 'owner',
   },
   {
     method: 'POST', pathPattern: '/api/runners/:id/revoke', class: 'scoped_product',
-    persistence: 'write', action: 'runners_revoke', idempotent: false, role: 'owner',
+    persistence: 'write', action: 'runners_revoke', idempotent: true, role: 'owner',
   },
 
   // Runner device-auth (no user session; Phase 2)

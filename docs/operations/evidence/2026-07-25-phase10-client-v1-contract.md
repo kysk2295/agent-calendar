@@ -9,19 +9,21 @@
 
 `client-v1` exposes one tenant-free manifest at `GET /api/contracts/client-v1`.
 
-The manifest contains 57 supported operations across exactly these seven families:
+The manifest now contains 65 supported operations across exactly these eight families:
 
 1. identity
 2. unified-calendar
 3. calendar-ai
 4. agent-work
-5. automation
-6. knowledge
-7. notifications
+5. runner-control
+6. automation
+7. knowledge
+8. notifications
 
-The two operations added after the original freeze are the Workspace-scoped Google Calendar
-OAuth start and callback routes. This closes the Electron main-process Calendar connection flow;
-the first sync and source list were already frozen.
+The additive closures after the original freeze are the Workspace-scoped Google Calendar OAuth
+start/callback routes and eight Runner Control operations. Runner list, release manifest,
+enrollment start/get/confirm/reject, connection test, and revoke now use the same supported
+interface as Desktop. The five Runner mutations advertise a required idempotency key.
 
 The compatibility rule is additive-only within `client-v1`. A breaking change requires a new
 major contract identifier. The production route assertion fails startup/tests if a frozen
@@ -81,6 +83,23 @@ GREEN:
 The existing non-blocking Vite large-bundle warning remains unchanged.
 
 ## Manual QA Gate
+
+### Current Runner Control additive closure
+
+The production Electron Runner Setup journey passed with the current 65-operation manifest:
+
+- login and Workspace-owned enrollment;
+- QR decode and pending fingerprint;
+- confirm, device claim, connect, capability/authentication presentation, connection test;
+- disconnect/reconnect, credential rotation, revoke, and Calendar return.
+
+Actual PostgreSQL/HTTP verification also observed exact same-key replay with one challenge row,
+changed-payload conflict, and independent same-key execution in Workspace A/B.
+
+Evidence:
+`docs/operations/evidence/2026-07-25-runner-control-idempotency.md`.
+
+### Original contract-freeze observation
 
 The built Electron proxy was connected to a real local production-mode Gateway process. No
 fake upstream response was used for this gate.

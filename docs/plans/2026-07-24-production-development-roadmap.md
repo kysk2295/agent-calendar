@@ -838,6 +838,10 @@ Mobile-specific gate:
       middleware, Phase 1 exit gate Desktop criterion.
 - [x] Phase 2: account-bound Runner Enrollment, connection, capability, setup UI, and revocation (2026-07-24 verified; Phase 3 job leasing still open)
       Decision inputs ready: ADR 0008 + Orca reference 2026-07-24; implementation not started.
+      **Retry-safety closure (2026-07-25):** Runner enrollment start/confirm/reject,
+      connection test, and revoke now belong to `client-v1` and replay through the
+      Workspace-scoped idempotency store. Actual PostgreSQL A/B isolation and the full Electron
+      Runner Setup surface passed (`2026-07-25-runner-control-idempotency.md`).
 - [x] Phase 3: durable execution + Engine Adapters + golden ETE
       (2026-07-24 verified; customer-owned Runner external release gate open)
       **Provider-native session corrective partial (2026-07-25):** terminal 이전 session-id

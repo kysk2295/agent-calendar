@@ -127,6 +127,16 @@ const clientV1ContractManifest = deepFreeze({
       operation('agent-work.session-get', 'GET', '/api/agent-operations/sessions/:id', 'agent_session_get', 'scoped_product', 'read', true, 'member'),
       operation('agent-work.session-message', 'POST', '/api/agent-operations/sessions/:id/messages', 'agent_session_message', 'scoped_product', 'write', true, 'member'),
     ]),
+    family('runner-control', [
+      operation('runner-control.list', 'GET', '/api/runners', 'runners_list', 'scoped_product', 'read', true, 'member'),
+      operation('runner-control.release-manifest', 'GET', '/api/runners/release-manifest', 'runners_release_manifest', 'scoped_product', 'read', true, 'member'),
+      operation('runner-control.enrollment-start', 'POST', '/api/runners/enrollments', 'runners_enrollment_start', 'scoped_product', 'write', true, 'owner'),
+      operation('runner-control.enrollment-get', 'GET', '/api/runners/enrollments/:id', 'runners_enrollment_get', 'scoped_product', 'read', true, 'owner'),
+      operation('runner-control.enrollment-confirm', 'POST', '/api/runners/enrollments/:id/confirm', 'runners_enrollment_confirm', 'scoped_product', 'write', true, 'owner'),
+      operation('runner-control.enrollment-reject', 'POST', '/api/runners/enrollments/:id/reject', 'runners_enrollment_reject', 'scoped_product', 'write', true, 'owner'),
+      operation('runner-control.test', 'POST', '/api/runners/:id/test', 'runners_test', 'scoped_product', 'write', true, 'owner'),
+      operation('runner-control.revoke', 'POST', '/api/runners/:id/revoke', 'runners_revoke', 'scoped_product', 'write', true, 'owner'),
+    ]),
     family('automation', [
       operation('automation.sources-list', 'GET', '/api/automation/sources', 'automation_sources_list', 'scoped_product', 'read', true, 'member'),
       operation('automation.source-connect', 'POST', '/api/automation/sources', 'automation_sources_connect', 'scoped_product', 'write', true, 'owner'),
