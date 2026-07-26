@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "slice": "phase1-full-gateway-workspace-cutover",
+  "date": "2026-07-24",
+  "status": "verified",
+  "workSize": "Large|Boundary",
+  "plan": "docs/plans/2026-07-24-phase1-full-gateway-workspace-cutover.md",
+  "productionAuthMode": "WORKSPACE_AUTH_MODE=production",
+  "legacyRollback": "WORKSPACE_AUTH_MODE=legacy preserves personal-beta unscoped fallthrough",
+  "routeInventory": {
+    "total": 92,
+    "desktopPathsCovered": 60,
+    "byClass": {
+      "public_infra": 2,
+      "auth_public": 2,
+      "auth_session": 4,
+      "scoped_product": 62,
+      "production_disabled": 13,
+      "provider_webhook": 7,
+      "runner_future": 2
+    },
+    "productionDisabledRoutes": [
+      "POST /api/phase1/agent-work/:sessionId/publish",
+      "POST /api/phase1/schedule/embed-probe",
+      "POST /api/tasks/share-draft",
+      "POST /api/calendar/draft",
+      "POST /api/scheduler/tick",
+      "POST /api/assistant/ingest",
+      "POST /api/workboard/convert",
+      "POST /api/agent-operations/tick",
+      "POST /api/mail/accounts",
+      "POST /api/mail/sync",
+      "POST /api/mail/messages/:id/:action",
+      "POST /api/ticktick/import",
+      "POST /api/ticktick/sync"
+    ],
+    "hydrateSafeMailList": "GET /api/mail/messages is scoped_product empty mailbox (not production_disabled)",
+    "runnerFutureRoutes": [
+      "GET /api/runner/adapters",
+      "POST /api/runner/enroll"
+    ]
+  },
+  "migration": "0016_idempotency_request_lifecycle.sql",
+  "compositionPoint": "apps/backend/app/lib/phase1-auth-routes.js#maybeHandlePhase1OrBlockLegacy → production-gateway-dispatch",
+  "noLegacyProductFallthrough": true,
+  "globalStoreMutationsInHostileMatrix": 0,
+  "gatewayStatusAnonymous": {
+    "leaksTenantData": false,
+    "mode": "production",
+    "infraOnly": true
+  },
+  "hostileMatrix": {
+    "file": "apps/backend/tests/phase1-full-gateway-workspace-cutover.test.cjs",
+    "result": "3/3 pass",
+    "covers": [
+      "anonymous 401",
+      "legacy global Bearer 401",
+      "workspaceId body/header spoof ignored",
+      "foreign ID opaque 404",
+      "list/search/SSE/chat/scheduler/agent-work/settings isolation",
+      "cross-workspace idempotency keys",
+      "idempotency conflict on payload reuse",
+      "concurrent duplicate idempotency",
+      "owner vs member role enforcement",
+      "production_disabled mail",
+      "unregistered path fail-closed"
+    ]
+  },
+  "verification": {
+    "backendCheck": "pass",
+    "backendTests": "347/347 pass",
+    "typecheck": "pass",
+    "desktopTests": "167/167 pass",
+    "buildDesktop": "pass",
+    "gitDiffCheck": "pass"
+  },
+  "electronE2E": {
+    "file": "apps/desktop/tests/playwright-workos-production-cutover-e2e.cjs",
+    "result": "ok",
+    "completeCount": 1,
+    "restartRestore": true,
+    "secondAccountIsolation": true,
+    "visualAssertions": {
+      "noApiBanner": true,
+      "noProductionDisabledText": true,
+      "seededCalendarEventVisible": "E2E Cutover Event",
+      "seededTaskVisible": "E2E Cutover Task",
+      "seededWikiVisible": "E2E Wiki Note",
+      "agentRunnerRequiredLabel": "Runner 미연결 · 실행은 Workspace Runner 필요"
+    },
+    "screenshots": [
+      "apps/desktop/test-results/workos-production-cutover/calendar-surface.png",
+      "apps/desktop/test-results/workos-production-cutover/wiki-surface.png",
+      "apps/desktop/test-results/workos-production-cutover/agent-work-surface.png"
+    ],
+    "screenshotInspection": {
+      "calendar": "CLEAN — no red Railway banner; day 24 shows E2E Cutover Event + Task; AuthKit 로그인",
+      "wiki": "CLEAN — no red banner; graph node E2E Wiki Note; tree 2_wiki count 1",
+      "agentWork": "CLEAN — designed Runner 미연결 state (not Hermes/Railway failure); E2E Automation + deferred mission visible"
+    }
+  },
+  "openGates": [
+    "Live WorkOS credentials + AuthKit dashboard redirect/provider config (manual)",
+    "Runner enrollment implementation (explicitly out of scope; runner_required contracts only)",
+    "Mail/TickTick/Hermes remote connectors remain production_disabled until scoped safely"
+  ],
+  "orphansAfterCleanup": "none (ephemeral PG + Electron cleaned)"
+}

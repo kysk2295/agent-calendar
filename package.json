@@ -9,7 +9,8 @@
   "description": "Agent Calendar monorepo for the Electron desktop app, macOS widgets, and the backend they use.",
   "workspaces": [
     "apps/desktop",
-    "apps/backend"
+    "apps/backend",
+    "apps/runner"
   ],
   "scripts": {
     "dev:desktop": "npm --workspace apps/desktop run dev",
@@ -17,11 +18,14 @@
     "build:desktop": "npm --workspace apps/desktop run build",
     "build:electron": "npm --workspace apps/desktop run build:electron",
     "typecheck": "npm --workspace apps/desktop run typecheck",
-    "test": "npm --workspace apps/backend run test && npm --workspace apps/desktop run test",
+    "test": "npm --workspace apps/backend run test && npm --workspace apps/desktop run test && npm --workspace apps/runner run test",
     "test:backend": "npm --workspace apps/backend run test",
+    "test:runner": "npm --workspace apps/runner run test",
+    "runner:check": "npm --workspace apps/runner run check",
     "backend:start": "npm --workspace apps/backend run start",
     "backend:check": "npm --workspace apps/backend run check",
     "backend:migrate": "npm --workspace apps/backend run db:migrate",
+    "verify:multi-user-ete": "AGENT_CALENDAR_E2E_TWO_ACCOUNT=1 node apps/desktop/tests/playwright-phase3-golden-ete.cjs",
     "verify:beta": "npm run backend:check && npm run typecheck && npm test && npm run build:desktop"
   }
 }

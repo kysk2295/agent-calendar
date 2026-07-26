@@ -299,29 +299,28 @@ async function withProxy(fetchImpl, env, fn) {
   }
 }
 
-test('proxy handles /api/wiki/ask locally with vault search and Hermes wiki curator answer', async () => {
+test('proxy forwards /api/wiki/ask to the authenticated Gateway even when local Wiki search is enabled', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wiki-vault-'));
   try {
     await mkdir(path.join(root, '2_wiki'), { recursive: true });
     await writeFile(path.join(root, '2_wiki', 'Market.md'), '# Market\n\n## 리스크\n투자에서 반복하는 실수는 손절을 늦추는 것이다.');
-    const railwayCalls = [];
+    const gatewayCalls = [];
     await withProxy(async (url, init) => {
-      railwayCalls.push({ url, body: JSON.parse(init.body) });
-      return new Response([
-        'event: delta',
-        'data: {"text":"기록을 보면 손절을 늦추는 패턴이 반복돼요."}',
-        '',
-        'event: done',
-        'data: {"text":"기록을 보면 손절을 늦추는 패턴이 반복돼요.","source":"mac-mini-hermes-api","gatewayFallback":false,"run":{"model":"wiki-curator"}}',
-        '',
-      ].join('\n'), {
+      gatewayCalls.push({ url, init, body: JSON.parse(Buffer.from(init.body).toString('utf8')) });
+      return new Response(JSON.stringify({
+        ok: true,
+        answer: 'Workspace Runner가 합성한 답변',
+        answerStatus: 'ok',
+        citations: [],
+      }), {
         status: 200,
-        headers: { 'content-type': 'text/event-stream' },
+        headers: { 'content-type': 'application/json' },
       });
     }, {
       WIKI_ASK_LOCAL: '1',
       LLM_WIKI_VAULT: root,
-      HERMES_WIKI_AGENT: 'wiki-curator',
+      HERMES_API_KEY: 'must-never-be-used-by-local-wiki-ask',
+      HERMES_RAILWAY_API_TOKEN: 'must-never-be-forwarded',
     }, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/wiki/ask`, {
         method: 'POST',
@@ -331,55 +330,43 @@ test('proxy handles /api/wiki/ask locally with vault search and Hermes wiki cura
       assert.equal(response.status, 200);
       const payload = await response.json();
       assert.equal(payload.ok, true);
-      assert.equal(payload.gatewayFallback, false);
-      assert.equal(payload.engine.provider, 'railway-hermes');
-      assert.equal(payload.engine.agent, 'wiki-curator');
-      assert.equal(payload.engine.baseUrl, 'https://railway.example');
-      assert.equal(payload.engine.source, 'mac-mini-hermes-api');
-      assert.match(payload.answer, /손절/);
-      assert.equal(payload.sources[0].path, '2_wiki/Market.md');
+      assert.equal(payload.answer, 'Workspace Runner가 합성한 답변');
+      assert.equal(payload.engine, undefined);
     });
-    assert.equal(railwayCalls.length, 1);
-    assert.equal(railwayCalls[0].url, 'https://railway.example/api/chat/stream');
-    assert.equal(railwayCalls[0].body.agent, 'wiki-curator');
-    assert.equal(railwayCalls[0].body.view, 'wiki');
-    assert.match(railwayCalls[0].body.message, /투자에서 반복하는 실수/);
-    assert.match(railwayCalls[0].body.message, /SOURCES/);
+    assert.equal(gatewayCalls.length, 1);
+    assert.equal(gatewayCalls[0].url, 'https://railway.example/api/wiki/ask');
+    assert.equal(gatewayCalls[0].body.question, '투자에서 반복하는 실수는?');
+    assert.equal(gatewayCalls[0].init.headers.authorization, undefined);
+    assert.doesNotMatch(JSON.stringify(gatewayCalls), /must-never-be-used|must-never-be-forwarded/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test('proxy marks Railway relay timeout as fallback instead of successful answer', async () => {
+test('proxy keeps /api/wiki/search local without invoking Gateway inference', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wiki-vault-'));
   try {
     await mkdir(path.join(root, '2_wiki'), { recursive: true });
     await writeFile(path.join(root, '2_wiki', 'Market.md'), '# Market\n\n## 리스크\n투자에서 반복하는 실수는 손절을 늦추는 것이다.');
-    await withProxy(async () => new Response([
-      'event: done',
-      'data: {"text":"Railway relay failed: railway relay bridge timed out","source":"railway-relay","gatewayFallback":false,"error":"railway relay bridge timed out","run":{"model":"wiki-curator"}}',
-      '',
-    ].join('\n'), {
-      status: 200,
-      headers: { 'content-type': 'text/event-stream' },
-    }), {
+    let gatewayCalled = false;
+    await withProxy(async () => {
+      gatewayCalled = true;
+      return new Response('unexpected', { status: 500 });
+    }, {
       WIKI_ASK_LOCAL: '1',
       LLM_WIKI_VAULT: root,
-      HERMES_WIKI_AGENT: 'wiki-curator',
     }, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/wiki/ask`, {
+      const response = await fetch(`${baseUrl}/api/wiki/search`, {
         method: 'POST',
         headers: { ...PROXY_HEADERS, 'content-type': 'application/json' },
         body: JSON.stringify({ question: '투자에서 반복하는 실수는?', limit: 8 }),
       });
       assert.equal(response.status, 200);
       const payload = await response.json();
-      assert.equal(payload.gatewayFallback, true);
-      assert.match(payload.answer, /Hermes가 시간 내 자연어 답변을 생성하지 못했어요/);
-      assert.match(payload.answer, /railway relay bridge timed out/);
-      assert.doesNotMatch(payload.answer, /임시 답변/);
-      assert.equal(payload.engine.provider, 'railway-hermes');
+      assert.equal(payload.ok, true);
+      assert.equal(payload.results[0].path, '2_wiki/Market.md');
     });
+    assert.equal(gatewayCalled, false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

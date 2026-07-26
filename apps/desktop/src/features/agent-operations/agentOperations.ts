@@ -20,7 +20,8 @@ export const EMPTY_AGENT_OPERATIONS_STATE: AgentOperationsState = {
   tasks: [],
   sessions: [],
   reports: [],
-  daemon: { running: false, lastRun: null, lastError: null },
+  daemon: { running: false, lastRun: null, lastError: null, mode: null },
+  runner: null,
 };
 
 function taskScheduleTimestamp(task: AgentTask): number {
@@ -101,9 +102,12 @@ function executionEngine(value: unknown): AgentExecutionEngine {
     case 'auto':
     case 'local_llm':
     case 'codex':
+    case 'claude':
+    case 'grok':
+    case 'hermes':
       return value;
     default:
-      return 'hermes';
+      return 'auto';
   }
 }
 
@@ -237,6 +241,8 @@ export function parseAgentOperationsEnvelope(value: unknown): AgentOperationsSta
   const daemon = recordValue(value.daemon);
   const lastRun = recordValue(daemon.lastRun);
   const lastError = recordValue(daemon.lastError);
+  const runner = recordValue(value.runner);
+  const runnerStatus = stringValue(runner.status || daemon.mode);
   return {
     missions: parseArray(value.missions, parseMission),
     tasks: parseArray(value.tasks, parseTask),
@@ -246,7 +252,15 @@ export function parseAgentOperationsEnvelope(value: unknown): AgentOperationsSta
       running: daemon.running === true,
       lastRun: stringValue(daemon.lastRun) || stringValue(lastRun.checkedAt) || null,
       lastError: stringValue(daemon.lastError) || stringValue(lastError.message) || null,
+      mode: stringValue(daemon.mode) || null,
     },
+    runner: runnerStatus || Object.keys(runner).length
+      ? {
+        connected: runner.connected === true,
+        status: runnerStatus || 'unknown',
+        message: stringValue(runner.message) || null,
+      }
+      : null,
   };
 }
 

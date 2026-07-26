@@ -5,7 +5,7 @@ const ADAPTER_TEMPLATES = [
     kind: 'model-runner',
     recommendedFor: ['research-day', 'remote-ops', 'product-build'],
     commandTemplate: 'codex exec --full-auto "$HERMES_GOAL"',
-    readiness: 'Install/configure Codex CLI on the Mac mini and set it as the local runner command when ready.',
+    readiness: 'Install/configure Codex CLI on the Runner host and set it as the local runner command when ready.',
   },
   {
     id: 'claude-code',
@@ -13,7 +13,7 @@ const ADAPTER_TEMPLATES = [
     kind: 'model-runner',
     recommendedFor: ['wiki-maintenance', 'content-pipeline'],
     commandTemplate: 'claude --dangerously-skip-permissions "$HERMES_GOAL"',
-    readiness: 'Install/configure Claude Code on the Mac mini and point Hermes runner at the command.',
+    readiness: 'Install/configure Claude Code on the Runner host and point Hermes runner at the command.',
   },
   {
     id: 'grok-cli',

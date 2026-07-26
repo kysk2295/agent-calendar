@@ -54,11 +54,12 @@ async function main() {
   await page.locator('.profile').click();
   await page.waitForSelector('.settings-overlay');
 
-  await page.locator('.settings-overlay .theme-grid button', { hasText: 'Sage' }).click();
+  await page.getByTestId('settings-nav-theme').click();
+  await page.locator('.settings-overlay .settings-theme-list button', { hasText: 'Sage' }).click();
   await page.waitForSelector('.api-banner');
 
   assert.equal(await page.locator('.app-root').getAttribute('data-theme'), 'default');
-  assert.equal(await page.locator('.settings-overlay .theme-grid button[data-active="true"]', { hasText: 'Terracotta' }).count(), 1);
+  assert.equal(await page.locator('.settings-overlay .settings-theme-list button[data-active="true"]', { hasText: 'Terracotta' }).count(), 1);
   assert.match(await page.locator('.api-banner').innerText(), /Agents Calendar API 500 \/api\/settings|테마 저장 실패/);
   assert.equal(await page.locator('.settings-overlay').count(), 1);
 

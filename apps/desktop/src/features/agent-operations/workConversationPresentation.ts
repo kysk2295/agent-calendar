@@ -44,17 +44,17 @@ export function checkpointApplicationLabel(mode: AgentWorkCheckpointApplicationM
 
 export function deliveryCopy(status: AgentWorkDeliveryStatus, mode: AgentWorkCheckpointApplicationMode): string {
   if (status === 'accepted' && mode === 'next_checkpoint') {
-    return '다음 체크포인트 적용 요청됨 — 실행 중인 단계가 끝난 뒤 반영됩니다.';
+    return '다음 체크포인트 적용 요청됨. 실행 중인 단계가 끝난 뒤 반영됩니다.';
   }
   if (mode === 'follow_up_required') {
-    return `${deliveryStatusLabel(status)} · ${checkpointApplicationLabel(mode)} — 다른 목표는 새 작업으로 위임해 주세요.`;
+    return `${deliveryStatusLabel(status)} · ${checkpointApplicationLabel(mode)}. 다른 목표는 새 작업으로 위임해 주세요.`;
   }
   switch (status) {
-    case 'accepted': return `접수됨 · ${checkpointApplicationLabel(mode)} — 작업 대화에 저장되었습니다.`;
-    case 'applied': return `적용됨 · ${checkpointApplicationLabel(mode)} — 작업 상태에 반영되었습니다.`;
-    case 'queued': return '다음 시도에 반영 예정 — 현재 실행은 중단하지 않습니다.';
-    case 'approval_required': return '승인 필요 — 승인 전에는 실행되지 않습니다.';
-    case 'rejected': return `실행할 수 없음 · ${checkpointApplicationLabel(mode)} — 아무 작업도 수행하지 않았습니다.`;
+    case 'accepted': return `접수됨 · ${checkpointApplicationLabel(mode)}. 작업 대화에 저장되었습니다.`;
+    case 'applied': return `적용됨 · ${checkpointApplicationLabel(mode)}. 작업 상태에 반영되었습니다.`;
+    case 'queued': return '다음 시도에 반영 예정. 현재 실행은 중단하지 않습니다.';
+    case 'approval_required': return '승인 필요. 승인 전에는 실행되지 않습니다.';
+    case 'rejected': return `실행할 수 없음 · ${checkpointApplicationLabel(mode)}. 아무 작업도 수행하지 않았습니다.`;
     default: return unreachable(status);
   }
 }

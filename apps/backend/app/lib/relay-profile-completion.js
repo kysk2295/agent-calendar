@@ -80,7 +80,7 @@ async function runRelayProfileCompletion({
   now = Date.now,
 } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) {
-    throw profileCompletionError('runtime_unavailable', 'Mac mini Hermes Relay is offline');
+    throw profileCompletionError('runtime_unavailable', 'Hermes Runner is offline');
   }
   const profile = String(payload.profile || meta.agentId || 'default').trim() || 'default';
   const durationMs = Math.max(1_000, Number(timeoutMs || agentOperationsProfileTimeout(env)));
@@ -132,7 +132,7 @@ async function runRelayProfileCompletion({
     if (!recoveredRun?.id) {
       throw profileCompletionError(
         'relay_cancel_unconfirmed',
-        'Mac mini Hermes profile launch timed out and remote cancellation was not confirmed',
+        'Hermes Runner profile launch timed out and remote cancellation was not confirmed',
         job.id,
       );
     }
@@ -151,7 +151,7 @@ async function runRelayProfileCompletion({
       if (!cancellationConfirmed) {
         throw profileCompletionError(
           'relay_cancel_unconfirmed',
-          'Mac mini Hermes profile launch timed out and remote cancellation was not confirmed',
+          'Hermes Runner profile launch timed out and remote cancellation was not confirmed',
           job.id,
           recoveredRun.id,
         );
@@ -193,7 +193,7 @@ async function runRelayProfileCompletion({
     if (!cancellationConfirmed) {
       throw profileCompletionError(
         'relay_cancel_unconfirmed',
-        'Mac mini Hermes profile run timed out and remote cancellation was not confirmed',
+        'Hermes Runner profile run timed out and remote cancellation was not confirmed',
         job.id,
         run.id,
       );
@@ -201,7 +201,7 @@ async function runRelayProfileCompletion({
     const lastError = run.lastError || (run.logs || []).findLast((line) => /error|failed/i.test(String(line)));
     throw profileCompletionError(
       status === 'failed' ? 'relay_failed' : 'relay_timeout',
-      String(lastError || `Mac mini Hermes profile run ${status || 'timed out'}`),
+      String(lastError || `Hermes Runner profile run ${status || 'timed out'}`),
       job.id,
       run.id,
     );

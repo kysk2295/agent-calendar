@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "slice": "phase5-knowledge-v2",
+  "date": "2026-07-24",
+  "status": "verified",
+  "durationMs": 42050,
+  "workspaces": {
+    "a": "ws_c35d69bc0d29d855078bdb03c23ccd52",
+    "b": "ws_3cb0f98ff4444223dc6a88358f7b1a7f"
+  },
+  "crossEvidenceStatus": 404,
+  "screenshotHashes": {
+    "workspaceA": "db4222374ab7675a45b6ed9323f976b9ee7ccc58f9c9f50361631da2e37c2ba4",
+    "workspaceB": "a09c88246f2e255f667fe885868bb0a319606ac1ef1187f72d884a6c4f719810",
+    "revoked": "a748b674fd669a914eabb5c450f391d372ea84812495c3c7ccd47b1389ecb2e3",
+    "restarted": "4970dc6af4b4465b127e1886a72684953af8980de703be937d771951a60e5e97"
+  },
+  "restart": "revoked source remained visible and inactive"
+}

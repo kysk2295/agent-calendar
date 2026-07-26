@@ -1,0 +1,90 @@
+{
+  "date": "2026-07-25",
+  "scope": "Desktop shared shell and Unified Calendar visual redesign",
+  "reference": {
+    "product": "Orca",
+    "sources": [
+      "https://www.onorca.dev/",
+      "https://www.onorca.dev/docs/model/worktrees",
+      "https://github.com/stablyai/orca"
+    ],
+    "adopted": [
+      "compact fixed sidebar",
+      "thin separators",
+      "quiet active state",
+      "dense operational controls"
+    ],
+    "not_adopted": [
+      "Orca branding",
+      "terminal-first information architecture",
+      "copied assets or copy"
+    ]
+  },
+  "verification": [
+    {
+      "command": "node --test apps/desktop/tests/orca-shell-calendar-design.test.mjs",
+      "result": "pass",
+      "summary": "4/4 structural and light/dark semantic-token contracts"
+    },
+    {
+      "command": "AGENT_CALENDAR_E2E_TIMEOUT_MS=90000 node apps/desktop/tests/playwright-orca-shell-calendar.cjs",
+      "result": "pass",
+      "summary": "Authenticated Electron light theme, 1320/768/375px, Calendar AI keyboard interaction, restart restore"
+    },
+    {
+      "command": "AGENT_CALENDAR_E2E_THEME=dark AGENT_CALENDAR_E2E_TIMEOUT_MS=90000 node apps/desktop/tests/playwright-orca-shell-calendar.cjs",
+      "result": "pass",
+      "summary": "Authenticated Electron dark theme, 1320/768/375px, Calendar AI keyboard interaction, restart restore"
+    },
+    {
+      "command": "AGENT_CALENDAR_E2E_TIMEOUT_MS=90000 node apps/desktop/tests/playwright-phase8-offline-reconnect.cjs",
+      "result": "pass",
+      "summary": "Populated light Calendar retains events through offline, reconnect, and restart"
+    },
+    {
+      "command": "AGENT_CALENDAR_E2E_THEME=dark AGENT_CALENDAR_E2E_TIMEOUT_MS=90000 node apps/desktop/tests/playwright-phase8-offline-reconnect.cjs",
+      "result": "pass",
+      "summary": "Populated dark Calendar retains legible semantic event state through offline, reconnect, and restart"
+    },
+    {
+      "command": "npm run build:desktop",
+      "result": "pass",
+      "summary": "TypeScript, renderer, and Electron build"
+    },
+    {
+      "command": "npm test",
+      "result": "pass",
+      "summary": "Backend, Desktop (203/203), and Runner suites"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass",
+      "summary": "No whitespace errors"
+    }
+  ],
+  "artifacts": {
+    "light_shell": "apps/desktop/test-results/orca-shell-calendar/01-calendar.png",
+    "dark_shell": "apps/desktop/test-results/orca-shell-calendar-dark/01-calendar.png",
+    "light_populated": "apps/desktop/test-results/phase8-offline-reconnect/01-online-calendar.png",
+    "dark_populated": "apps/desktop/test-results/phase8-offline-reconnect-dark/01-online-calendar.png",
+    "review": ".omo/evidence/orca-desktop-shell-calendar-redesign-clone-fidelity.md"
+  },
+  "independent_review": {
+    "verdict": "PASS",
+    "findings": "No remaining critical, high, medium, or low fidelity findings after semantic Calendar color remediation."
+  },
+  "unsupported_checks": [
+    {
+      "check": "playwright-theme-layout-audit.cjs",
+      "reason": "The browser-preview harness remains signed out and cannot reach the authenticated shell. Equivalent layout and interaction assertions run against the real AuthKit Electron surface."
+    },
+    {
+      "check": "Lighthouse and optional React audit tooling",
+      "reason": "No authenticated Electron harness or repository-local tooling is installed, and the recorded design-state decision declines new audit-tool dependencies."
+    }
+  ],
+  "known_warnings": [
+    "The renderer retains the pre-existing Vite chunk-size warning above 500kB.",
+    "The test environment logs a non-failing WebSocket port 24678 warning during module tests."
+  ]
+}

@@ -7,6 +7,8 @@
     "startCommand": "npm --workspace apps/backend run start",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 30,
+    "overlapSeconds": 60,
+    "drainingSeconds": 30,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }

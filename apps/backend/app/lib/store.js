@@ -1138,7 +1138,7 @@ class HermesStore {
       model: String(input.model || 'Recommended').trim(),
       command: `hermes profile create ${targetProfile}`,
       instructions: [
-        'Run the command on the Mac mini after reviewing profile scope.',
+        'Run the command on the Runner host after reviewing profile scope.',
         'Refresh Hermes OS agents after the profile appears in hermes profile list.',
       ],
       createdAt: now,

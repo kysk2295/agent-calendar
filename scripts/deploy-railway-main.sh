@@ -27,6 +27,50 @@ if [[ "$commit" != "$origin_commit" ]]; then
   exit 1
 fi
 
+PREFLIGHT_PATH="${RAILWAY_RELEASE_PREFLIGHT_PATH:-}"
+if [[ -z "$PREFLIGHT_PATH" || ! -f "$PREFLIGHT_PATH" ]]; then
+  echo "Refusing Railway deploy: successful staging preflight file is required." >&2
+  exit 1
+fi
+
+preflight_summary="$(node -e '
+const fs = require("node:fs");
+const document = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const expectedCommit = String(process.argv[2] || "");
+const required = [
+  document.candidateDeploymentId,
+  document.lastKnownGoodDeploymentId,
+  document.stagingEnvironmentId,
+  document.stagingServiceId,
+];
+const verifiedAt = Date.parse(document.verifiedAt);
+const expiresAt = Date.parse(document.expiresAt);
+const now = Date.now();
+if (
+  document.schemaVersion !== 3
+  || document.ok !== true
+  || document.action !== "promote_candidate"
+  || document.candidateCommit !== expectedCommit
+  || required.some((value) => !String(value || "").trim())
+  || !Number.isFinite(verifiedAt)
+  || !Number.isFinite(expiresAt)
+  || verifiedAt > now + 5 * 60 * 1000
+  || expiresAt <= verifiedAt
+  || expiresAt - verifiedAt > 30 * 60 * 1000
+  || now > expiresAt
+) {
+  process.exit(3);
+}
+process.stdout.write([
+  document.candidateDeploymentId,
+  document.lastKnownGoodDeploymentId,
+].join("\t"));
+' "$PREFLIGHT_PATH" "$commit")" || {
+  echo "Refusing Railway deploy: staging preflight is missing, failed, or does not match current commit." >&2
+  exit 1
+}
+IFS=$'\t' read -r STAGING_CANDIDATE_ID LAST_KNOWN_GOOD_ID <<< "$preflight_summary"
+
 if ! command -v railway >/dev/null 2>&1; then
   echo "Refusing Railway deploy: Railway CLI is not installed." >&2
   exit 1
@@ -62,4 +106,4 @@ railway redeploy \
   --environment "$ENVIRONMENT_ID" \
   --service "$SERVICE_ID" >/dev/null
 
-echo "Railway source deployment requested for main@${commit:0:12} on service $SERVICE_ID."
+echo "Railway source deployment requested for main@${commit:0:12} on service $SERVICE_ID after staging candidate $STAGING_CANDIDATE_ID; last-known-good $LAST_KNOWN_GOOD_ID."

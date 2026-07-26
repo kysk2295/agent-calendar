@@ -34,14 +34,13 @@ async function listenJson(calls) {
   };
 }
 
-test('desktop mail client uses only the mail messages boundary', async () => {
+test('desktop mail client exposes only the production-supported mail read boundary', async () => {
   const calls = [];
   const server = await listenJson(calls);
   apiModule.setApiBaseUrl(server.baseUrl);
 
   try {
     await apiModule.hermesApi.getMailMessages();
-    await apiModule.hermesApi.runMailAction('mail:owner@gmail.com:message-1', 'star');
 
     assert.deepEqual(calls, [
       {
@@ -49,12 +48,10 @@ test('desktop mail client uses only the mail messages boundary', async () => {
         url: '/api/mail/messages?limit=200',
         body: null,
       },
-      {
-        method: 'POST',
-        url: '/api/mail/messages/mail%3Aowner%40gmail.com%3Amessage-1/star',
-        body: {},
-      },
     ]);
+    assert.equal('saveMailAccount' in apiModule.hermesApi, false);
+    assert.equal('syncMail' in apiModule.hermesApi, false);
+    assert.equal('runMailAction' in apiModule.hermesApi, false);
     assert.equal(calls.some((call) => call.url.startsWith('/api/inbox/commands')), false);
   } finally {
     await server.close();

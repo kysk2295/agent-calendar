@@ -105,7 +105,7 @@ async function runRelayChatCompletion({
   jobKind = 'chat.completions',
 } = {}) {
   if (!relay || !relayEnabled(env) || !relay.isBridgeOnline()) {
-    throw relayError('runtime_unavailable', 'Mac mini Hermes Relay is offline');
+    throw relayError('runtime_unavailable', 'Hermes Runner is offline');
   }
   const job = relay.enqueue({
     kind: jobKind,
@@ -144,7 +144,7 @@ async function runRelayChatCompletion({
       if (record.event === 'error') {
         throw relayError(
           'relay_failed',
-          String(record.data?.error || event.text || 'Mac mini Hermes Relay failed'),
+          String(record.data?.error || event.text || 'Hermes Runner failed'),
           job.id,
         );
       }
@@ -153,7 +153,7 @@ async function runRelayChatCompletion({
       if (bridgeCompletion.ok === false) {
         throw relayError(
           'relay_failed',
-          String(bridgeCompletion.error || 'Mac mini Hermes Relay failed'),
+          String(bridgeCompletion.error || 'Hermes Runner failed'),
           job.id,
         );
       }
@@ -172,7 +172,7 @@ async function runRelayChatCompletion({
 
   const timeoutError = relayError(
     'relay_timeout',
-    'Mac mini Hermes Relay timed out',
+    'Hermes Runner timed out',
     job.id,
   );
   relay.fail(job.id, timeoutError);

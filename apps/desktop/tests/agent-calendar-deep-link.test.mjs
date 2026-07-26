@@ -41,6 +41,61 @@ test('session deep links accept one bounded public session identifier and reject
   }
 });
 
+test('auth callback deep links accept only code+state on agent-calendar://auth/callback', () => {
+  assert.deepEqual(
+    deepLinkModule.parseAgentCalendarDeepLink('agent-calendar://auth/callback?code=abc123&state=xyz789'),
+    { kind: 'auth-callback', code: 'abc123', state: 'xyz789' },
+  );
+
+  const rejected = [
+    'agent-calendar://auth/callback?code=abc&state=xyz&extra=1',
+    'agent-calendar://auth/callback?code=abc',
+    'agent-calendar://auth/callback?state=xyz',
+    'agent-calendar://auth/callback?code=abc&state=xyz&code=dup',
+    'agent-calendar://user:pass@auth/callback?code=abc&state=xyz',
+    'agent-calendar://auth:443/callback?code=abc&state=xyz',
+    'agent-calendar://auth/callback?code=abc&state=xyz#frag',
+    'agent-calendar://auth/other?code=abc&state=xyz',
+    'https://auth/callback?code=abc&state=xyz',
+  ];
+  for (const value of rejected) {
+    assert.equal(deepLinkModule.parseAgentCalendarAuthCallbackDeepLink(value), null, value);
+  }
+});
+
+test('Google Calendar callback deep links use a distinct strict namespace', () => {
+  assert.deepEqual(
+    deepLinkModule.parseAgentCalendarDeepLink(
+      'agent-calendar://calendar/google/callback?code=calendar-code-1&state=calendar-state-1',
+    ),
+    {
+      kind: 'google-calendar-callback',
+      code: 'calendar-code-1',
+      state: 'calendar-state-1',
+    },
+  );
+
+  const rejected = [
+    'agent-calendar://calendar/google/callback?code=abc&state=xyz&extra=1',
+    'agent-calendar://calendar/google/callback?code=abc',
+    'agent-calendar://calendar/google/callback?state=xyz',
+    'agent-calendar://calendar/google/callback?code=abc&state=xyz&state=dup',
+    'agent-calendar://user:pass@calendar/google/callback?code=abc&state=xyz',
+    'agent-calendar://calendar:443/google/callback?code=abc&state=xyz',
+    'agent-calendar://calendar/google/callback?code=abc&state=xyz#frag',
+    'agent-calendar://calendar/google/other?code=abc&state=xyz',
+    'agent-calendar://auth/callback?code=calendar-code&state=calendar-state',
+    'https://calendar/google/callback?code=abc&state=xyz',
+  ];
+  for (const value of rejected) {
+    assert.equal(
+      deepLinkModule.parseAgentCalendarGoogleCallbackDeepLink(value),
+      null,
+      value,
+    );
+  }
+});
+
 test('cold launch selects the first valid Agent Calendar argument without coercing unrelated values', () => {
   assert.deepEqual(
     deepLinkModule.findAgentCalendarDeepLink([

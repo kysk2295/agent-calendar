@@ -25,7 +25,7 @@ const PUBLIC_SESSION_METADATA_KEYS = new Set([
 ]);
 
 const PUBLIC_EXECUTION_ENGINES = new Set(['auto', 'hermes', 'local_llm', 'codex']);
-const PUBLIC_RESOLVED_EXECUTION_ENGINES = new Set(['hermes', 'codex']);
+const PUBLIC_RESOLVED_EXECUTION_ENGINES = new Set(['hermes', 'codex', 'claude', 'grok']);
 const PUBLIC_DELIVERABLE_KINDS = new Set(['report', 'document', 'image', 'file']);
 
 function projectExecutionContract(source = {}, projected = {}) {

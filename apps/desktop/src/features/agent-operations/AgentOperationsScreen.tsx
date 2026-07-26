@@ -1,23 +1,41 @@
 import { useRef } from 'react';
 
 import { AgentWorkWorkspace } from './AgentWorkWorkspace';
+import type { PublicRunner } from '../runner/runnerApi';
 import type {
+  AgentCatalogRequest,
   AgentCreatedWork,
+  AgentDirectoryMutationInput,
+  AgentExecutionEngine,
   AgentMissionCreateInput,
   AgentOperationsState,
   AgentRosterEntry,
   AgentTaskAction,
   HermesAutomationJob,
+  ProviderAgentSession,
+  ProviderSessionCatalogRequest,
+  ProviderSessionImportResult,
 } from './types';
 
 type AgentOperationsScreenProps = {
   readonly state: AgentOperationsState;
   readonly agents: readonly AgentRosterEntry[];
+  readonly runners: readonly PublicRunner[];
   readonly automationJobs: readonly HermesAutomationJob[];
+  readonly controlPlaneBaseUrl: string;
   readonly error: string;
   readonly busy: string;
   readonly onRetry: () => Promise<boolean>;
   readonly onRefreshAgentOperations: () => Promise<boolean>;
+  readonly onCreateAgent: (input: AgentDirectoryMutationInput) => Promise<boolean>;
+  readonly onUpdateAgent: (agentId: string, input: AgentDirectoryMutationInput) => Promise<boolean>;
+  readonly onRequestAgentCatalog: (input: Readonly<{ runnerId: string; provider: string; consent: true }>) => Promise<AgentCatalogRequest | null>;
+  readonly onGetAgentCatalogRequest: (requestId: string) => Promise<AgentCatalogRequest | null>;
+  readonly onImportAgentCatalogEntry: (requestId: string, input: Readonly<{ externalAgentId: string; defaultExecutionEngine: AgentExecutionEngine }>) => Promise<boolean>;
+  readonly onListProviderAgentSessions: (agentId: string, search: string, archived: boolean) => Promise<readonly ProviderAgentSession[]>;
+  readonly onRequestProviderSessionCatalog: (agentId: string, input: Readonly<{ runnerId: string; consent: true }>) => Promise<ProviderSessionCatalogRequest | null>;
+  readonly onImportProviderSessionCatalogEntry: (agentId: string, requestId: string, externalSessionId: string) => Promise<ProviderSessionImportResult | null>;
+  readonly onUpdateProviderAgentSession: (sessionId: string, patch: Readonly<{ title?: string; archived?: boolean }>) => Promise<ProviderAgentSession | null>;
   readonly onCreateMission: (input: AgentMissionCreateInput) => Promise<AgentCreatedWork | null>;
   readonly onPlanMission: (missionId: string) => Promise<void>;
   readonly onApprovePlan: (missionId: string) => Promise<void>;
@@ -47,9 +65,20 @@ export function AgentOperationsScreen(props: AgentOperationsScreenProps) {
       <AgentWorkWorkspace
         state={props.state}
         agents={props.agents}
+        runners={props.runners}
         automationJobs={props.automationJobs}
+        controlPlaneBaseUrl={props.controlPlaneBaseUrl}
         aggregateStale={Boolean(props.error)}
         busy={props.busy}
+        onCreateAgent={props.onCreateAgent}
+        onUpdateAgent={props.onUpdateAgent}
+        onRequestAgentCatalog={props.onRequestAgentCatalog}
+        onGetAgentCatalogRequest={props.onGetAgentCatalogRequest}
+        onImportAgentCatalogEntry={props.onImportAgentCatalogEntry}
+        onListProviderAgentSessions={props.onListProviderAgentSessions}
+        onRequestProviderSessionCatalog={props.onRequestProviderSessionCatalog}
+        onImportProviderSessionCatalogEntry={props.onImportProviderSessionCatalogEntry}
+        onUpdateProviderAgentSession={props.onUpdateProviderAgentSession}
         onCreateMission={props.onCreateMission}
         onRefreshAgentOperations={props.onRefreshAgentOperations}
         onPlanMission={props.onPlanMission}

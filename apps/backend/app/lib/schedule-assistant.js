@@ -184,7 +184,12 @@ function recordEmbeddingModelKey(options = {}) {
 }
 
 function recordEmbeddingCacheKey(item, source, options = {}) {
+  const workspaceId = text(options.workspaceId || options.workspace_id || '');
+  if (!workspaceId) {
+    throw new Error('recordEmbeddingCacheKey requires options.workspaceId for Workspace isolation');
+  }
   return [
+    workspaceId,
     recordEmbeddingModelKey(options),
     itemId(item, ''),
     text(item.updatedAt || item.modifiedAt || item.completedAt || ''),
@@ -193,16 +198,34 @@ function recordEmbeddingCacheKey(item, source, options = {}) {
 }
 
 async function embedScheduleRecord(item, source, options = {}) {
-  const key = recordEmbeddingCacheKey(item, source, options);
+  // Cache keys always include workspaceId. Scoped callers pass a real Workspace id.
+  // Unscoped legacy Calendar AI paths default to the deterministic personal Workspace.
+  const scopedOptions = {
+    ...options,
+    workspaceId: text(options.workspaceId || options.workspace_id || 'legacy-personal-workspace'),
+  };
+  const key = recordEmbeddingCacheKey(item, source, scopedOptions);
   const cached = recordEmbeddingCache.get(key);
   if (cached) return cached;
-  const embedded = await embedTextWithMetadata(source, options);
+  const embedImpl = typeof options.embedText === 'function' ? options.embedText : embedTextWithMetadata;
+  const raw = await embedImpl(source, scopedOptions);
+  const embedded = {
+    ...raw,
+    vector: raw && (raw.vector || raw.embedding) ? (raw.vector || raw.embedding) : [],
+    embedding: raw && (raw.embedding || raw.vector) ? (raw.embedding || raw.vector) : [],
+    fallback: Boolean(raw && raw.fallback),
+    model: raw && raw.model ? raw.model : scopedOptions.model,
+  };
   recordEmbeddingCache.set(key, embedded);
   if (recordEmbeddingCache.size > RECORD_EMBEDDING_CACHE_LIMIT) {
     const firstKey = recordEmbeddingCache.keys().next().value;
     if (firstKey) recordEmbeddingCache.delete(firstKey);
   }
   return embedded;
+}
+
+function clearRecordEmbeddingCacheForTests() {
+  recordEmbeddingCache.clear();
 }
 
 function keywordOverlapScore(question, source) {
@@ -1340,10 +1363,13 @@ function isScheduleQuestion(value) {
 module.exports = {
   buildScheduleAssistantAnswer,
   buildScheduleAssistantContext,
+  clearRecordEmbeddingCacheForTests,
+  embedScheduleRecord,
   ensureCompletionAnswerCoverage,
   fallbackAnswer,
   isScheduleQuestion,
   localLlmModel,
   noItemsContradiction,
+  recordEmbeddingCacheKey,
   scheduleLlmMessages,
 };

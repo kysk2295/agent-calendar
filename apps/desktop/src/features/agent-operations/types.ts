@@ -13,7 +13,7 @@ export type AgentTaskState =
 export type AgentTaskAction = 'approve' | 'pause' | 'resume' | 'cancel' | 'retry';
 export type AgentTaskFailureCode = 'budget_exhausted' | 'relay_cancel_unconfirmed';
 
-export type AgentExecutionEngine = 'auto' | 'hermes' | 'local_llm' | 'codex';
+export type AgentExecutionEngine = 'auto' | 'hermes' | 'local_llm' | 'codex' | 'claude' | 'grok';
 export type AgentDeliverableKind = 'report' | 'document' | 'image' | 'file';
 
 export type AgentDeliverable = {
@@ -27,6 +27,7 @@ export type AgentMissionCreateInput = {
   readonly objective: string;
   readonly agentId?: string;
   readonly executionEngine: AgentExecutionEngine;
+  readonly requestedModel?: string;
   readonly deliverable: AgentDeliverable;
 };
 
@@ -170,6 +171,14 @@ export type AgentOperationsDaemon = {
   readonly running: boolean;
   readonly lastRun: string | null;
   readonly lastError: string | null;
+  /** Production mode: execution requires a Workspace Runner (not Hermes global scheduler). */
+  readonly mode?: string | null;
+};
+
+export type AgentOperationsRunner = {
+  readonly connected: boolean;
+  readonly status: string;
+  readonly message?: string | null;
 };
 
 export type AgentOperationsState = {
@@ -178,6 +187,7 @@ export type AgentOperationsState = {
   readonly sessions: readonly AgentSession[];
   readonly reports: readonly AgentReport[];
   readonly daemon: AgentOperationsDaemon;
+  readonly runner?: AgentOperationsRunner | null;
 };
 
 export type AgentRosterEntry = {
@@ -190,6 +200,91 @@ export type AgentRosterEntry = {
   readonly provider: string;
   readonly trustLevel: string;
   readonly allowedTaskClasses: readonly string[];
+  readonly responsibility?: string;
+  readonly instructions?: string;
+  readonly responseStyle?: string;
+  readonly specialties?: readonly string[];
+  readonly memories?: readonly string[];
+  readonly profileVersion?: number;
+  readonly sourceKind?: 'native' | 'connected';
+  readonly externalAgentId?: string;
+  readonly connectionStatus?: string;
+  readonly defaultExecutionEngine?: AgentExecutionEngine;
+  readonly defaultRunnerId?: string;
+  readonly emoji?: string;
+};
+
+export type AgentDirectoryMutationInput = {
+  readonly displayName: string;
+  readonly role: string;
+  readonly responsibility: string;
+  readonly instructions: string;
+  readonly responseStyle: string;
+  readonly specialties: readonly string[];
+  readonly memories: readonly string[];
+  readonly sourceKind: 'native' | 'connected';
+  readonly provider: string;
+  readonly externalAgentId: string;
+  readonly defaultExecutionEngine: AgentExecutionEngine;
+  readonly defaultRunnerId: string;
+};
+
+export type AgentCatalogEntry = {
+  readonly provider: string;
+  readonly externalAgentId: string;
+  readonly displayName: string;
+  readonly description: string;
+  readonly sourceKind: string;
+  readonly capability: string;
+  readonly modifiedAt?: string;
+  readonly status?: string;
+};
+
+export type AgentCatalogRequest = {
+  readonly id: string;
+  readonly runnerId: string;
+  readonly provider: string;
+  readonly kind: string;
+  readonly status: 'pending' | 'running' | 'completed' | 'failed' | string;
+  readonly entries: readonly AgentCatalogEntry[];
+  readonly errorCode: string;
+  readonly errorMessage: string;
+};
+
+export type ProviderSessionCatalogEntry = {
+  readonly provider: string;
+  readonly externalSessionId: string;
+  readonly title: string;
+  readonly updatedAt: string;
+  readonly status: string;
+  readonly sourceKind: string;
+  readonly capability: string;
+};
+
+export type ProviderSessionCatalogRequest = Omit<AgentCatalogRequest, 'entries'> & {
+  readonly entries: readonly ProviderSessionCatalogEntry[];
+};
+
+export type ProviderAgentSession = {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly agentId: string;
+  readonly runnerId: string;
+  readonly missionId: string;
+  readonly workConversationId: string;
+  readonly engine: string;
+  readonly provider: string;
+  readonly externalAgentId: string;
+  readonly externalSessionId: string;
+  readonly status: string;
+  readonly title: string;
+  readonly lastErrorCode: string;
+};
+
+export type ProviderSessionImportResult = {
+  readonly session: ProviderAgentSession;
+  readonly missionId: string;
+  readonly workConversationId: string;
 };
 
 export type AgentTaskAppearance = {
@@ -200,8 +295,41 @@ export type AgentTaskAppearance = {
 
 export type HermesAutomationStatus = 'active' | 'paused' | 'failed' | 'unknown';
 
+export type AutomationCapabilities = {
+  readonly list: boolean;
+  readonly create: boolean;
+  readonly update: boolean;
+  readonly pause: boolean;
+  readonly resume: boolean;
+  readonly run: boolean;
+  readonly delete: boolean;
+};
+
+export type ConnectedAutomationSource = {
+  readonly id: string;
+  readonly runnerId: string;
+  readonly adapterKind: string;
+  readonly displayName: string;
+  readonly status: 'connected' | 'disconnected' | 'stale' | 'error';
+  readonly capabilities: AutomationCapabilities;
+  readonly lastSyncedAt: string;
+  readonly staleAfter: string;
+};
+
+export type AutomationChangeReceipt = {
+  readonly id: string;
+  readonly status: 'succeeded' | 'failed' | 'unknown' | 'conflict';
+  readonly operation: string;
+  readonly sourceRevision: string;
+  readonly errorCode: string;
+  readonly errorMessage: string;
+  readonly createdAt: string;
+};
+
 export type HermesAutomationJob = {
   readonly id: string;
+  readonly sourceId: string;
+  readonly externalId: string;
   readonly name: string;
   readonly description: string;
   readonly agentId: string;
@@ -209,6 +337,12 @@ export type HermesAutomationJob = {
   readonly status: HermesAutomationStatus;
   readonly enabled: boolean | null;
   readonly source: string;
+  readonly sourceStatus: string;
+  readonly sourceRevision: string;
+  readonly capabilities: AutomationCapabilities;
+  readonly lastReceipt: AutomationChangeReceipt | null;
+  readonly lastSyncedAt: string;
+  readonly staleAfter: string;
   readonly lastRunAt: string;
   readonly nextRunAt: string;
   readonly lastStatus: string;
@@ -219,6 +353,10 @@ export type HermesAutomationUpdateInput = {
   readonly goal: string;
   readonly agentId: string;
   readonly schedule: string;
+};
+
+export type AutomationCreateInput = HermesAutomationUpdateInput & {
+  readonly sourceId: string;
 };
 
 export type * from './workConversationTypes';

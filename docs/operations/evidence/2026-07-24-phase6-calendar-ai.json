@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "slice": "phase6-calendar-ai",
+  "date": "2026-07-24",
+  "status": "verified",
+  "durationMs": 40348,
+  "workspaces": {
+    "a": "ws_9b638f52dfdf1ad5684751fb4b11b43e",
+    "b": "ws_de4067b45ba73f7c20c423b0891d28c6"
+  },
+  "crossConversationStatus": 404,
+  "counts": {
+    "conversations_a": 1,
+    "conversations_b": 1,
+    "events_a": 1,
+    "events_b": 0,
+    "jobs_a": 1,
+    "jobs_b": 0,
+    "forgotten_a": 1
+  },
+  "screenshotHashes": {
+    "action": "f7debec5316423e15db519a9e124b14bda9903054d55a76a18f5558be6ad9fd6",
+    "memory": "dc0d3c20fe1c43130982c49bff97069f82cb3b6771225f1d31e12d2901286ace",
+    "isolated": "0b8ce9a55a385255c64a1ba6200a496d2f40e7248deb00cf115b6dbc50d05221",
+    "restarted": "a9e8862b68e8192cde23627929a8163ab84d04ff5b0bcde73eb23436a7968c0c",
+    "forgotten": "8ef743bd76bf0dde6d9f04f66928c8e8b0269f98a420a3503dc794bde99d57d8"
+  },
+  "restart": "conversation, action receipts, and memory survived server and Desktop restart"
+}

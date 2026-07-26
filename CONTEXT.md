@@ -1,8 +1,24 @@
 # Agent Calendar
 
-Agent Calendar is a personal operations context for delegating, observing, reviewing, and steering accountable agent work.
+Agent Calendar is a calendar-first operations context for scheduling, delegating, observing, reviewing, and steering accountable agent work.
 
 ## Language
+
+**Workspace (작업공간)**:
+The ownership and isolation context containing one operator's calendars, knowledge, Delegated Work, automations, policies, and Runner connections. The first production release presents one operator per Workspace without making global or cross-workspace state part of the product model.
+_Avoid_: User database, global state, account
+
+**Unified Calendar (통합 캘린더)**:
+The primary timeline combining a user's external schedule with independently running agent work and automation occurrences. Human and agent entries may overlap because they do not compete for the same time resource.
+_Avoid_: Human-resource optimizer, conflict-free scheduler
+
+**Calendar AI (캘린더 AI)**:
+The Workspace-owned conversational counterpart that answers from currently authorized schedules and knowledge, talks naturally, and turns explicit requests into calendar changes, Delegated Work, or Connected Automation changes.
+_Avoid_: Schedule search, omniscient chatbot, direct database agent
+
+**Personal Memory (개인 기억)**:
+User-visible facts and preferences deliberately retained for Calendar AI across conversations, with provenance and deletion. Calendar entries remain source truth and are never replaced by remembered copies.
+_Avoid_: Hidden profile, raw conversation archive, calendar cache
 
 **Agent Work Control Space (에이전트 작업 관제 공간)**:
 The product surface where a user delegates agent work, observes its state, reviews its outcome, and intervenes when necessary.
@@ -27,6 +43,22 @@ _Avoid_: Model, execution engine
 **Execution Engine (실행 엔진)**:
 The runtime mechanism used to perform work. A requested automatic choice or explicit advanced override is retained, while the actual resolved engine is shown only when execution evidence supplies it. Engine details remain secondary to the Responsible Agent.
 _Avoid_: Responsible agent, required choice before delegation
+
+**Runner (러너)**:
+A customer-controlled execution host enrolled in exactly one Workspace that connects one or more Execution Engines, receives only that Workspace's work, and returns execution evidence. Provider credentials remain under the customer's control rather than becoming Agent Calendar credentials.
+_Avoid_: Execution engine, model, central server, global worker pool
+
+**Runner Enrollment (러너 등록)**:
+The account-authorized, owner-confirmed act that binds a customer-controlled host and its verified public identity to exactly one Workspace, producing a revocable Runner identity.
+_Avoid_: Login, reusable pairing link, shared Runner secret
+
+**Connected Automation (연결 자동화)**:
+An automation that remains scheduled and executed by its source system while Agent Calendar projects and manages it through a common calendar and control interface.
+_Avoid_: Copied automation, migrated job
+
+**Automation Change Policy (자동화 변경 정책)**:
+The Workspace rule that determines which automation creations or edits may be applied directly and which require an Approval Gate. New permissions, additional cost, and new external delivery always require approval.
+_Avoid_: Blanket autonomy, approval for every edit
 
 **Work Conversation (작업 대화)**:
 A conversation attached to one Delegated Work from initial delegation through planning, execution, failure, completion, and subsequent revision. Messages are operational inputs that can affect the work in every state, not comments attached to a formal report.

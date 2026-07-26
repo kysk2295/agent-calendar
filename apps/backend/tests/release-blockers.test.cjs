@@ -31,6 +31,17 @@ function close(server) {
   });
 }
 
+async function waitForRelayBridge(baseUrl, attempts = 100) {
+  let status = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const response = await fetch(`${baseUrl}/api/relay/status`);
+    status = await response.json();
+    if (status.bridgeOnline) return status;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error(`Relay bridge did not become ready after ${attempts} status checks: ${JSON.stringify(status)}`);
+}
+
 test('interactive Relay chat has a bounded timeout separate from long-running agent work', () => {
   assert.equal(interactiveRelayChatTimeout({}), 90_000);
   assert.equal(interactiveRelayChatTimeout({ HERMES_RELAY_CHAT_TIMEOUT_MS: '45000' }), 45_000);
@@ -303,7 +314,7 @@ test('public gateway status omits the Mac mini working directory', async () => {
   }
 });
 
-test('fallback health never exposes runtime recovery commands', async () => {
+test('fallback health is device-neutral and never exposes runtime recovery commands', async () => {
   // Given
   const server = createRailwayGatewayServer({
     env: {
@@ -324,7 +335,7 @@ test('fallback health never exposes runtime recovery commands', async () => {
 
     // Then
     assert.equal(response.status, 200);
-    assert.match(body, /Mac mini runtime is unreachable/);
+    assert.match(body, /Workspace Runner is unreachable/);
     assert.doesNotMatch(body, /recoveryCommand|residentInstallCommand|launchctl bootstrap|hermes\s+daemon/i);
     assert.doesNotMatch(body, /user:password|top-secret/);
     assert.equal(JSON.parse(body).runtimeUrl, 'https://runtime.test/base');
@@ -1495,6 +1506,233 @@ test('routes mission launch through the live Mac mini relay', async () => {
     assert.equal(body.gatewayFallback, false);
   } finally {
     await close(server);
+  }
+});
+
+test('routes Relay-backed run actions through the live Mac mini relay', async () => {
+  const cases = [
+    {
+      action: 'approve',
+      runId: 'run-relay-approve',
+      runtimeBody: {
+        ok: true,
+        approved: true,
+        run: { id: 'run-relay-approve', status: 'approved' },
+      },
+      expected: { status: 200, approved: true, runId: 'run-relay-approve', runStatus: 'approved' },
+    },
+    {
+      action: 'stop',
+      runId: 'run-relay-stop',
+      runtimeBody: {
+        ok: true,
+        cancelled: true,
+        run: { id: 'run-relay-stop', status: 'stopped' },
+      },
+      expected: { status: 200, cancelled: true, runId: 'run-relay-stop', runStatus: 'stopped' },
+    },
+    {
+      action: 'retry',
+      runId: 'run-relay-retry',
+      runtimeBody: {
+        ok: true,
+        run: { id: 'run-relay-retry-new', status: 'queued' },
+      },
+      expected: { status: 201, runId: 'run-relay-retry-new', runStatus: 'queued' },
+    },
+  ];
+
+  for (const scenario of cases) {
+    const server = createRailwayGatewayServer({
+      env: {
+        HERMES_RELAY_TOKEN: 'relay-token',
+      },
+      fetchImpl: async () => {
+        throw new Error(`${scenario.action} should use the relay instead of direct runtime fetch`);
+      },
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+        headers: { 'x-hermes-relay-token': 'relay-token' },
+      }).then((response) => response.json());
+      await waitForRelayBridge(baseUrl);
+
+      const actionPromise = fetch(`${baseUrl}/api/runs/${scenario.runId}/${scenario.action}`, {
+        method: 'POST',
+      });
+
+      const polled = await pollPromise;
+      assert.equal(polled.ok, true);
+      assert.equal(polled.job.kind, 'runtime.request');
+      assert.equal(polled.job.payload.method, 'POST');
+      assert.equal(polled.job.payload.path, `/api/runs/${scenario.runId}/${scenario.action}`);
+
+      const completeResponse = await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/complete`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-hermes-relay-token': 'relay-token',
+        },
+        body: JSON.stringify({
+          ok: true,
+          status: scenario.expected.status,
+          body: scenario.runtimeBody,
+        }),
+      });
+      assert.equal(completeResponse.status, 200);
+
+      const response = await actionPromise;
+      const body = await response.json();
+      assert.equal(response.status, scenario.expected.status);
+      assert.equal(body.ok, true);
+      if (scenario.expected.approved !== undefined) assert.equal(body.approved, scenario.expected.approved);
+      if (scenario.expected.cancelled !== undefined) assert.equal(body.cancelled, scenario.expected.cancelled);
+      assert.equal(body.run.id, scenario.expected.runId);
+      assert.equal(body.run.status, scenario.expected.runStatus);
+      assert.equal(body.gatewayFallback, false);
+      assert.equal(body.relayRuntimeRequest, true);
+    } finally {
+      await close(server);
+    }
+  }
+});
+
+test('propagates a Relay run action 404 without gateway fallback', async () => {
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+    },
+    fetchImpl: async () => {
+      throw new Error('404 run action should not call direct runtime fetch');
+    },
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=1000`, {
+      headers: { 'x-hermes-relay-token': 'relay-token' },
+    }).then((response) => response.json());
+    await waitForRelayBridge(baseUrl);
+
+    const actionPromise = fetch(`${baseUrl}/api/runs/run-relay-missing/approve`, {
+      method: 'POST',
+    });
+    const polled = await pollPromise;
+    assert.equal(polled.job.payload.path, '/api/runs/run-relay-missing/approve');
+
+    const completeResponse = await fetch(`${baseUrl}/api/relay/jobs/${polled.job.id}/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hermes-relay-token': 'relay-token',
+      },
+      body: JSON.stringify({
+        ok: false,
+        status: 404,
+        body: { ok: false, error: 'run_not_found' },
+      }),
+    });
+    assert.equal(completeResponse.status, 200);
+
+    const response = await actionPromise;
+    const body = await response.json();
+    assert.equal(response.status, 404);
+    assert.equal(body.ok, false);
+    assert.equal(body.error, 'run_not_found');
+    assert.equal(body.gatewayFallback, false);
+    assert.equal(body.relayRuntimeRequest, true);
+  } finally {
+    await close(server);
+  }
+});
+
+test('does not relay malformed or unsupported run actions and preserves direct runtime errors', async () => {
+  for (const actionPath of [
+    '/api/runs/run-relay-review/approve/extra',
+    '/api/runs/run-relay-review/delete',
+  ]) {
+    const runtimeCalls = [];
+    const server = createRailwayGatewayServer({
+      env: {
+        HERMES_RELAY_TOKEN: 'relay-token',
+        HERMES_RUNTIME_URL: 'https://runtime.test',
+        HERMES_RUNTIME_TOKEN: 'runtime-token',
+      },
+      fetchImpl: async (url) => {
+        runtimeCalls.push(url);
+        return new Response(JSON.stringify({ ok: false, error: 'runtime_run_not_found' }), {
+          status: 404,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const pollPromise = fetch(`${baseUrl}/api/relay/poll?timeout=250`, {
+        headers: { 'x-hermes-relay-token': 'relay-token' },
+      }).then((response) => response.json());
+      await waitForRelayBridge(baseUrl);
+
+      const responsePromise = fetch(`${baseUrl}${actionPath}`, {
+        method: 'POST',
+      });
+      const polled = await pollPromise;
+      const response = await responsePromise;
+      const body = await response.json();
+
+      assert.equal(polled.job, null);
+      assert.equal(response.status, 404);
+      assert.equal(body.ok, false);
+      assert.equal(body.error, 'runtime_run_not_found');
+      assert.equal(runtimeCalls.length, 1);
+      assert.equal(new URL(runtimeCalls[0]).pathname, actionPath);
+    } finally {
+      await close(server);
+    }
+  }
+});
+
+test('keeps offline fallback run actions working when direct runtime returns 404', async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-calendar-relay-run-action-fallback-'));
+  const gatewayStore = new HermesStore({ dataDir });
+  gatewayStore.saveRun({
+    id: 'run-offline-review',
+    status: 'needs-review',
+    goal: 'Offline approval fallback',
+    agent: 'default',
+  });
+  const server = createRailwayGatewayServer({
+    env: {
+      HERMES_RELAY_TOKEN: 'relay-token',
+      HERMES_RUNTIME_URL: 'https://runtime.test',
+      HERMES_RUNTIME_TOKEN: 'runtime-token',
+    },
+    gatewayStore,
+    fetchImpl: async () => new Response(JSON.stringify({ ok: false, error: 'runtime_run_not_found' }), {
+      status: 404,
+      headers: { 'content-type': 'application/json' },
+    }),
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/runs/run-offline-review/approve`, {
+      method: 'POST',
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.run.id, 'run-offline-review');
+    assert.equal(body.run.status, 'approved');
+    assert.equal(body.gatewayFallback, true);
+    assert.equal(gatewayStore.getRun('run-offline-review').status, 'approved');
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
   }
 });
 

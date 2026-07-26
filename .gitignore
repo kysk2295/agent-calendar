@@ -9,6 +9,7 @@ apps/desktop/dist-electron/
 apps/desktop/release/
 apps/desktop/audit/*.json
 apps/desktop/audit/
+apps/desktop/test-results/
 .omo/
 .superpowers/
 apps/backend/tools/ocr-cli/.build/

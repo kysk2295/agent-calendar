@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
@@ -72,4 +73,85 @@ test('scheduler client sends edit, status, and delete mutations to one encoded j
   } finally {
     await server.close();
   }
+});
+
+test('federation client sends source, sync, change, and approval requests to typed resources', async () => {
+  const calls = [];
+  const server = await listenJson(calls);
+  apiModule.setApiBaseUrl(server.baseUrl);
+
+  try {
+    await apiModule.hermesApi.listAutomationSources();
+    await apiModule.hermesApi.connectAutomationSource({
+      adapterKind: 'hermes',
+      displayName: 'Mac mini Hermes',
+      runnerId: 'runner-a',
+      requestId: 'connect-1',
+    });
+    await apiModule.hermesApi.syncAutomationSource('source one');
+    await apiModule.hermesApi.listConnectedAutomations();
+    await apiModule.hermesApi.requestAutomationChange({
+      sourceId: 'source one',
+      automationId: 'automation one',
+      operation: 'pause',
+      requestId: 'pause-1',
+      input: {},
+    });
+    await apiModule.hermesApi.approveAutomationChange('change one', {
+      requestId: 'approve-1',
+    });
+
+    assert.deepEqual(calls, [
+      { method: 'GET', url: '/api/automation/sources', body: null },
+      {
+        method: 'POST',
+        url: '/api/automation/sources',
+        body: {
+          adapterKind: 'hermes',
+          displayName: 'Mac mini Hermes',
+          runnerId: 'runner-a',
+          requestId: 'connect-1',
+        },
+      },
+      { method: 'POST', url: '/api/automation/sources/source%20one/sync', body: {} },
+      { method: 'GET', url: '/api/automation/automations', body: null },
+      {
+        method: 'POST',
+        url: '/api/automation/changes',
+        body: {
+          sourceId: 'source one',
+          automationId: 'automation one',
+          operation: 'pause',
+          requestId: 'pause-1',
+          input: {},
+        },
+      },
+      {
+        method: 'POST',
+        url: '/api/automation/changes/change%20one/approve',
+        body: { requestId: 'approve-1' },
+      },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('Desktop keeps approval-required automation changes behind an explicit user gate', () => {
+  const appSource = readFileSync(
+    fileURLToPath(new URL('../src/App.tsx', import.meta.url)),
+    'utf8',
+  );
+  const dashboardSource = readFileSync(
+    fileURLToPath(new URL('../src/features/agent-operations/HermesAutomationDashboard.tsx', import.meta.url)),
+    'utf8',
+  );
+  const applyStart = appSource.indexOf('async function applyAutomationChange');
+  const applyEnd = appSource.indexOf('async function connectAutomationSource');
+  assert.ok(applyStart >= 0 && applyEnd > applyStart);
+  const applySource = appSource.slice(applyStart, applyEnd);
+
+  assert.doesNotMatch(applySource, /approveAutomationChange/);
+  assert.match(dashboardSource, /승인하고 적용/);
+  assert.match(dashboardSource, /onApprove/);
 });

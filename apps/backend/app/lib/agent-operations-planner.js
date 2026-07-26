@@ -166,7 +166,7 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
     appendPlanningError(store, missionThread.id, error);
     throw new AgentOperationsPlanError(
       error.code || 'runtime_unavailable',
-      error.message || 'Mac mini Hermes planning failed',
+      error.message || 'Hermes Runner planning failed',
       error.code === 'runtime_unavailable' ? 503 : 502,
     );
   }
@@ -215,7 +215,7 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
       if (error.code && error.code !== 'plan_invalid') {
         throw new AgentOperationsPlanError(
           error.code,
-          error.message || 'Mac mini Hermes planning failed',
+          error.message || 'Hermes Runner planning failed',
           error.code === 'runtime_unavailable' ? 503 : 502,
         );
       }

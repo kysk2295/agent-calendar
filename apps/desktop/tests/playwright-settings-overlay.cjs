@@ -58,9 +58,10 @@ async function main() {
   await page.locator('.profile').click();
   await page.waitForSelector('.settings-overlay');
 
-  await page.locator('.theme-grid button', { hasText: 'Sage' }).click();
+  await page.getByTestId('settings-nav-theme').click();
+  await page.locator('.settings-theme-list button', { hasText: 'Sage' }).click();
   await page.waitForFunction(() => document.querySelector('.app-root')?.getAttribute('data-theme') === 'sage');
-  const sageActive = await page.locator('.theme-grid button[data-active="true"]', { hasText: 'Sage' }).count();
+  const sageActive = await page.locator('.settings-theme-list button[data-active="true"]', { hasText: 'Sage' }).count();
 
   const firstSwitch = page.locator('.pref-box .switch').first();
   const beforePref = await firstSwitch.getAttribute('data-active');

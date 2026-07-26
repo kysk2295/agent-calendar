@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "rehearsal": "phase10_runner_atomic_update_rollback",
+  "generatedAt": "2026-07-24T21:43:04.160Z",
+  "ok": true,
+  "knownGoodVersion": "0.1.0",
+  "attemptedVersion": "0.1.1",
+  "currentVersion": "0.1.0",
+  "rollbackObserved": true,
+  "statePreserved": true,
+  "currentEntrypointExists": true,
+  "signedManifestVerified": true,
+  "artifactChecksumsVerified": true,
+  "workDir": "$WORK_DIR"
+}

@@ -68,7 +68,10 @@ export function executionEngine(value: unknown, field: string): AgentExecutionEn
     case 'auto':
     case 'hermes':
     case 'local_llm':
-    case 'codex': return value;
+    case 'codex':
+    case 'claude':
+    case 'grok':
+      return value;
     default: throw new AgentWorkParseError(field);
   }
 }

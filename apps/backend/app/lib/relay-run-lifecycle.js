@@ -55,7 +55,7 @@ async function waitForRelayRun({ relay, job, deadline, now }) {
   }
   throw profileCompletionError(
     lastError ? 'relay_failed' : 'relay_timeout',
-    lastError || 'Mac mini Hermes profile launch timed out',
+    lastError || 'Hermes Runner profile launch timed out',
     job.id,
   );
 }

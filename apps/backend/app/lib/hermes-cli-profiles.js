@@ -346,7 +346,7 @@ function profileToHermesAgent(profile = {}, options = {}) {
   const commandTemplate = profileCommandTemplate(profile, options);
   const profileWithProbe = { ...profile, inferenceProbe: options.inferenceProbe };
   const metadata = options.profileMetadata?.[name] || readProfileMetadata(profile, options);
-  const title = soulTitle(metadata.soulContent || '', `Mac mini Hermes profile ${name}`);
+  const title = soulTitle(metadata.soulContent || '', `Hermes Runner profile ${name}`);
   const mission = soulMission(metadata.soulContent || '') || metadata.description || '';
   const profileInfo = {
     name,
@@ -392,7 +392,7 @@ function profileToHermesAgent(profile = {}, options = {}) {
     name,
     engine: 'hermes',
     role: title,
-    persona: mission ? `${title}: ${mission}` : `맥 미니 Hermes 프로필 ${name}.`,
+    persona: mission ? `${title}: ${mission}` : `Hermes Runner 프로필 ${name}.`,
     model,
     status: profile.gateway === 'running' ? 'Active' : 'Idle',
     tools: ['hermes-cli'],

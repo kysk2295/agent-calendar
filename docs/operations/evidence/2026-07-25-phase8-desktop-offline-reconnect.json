@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "phase": "phase8-desktop-offline-reconnect",
+  "date": "2026-07-25",
+  "status": "verified",
+  "scope": {
+    "workspaceSnapshotRetention": true,
+    "secureSessionRetained": true,
+    "manualRetry": true,
+    "browserOnlineRetry": true,
+    "boundedBackgroundRetry": true,
+    "coldStartOfflineCache": false,
+    "liveMacMini": false
+  },
+  "red": [
+    {
+      "command": "node --test apps/desktop/tests/desktop-connectivity-state.test.mjs",
+      "result": "failed: production connectivity module missing"
+    },
+    {
+      "command": "npm run build:desktop && node apps/desktop/tests/playwright-phase8-offline-reconnect.cjs",
+      "result": "failed: desktop-connectivity offline surface missing"
+    }
+  ],
+  "green": {
+    "connectivityTests": {
+      "passed": 3,
+      "failed": 0
+    },
+    "electron": {
+      "light": {
+        "ok": true,
+        "completeCount": 1,
+        "safeStorage": true,
+        "restartRestore": true
+      },
+      "dark": {
+        "ok": true,
+        "completeCount": 1,
+        "safeStorage": true,
+        "restartRestore": true
+      },
+      "sessionTruthRegression": true,
+      "phase3GoldenRegression": {
+        "ok": true,
+        "backendRestart": true,
+        "desktopRestart": true,
+        "terminalResults": 1,
+        "calendarEvents": 1
+      }
+    },
+    "gates": {
+      "backendCheck": true,
+      "desktopTypecheck": true,
+      "desktopBuild": true,
+      "npmTest": true,
+      "desktopTests": 199,
+      "runnerTests": 19
+    }
+  },
+  "screenshots": [
+    {
+      "theme": "light",
+      "state": "offline",
+      "path": "apps/desktop/test-results/phase8-offline-reconnect/02-offline-retained.png",
+      "sha256": "bfb8660a33afe8a29e3e1c065bea9d58d6a7db19d61e86394ea2255b55f2969e",
+      "bytes": 79618
+    },
+    {
+      "theme": "light",
+      "state": "recovered",
+      "path": "apps/desktop/test-results/phase8-offline-reconnect/03-reconnected-calendar.png",
+      "sha256": "b7c426ff220f192ce6fb9adadc81253dc08f408ae1ced6056e3053391275432f",
+      "bytes": 78381
+    },
+    {
+      "theme": "dark",
+      "state": "offline",
+      "path": "apps/desktop/test-results/phase8-offline-reconnect-dark/02-offline-retained.png",
+      "sha256": "6592d54ab6a60c26982c8a0d5109386f57418361b7d4dca5ed9fc549e4234c84",
+      "bytes": 79518
+    },
+    {
+      "theme": "dark",
+      "state": "recovered",
+      "path": "apps/desktop/test-results/phase8-offline-reconnect-dark/03-reconnected-calendar.png",
+      "sha256": "d954c1e5e2260341f7c5761a4e51d74258e91633fc07b46a2fd811becb9b3a38",
+      "bytes": 78053
+    }
+  ],
+  "manualQa": {
+    "lightApproved": true,
+    "darkApproved": true,
+    "retainedEventVisible": true,
+    "compactStatusBar": true,
+    "noClipping": true,
+    "noFalseEmptyWorkspace": true
+  },
+  "review": {
+    "verdict": "APPROVED",
+    "blockers": 0,
+    "report": ".omo/evidence/phase8-desktop-offline-reconnect-code-review.md",
+    "notes": [
+      "Source-regex contract assertions remain brittle.",
+      "App.tsx remains an oversized pre-existing composition module.",
+      "Concurrent retry triggers are not in-flight deduplicated."
+    ]
+  },
+  "cleanup": {
+    "orphanProcesses": 0,
+    "temporaryDirectories": 0,
+    "screenshotsRetained": true,
+    "secretAuditPassed": true,
+    "diffCheckPassed": true
+  },
+  "knownObservations": [
+    "Vite source-import tests report the pre-existing HMR port 24678 warning.",
+    "The production renderer bundle retains the pre-existing size warning.",
+    "A cold-start offline Workspace cache remains a separate Phase 8 story.",
+    "The live Mac mini and provider credentials remain external release gates."
+  ]
+}

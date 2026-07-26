@@ -97,7 +97,7 @@ async function executeAgentTask({
     });
     markQueuedExecutionApplied({ store, queuedEvents: execution.queuedEvents, clock });
     const completion = await completionPromise;
-    const resolvedExecutionEngine = ['hermes', 'codex'].includes(String(completion?.executionEngine || '').trim())
+    const resolvedExecutionEngine = ['hermes', 'codex', 'claude', 'grok'].includes(String(completion?.executionEngine || '').trim())
       ? String(completion.executionEngine).trim()
       : '';
     const text = String(completion?.text || '').trim();

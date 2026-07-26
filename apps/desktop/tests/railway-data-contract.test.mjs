@@ -8,6 +8,30 @@ const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 
 const viteConfigSource = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
 const workspaceSource = readFileSync(new URL('../src/features/agent-operations/AgentWorkWorkspace.tsx', import.meta.url), 'utf8');
 const uiPreferencesSource = readFileSync(new URL('../src/features/settings/uiPreferences.ts', import.meta.url), 'utf8');
+const workManagementSource = readFileSync(new URL('../src/domains/work-management/workManagement.ts', import.meta.url), 'utf8');
+const agentRosterSource = readFileSync(new URL('../src/domains/agent-work/agentRoster.ts', import.meta.url), 'utf8');
+const communicationDomainSource = readFileSync(new URL('../src/domains/communication/communication.ts', import.meta.url), 'utf8');
+const chatDrawerSource = readFileSync(new URL('../src/features/communication/ChatDrawer.tsx', import.meta.url), 'utf8');
+const mailScreenSource = readFileSync(new URL('../src/features/communication/MailScreen.tsx', import.meta.url), 'utf8');
+const wikiScreenSource = readFileSync(new URL('../src/features/knowledge/WikiScreen.tsx', import.meta.url), 'utf8');
+const wikiGraphPanelSource = readFileSync(new URL('../src/features/knowledge/WikiGraphPanel.tsx', import.meta.url), 'utf8');
+const wikiReaderSource = readFileSync(new URL('../src/features/knowledge/WikiReader.tsx', import.meta.url), 'utf8');
+const diaryScreenSource = readFileSync(new URL('../src/features/knowledge/DiaryScreen.tsx', import.meta.url), 'utf8');
+const notesScreenSource = readFileSync(new URL('../src/features/knowledge/NotesScreen.tsx', import.meta.url), 'utf8');
+const reviewScreenSource = readFileSync(new URL('../src/features/knowledge/ReviewScreen.tsx', import.meta.url), 'utf8');
+const knowledgeDomainSource = [
+  '../src/domains/knowledge/documents.ts',
+  '../src/domains/knowledge/graphEdges.ts',
+  '../src/domains/knowledge/graphLayout.ts',
+  '../src/domains/knowledge/journal.ts',
+  '../src/domains/knowledge/knowledge.ts',
+  '../src/domains/knowledge/primitives.ts',
+  '../src/domains/knowledge/stream.ts',
+  '../src/domains/knowledge/types.ts',
+].map((sourcePath) => readFileSync(new URL(sourcePath, import.meta.url), 'utf8')).join('\n');
+const communicationContractSource = [appSource, communicationDomainSource, chatDrawerSource, mailScreenSource].join('\n');
+const knowledgeContractSource = [appSource, knowledgeDomainSource, wikiScreenSource, wikiGraphPanelSource, wikiReaderSource, diaryScreenSource, notesScreenSource, reviewScreenSource].join('\n');
+const extractedContractSource = [knowledgeContractSource, communicationDomainSource, chatDrawerSource, mailScreenSource].join('\n');
 
 test('browser preview proxy never acts as an owner-authorized confused deputy', () => {
   // Given / When / Then
@@ -20,21 +44,38 @@ test('long Agent Operations requests use a terminal timeout while run-now only w
   assert.match(apiSource, /const AGENT_OPERATIONS_TIMEOUT_MS = 400_000/);
   assert.match(apiSource, /getAgentOperations: \(\) => hermesJson<unknown>\('\/api\/agent-operations', undefined, AGENT_OPERATIONS_TIMEOUT_MS\)/);
   assert.match(apiSource, /planAgentMission:[\s\S]*AGENT_OPERATIONS_TIMEOUT_MS/);
-  assert.match(apiSource, /tickAgentOperations:[\s\S]*AGENT_OPERATIONS_TIMEOUT_MS/);
+  assert.doesNotMatch(apiSource, /tickAgentOperations|\/api\/agent-operations\/tick/);
   assert.match(apiSource, /runAgentTaskNow:[^\n]+body: '\{\}' \}\),/);
   assert.doesNotMatch(apiSource, /runAgentTaskNow:[^\n]+AGENT_OPERATIONS_TIMEOUT_MS/);
 });
 
+test('Desktop does not expose the retired direct Workboard conversion', () => {
+  assert.doesNotMatch(apiSource, /convertWorkboard|\/api\/workboard\/convert/);
+  assert.match(apiSource, /createAgentWork:[^\n]+\/api\/agent-operations\/work/);
+});
+
 test('agent work state refreshes independently of unrelated application hydration failures', () => {
   assert.doesNotMatch(appSource, /return agentOperations;/);
-  assert.match(appSource, /\.then\(parseAgentOperationsEnvelope\)\s*\.then\(\(next\) => \{\s*setAgentOperations\(next\);/);
+  assert.match(
+    appSource,
+    /\.then\(parseAgentOperationsEnvelope\)\s*\.then\(\(next\) => \{\s*if \(!isHydrationCurrent\(\)\) return null;\s*setAgentOperations\(next\);/,
+  );
   assert.doesNotMatch(appSource, /chatRequest,\s*agentOperationsRequest/);
 });
 
 test('unrelated optional API failures do not cover the independent Work Conversation view', () => {
-  assert.match(appSource, /const showGlobalApiBanner = Boolean\(apiError && screen !== 'agents'\);/);
+  assert.match(appSource, /const showGlobalApiBanner = Boolean\(/);
+  assert.match(appSource, /screen !== 'agents'/);
+  assert.match(
+    appSource,
+    /!\['offline', 'reconnecting'\]\.includes\(desktopConnectivity\.status\)/,
+  );
+  assert.match(appSource, /data-testid="desktop-connectivity"/);
   assert.match(appSource, /\{showGlobalApiBanner && <div className="api-banner">/);
-  assert.match(appSource, /\{showGlobalApiBanner \? 'Railway 확인 필요' : accountProviderLabel\}/);
+  assert.match(
+    appSource,
+    /\{showDesktopConnectivity \? '연결 확인 필요' : showGlobalApiBanner \? 'Railway 확인 필요' : accountProviderLabel\}/,
+  );
 });
 
 test('fresh aggregate mission state wins over a stale Work Conversation snapshot after a control action', () => {
@@ -53,10 +94,18 @@ test('desktop calendar keeps event details instead of switching to compressed mo
 });
 
 test('wiki answers expose each cited source as an openable document control', () => {
-  assert.match(appSource, /className="wiki-answer-sources"/);
-  assert.match(appSource, /aria-label=\{`출처 열기: \$\{sourceTitle\}`\}/);
-  assert.match(appSource, /source\.excerpt/);
-  assert.match(appSource, /setActiveWikiId\(sourceId\);\s*setReaderOpen\(true\)/);
+  assert.match(wikiScreenSource, /className="wiki-answer-sources"/);
+  assert.match(wikiScreenSource, /aria-label=\{`출처 열기: \$\{sourceTitle\}`\}/);
+  assert.match(wikiScreenSource, /source\.excerpt/);
+  assert.match(wikiScreenSource, /setActiveWikiId\(sourceId\);\s*setReaderOpen\(true\)/);
+  assert.match(appSource, /screen === 'wiki' && <WikiScreen[^\n]+sources=\{wikiAnswerSources\}/);
+});
+
+test('knowledge screens receive document loading through the App composition boundary', () => {
+  assert.doesNotMatch(`${wikiScreenSource}\n${diaryScreenSource}`, /hermesApi/);
+  assert.match(appSource, /function loadKnowledgeDocument\(/);
+  assert.match(appSource, /<WikiScreen[^\n]+loadDocument=\{loadKnowledgeDocument\}/);
+  assert.match(appSource, /<DiaryScreen[^\n]+loadDocument=\{loadKnowledgeDocument\}/);
 });
 
 test('hydrate does not mask failed backend endpoints with dashboard fallback data', () => {
@@ -64,38 +113,38 @@ test('hydrate does not mask failed backend endpoints with dashboard fallback dat
   assert.doesNotMatch(appSource, /result\.status === 'fulfilled' \? result\.value : \{\}/);
   assert.doesNotMatch(appSource, /arr\(dashboard,\s*'tasks'\)/);
   assert.doesNotMatch(appSource, /arr\(dashboard,\s*'agents'\)/);
-  assert.doesNotMatch(appSource, /arr\(dashboard,\s*'documents'/);
-  assert.doesNotMatch(appSource, /arr\(dashboard,\s*'chatMessages'\)/);
+  assert.doesNotMatch(knowledgeContractSource, /arr\(dashboard,\s*'documents'/);
+  assert.doesNotMatch(communicationContractSource, /arr\(dashboard,\s*'chatMessages'\)/);
   assert.doesNotMatch(appSource, /arr\(dashboard,\s*'schedulerJobs'\)/);
-  assert.doesNotMatch(appSource, /arr\(dashboard,\s*'mailMessages'\)/);
+  assert.doesNotMatch(communicationContractSource, /arr\(dashboard,\s*'mailMessages'\)/);
 });
 
 test('app does not create client-side seed or local optimistic task/run data', () => {
-  assert.doesNotMatch(appSource, /const seedTasks/);
-  assert.doesNotMatch(appSource, /const seedMail/);
-  assert.doesNotMatch(appSource, /localTasks/);
-  assert.doesNotMatch(appSource, /localEvents/);
-  assert.doesNotMatch(appSource, /addLocalTask/);
-  assert.doesNotMatch(appSource, /taskOverrides/);
-  assert.doesNotMatch(appSource, /eventOverrides/);
-  assert.doesNotMatch(appSource, /deletedTaskIds/);
-  assert.doesNotMatch(appSource, /deletedEventIds/);
-  assert.doesNotMatch(appSource, /setTaskOverrides/);
-  assert.doesNotMatch(appSource, /setEventOverrides/);
-  assert.doesNotMatch(appSource, /id:\s*`chat-run-/);
-  assert.doesNotMatch(appSource, /id:\s*`draft-/);
-  assert.doesNotMatch(appSource, /id:\s*`local-/);
-  assert.doesNotMatch(appSource, /id:\s*`plan-/);
-  assert.doesNotMatch(appSource, /runs: \[localRun/);
-  assert.doesNotMatch(appSource, /const baseAgents = state\.agents\.length \? state\.agents :/);
-  assert.doesNotMatch(appSource, /run-local/);
-  assert.doesNotMatch(appSource, /customAgents/);
-  assert.doesNotMatch(appSource, /localTaxonomy/);
+  assert.doesNotMatch(extractedContractSource, /const seedTasks/);
+  assert.doesNotMatch(extractedContractSource, /const seedMail/);
+  assert.doesNotMatch(extractedContractSource, /localTasks/);
+  assert.doesNotMatch(extractedContractSource, /localEvents/);
+  assert.doesNotMatch(extractedContractSource, /addLocalTask/);
+  assert.doesNotMatch(extractedContractSource, /taskOverrides/);
+  assert.doesNotMatch(extractedContractSource, /eventOverrides/);
+  assert.doesNotMatch(extractedContractSource, /deletedTaskIds/);
+  assert.doesNotMatch(extractedContractSource, /deletedEventIds/);
+  assert.doesNotMatch(extractedContractSource, /setTaskOverrides/);
+  assert.doesNotMatch(extractedContractSource, /setEventOverrides/);
+  assert.doesNotMatch(extractedContractSource, /id:\s*`chat-run-/);
+  assert.doesNotMatch(extractedContractSource, /id:\s*`draft-/);
+  assert.doesNotMatch(extractedContractSource, /id:\s*`local-/);
+  assert.doesNotMatch(extractedContractSource, /id:\s*`plan-/);
+  assert.doesNotMatch(extractedContractSource, /runs: \[localRun/);
+  assert.doesNotMatch(extractedContractSource, /const baseAgents = state\.agents\.length \? state\.agents :/);
+  assert.doesNotMatch(extractedContractSource, /run-local/);
+  assert.doesNotMatch(extractedContractSource, /customAgents/);
+  assert.doesNotMatch(extractedContractSource, /localTaxonomy/);
 });
 
 test('chat drawer starts from backend chat history, not a client-side greeting', () => {
-  assert.doesNotMatch(appSource, /Hermes 콘솔 준비됨/);
-  assert.doesNotMatch(appSource, /useState<Array<\{ role: string; text: string \}>>\(\[\s*\{/);
+  assert.doesNotMatch(communicationContractSource, /Hermes 콘솔 준비됨/);
+  assert.doesNotMatch(communicationContractSource, /useState<Array<\{ role: string; text: string \}>>\(\[\s*\{/);
 });
 
 test('calendar-created work is persisted as calendar events, not tasks', () => {
@@ -123,7 +172,7 @@ test('desktop list and tag metadata are persisted to Railway metadata records', 
 });
 
 test('desktop taxonomy can be edited and hidden through Railway metadata records', () => {
-  assert.match(appSource, /recordId\?:\s*string/);
+  assert.match(workManagementSource, /recordId\?:\s*string/);
   assert.match(appSource, /function updateTaxonomy\(/);
   assert.match(appSource, /function hideTaxonomy\(/);
   assert.match(appSource, /hermesApi\.updateTask\(item\.recordId/);
@@ -132,13 +181,13 @@ test('desktop taxonomy can be edited and hidden through Railway metadata records
 });
 
 test('calendar CRUD persists duration, all-day, and recurrence through Railway event fields', () => {
-  assert.match(appSource, /const CALENDAR_META_MARKER/);
-  assert.match(appSource, /function calendarMetadata\(/);
-  assert.match(appSource, /function calendarNotes\(/);
-  assert.match(appSource, /payload\.recurrence\s*=/);
-  assert.match(appSource, /payload\.allDay\s*=/);
-  assert.match(appSource, /payload\.endDate\s*=/);
-  assert.match(appSource, /payload\.endTime\s*=/);
+  assert.match(workManagementSource, /const CALENDAR_META_MARKER/);
+  assert.match(workManagementSource, /function calendarMetadata\(/);
+  assert.match(workManagementSource, /function calendarNotes\(/);
+  assert.match(workManagementSource, /payload\.recurrence\s*=/);
+  assert.match(workManagementSource, /payload\.allDay\s*=/);
+  assert.match(workManagementSource, /payload\.endDate\s*=/);
+  assert.match(workManagementSource, /payload\.endTime\s*=/);
   assert.match(appSource, /const patchItem = isEvent \? patchCalendarEvent : patchTask/);
   assert.match(appSource, /function TaskDetailModal\(/);
   assert.match(appSource, /const patchEnd = \(patch: Item\)/);
@@ -149,8 +198,8 @@ test('calendar CRUD persists duration, all-day, and recurrence through Railway e
 });
 
 test('task surfaces exclude calendar-only event records', () => {
-  assert.match(appSource, /function isCalendarEventRecord\(/);
-  assert.match(appSource, /function isTaskRecord\(/);
+  assert.match(workManagementSource, /function isCalendarEventRecord\(/);
+  assert.match(workManagementSource, /function isTaskRecord\(/);
   assert.match(appSource, /rawTasks\.filter\(isTaskRecord\)/);
   assert.match(appSource, /const scheduledTaskItems = filteredTasks\.filter/);
 });
@@ -166,14 +215,15 @@ test('wiki graph is interactive and wiki ask uses Railway LLM endpoint', () => {
   assert.match(apiSource, /searchWiki: \(body: Record<string, unknown>\) => jsonPost\('\/api\/wiki\/search', body, WIKI_SEARCH_TIMEOUT_MS\)/);
   assert.match(appSource, /function askWiki\(/);
   assert.doesNotMatch(wikiAskSource, /path:\s*activeWikiId/);
-  assert.doesNotMatch(appSource, /wikiRag/);
-  assert.doesNotMatch(appSource, /answerWikiQuestion/);
-  assert.doesNotMatch(appSource, /buildWikiRagContext/);
-  assert.doesNotMatch(appSource, /위키 기반 요약입니다\. 관련 문서와 최근 작업을 함께 검토하세요/);
-  assert.match(appSource, /const \[graphZoom,\s*setGraphZoom\]/);
-  assert.match(appSource, /const \[graphPan,\s*setGraphPan\]/);
-  assert.match(appSource, /onWheel=\{/);
-  assert.match(appSource, /wiki-graph-controls/);
+  assert.doesNotMatch(knowledgeContractSource, /wikiRag/);
+  assert.doesNotMatch(knowledgeContractSource, /answerWikiQuestion/);
+  assert.doesNotMatch(knowledgeContractSource, /buildWikiRagContext/);
+  assert.doesNotMatch(knowledgeContractSource, /위키 기반 요약입니다\. 관련 문서와 최근 작업을 함께 검토하세요/);
+  assert.match(wikiGraphPanelSource, /const \[graphZoom,\s*setGraphZoom\]/);
+  assert.match(wikiGraphPanelSource, /const \[graphPan,\s*setGraphPan\]/);
+  assert.match(wikiGraphPanelSource, /onWheel=\{/);
+  assert.match(wikiGraphPanelSource, /wiki-graph-controls/);
+  assert.match(appSource, /screen === 'wiki' && <WikiScreen/);
 });
 
 test('diary and review writes are persisted through backend documents API', () => {
@@ -182,8 +232,10 @@ test('diary and review writes are persisted through backend documents API', () =
   assert.match(appSource, /async function saveDiary\(/);
   assert.match(appSource, /async function saveRetro\(/);
   assert.match(appSource, /hermesApi\.createDocument/);
-  assert.doesNotMatch(appSource, /setLocalDocs/);
-  assert.doesNotMatch(appSource, /diary-seed/);
+  assert.doesNotMatch(knowledgeContractSource, /setLocalDocs/);
+  assert.doesNotMatch(knowledgeContractSource, /diary-seed/);
+  assert.match(diaryScreenSource, /onClick=\{saveDiary\}/);
+  assert.match(reviewScreenSource, /saveRetro\(retro\)/);
 });
 
 test('weekly review auto draft is generated by backend LLM instead of a client template', () => {
@@ -192,12 +244,14 @@ test('weekly review auto draft is generated by backend LLM instead of a client t
   assert.match(appSource, /async function createReviewGoal\(/);
   assert.match(appSource, /hermesApi\.createTask/);
   assert.match(appSource, /createReviewGoal=\{createReviewGoal\}/);
-  assert.doesNotMatch(appSource, /setRetro\(`📅/);
-  assert.doesNotMatch(appSource, /2026\.06\.23 - 2026\.06\.29 주간 회고/);
-  assert.doesNotMatch(appSource, /반복되는 정리 작업을 Hermes에게 넘겨/);
-  assert.doesNotMatch(appSource, /UniPort 백로그 정리/);
-  assert.doesNotMatch(appSource, /에이전트 위임 루프 안정화/);
-  assert.doesNotMatch(appSource, /트레이딩 규칙 회고/);
+  assert.match(reviewScreenSource, /generateRetroDraft\(\{/);
+  assert.match(reviewScreenSource, /createReviewGoal\(value\)/);
+  assert.doesNotMatch(knowledgeContractSource, /setRetro\(`📅/);
+  assert.doesNotMatch(knowledgeContractSource, /2026\.06\.23 - 2026\.06\.29 주간 회고/);
+  assert.doesNotMatch(knowledgeContractSource, /반복되는 정리 작업을 Hermes에게 넘겨/);
+  assert.doesNotMatch(knowledgeContractSource, /UniPort 백로그 정리/);
+  assert.doesNotMatch(knowledgeContractSource, /에이전트 위임 루프 안정화/);
+  assert.doesNotMatch(knowledgeContractSource, /트레이딩 규칙 회고/);
 });
 
 test('sidebar removes fixed mock note and someday tabs and topbar search', () => {
@@ -240,33 +294,30 @@ test('task completion checkboxes match TickTick empty-square size', () => {
   assert.match(styleSource, /\.row i\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
   assert.match(styleSource, /\.row\[data-done="true"\] i\s*\{[^}]*background:\s*#FFFFFF;[^}]*border-color:\s*#9A9A9A/s);
   assert.match(styleSource, /\.task-inspector header \.detail-check\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
-  assert.match(styleSource, /\.detail-topline \.detail-check\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
-  assert.match(styleSource, /\.detail-topline \.detail-check\[data-done="true"\]\s*\{[^}]*background:\s*#FFFFFF;[^}]*border-color:\s*#9A9A9A/s);
+  assert.match(styleSource, /\.detail-topline \.detail-check\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*var\(--input\);[^}]*border:\s*1\.5px solid var\(--line-strong\);[^}]*border-radius:\s*2px/s);
+  assert.match(styleSource, /\.detail-topline \.detail-check\[data-done="true"\]\s*\{[^}]*background:\s*var\(--input\);[^}]*border-color:\s*var\(--line-strong\)/s);
   assert.match(styleSource, /\.new-task-check-row input\[type="checkbox"\]\s*\{[^}]*appearance:\s*none;[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*background:\s*#FFFFFF;[^}]*border:\s*1\.5px solid #9A9A9A;[^}]*border-radius:\s*2px/s);
 });
 
-test('gmail mail connection is wired to Railway mail endpoints', () => {
-  assert.match(apiSource, /saveMailAccount:/);
-  assert.match(apiSource, /syncMail:/);
+test('mail is a truthful read and Workspace task-delegation surface', () => {
   assert.match(apiSource, /getMailMessages:/);
-  assert.match(apiSource, /runMailAction:/);
+  assert.doesNotMatch(apiSource, /saveMailAccount:|syncMail:|runMailAction:/);
+  assert.doesNotMatch(apiSource, /\/api\/mail\/accounts|\/api\/mail\/sync|\/api\/mail\/messages\/\$\{/);
   assert.doesNotMatch(apiSource, /getInbox:|runInboxCommand:/);
-  assert.match(appSource, /function connectGmail\(/);
   assert.match(appSource, /async function addTaskFromMail\(/);
-  assert.match(appSource, /async function archiveMail\(/);
-  assert.match(appSource, /async function toggleMailStar\(/);
-  assert.match(appSource, /hermesApi\.saveMailAccount/);
-  assert.match(appSource, /hermesApi\.syncMail/);
-  assert.match(appSource, /hermesApi\.runMailAction\(id,\s*'task'/);
-  assert.match(appSource, /hermesApi\.runMailAction\(id,\s*'archive'/);
-  assert.match(appSource, /hermesApi\.runMailAction\(id,\s*next \? 'star' : 'unstar'/);
-  assert.match(appSource, /provider:\s*'gmail'/);
-  assert.doesNotMatch(appSource, /archivedMailIds/);
-  assert.doesNotMatch(appSource, /mailTaskIds/);
-  assert.doesNotMatch(appSource, /mailStarIds/);
-  assert.doesNotMatch(appSource, /setArchivedMailIds/);
-  assert.doesNotMatch(appSource, /setMailTaskIds/);
-  assert.doesNotMatch(appSource, /setMailStarIds/);
+  assert.match(appSource, /hermesApi\.createTask\(\{[\s\S]*source:\s*'desktop-mail'[\s\S]*sourceMailId:\s*id/);
+  assert.doesNotMatch(appSource, /function connectGmail\(|async function archiveMail\(|async function toggleMailStar\(/);
+  assert.doesNotMatch(communicationDomainSource, /gmailAccountInput|normalizeGmailSyncResponse|optimisticMailArchiveUpdate|optimisticMailStarUpdate/);
+  assert.match(mailScreenSource, /className="mail-connection-note"/);
+  assert.match(mailScreenSource, /onClick=\{\(\) => addTaskFromMail\(active\)\}/);
+  assert.match(mailScreenSource, /onClick=\{reloadMail\}/);
+  assert.doesNotMatch(mailScreenSource, /type="password"|Google 앱 비밀번호|aria-label="별표"|>보관<\/button>/);
+  assert.doesNotMatch(communicationContractSource, /archivedMailIds/);
+  assert.doesNotMatch(communicationContractSource, /mailTaskIds/);
+  assert.doesNotMatch(communicationContractSource, /mailStarIds/);
+  assert.doesNotMatch(communicationContractSource, /setArchivedMailIds/);
+  assert.doesNotMatch(communicationContractSource, /setMailTaskIds/);
+  assert.doesNotMatch(communicationContractSource, /setMailStarIds/);
 });
 
 test('task list uses an inspector and scan-friendly rows', () => {
@@ -281,7 +332,7 @@ test('task list uses an inspector and scan-friendly rows', () => {
 test('widgets screen implements the handoff widget plan with live app data', () => {
   assert.match(appSource, /type ScreenId = .*'widgets'/);
   assert.match(appSource, /widgets:\s*\{\s*title:\s*'위젯'/);
-  assert.match(appSource, /id:\s*'widgets',\s*icon:\s*'▣',\s*label:\s*'위젯'/);
+  assert.match(appSource, /id:\s*'widgets',\s*icon:\s*'widget',\s*label:\s*'위젯'/);
   assert.match(appSource, /function WidgetsScreen\(/);
   assert.match(appSource, /className="widgets-showcase/);
   assert.match(appSource, /월 캘린더/);
@@ -302,20 +353,20 @@ test('delegate modal uses backend agents only and does not invent fallback agent
 });
 
 test('desktop task ownership recognizes live Hermes profiles without the removed profile', () => {
-  assert.doesNotMatch(appSource, /marketflow/i);
-  assert.match(appSource, /bizconsultant/);
-  assert.match(appSource, /wikicurator/);
+  assert.doesNotMatch(`${workManagementSource}\n${agentRosterSource}`, /marketflow/i);
+  assert.match(workManagementSource, /bizconsultant/);
+  assert.match(workManagementSource, /wikicurator/);
 });
 
 test('wiki answer sends the unchanged question to wikicurator without a client prompt', () => {
   assert.match(appSource, /message:\s*question/);
-  assert.doesNotMatch(appSource, /wikiStreamCommand|SOURCES만 사용|최소\s*350자|5~9문장/);
+  assert.doesNotMatch(knowledgeContractSource, /wikiStreamCommand|SOURCES만 사용|최소\s*350자|5~9문장/);
 });
 
 test('agent cards use Hermes dashboard profile readiness instead of idle fallback labels', () => {
   assert.match(appSource, /profileReadiness:\s*obj\(dashboard,\s*'profileReadiness'\)/);
   assert.match(appSource, /mergeAgentsWithProfileReadiness\(state\.agents,\s*state\.profileReadiness\)/);
-  assert.match(appSource, /function agentStatusLabel\(/);
+  assert.match(agentRosterSource, /function agentStatusLabel\(/);
   assert.doesNotMatch(appSource, /statusLabel = \(agent: Item\).*'대기'/);
 });
 

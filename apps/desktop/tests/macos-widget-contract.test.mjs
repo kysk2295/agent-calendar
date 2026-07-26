@@ -115,13 +115,14 @@ test('native widget host cannot create repeated windows when launched from widge
 
 test('electron app writes native widget snapshots into the shared app group container', () => {
   const appSource = desktopSource('src/App.tsx');
+  const workManagementSource = desktopSource('src/domains/work-management/workManagement.ts');
   const mainSource = desktopSource('electron/main.ts');
   const preloadSource = desktopSource('electron/preload.ts');
   const runtimePreloadSource = desktopSource('electron/preload.cts');
   const typeSource = desktopSource('src/vite-env.d.ts');
   assert.match(appSource, /function buildHermesWidgetSnapshot/);
-  assert.match(appSource, /function normalizeCalendarEvent/);
-  assert.match(appSource, /nestedItem\(item,\s*'event',\s*'calendarEvent',\s*'task'\)/);
+  assert.match(workManagementSource, /function normalizeCalendarEvent/);
+  assert.match(workManagementSource, /nestedItem\(item,\s*'event',\s*'calendarEvent',\s*'task'\)/);
   assert.match(appSource, /arr\(eventsPayload,\s*'events',\s*'calendarEvents'\)\.map\(normalizeCalendarEvent\)/);
   assert.match(appSource, /window\.hermesDesktop\?\.saveWidgetSnapshot/);
   assert.match(mainSource, /widget:snapshot-save/);

@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "phase": "phase8-encrypted-cold-start-snapshot",
+  "date": "2026-07-25",
+  "status": "verified",
+  "scope": {
+    "safeStorageEncrypted": true,
+    "ownerOnlyFile": true,
+    "secureSessionBound": true,
+    "workspaceBound": true,
+    "retentionDays": 7,
+    "plaintextLimitMiB": 8,
+    "coldStartOffline": true,
+    "offlineWrites": false,
+    "liveWorkOSRailway": false
+  },
+  "red": [
+    {
+      "test": "workspace snapshot store",
+      "result": "failed because the encrypted store module did not exist"
+    },
+    {
+      "test": "cold-start offline Electron ETE",
+      "result": "failed because the retained Calendar event was absent after a full process exit"
+    },
+    {
+      "test": "security re-review regressions",
+      "result": "failed for retryable HTTP session deletion, cross-session hydration, stale generation writes, and pre-decrypt size enforcement"
+    }
+  ],
+  "green": {
+    "narrowTests": {
+      "passed": 18,
+      "failed": 0
+    },
+    "desktopTests": {
+      "passed": 217,
+      "failed": 0
+    },
+    "electron": {
+      "light": {
+        "ok": true,
+        "completeCount": 1,
+        "coldStartOffline": true,
+        "restartRestore": true
+      },
+      "dark": {
+        "ok": true,
+        "completeCount": 1,
+        "coldStartOffline": true,
+        "restartRestore": true
+      },
+      "sessionTruth": true,
+      "phase3Golden": {
+        "ok": true,
+        "backendRestart": true,
+        "desktopRestart": true,
+        "terminalResults": 1,
+        "calendarEvents": 1
+      }
+    },
+    "gates": {
+      "backendCheck": true,
+      "desktopTypecheck": true,
+      "desktopBuild": true,
+      "npmTest": true,
+      "runnerTests": 19
+    }
+  },
+  "security": {
+    "retryableRefreshPreservesSession": [
+      "transport",
+      429,
+      503
+    ],
+    "definitiveInvalidationClearsSession": [
+      401
+    ],
+    "crossSessionWritesRejected": true,
+    "staleHydrationWritesRejected": true,
+    "oversizedCiphertextRejectedBeforeRead": true,
+    "logoutClearsSnapshot": true
+  },
+  "screenshots": [
+    {
+      "theme": "light",
+      "state": "cold-start-offline",
+      "path": "apps/desktop/test-results/phase8-offline-reconnect/04-cold-start-offline.png",
+      "sha256": "18397c9ba64a4c2416c43dc7bf7f5da145723a9854faa0376daba7fae57445bb",
+      "bytes": 60945
+    },
+    {
+      "theme": "light",
+      "state": "cold-start-recovered",
+      "path": "apps/desktop/test-results/phase8-offline-reconnect/05-cold-start-recovered.png",
+      "sha256": "9893ec09fb42cb5017f290e54ac3e21403baac9f8b085f12ebdb1e8a70e01df7",
+      "bytes": 59527
+    },
+    {
+      "theme": "dark",
+      "state": "cold-start-offline",
+      "path": "apps/desktop/test-results/phase8-offline-reconnect-dark/04-cold-start-offline.png",
+      "sha256": "05c8a02dc988c59e81129837831b4e16d4d6556debb93c526cb77f0102279f78",
+      "bytes": 61000
+    },
+    {
+      "theme": "dark",
+      "state": "cold-start-recovered",
+      "path": "apps/desktop/test-results/phase8-offline-reconnect-dark/05-cold-start-recovered.png",
+      "sha256": "26998fdb16c954db4b03b24f55a0bdb4dd0eaae15f3f403ab13c32784cd04b1c",
+      "bytes": 59470
+    }
+  ],
+  "manualQa": {
+    "lightApproved": true,
+    "darkApproved": true,
+    "retainedEventVisible": true,
+    "lastSyncVisible": true,
+    "noLoginScreen": true,
+    "noClipping": true
+  },
+  "review": {
+    "initialVerdict": "REQUEST_CHANGES",
+    "finalVerdict": "PASS",
+    "blockers": 0,
+    "report": ".omo/evidence/cold_snapshot_security_review-code-review.md"
+  },
+  "knownObservations": [
+    "The cache is a seven-day read-only convenience copy, not a server backup.",
+    "Remote revocation cannot be observed while the device has no network.",
+    "Vite source-import tests retain the pre-existing HMR port 24678 warning.",
+    "The production renderer bundle retains the pre-existing size warning.",
+    "Live WorkOS and Railway credentials remain an external release gate."
+  ]
+}

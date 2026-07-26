@@ -38,3 +38,41 @@ test('Given public failure codes When parsing agent tasks Then known codes survi
     undefined,
   ]);
 });
+
+test('Given workspace runner snapshot When parsing agent operations Then runner connected/ready fields survive', () => {
+  const parsed = operationsModule.parseAgentOperationsEnvelope({
+    missions: [],
+    tasks: [],
+    sessions: [],
+    reports: [],
+    daemon: { running: true, mode: 'workspace_runner', lastRun: null, lastError: null },
+    runner: {
+      connected: true,
+      status: 'connected',
+      message: 'Workspace Runner connected',
+    },
+  });
+
+  assert.equal(parsed.daemon.running, true);
+  assert.equal(parsed.daemon.mode, 'workspace_runner');
+  assert.ok(parsed.runner);
+  assert.equal(parsed.runner.connected, true);
+  assert.equal(parsed.runner.status, 'connected');
+  assert.match(String(parsed.runner.message || ''), /connected/i);
+});
+
+test('Given runner_required snapshot When parsing agent operations Then disconnected state is explicit', () => {
+  const parsed = operationsModule.parseAgentOperationsEnvelope({
+    daemon: { running: false, mode: 'runner_required' },
+    runner: {
+      connected: false,
+      status: 'runner_required',
+      message: 'Workspace Runner is not connected',
+    },
+  });
+
+  assert.equal(parsed.daemon.running, false);
+  assert.equal(parsed.daemon.mode, 'runner_required');
+  assert.equal(parsed.runner?.connected, false);
+  assert.equal(parsed.runner?.status, 'runner_required');
+});

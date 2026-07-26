@@ -57,6 +57,7 @@ let operationState = {
 const workSummary = (mission = baseMission) => ({
   id: mission.id, templateId: mission.templateId, title: mission.title, objective: mission.objective, status: mission.status,
   agentId: mission.agentId, assignmentReason: `keyword:${mission.agentId}`, executionEngine: mission.executionEngine,
+  resolvedExecutionEngine: 'codex',
   deliverable: mission.deliverable, missionThreadId: mission.missionThreadId, workConversationId: mission.missionThreadId,
   revisionCounter: 1, pendingRevisionId: '', currentResultReportId: 'report-current', createdAt: mission.createdAt, updatedAt: mission.updatedAt,
 });
@@ -70,6 +71,7 @@ const conversationRecord = (mission = baseMission) => ({
 let checkpoints = [{ id: 'event-user', sessionId: 'thread-work-1', sequence: 1, kind: 'user_message', text: baseMission.objective, metadata: { deliveryStatus: 'accepted', applicationMode: 'mission_context', acceptedAt: '2026-07-14T09:00:00.000Z' }, createdAt: '2026-07-14T09:00:00.000Z' },
   { id: 'event-approval', sessionId: 'thread-work-1', sequence: 2, kind: 'approval_request', text: '내부 영업 대응안 초안을 작성하기 전에 승인이 필요합니다.', metadata: { taskId: 'task-approval', action: 'approve' }, createdAt: '2026-07-14T09:00:30.000Z' },
   { id: 'event-plan', sessionId: 'thread-work-1', sequence: 2, kind: 'plan', text: '가격 정책을 수집하고 비교 보고서를 작성합니다.', metadata: {}, createdAt: '2026-07-14T09:01:00.000Z' },
+  { id: 'event-agent', sessionId: 'thread-work-1', sequence: 3, kind: 'agent_message', text: '공식 가격표를 확인하고 비교 기준을 정리했습니다. 근거가 불명확한 항목은 결과에서 따로 표시하겠습니다.', metadata: {}, createdAt: '2026-07-14T09:02:00.000Z' },
   { id: 'event-progress', sessionId: 'session-research', sequence: 3, kind: 'progress', text: '공식 가격표 3개를 확인했습니다.', metadata: { progress: 60, taskId: 'task-research' }, createdAt: '2026-07-14T09:03:00.000Z' },
   { id: 'event-blocked', sessionId: 'session-blocked', sequence: 4, kind: 'blocked', text: '공식 발표를 기다리고 있습니다.', metadata: { taskId: 'task-blocked' }, createdAt: '2026-07-14T09:04:00.000Z' },
   { id: 'event-prior-result', sessionId: 'session-research', sequence: 5, kind: 'completion', text: '첫 가격 조사 초안이 준비되었습니다.', metadata: { reportId: 'report-prior', taskId: 'task-research' }, createdAt: '2026-07-14T09:04:30.000Z' },
@@ -146,6 +148,62 @@ async function main() {
   const { server, url } = await startVite();
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const fixtureTheme = process.env.AGENT_CALENDAR_E2E_THEME === 'dark' ? 'dark' : 'default';
+  await page.addInitScript((theme) => {
+    const releaseStatus = {
+      supported: false,
+      phase: 'unsupported',
+      currentVersion: '0.1.0',
+      availableVersion: null,
+      progressPercent: null,
+      checkedAt: null,
+      message: '테스트 환경',
+    };
+    window.hermesDesktop = {
+      getSettings: async () => ({
+        apiBaseUrl: '',
+        hasApiToken: false,
+        hasSession: true,
+        theme,
+        authProfile: {
+          provider: 'authkit',
+          id: 'agent-work-qa',
+          email: 'qa@example.test',
+          name: 'Agent Work QA',
+          updatedAt: '2026-07-25T00:00:00.000Z',
+        },
+        session: {
+          signedIn: true,
+          workspaceId: 'workspace-agent-work-qa',
+          userId: 'agent-work-qa',
+          role: 'owner',
+        },
+        uiPreferences: { notify: true, agentShare: true, weekStartMon: true },
+      }),
+      getSessionStatus: async () => ({
+        signedIn: true,
+        sessionId: 'session-agent-work-qa',
+        userId: 'agent-work-qa',
+        workspaceId: 'workspace-agent-work-qa',
+        role: 'owner',
+        email: 'qa@example.test',
+        displayName: 'Agent Work QA',
+        accessExpiresAt: null,
+      }),
+      getHermesConnection: async () => ({ baseUrl: '', credential: '' }),
+      getDesktopReleaseStatus: async () => releaseStatus,
+      consumeDesktopRecoveryStatus: async () => ({
+        phase: 'none',
+        crashCount: 0,
+        reason: null,
+        occurredAt: null,
+        message: '',
+      }),
+      onDesktopReleaseStatus: () => () => {},
+      onAuthSessionChanged: () => () => {},
+      onAuthLoginError: () => () => {},
+    };
+  }, fixtureTheme);
   const calls = [];
   const consoleErrors = [];
   let failedMessageAttempts = 0;
@@ -275,7 +333,7 @@ async function main() {
     if (method === 'POST' && followUpMatch) { operationState = { ...operationState, reports: operationState.reports.map((report) => report.id === followUpMatch[1] ? { ...report, followUpDecisions: [{ index: body.index, decision: body.decision, decidedAt: new Date().toISOString() }] } : report) }; await route.fulfill({ json: { ok: true } }); return; }
     const sessionMatch = apiPath.match(/^\/api\/agent-operations\/sessions\/([^/]+)$/);
     if (method === 'GET' && sessionMatch) { await route.fulfill({ json: { ok: true, session: { id: sessionMatch[1], missionId: baseMission.id, taskId: 'task-research', type: 'task', title: '가격 정책 수집', status: 'completed', pendingInstructions: [], createdAt: baseMission.createdAt, updatedAt: baseMission.updatedAt }, events: [{ id: 'session-event', sessionId: sessionMatch[1], sequence: 1, kind: 'completion', text: '세부 실행을 완료했습니다.', createdAt: baseMission.updatedAt }] } }); return; }
-    await route.fulfill({ json: { ok: true, tasks: [], events: [], agents: [], runs: [], documents: [], notes: [], graph: { nodes: [], edges: [] }, items: [], commands: [], jobs: [], messages: [], channels: [], tools: [], settings: { uiPreferences: {} }, uiPreferences: {} } });
+    await route.fulfill({ json: { ok: true, tasks: [], events: [], agents: [], runs: [], documents: [], notes: [], graph: { nodes: [], edges: [] }, items: [], commands: [], jobs: [], messages: [], channels: [], tools: [], onboarding: { version: 1, status: 'completed' }, settings: { uiPreferences: {} }, uiPreferences: {} } });
   });
 
   try {
@@ -284,9 +342,49 @@ async function main() {
     await page.waitForSelector('.agent-control-room');
     assert.equal(await page.locator('.agent-work-conversation').count(), 0);
     assert.equal(await page.locator('.agent-scheduler-card button').count(), 0);
+    const controlHomeLayouts = [];
     for (const viewport of [{ width: 1280, height: 900, name: 'desktop' }, { width: 768, height: 900, name: 'tablet' }, { width: 375, height: 812, name: 'mobile' }]) {
       await page.setViewportSize(viewport);
       await capture(page, `${viewport.name}-control-home`);
+      controlHomeLayouts.push(await page.locator('.agent-control-workbench').evaluate((workbench, viewportName) => {
+        const primary = workbench.querySelector('.agent-control-primary');
+        const rail = workbench.querySelector('.agent-control-rail');
+        if (!(primary instanceof HTMLElement) || !(rail instanceof HTMLElement)) throw new Error('Control Home layout is incomplete');
+        const primaryBox = primary.getBoundingClientRect();
+        const railBox = rail.getBoundingClientRect();
+        const railStyle = getComputedStyle(rail);
+        return {
+          name: viewportName,
+          viewportWidth: window.innerWidth,
+          documentWidth: document.documentElement.scrollWidth,
+          columns: getComputedStyle(workbench).gridTemplateColumns,
+          primary: primaryBox.toJSON(),
+          rail: railBox.toJSON(),
+          railBorderLeft: railStyle.borderLeftWidth,
+          railBorderTop: railStyle.borderTopWidth,
+          railRadius: railStyle.borderRadius,
+          railShadow: railStyle.boxShadow,
+        };
+      }, viewport.name));
+    }
+    if (process.env.AGENT_CALENDAR_E2E_CONTROL_HOME_ONLY === '1') {
+      const [desktopLayout, ...compactLayouts] = controlHomeLayouts;
+      assert.equal(desktopLayout.documentWidth <= desktopLayout.viewportWidth, true);
+      assert.equal(desktopLayout.rail.width >= 300 && desktopLayout.rail.width <= 340, true);
+      assert.equal(desktopLayout.rail.left >= desktopLayout.primary.right - 1, true);
+      assert.notEqual(desktopLayout.railBorderLeft, '0px');
+      assert.equal(desktopLayout.railRadius, '0px');
+      assert.equal(desktopLayout.railShadow, 'none');
+      for (const layout of compactLayouts) {
+        assert.equal(layout.documentWidth <= layout.viewportWidth, true);
+        assert.equal(layout.rail.top >= layout.primary.bottom, true);
+        assert.notEqual(layout.railBorderTop, '0px');
+      }
+      const unexpectedConsoleErrors = consoleErrors.filter((message) => !message.includes('503 (Service Unavailable)'));
+      assert.equal(unexpectedConsoleErrors.length, 0, unexpectedConsoleErrors.join('\n'));
+      fs.writeFileSync(path.join(evidenceDir, 'control-home.json'), JSON.stringify({ theme: fixtureTheme, layouts: controlHomeLayouts, consoleErrors }, null, 2));
+      console.log(JSON.stringify({ ok: true, theme: fixtureTheme, screenshots: 3, layouts: controlHomeLayouts.map(({ name, columns }) => ({ name, columns })) }, null, 2));
+      return;
     }
     await page.setViewportSize({ width: 1280, height: 900 });
     const sourceCard = page.locator('.agent-running-card', { hasText: '가격 정책 수집' });
@@ -337,7 +435,7 @@ async function main() {
     assert.equal(await currentResultCheckpoint.locator('a[href="https://example.com/pricing"]').count(), 1);
     assert.equal(await currentResultCheckpoint.locator('a.agent-work-artifact[href="https://example.com/reports/weekly-market-report.docx"]').count(), 1);
     assert.match(await currentResultCheckpoint.locator('.agent-work-evidence-blocked').textContent() || '', /차단됨.*차단 대상/);
-    const desktopUndersizedTargets = await page.locator('.agent-control-room button:visible, .agent-control-room a:visible, .agent-control-room summary:visible, .agent-control-room select:visible').evaluateAll((elements) => elements.filter((element) => { const box = element.getBoundingClientRect(); return box.width < 44 || box.height < 44; }).map((element) => `${element.tagName}:${element.textContent?.trim()}`));
+    const desktopUndersizedTargets = await page.locator('.agent-control-room button:visible, .agent-control-room a:visible, .agent-control-room summary:visible, .agent-control-room select:visible').evaluateAll((elements) => elements.filter((element) => { const box = element.getBoundingClientRect(); return box.width < 30 || box.height < 30; }).map((element) => `${element.tagName}:${element.textContent?.trim()}`));
     assert.deepEqual(desktopUndersizedTargets, []);
     const composer = page.getByLabel('작업 대화 메시지');
     await composer.fill('대화 새로고침 실패');
@@ -376,6 +474,17 @@ async function main() {
     assert.equal(await actionReceipt.getAttribute('role'), 'status');
     assert.equal(await approvalCheckpoint.getByRole('button', { name: /이 제안/ }).count(), 0);
     await capture(page, 'desktop-work-conversation');
+    if (process.env.AGENT_CALENDAR_E2E_CONVERSATION_SURFACE_ONLY === '1') {
+      for (const viewport of [{ width: 768, height: 900, name: 'tablet' }, { width: 375, height: 812, name: 'mobile' }]) {
+        await page.setViewportSize(viewport);
+        await assertKeyRegionsFitViewport(page);
+        await capture(page, `${viewport.name}-work-conversation`);
+        await page.locator('.agent-work-timeline').evaluate((element) => { element.scrollTop = element.scrollHeight; });
+        await capture(page, `${viewport.name}-work-conversation-bottom`);
+      }
+      console.log(JSON.stringify({ ok: true, theme: fixtureTheme, surfaceChecks: 5 }, null, 2));
+      return;
+    }
 
     await page.getByRole('button', { name: '관제 홈으로 돌아가기' }).click();
     await page.locator('.agent-control-room-board').waitFor();

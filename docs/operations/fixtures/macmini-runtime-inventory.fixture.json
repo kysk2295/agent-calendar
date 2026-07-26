@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "title": "Mac mini / Relay runtime inventory fixture",
+  "generatedAt": "2026-07-24T00:00:00.000Z",
+  "probeHost": {
+    "class": "fixture-host",
+    "platform": "darwin",
+    "arch": "arm64",
+    "isDocumentedMacMiniPathHost": false
+  },
+  "officialProfiles": [
+    "default",
+    "bizconsultant",
+    "stockagent",
+    "uniportpm",
+    "wikicurator"
+  ],
+  "additionalRuntimeProfiles": [
+    "calendarassistant"
+  ],
+  "engines": [
+    { "id": "hermes-cli", "credentialOwner": "customer-host", "status": "required" },
+    { "id": "openai-codex", "credentialOwner": "customer-provider", "status": "required-for-wiki-calendar-synthesis" },
+    { "id": "claude", "credentialOwner": "customer-provider", "status": "optional-runner-adapter" },
+    { "id": "grok", "credentialOwner": "customer-provider", "status": "usage-tracking-only" },
+    { "id": "ollama-bge-m3", "credentialOwner": "customer-host", "status": "required-for-local-embeddings" }
+  ],
+  "ports": [
+    { "port": 64369, "service": "hermes-os-runtime", "requiredOnExecutionHost": true },
+    { "port": 9121, "service": "hermes-dashboard", "requiredOnExecutionHost": true },
+    { "port": 8643, "service": "wiki-curator-gateway", "requiredOnExecutionHost": true },
+    { "port": 8644, "service": "calendar-gateway", "requiredOnExecutionHost": true },
+    { "port": 11434, "service": "ollama", "requiredOnExecutionHost": false }
+  ],
+  "launchAgents": [
+    { "label": "xyz.hermes.os.runtime", "requiredOnExecutionHost": true },
+    { "label": "xyz.hermes.os.tunnel", "requiredOnExecutionHost": false },
+    { "label": "com.yunseo.hermes-railway-relay", "requiredOnExecutionHost": true },
+    { "label": "ai.hermes.gateway-wikicurator", "requiredOnExecutionHost": true },
+    { "label": "ai.hermes.gateway-calendarassistant", "requiredOnExecutionHost": true }
+  ],
+  "pathTemplates": [
+    "$HOME/.hermes/hermes-agent/venv/bin/hermes",
+    "$HOME/.hermes/os-runtime",
+    "$HOME/.hermes/os-runtime/scripts/hermes-railway-relay-bridge.js",
+    "$HOME/.hermes/profiles/<profileId>",
+    "$HOME/.hermes/cache/agent-calendar-wiki-vectors.json",
+    "$HOME/Library/LaunchAgents/xyz.hermes.os.runtime.plist"
+  ],
+  "secretRegistry": [
+    { "name": "DATABASE_URL", "storage": "railway-variables", "presence": "required" },
+    { "name": "HERMES_REMOTE_AUTH_TOKEN", "storage": "railway-variables|host-env-file", "presence": "required" },
+    { "name": "HERMES_RELAY_TOKEN", "storage": "railway-variables|bridge-env", "presence": "required-for-relay" },
+    { "name": "HERMES_RUNTIME_URL", "storage": "railway-variables", "presence": "optional-direct-runtime" },
+    { "name": "HERMES_RUNTIME_TOKEN", "storage": "railway-variables", "presence": "optional-direct-runtime" },
+    { "name": "HERMES_TELEGRAM_BOT_TOKEN", "storage": "railway-variables", "presence": "required-for-default-bot" },
+    { "name": "HERMES_TELEGRAM_BOT_TOKEN_BIZCONSULTANT", "storage": "railway-variables", "presence": "required-for-agent-bot" },
+    { "name": "HERMES_TELEGRAM_BOT_TOKEN_STOCKAGENT", "storage": "railway-variables", "presence": "required-for-agent-bot" },
+    { "name": "HERMES_TELEGRAM_BOT_TOKEN_UNIPORTPM", "storage": "railway-variables", "presence": "required-for-agent-bot" },
+    { "name": "HERMES_TELEGRAM_BOT_TOKEN_WIKICURATOR", "storage": "railway-variables", "presence": "required-for-agent-bot" },
+    { "name": "HERMES_TELEGRAM_ALLOWED_CHAT_IDS", "storage": "railway-variables", "presence": "required-for-telegram" },
+    { "name": "OPENAI_API_KEY", "storage": "railway-or-host-env", "presence": "optional-cloud-model" }
+  ],
+  "deploymentInputs": {
+    "railwayProjectId": "b64a9c8f-101e-4e08-9a7f-68fea0a4de9a",
+    "railwayEnvironmentId": "7629b09d-3447-4f74-9b06-2f9b8aafb80a",
+    "railwayServiceId": "b7bd75ff-cc24-4a6d-9387-1628fcaff9d6",
+    "expectedSourceRepo": "kysk2295/agent-calendar",
+    "healthcheckPath": "/api/health",
+    "startCommand": "npm --workspace apps/backend run start"
+  },
+  "reconstructionCommands": [
+    "cd \"${HERMES_RUNTIME_DIR:-$HOME/.hermes/os-runtime}\"",
+    "bash scripts/macmini-hermes-connector.sh",
+    "bash scripts/install-macmini-resident.sh",
+    "launchctl print gui/$UID/xyz.hermes.os.runtime",
+    "hermes profile list",
+    "for p in default bizconsultant stockagent uniportpm wikicurator calendarassistant; do test -d \"$HOME/.hermes/profiles/$p\" && echo present $p || echo missing $p; done"
+  ],
+  "safeRunnerCommandTemplate": "hermes -p <profileId> chat -q \"$HERMES_GOAL\" -Q -t safe --source tool",
+  "runtimeCapabilityPolicy": {
+    "forbiddenMarkers": [
+      "no-approval-runner",
+      "approval-bypass",
+      "yolo"
+    ],
+    "notes": "Probe classifies these capability advertisements as P0-S2-UNSAFE-RUNTIME-CAPABILITY without mutating the runtime."
+  },
+  "blockers": [
+    {
+      "id": "P0-S2-MACMINI-HOST-UNREACHABLE",
+      "summary": "Documented production Mac mini path set and curator/relay listeners were not reachable from the inventory probe host.",
+      "evidence": [
+        "probe host class was not the full production execution-host layout",
+        "ports 9121, 8643, 8644, 11434 not listening",
+        "relay bridge script missing",
+        "official profile set incomplete on probe host"
+      ],
+      "unblock": "Run the same redaction-safe probe on the execution Mac mini host or a non-secret health tunnel."
+    }
+  ],
+  "liveProbe": {
+    "performed": false,
+    "mode": "fixture-only"
+  }
+}

@@ -28,7 +28,7 @@ test('Electron creates one ephemeral proxy credential and exposes only a narrow 
   // When / Then
   assert.match(mainSource, /randomBytes\(32\)\.toString\('base64url'\)/);
   assert.match(mainSource, /createApiProxyServer\(\{[\s\S]*credential:\s*proxyCredential/);
-  assert.match(mainSource, /ipcMain\.handle\('hermes:get-connection',[\s\S]*credential:\s*proxyCredential/);
+  assert.match(mainSource, /registerTrustedIpcHandle\(ipcMain,\s*'hermes:get-connection',\s*requireTrustedRenderer,[\s\S]*credential:\s*proxyCredential/);
   assert.doesNotMatch(mainSource, /logLifecycle\([^\n]*proxyCredential/);
   assert.match(preloadSource, /getHermesConnection:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('hermes:get-connection'\)/);
   assert.doesNotMatch(preloadSource, /authorization|apiToken/i);
@@ -41,6 +41,7 @@ test('packaged renderer trust accepts only canonical app index URLs and the conf
   const packagedIndexPath = '/Applications/Agent Calendar.app/Contents/Resources/app.asar/dist/index.html';
   const packagedUrl = pathToFileURL(packagedIndexPath).href;
   const packagedOverlayUrl = `${packagedUrl}?overlay=widgets`;
+  const packagedRecoveryUrl = `${packagedUrl}?recovery=manual`;
   const options = {
     allowedDevOrigin: 'http://127.0.0.1:5173',
     packagedIndexPath,
@@ -49,12 +50,15 @@ test('packaged renderer trust accepts only canonical app index URLs and the conf
   // When / Then
   assert.equal(trustRenderer(packagedUrl, options), true);
   assert.equal(trustRenderer(packagedOverlayUrl, options), true);
+  assert.equal(trustRenderer(packagedRecoveryUrl, options), true);
   assert.equal(trustRenderer('http://127.0.0.1:5173/', options), true);
   assert.equal(trustRenderer('http://127.0.0.1:5173/widgets?overlay=widgets', options), true);
   assert.equal(trustRenderer('file:///tmp/attacker.html', options), false);
   assert.equal(trustRenderer(packagedUrl.replace('/dist/index.html', '/dist/nested/../index.html'), options), false);
   assert.equal(trustRenderer(packagedUrl.replace('/dist/index.html', '/dist/nested/%2e%2e/index.html'), options), false);
   assert.equal(trustRenderer(packagedUrl.replace('/dist/index.html', '/dist/%69ndex.html'), options), false);
+  assert.equal(trustRenderer(`${packagedUrl}?recovery=automatic`, options), false);
+  assert.equal(trustRenderer(`${packagedRecoveryUrl}&extra=value`, options), false);
   assert.equal(trustRenderer('http://localhost:5173/', options), false);
   assert.equal(trustRenderer('http://127.0.0.1:5174/', options), false);
   assert.equal(trustRenderer('https://attacker.example/', options), false);

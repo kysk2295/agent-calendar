@@ -16,6 +16,7 @@ const liveStream = await vite.ssrLoadModule('/src/features/agent-operations/agen
 const timelineModule = await vite.ssrLoadModule('/src/features/agent-operations/AgentWorkTimeline.tsx');
 const controlHomeModule = await vite.ssrLoadModule('/src/features/agent-operations/AgentControlRoomBoard.tsx');
 const conversationModule = await vite.ssrLoadModule('/src/features/agent-operations/AgentWorkConversationView.tsx');
+const composerModule = await vite.ssrLoadModule('/src/features/agent-operations/AgentWorkComposer.tsx');
 const presentationModule = await vite.ssrLoadModule('/src/features/agent-operations/workConversationPresentation.ts');
 const workspaceModule = await vite.ssrLoadModule('/src/features/agent-operations/AgentWorkWorkspace.tsx');
 
@@ -74,6 +75,37 @@ test('stored deliverable values and Korean closing phrases have readable present
   assert.match(presentationModule.preserveWorkClosingPhrase('이 작업의 목적을 한 문장으로 확인해 주세요.'), /이\u00a0작업의\u00a0목적을/);
 });
 
+test('the Work Conversation composer exposes one active response engine without forking the conversation', () => {
+  const html = renderToStaticMarkup(React.createElement(composerModule.AgentWorkComposer, {
+    onSend: async () => ({ status: 'accepted', applicationMode: 'mission_context', acceptedAt: '2026-07-26T00:00:00.000Z' }),
+    streaming: false,
+    refreshError: '',
+    activeEngine: 'claude',
+    activeModel: '',
+    modelCapabilities: {
+      claude: {
+        models: ['claude-sonnet-4-6', 'claude-opus-4-1'],
+        defaultModel: '',
+        modelSelection: 'catalog',
+      },
+    },
+    availableEngines: ['codex', 'claude'],
+  }));
+
+  assert.match(html, /aria-label="이 메시지의 실행 엔진"/);
+  assert.match(html, /aria-label="이 메시지의 실행 모델"/);
+  assert.match(html, /Runner 기본 모델/);
+  assert.match(html, /claude-sonnet-4-6/);
+  assert.match(html, /<option value="codex">Codex<\/option>/);
+  assert.match(html, /<option value="claude" selected="">Claude<\/option>/);
+  assert.match(html, /같은 작업 대화 · 한 엔진만 응답/);
+  assert.match(html, /aria-label="여러 실행 엔진 비교"/);
+  assert.deepEqual(
+    composerModule.comparisonTargetsForEngines(['codex', 'claude', 'codex']),
+    [{ executionEngine: 'codex' }, { executionEngine: 'claude' }],
+  );
+});
+
 test('a partial live response keeps its transport error visible instead of presenting it as an agent answer', () => {
   const html = renderToStaticMarkup(timelineModule.AgentWorkTimeline({
     checkpoints: [],
@@ -98,6 +130,46 @@ test('a partial live response keeps its transport error visible instead of prese
   assert.match(html, /부분 응답/);
   assert.match(html, /실시간 연결이 끊겼습니다/);
   assert.doesNotMatch(html, />담당 에이전트<\/span><time>연결 확인 필요/);
+});
+
+test('comparison results show the exact execution engine and resolved model origin', () => {
+  const html = renderToStaticMarkup(timelineModule.AgentWorkTimeline({
+    checkpoints: [{
+      id: 'comparison-result-codex',
+      sessionId: 'mission-thread-live',
+      sequence: 8,
+      kind: 'completion',
+      text: 'Codex comparison result',
+      metadata: {
+        applicationMode: 'checkpoint_result',
+        resolvedExecutionEngine: 'codex',
+        requestedExecutionModel: 'gpt-5.6-codex',
+        resolvedExecutionModel: 'gpt-5.6-sol',
+        turnIndex: 2,
+        turnTargetIndex: 0,
+        turnMode: 'comparison',
+      },
+      createdAt: '2026-07-26T00:00:00.000Z',
+    }],
+    loading: false,
+    error: '',
+    readOnly: false,
+    tasks: [],
+    reports: [],
+    currentResultReportId: '',
+    responsibleAgentName: '비교 담당 에이전트',
+    busy: '',
+    onTaskAction: async () => false,
+    onOpenSession: () => {},
+    onReportFeedback: async () => {},
+    onFollowUpDecision: async () => {},
+    onRefresh: async () => {},
+    onRetry: async () => {},
+    liveTurn: { active: false, text: '', error: '' },
+  }));
+
+  assert.match(html, /Codex · gpt-5\.6-sol/);
+  assert.match(html, /Codex comparison result/);
 });
 
 test('runtime command placeholders stay out of the operator Work Conversation', () => {

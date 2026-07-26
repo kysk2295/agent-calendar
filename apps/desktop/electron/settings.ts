@@ -1,11 +1,12 @@
 import { app } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveDesktopSignedIn } from './sessionTruth.js';
 
 export const DEFAULT_API_BASE_URL = 'https://hermes-os-production-e174.up.railway.app';
 
 export type DesktopTheme = 'default' | 'warm' | 'dark' | 'sage' | 'mono';
-export type AuthProvider = 'google' | 'password';
+export type AuthProvider = 'authkit' | 'google' | 'password';
 
 export type DesktopAuthProfile = {
   provider: AuthProvider;
@@ -13,20 +14,20 @@ export type DesktopAuthProfile = {
   email: string;
   name: string;
   picture?: string;
-  accessToken?: string;
-  refreshToken?: string;
-  idToken?: string;
-  code?: string;
   expiresAt?: string;
   updatedAt: string;
+  workspaceId?: string;
+  role?: string;
 };
 
-export type PublicDesktopAuthProfile = Pick<DesktopAuthProfile, 'provider' | 'id' | 'email' | 'name' | 'picture' | 'expiresAt' | 'updatedAt'>;
+export type PublicDesktopAuthProfile = Pick<DesktopAuthProfile, 'provider' | 'id' | 'email' | 'name' | 'picture' | 'expiresAt' | 'updatedAt' | 'workspaceId' | 'role'>;
 
 export type DesktopSettings = {
   apiBaseUrl: string;
+  /** @deprecated Production authenticated routes use secure session tokens, not apiToken. */
   apiToken: string;
   theme: DesktopTheme;
+  /** Public profile only — never store access/refresh tokens here. */
   auth: DesktopAuthProfile | null;
   uiPreferences: {
     notify: boolean;
@@ -38,8 +39,15 @@ export type DesktopSettings = {
 export type PublicDesktopSettings = {
   apiBaseUrl: string;
   hasApiToken: boolean;
+  hasSession: boolean;
   theme: DesktopTheme;
   authProfile: PublicDesktopAuthProfile | null;
+  session: {
+    signedIn: boolean;
+    workspaceId: string | null;
+    userId: string | null;
+    role: string | null;
+  };
   uiPreferences: DesktopSettings['uiPreferences'];
 };
 
@@ -78,23 +86,33 @@ function settingsPath() {
 
 function normalizeAuthProfile(input: unknown): DesktopAuthProfile | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-  const auth = input as Partial<DesktopAuthProfile>;
-  const provider = auth.provider === 'google' || auth.provider === 'password' ? auth.provider : null;
+  const auth = input as Partial<DesktopAuthProfile> & {
+    accessToken?: string;
+    refreshToken?: string;
+    idToken?: string;
+    code?: string;
+  };
+  const provider = auth.provider === 'authkit' || auth.provider === 'google' || auth.provider === 'password'
+    ? auth.provider
+    : null;
   const id = String(auth.id || '');
   const email = String(auth.email || '');
-  if (!provider || !id || !email) return null;
+  if (!provider || !id) return null;
+  // Never keep provider tokens in settings — strip if present in legacy files.
+  void auth.accessToken;
+  void auth.refreshToken;
+  void auth.idToken;
+  void auth.code;
   return {
     provider,
     id,
-    email,
-    name: String(auth.name || email),
+    email: email || id,
+    name: String(auth.name || email || id),
     picture: auth.picture ? String(auth.picture) : undefined,
-    accessToken: auth.accessToken ? String(auth.accessToken) : undefined,
-    refreshToken: auth.refreshToken ? String(auth.refreshToken) : undefined,
-    idToken: auth.idToken ? String(auth.idToken) : undefined,
-    code: auth.code ? String(auth.code) : undefined,
     expiresAt: auth.expiresAt ? String(auth.expiresAt) : undefined,
     updatedAt: auth.updatedAt ? String(auth.updatedAt) : new Date().toISOString(),
+    workspaceId: auth.workspaceId ? String(auth.workspaceId) : undefined,
+    role: auth.role ? String(auth.role) : undefined,
   };
 }
 
@@ -116,11 +134,16 @@ function normalizeSettings(input: Partial<DesktopSettings> = {}): DesktopSetting
   };
 }
 
-export function publicSettings(settings: DesktopSettings): PublicDesktopSettings {
+export function publicSettings(
+  settings: DesktopSettings,
+  sessionStatus?: { signedIn?: boolean; workspaceId?: string | null; userId?: string | null; role?: string | null },
+): PublicDesktopSettings {
   const auth = normalizeAuthProfile(settings.auth);
+  const signedIn = resolveDesktopSignedIn(Boolean(auth), sessionStatus);
   return {
     apiBaseUrl: settings.apiBaseUrl,
-    hasApiToken: Boolean(settings.apiToken),
+    hasApiToken: false, // production path does not expose/use settings apiToken
+    hasSession: signedIn,
     theme: settings.theme,
     authProfile: auth ? {
       provider: auth.provider,
@@ -130,7 +153,15 @@ export function publicSettings(settings: DesktopSettings): PublicDesktopSettings
       picture: auth.picture,
       expiresAt: auth.expiresAt,
       updatedAt: auth.updatedAt,
+      workspaceId: auth.workspaceId,
+      role: auth.role,
     } : null,
+    session: {
+      signedIn,
+      workspaceId: sessionStatus?.workspaceId ?? auth?.workspaceId ?? null,
+      userId: sessionStatus?.userId ?? auth?.id ?? null,
+      role: sessionStatus?.role ?? auth?.role ?? null,
+    },
     uiPreferences: settings.uiPreferences,
   };
 }
@@ -146,13 +177,29 @@ export function readSettings(): DesktopSettings {
 
 export function saveSettings(next: Partial<DesktopSettings>): DesktopSettings {
   const current = readSettings();
+  // Never persist new apiToken values for production auth; keep empty.
   const merged = normalizeSettings({
     ...current,
     ...next,
-    apiToken: Object.prototype.hasOwnProperty.call(next, 'apiToken') ? String(next.apiToken || '') : current.apiToken,
+    apiToken: '',
     auth: Object.prototype.hasOwnProperty.call(next, 'auth') ? normalizeAuthProfile(next.auth) : current.auth,
   });
+  // Ensure public profile never writes token fields even if callers pass them.
+  if (merged.auth) {
+    merged.auth = normalizeAuthProfile(merged.auth);
+  }
   fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-  fs.writeFileSync(settingsPath(), `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
+  const disk = {
+    apiBaseUrl: merged.apiBaseUrl,
+    apiToken: '',
+    theme: merged.theme,
+    auth: merged.auth,
+    uiPreferences: merged.uiPreferences,
+  };
+  fs.writeFileSync(settingsPath(), `${JSON.stringify(disk, null, 2)}\n`, 'utf8');
   return merged;
+}
+
+export function settingsFilePath() {
+  return settingsPath();
 }

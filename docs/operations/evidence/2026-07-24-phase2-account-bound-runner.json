@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "slice": "phase2-account-bound-runner",
+  "date": "2026-07-24",
+  "status": "verified",
+  "gapFixRound": "manual-qa-security-5-corrections+disconnected-ready-ux",
+  "workSize": "Large|Boundary",
+  "plan": "docs/plans/2026-07-24-phase2-account-bound-runner.md",
+  "adr": ["docs/adr/0008-bind-runners-to-authenticated-workspaces.md"],
+  "orcaReference": "docs/references/orca-runner-setup-reference-2026-07-24.md",
+  "productionAuthMode": "WORKSPACE_AUTH_MODE=production",
+  "corrections": {
+    "1_standardsQr": {
+      "generator": "qrcode (ISO/IEC 18004 Model 2, ECC M)",
+      "module": "apps/desktop/src/features/runner/qrEnrollment.ts",
+      "unitRoundTrip": "apps/desktop/tests/runner-qr-roundtrip.test.mjs (2/2 pass)",
+      "e2eDecode": "jsQR + pngjs decode of runner-qr element PNG must equal qrPayload exactly",
+      "customCompactQrRemoved": true,
+      "optionalRsRiskRemoved": true
+    },
+    "2_disconnectedScreenshot": {
+      "method": "real runner CLI disconnect then UI refresh",
+      "assert": "data-state=disconnected and label /^Disconnected$/",
+      "artifact": "apps/desktop/test-results/phase2-runner-enrollment/disconnected.png"
+    },
+    "3_credentialRotation": {
+      "method": "real runner CLI rotate via device route",
+      "oldCredentialDenied": true,
+      "newCredentialReconnectHeartbeatCapabilities": true,
+      "devicePubkeyRotation": "deferred; revoke+re-enroll",
+      "artifact": "apps/desktop/test-results/phase2-runner-enrollment/rotated-reconnected.png"
+    },
+    "4_revokedUi": {
+      "assert": "runner-step-revoked banner + data-state=revoked",
+      "artifact": "apps/desktop/test-results/phase2-runner-enrollment/revoked-setup.png",
+      "calendarSeparate": "apps/desktop/test-results/phase2-runner-enrollment/revoked-calendar.png"
+    },
+    "5_secretTables": {
+      "migration": "0017_runner_enrollment_connection.sql",
+      "publicTablesNoHashColumns": [
+        "runner_enrollment_challenges",
+        "runners",
+        "runner_pending_claims",
+        "runner_sessions"
+      ],
+      "serviceOnlySecretTables": [
+        "runner_enrollment_challenge_secrets",
+        "runner_credential_secrets",
+        "runner_claim_secrets",
+        "runner_session_secrets",
+        "runner_request_nonces"
+      ],
+      "appRoleSelectDenied": true,
+      "hostileTest": "phase2 app-role cannot SELECT secret hash tables/columns"
+    }
+  },
+  "routeInventory": {
+    "total": 107,
+    "byClass": {
+      "public_infra": 2,
+      "auth_public": 2,
+      "auth_session": 4,
+      "scoped_product": 70,
+      "production_disabled": 15,
+      "provider_webhook": 7,
+      "runner_device": 7
+    }
+  },
+  "securityMatrix": {
+    "testFile": "apps/backend/tests/phase2-account-bound-runner.test.cjs",
+    "tests": 4,
+    "result": "pass"
+  },
+  "runnerPackage": {
+    "workspace": "apps/runner",
+    "tests": 4,
+    "testsResult": "pass"
+  },
+  "e2e": {
+    "script": "apps/desktop/tests/playwright-phase2-runner-enrollment-e2e.cjs",
+    "stack": "fake AuthKit + production PG + real apps/runner + Electron",
+    "result": "pass",
+    "durationMs": 13458,
+    "qrDecodedMatchesPayload": true,
+    "rotation": { "oldDenied": true, "newCredentialPresent": true },
+    "revokeDenied": true,
+    "screenshots": {
+      "dir": "apps/desktop/test-results/phase2-runner-enrollment",
+      "files": [
+        "setup-code-qr.png",
+        "qr-element.png",
+        "pending-fingerprint.png",
+        "capabilities-ready.png",
+        "disconnected.png",
+        "reconnected.png",
+        "rotated-reconnected.png",
+        "revoked-setup.png",
+        "revoked-calendar.png"
+      ],
+      "visualInspection": {
+        "qr-element": "standards QR with finder patterns; decoded equal to payload",
+        "disconnected": "상태: Disconnected; 다시 연결 필요 warning; historical last-test copy only; NO 준비 완료 / green current pass",
+        "reconnected": "상태: Connected + 준비 완료 ready card after connection test",
+        "revoked-setup": "Revoked banner and 상태: Revoked on Runner Setup",
+        "revoked-calendar": "calendar-first after revoke; no red Railway banner"
+      },
+      "disconnectedUxAssertions": {
+        "mustContain": ["다시 연결 필요", "Disconnected"],
+        "mustNotContain": ["준비 완료", "Runner가 Workspace에 연결되었습니다", "current_pass readiness"]
+      }
+    }
+  },
+  "gates": {
+    "backend:check": "skipped (unchanged inputs this narrow UI slice)",
+    "test:backend": "skipped (unchanged inputs this narrow UI slice)",
+    "runner:check": "skipped (unchanged inputs this narrow UI slice)",
+    "runner:test": "skipped (unchanged inputs this narrow UI slice)",
+    "presentationUnit": "5/5 pass",
+    "qrRoundTrip": "2/2 pass",
+    "typecheck": "pass",
+    "desktop:test": "174/174 pass",
+    "build:desktop": "pass",
+    "e2e": "pass (~13.8s)",
+    "git diff --check": "pass"
+  },
+  "externalGatesStillOpen": [
+    "Live WorkOS credentials/dashboard smoke",
+    "Apple Developer ID + notarization for public Runner installer (Phase 8)",
+    "Phase 3 job leasing / execution offers"
+  ]
+}

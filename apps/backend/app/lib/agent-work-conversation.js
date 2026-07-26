@@ -97,7 +97,7 @@ function cursorMatchesCheckpoint(checkpoint, cursorKey) {
 }
 
 function resolvedExecutionEngine(state, mission) {
-  const allowed = new Set(['hermes', 'codex']);
+  const allowed = new Set(['hermes', 'codex', 'claude', 'grok']);
   const currentReport = state.agentReports.find((report) => report.id === mission.currentResultReportId);
   const taskIds = new Set(state.tasks.filter((task) => task.missionId === mission.id).map((task) => task.id));
   const sessionIds = new Set(state.agentSessions

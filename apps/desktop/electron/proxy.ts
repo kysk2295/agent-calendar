@@ -4,9 +4,15 @@ import { pipeline } from 'node:stream/promises';
 import { pathToFileURL, URL } from 'node:url';
 import { handleLocalWikiRoute, isLocalWikiRoute, LocalWikiPathError } from './localWikiAsk.js';
 import { handleLocalScheduleAskRoute, isLocalScheduleAskRoute } from './scheduleAsk.js';
+import {
+  CLIENT_CONTRACT_HEADER,
+  CLIENT_IDEMPOTENCY_KEY_HEADER,
+  CLIENT_REQUEST_ID_HEADER,
+} from './clientContract.js';
 
 export type ProxySettings = {
   apiBaseUrl: string;
+  /** @deprecated Prefer getAccessToken for production authenticated routes. */
   apiToken?: string;
 };
 
@@ -14,6 +20,8 @@ export type ProxyOptions = {
   readonly allowedDevOrigin?: string;
   readonly credential: string;
   readonly getSettings: () => ProxySettings;
+  /** Secure session access token (refreshes as needed). Never read from renderer. */
+  readonly getAccessToken?: () => Promise<string | null>;
   readonly fetchImpl?: typeof fetch;
 };
 
@@ -24,17 +32,42 @@ export type ProxyRendererTrustOptions = {
 
 export const PROXY_CREDENTIAL_HEADER = 'x-agent-calendar-proxy-credential';
 const ALLOWED_METHODS = ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'] as const;
-const CORS_ALLOWED_HEADERS = ['accept', 'content-type', 'last-event-id', PROXY_CREDENTIAL_HEADER] as const;
+const CORS_ALLOWED_HEADERS = [
+  'accept',
+  'content-type',
+  'last-event-id',
+  CLIENT_CONTRACT_HEADER,
+  CLIENT_REQUEST_ID_HEADER,
+  CLIENT_IDEMPOTENCY_KEY_HEADER,
+  PROXY_CREDENTIAL_HEADER,
+] as const;
 const ALLOWED_METHOD_SET = new Set<string>(ALLOWED_METHODS);
 const CORS_ALLOWED_HEADER_SET = new Set<string>(CORS_ALLOWED_HEADERS);
-const UPSTREAM_REQUEST_HEADERS = new Set(['accept', 'accept-language', 'content-type', 'if-modified-since', 'if-none-match', 'last-event-id', 'range']);
+const UPSTREAM_REQUEST_HEADERS = new Set([
+  'accept',
+  'accept-language',
+  'content-type',
+  'if-modified-since',
+  'if-none-match',
+  'last-event-id',
+  'range',
+  CLIENT_CONTRACT_HEADER,
+  CLIENT_REQUEST_ID_HEADER,
+  CLIENT_IDEMPOTENCY_KEY_HEADER,
+]);
 const EXCLUDED_RESPONSE_HEADERS = new Set(['connection', 'content-length', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'vary']);
 
 export function isTrustedProxyRendererUrl(senderUrl: string, options: ProxyRendererTrustOptions): boolean {
   const packagedUrl = pathToFileURL(options.packagedIndexPath).href;
   const packagedOverlayUrl = new URL(packagedUrl);
   packagedOverlayUrl.searchParams.set('overlay', 'widgets');
-  if (senderUrl === packagedUrl || senderUrl === packagedOverlayUrl.href) return true;
+  const packagedRecoveryUrl = new URL(packagedUrl);
+  packagedRecoveryUrl.searchParams.set('recovery', 'manual');
+  if (
+    senderUrl === packagedUrl
+    || senderUrl === packagedOverlayUrl.href
+    || senderUrl === packagedRecoveryUrl.href
+  ) return true;
   if (!options.allowedDevOrigin) return false;
   try {
     const sender = new URL(senderUrl);
@@ -161,14 +194,23 @@ export async function handleProxyRequest(
   }
   if (origin) setAllowedCorsOrigin(res, origin);
 
-  if (process.env.WIKI_ASK_LOCAL === '1' && isLocalWikiRoute(req.method, req.url)) {
-    const settings = options.getSettings();
+  const settings = options.getSettings();
+  let ownerToken: string | undefined;
+  if (options.getAccessToken) {
+    // Production path: Authorization comes only from the secure session manager.
     try {
-      await handleLocalWikiRoute(req, res, {
-        fetchImpl: options.fetchImpl,
-        railwayBaseUrl: settings.apiBaseUrl,
-        railwayApiToken: settings.apiToken,
-      });
+      ownerToken = (await options.getAccessToken()) || undefined;
+    } catch {
+      ownerToken = undefined;
+    }
+  } else {
+    // Legacy personal-beta harnesses without a session manager may still pass apiToken.
+    ownerToken = settings.apiToken || undefined;
+  }
+
+  if (process.env.WIKI_ASK_LOCAL === '1' && isLocalWikiRoute(req.method, req.url)) {
+    try {
+      await handleLocalWikiRoute(req, res);
     } catch (error) {
       if (res.headersSent) {
         res.end();
@@ -187,17 +229,15 @@ export async function handleProxyRequest(
     (process.env.AGENT_CALENDAR_SCHEDULE_ASK_LOCAL === '1' || process.env.SCHEDULE_ASK_LOCAL === '1')
     && isLocalScheduleAskRoute(req.method, req.url)
   ) {
-    const settings = options.getSettings();
     await handleLocalScheduleAskRoute(req, res, {
       fetchImpl: options.fetchImpl,
       railwayBaseUrl: settings.apiBaseUrl,
-      railwayApiToken: settings.apiToken,
+      railwayApiToken: ownerToken,
     });
     return;
   }
 
-  const settings = options.getSettings();
-  const headers = upstreamHeaders(req, settings.apiToken);
+  const headers = upstreamHeaders(req, ownerToken);
   const upstreamController = new AbortController();
   const abortUpstream = () => {
     if (!upstreamController.signal.aborted) upstreamController.abort();
@@ -212,14 +252,27 @@ export async function handleProxyRequest(
     const body = ['GET', 'HEAD'].includes(String(req.method || 'GET').toUpperCase())
       ? undefined
       : await requestBody(req);
-    const response = await (options.fetchImpl || fetch)(targetUrl(settings.apiBaseUrl, req.url), {
+    const doFetch = async (token?: string) => (options.fetchImpl || fetch)(targetUrl(settings.apiBaseUrl, req.url), {
       method: req.method,
-      headers,
+      headers: upstreamHeaders(req, token),
       body,
       signal: upstreamController.signal,
       // Node fetch requires this when a stream-like body is passed.
       duplex: body ? 'half' : undefined,
     } as RequestInit & { duplex?: 'half' });
+
+    let response = await doFetch(ownerToken);
+    // On 401, force a single-flight refresh via getAccessToken({force}) if available.
+    if (response.status === 401 && options.getAccessToken) {
+      try {
+        const refreshed = await options.getAccessToken();
+        if (refreshed && refreshed !== ownerToken) {
+          response = await doFetch(refreshed);
+        }
+      } catch {
+        // keep original 401
+      }
+    }
 
     res.statusCode = response.status;
     res.statusMessage = response.statusText;

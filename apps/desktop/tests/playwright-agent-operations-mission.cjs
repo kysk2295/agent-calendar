@@ -141,6 +141,60 @@ function conversationFor(mission) {
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.addInitScript(() => {
+    window.hermesDesktop = {
+      getSettings: async () => ({
+        apiBaseUrl: '',
+        hasApiToken: false,
+        hasSession: true,
+        theme: 'default',
+        authProfile: {
+          provider: 'authkit',
+          id: 'agent-operations-mission-qa',
+          email: 'agent-operations-mission@example.test',
+          name: 'Agent Operations Mission QA',
+          updatedAt: '2026-07-25T00:00:00.000Z',
+        },
+        session: {
+          signedIn: true,
+          workspaceId: 'workspace-agent-operations-mission-qa',
+          userId: 'agent-operations-mission-qa',
+          role: 'owner',
+        },
+        uiPreferences: { notify: true, agentShare: true, weekStartMon: true },
+      }),
+      getSessionStatus: async () => ({
+        signedIn: true,
+        sessionId: 'session-agent-operations-mission-qa',
+        userId: 'agent-operations-mission-qa',
+        workspaceId: 'workspace-agent-operations-mission-qa',
+        role: 'owner',
+        email: 'agent-operations-mission@example.test',
+        displayName: 'Agent Operations Mission QA',
+        accessExpiresAt: null,
+      }),
+      getHermesConnection: async () => ({ baseUrl: '', credential: '' }),
+      getDesktopReleaseStatus: async () => ({
+        supported: false,
+        phase: 'unsupported',
+        currentVersion: '0.1.0',
+        availableVersion: null,
+        progressPercent: null,
+        checkedAt: null,
+        message: '테스트 환경',
+      }),
+      consumeDesktopRecoveryStatus: async () => ({
+        phase: 'none',
+        crashCount: 0,
+        reason: null,
+        occurredAt: null,
+        message: '',
+      }),
+      onDesktopReleaseStatus: () => () => {},
+      onAuthSessionChanged: () => () => {},
+      onAuthLoginError: () => () => {},
+    };
+  });
   let operationRequests = 0;
   let slowUnrelatedRequests = false;
   const calls = [];
@@ -266,6 +320,7 @@ async function main() {
         messages: [],
         channels: [],
         tools: [],
+        onboarding: { version: 1, status: 'completed' },
         settings: { uiPreferences: { notify: true, agentShare: true, weekStartMon: true } },
         uiPreferences: { notify: true, agentShare: true, weekStartMon: true },
       },
@@ -348,6 +403,7 @@ async function main() {
   assert.equal(calls.some((call) => call.path.endsWith('/activate')), true);
   assert.equal(calls.some((call) => call.path.endsWith('/pause')), true);
   assert.equal(calls.some((call) => call.path.endsWith('/cancel')), true);
+  assert.equal(calls.some((call) => call.path === '/api/workboard/convert'), false);
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, operationRequests }, null, 2));

@@ -20,7 +20,10 @@ export {
   createdWorkIdentity,
   loadCompleteAgentWorkConversation,
 } from '../features/agent-operations/workConversationClient';
-export { executionEngineLabel } from '../features/agent-operations/executionContracts';
+export {
+  executionEngineLabel,
+  resolvedExecutionEngineLabel,
+} from '../features/agent-operations/executionContracts';
 export {
   AgentWorkParseError,
   compareAgentWorkCheckpoints,
@@ -37,6 +40,10 @@ export {
 export type * from '../features/agent-operations/workConversationTypes';
 
 export type ApiEnvelope = Record<string, unknown>;
+
+export const CLIENT_V1_CONTRACT_ID = 'client-v1';
+export const CLIENT_V1_MEDIA_TYPE = 'application/vnd.agent-calendar.client-v1+json';
+export const CLIENT_CONTRACT_HEADER = 'x-agent-calendar-contract';
 
 export class HermesApiError extends Error {
   readonly status: number;
@@ -61,6 +68,7 @@ const SCHEDULE_INGEST_TIMEOUT_MS = 210_000;
 const AGENT_OPERATIONS_TIMEOUT_MS = 400_000;
 const WIKI_SEARCH_TIMEOUT_MS = 60_000;
 const WIKI_ASK_TIMEOUT_MS = 150_000;
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export function setApiBaseUrl(baseUrl: string) {
   apiBaseUrl = String(baseUrl || '').replace(/\/+$/g, '');
@@ -78,6 +86,22 @@ function url(path: string) {
 
 function proxyFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
+  const method = String(init.method || 'GET').toUpperCase();
+  headers.set(CLIENT_CONTRACT_HEADER, CLIENT_V1_CONTRACT_ID);
+  if (!headers.has('accept')) {
+    headers.set('accept', `${CLIENT_V1_MEDIA_TYPE}, application/json`);
+  }
+  if (MUTATING_METHODS.has(method)) {
+    const requestId = headers.get('x-client-request-id')
+      || headers.get('idempotency-key')
+      || crypto.randomUUID();
+    if (!headers.has('x-client-request-id')) {
+      headers.set('x-client-request-id', requestId);
+    }
+    if (!headers.has('idempotency-key')) {
+      headers.set('idempotency-key', requestId);
+    }
+  }
   if (proxyCredential) headers.set(PROXY_CREDENTIAL_HEADER, proxyCredential);
   return fetch(url(path), { ...init, headers });
 }
@@ -132,6 +156,7 @@ function jsonPost(path: string, body: Record<string, unknown> = {}, timeoutMs = 
 
 export const hermesApi = {
   getGatewayStatus: () => hermesJson<ApiEnvelope>('/api/gateway-status'),
+  getClientContract: () => hermesJson<ApiEnvelope>('/api/contracts/client-v1'),
   getDashboardState: () => hermesJson<ApiEnvelope>('/api/state'),
   getTasks: () => hermesJson<ApiEnvelope>('/api/tasks'),
   createTask: (body: Record<string, unknown>) => jsonPost('/api/tasks', body),
@@ -143,13 +168,25 @@ export const hermesApi = {
     if (options.to) params.set('to', options.to);
     return hermesJson<ApiEnvelope>(`/api/calendar/events${params.toString() ? `?${params}` : ''}`);
   },
+  getUnifiedCalendar: (options: { from: string; to: string; sourceIds?: string } ) => {
+    const params = new URLSearchParams();
+    params.set('from', options.from);
+    params.set('to', options.to);
+    if (options.sourceIds) params.set('sourceIds', options.sourceIds);
+    return hermesJson<ApiEnvelope>(`/api/calendar/unified?${params.toString()}`);
+  },
+  getCalendarSources: () => hermesJson<ApiEnvelope>('/api/calendar/sources'),
+  syncCalendarSource: (id: string, body: Record<string, unknown> = {}) => hermesJson<ApiEnvelope>(`/api/calendar/sources/${encodeURIComponent(id)}/sync`, { method: 'POST', body: JSON.stringify(body) }),
+  disconnectCalendarSource: (id: string) => hermesJson<ApiEnvelope>(`/api/calendar/sources/${encodeURIComponent(id)}/disconnect`, { method: 'POST', body: '{}' }),
+  createExternalCalendarEvent: (body: Record<string, unknown>) => jsonPost('/api/calendar/external/events', body),
+  updateExternalCalendarEvent: (providerEventId: string, body: Record<string, unknown>) => hermesJson<ApiEnvelope>(
+    `/api/calendar/external/events/${encodeURIComponent(providerEventId)}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  ),
   createCalendarEvent: (body: Record<string, unknown>) => jsonPost('/api/calendar/events', body),
   updateCalendarEvent: (id: string, body: Record<string, unknown>) => hermesJson<ApiEnvelope>(`/api/calendar/events/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteCalendarEvent: (id: string, body: Record<string, unknown> = {}) => hermesJson<ApiEnvelope>(`/api/calendar/events/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify(body) }),
   getMailMessages: () => hermesJson<ApiEnvelope>('/api/mail/messages?limit=200'),
-  saveMailAccount: (body: Record<string, unknown>) => jsonPost('/api/mail/accounts', body),
-  syncMail: (body: Record<string, unknown> = {}) => jsonPost('/api/mail/sync', body),
-  runMailAction: (id: string, action: string, body: Record<string, unknown> = {}) => jsonPost(`/api/mail/messages/${encodeURIComponent(id)}/${encodeURIComponent(action)}`, body),
   getWorkboard: () => hermesJson<ApiEnvelope>('/api/workboard'),
   getDocuments: () => hermesJson<ApiEnvelope>('/api/documents'),
   createDocument: (body: Record<string, unknown>) => jsonPost('/api/documents', body),
@@ -161,6 +198,14 @@ export const hermesApi = {
   },
   askWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/ask', body, WIKI_ASK_TIMEOUT_MS),
   searchWiki: (body: Record<string, unknown>) => jsonPost('/api/wiki/search', body, WIKI_SEARCH_TIMEOUT_MS),
+  getKnowledgeSources: () => hermesJson<ApiEnvelope>('/api/knowledge/sources'),
+  createKnowledgeSource: (body: Record<string, unknown>) => jsonPost('/api/knowledge/sources', body),
+  ingestKnowledge: (body: Record<string, unknown>) => jsonPost('/api/knowledge/ingest', body, WIKI_ASK_TIMEOUT_MS),
+  registerPrivateLocalKnowledge: (body: Record<string, unknown>) => jsonPost('/api/knowledge/private-local/register', body),
+  revokeKnowledgeSource: (id: string) => jsonPost(`/api/knowledge/sources/${encodeURIComponent(id)}/revoke`, {}),
+  askKnowledge: (body: Record<string, unknown>) => jsonPost('/api/knowledge/ask', body, WIKI_ASK_TIMEOUT_MS),
+  getKnowledgeSearchJob: (id: string) => hermesJson<ApiEnvelope>(`/api/knowledge/search/jobs/${encodeURIComponent(id)}`),
+  resolveKnowledgeEvidence: (handle: string) => hermesJson<ApiEnvelope>(`/api/knowledge/evidence/${encodeURIComponent(handle)}`),
   askSchedule: (body: Record<string, unknown>) => jsonPost('/api/assistant/ask', body, SCHEDULE_ASK_TIMEOUT_MS),
   ingestSchedule: (body: FormData) => hermesJson<ApiEnvelope>('/api/assistant/ingest', { method: 'POST', body }, SCHEDULE_INGEST_TIMEOUT_MS),
   getAgents: () => hermesJson<ApiEnvelope>('/api/agents'),
@@ -212,10 +257,36 @@ export const hermesApi = {
     method: 'POST',
     body: JSON.stringify({ index, decision }),
   }),
-  tickAgentOperations: () => hermesJson<unknown>('/api/agent-operations/tick', { method: 'POST', body: '{}' }, AGENT_OPERATIONS_TIMEOUT_MS),
   createAgent: (body: Record<string, unknown>) => jsonPost('/api/agents', body),
+  updateAgent: (id: string, body: Record<string, unknown>) => hermesJson<ApiEnvelope>(`/api/agents/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  }),
+  requestAgentCatalog: (body: Record<string, unknown>) => jsonPost('/api/agents/catalog/requests', body),
+  getAgentCatalogRequest: (id: string) => hermesJson<ApiEnvelope>(`/api/agents/catalog/requests/${encodeURIComponent(id)}`),
+  importAgentCatalogEntry: (id: string, body: Record<string, unknown>) => jsonPost(`/api/agents/catalog/requests/${encodeURIComponent(id)}/import`, body),
+  listProviderAgentSessions: (agentId: string, options: { search?: string; archived?: boolean } = {}) => {
+    const params = new URLSearchParams();
+    if (options.search) params.set('search', options.search);
+    if (options.archived) params.set('archived', 'true');
+    const query = params.toString();
+    return hermesJson<ApiEnvelope>(`/api/agents/${encodeURIComponent(agentId)}/sessions${query ? `?${query}` : ''}`);
+  },
+  requestProviderSessionCatalog: (agentId: string, body: Record<string, unknown>) => jsonPost(`/api/agents/${encodeURIComponent(agentId)}/sessions/catalog/requests`, body),
+  importProviderSessionCatalogEntry: (agentId: string, requestId: string, body: Record<string, unknown>) => jsonPost(`/api/agents/${encodeURIComponent(agentId)}/sessions/catalog/requests/${encodeURIComponent(requestId)}/import`, body),
+  updateProviderAgentSession: (id: string, body: Record<string, unknown>) => hermesJson<ApiEnvelope>(`/api/agent-sessions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  }),
   getChannels: () => hermesJson<ApiEnvelope>('/api/channels/status'),
   getAutomation: () => hermesJson<ApiEnvelope>('/api/scheduler/jobs'),
+  listAutomationSources: () => hermesJson<ApiEnvelope>('/api/automation/sources'),
+  connectAutomationSource: (body: Record<string, unknown>) => jsonPost('/api/automation/sources', body),
+  syncAutomationSource: (id: string) => jsonPost(`/api/automation/sources/${encodeURIComponent(id)}/sync`, {}),
+  listConnectedAutomations: () => hermesJson<ApiEnvelope>('/api/automation/automations'),
+  listAutomationOccurrences: (query = '') => hermesJson<ApiEnvelope>(`/api/automation/occurrences${query}`),
+  requestAutomationChange: (body: Record<string, unknown>) => jsonPost('/api/automation/changes', body),
+  approveAutomationChange: (id: string, body: Record<string, unknown> = {}) => jsonPost(`/api/automation/changes/${encodeURIComponent(id)}/approve`, body),
   createSchedulerJob: (body: Record<string, unknown>) => jsonPost('/api/scheduler/jobs', body),
   updateSchedulerJob: (id: string, body: Record<string, unknown>) => hermesJson<ApiEnvelope>(`/api/scheduler/jobs/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteSchedulerJob: (id: string) => hermesJson<ApiEnvelope>(`/api/scheduler/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -230,13 +301,36 @@ export const hermesApi = {
   launchMission: (body: Record<string, unknown>) => jsonPost('/api/missions/launch', body),
   getRun: (id: string) => hermesJson<ApiEnvelope>(`/api/runs/${encodeURIComponent(id)}`),
   approveRun: (id: string) => jsonPost(`/api/runs/${encodeURIComponent(id)}/approve`),
-  draftCalendarWork: (body: Record<string, unknown>) => jsonPost('/api/calendar/draft', body),
   quickAddCalendarWork: (body: Record<string, unknown>) => jsonPost('/api/calendar/quick-add', body),
-  convertWorkboard: (body: Record<string, unknown>) => jsonPost('/api/workboard/convert', body),
   streamChat: (body: Record<string, unknown>) => proxyFetch('/api/chat/stream', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(WIKI_ASK_TIMEOUT_MS),
   }),
+  listCalendarAiConversations: () => hermesJson<ApiEnvelope>('/api/calendar-ai/conversations'),
+  getCalendarAiConversation: (id: string) => hermesJson<ApiEnvelope>(`/api/calendar-ai/conversations/${encodeURIComponent(id)}`),
+  listCalendarAiMemories: () => hermesJson<ApiEnvelope>('/api/calendar-ai/memories'),
+  updateCalendarAiMemory: (id: string, body: Record<string, unknown>) => hermesJson<ApiEnvelope>(`/api/calendar-ai/memories/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  }),
+  forgetCalendarAiMemory: (id: string) => hermesJson<ApiEnvelope>(`/api/calendar-ai/memories/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  }),
+  purgeCalendarAiMemory: (id: string) => hermesJson<ApiEnvelope>(`/api/calendar-ai/memories/${encodeURIComponent(id)}/purge`, {
+    method: 'DELETE',
+  }),
+  approveCalendarAiAction: (id: string, requestId: string) => jsonPost(`/api/calendar-ai/actions/${encodeURIComponent(id)}/approve`, { requestId }),
+  reviseCalendarAiAction: (id: string, input: Record<string, unknown>) => jsonPost(`/api/calendar-ai/actions/${encodeURIComponent(id)}/revise`, { input }),
+  cancelCalendarAiAction: (id: string) => jsonPost(`/api/calendar-ai/actions/${encodeURIComponent(id)}/cancel`),
+  // Phase 2 account-bound Runner (user session only — never device credentials)
+  listRunners: () => hermesJson<ApiEnvelope>('/api/runners'),
+  getRunnerReleaseManifest: () => hermesJson<ApiEnvelope>('/api/runners/release-manifest'),
+  startRunnerEnrollment: (body: Record<string, unknown> = {}) => jsonPost('/api/runners/enrollments', body),
+  getRunnerEnrollment: (id: string) => hermesJson<ApiEnvelope>(`/api/runners/enrollments/${encodeURIComponent(id)}`),
+  confirmRunnerEnrollment: (id: string) => jsonPost(`/api/runners/enrollments/${encodeURIComponent(id)}/confirm`),
+  rejectRunnerEnrollment: (id: string) => jsonPost(`/api/runners/enrollments/${encodeURIComponent(id)}/reject`),
+  testRunner: (id: string) => jsonPost(`/api/runners/${encodeURIComponent(id)}/test`),
+  revokeRunner: (id: string) => jsonPost(`/api/runners/${encodeURIComponent(id)}/revoke`),
 };
