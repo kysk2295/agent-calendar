@@ -97,6 +97,16 @@ function optionalNumber(source: Readonly<Record<string, unknown>>, key: string):
   return value;
 }
 
+function optionalPublicModel(source: Readonly<Record<string, unknown>>, key: string): string | undefined {
+  const value = optionalString(source, key, true);
+  if (value === undefined || value === '') return value;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(value)
+    || /^(sk-|bearer|token|cookie|secret)/i.test(value)) {
+    throw new AgentWorkParseError(`checkpoint.metadata.${key}`);
+  }
+  return value;
+}
+
 export function parseCheckpointMetadata(value: unknown): AgentWorkCheckpointMetadata {
   if (value === undefined) return {};
   const source = record(value);
@@ -112,6 +122,29 @@ export function parseCheckpointMetadata(value: unknown): AgentWorkCheckpointMeta
   const progress = optionalNumber(source, 'progress');
   const code = optionalString(source, 'code');
   const jobId = optionalString(source, 'jobId', true);
+  const providerSessionId = optionalString(source, 'providerSessionId', true);
+  const requestedExecutionModel = optionalPublicModel(source, 'requestedExecutionModel');
+  const resolvedExecutionModel = optionalPublicModel(source, 'resolvedExecutionModel');
+  const turnIndex = optionalNumber(source, 'turnIndex');
+  const turnTargetIndex = optionalNumber(source, 'turnTargetIndex');
+  const resolvedExecutionEngine: AgentWorkCheckpointMetadata['resolvedExecutionEngine'] = source.resolvedExecutionEngine === undefined
+    ? undefined
+    : (() => {
+      switch (source.resolvedExecutionEngine) {
+        case 'hermes': return 'hermes';
+        case 'codex': return 'codex';
+        case 'claude': return 'claude';
+        case 'grok': return 'grok';
+        case 'fake': return 'fake';
+        default:
+          throw new AgentWorkParseError('checkpoint.metadata.resolvedExecutionEngine');
+      }
+    })();
+  const turnMode = source.turnMode === undefined
+    ? undefined
+    : source.turnMode === 'single' || source.turnMode === 'comparison'
+      ? source.turnMode
+      : (() => { throw new AgentWorkParseError('checkpoint.metadata.turnMode'); })();
   if (deliveryStatus === 'applied' && !appliedAt) throw new AgentWorkParseError('checkpoint.metadata.appliedAt');
   if (deliveryStatus && deliveryStatus !== 'applied' && appliedAt) throw new AgentWorkParseError('checkpoint.metadata.appliedAt');
   return {
@@ -128,5 +161,12 @@ export function parseCheckpointMetadata(value: unknown): AgentWorkCheckpointMeta
     ...(progress !== undefined ? { progress } : {}),
     ...(code !== undefined ? { code } : {}),
     ...(jobId !== undefined ? { jobId } : {}),
+    ...(providerSessionId !== undefined ? { providerSessionId } : {}),
+    ...(requestedExecutionModel !== undefined ? { requestedExecutionModel } : {}),
+    ...(resolvedExecutionModel !== undefined ? { resolvedExecutionModel } : {}),
+    ...(resolvedExecutionEngine !== undefined ? { resolvedExecutionEngine } : {}),
+    ...(turnIndex !== undefined ? { turnIndex } : {}),
+    ...(turnTargetIndex !== undefined ? { turnTargetIndex } : {}),
+    ...(turnMode !== undefined ? { turnMode } : {}),
   };
 }

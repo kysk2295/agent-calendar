@@ -6,7 +6,7 @@
  * Never invent progress events from opaque output.
  */
 
-const { assertSafeArgv, redactPrivatePaths } = require('./contract');
+const { assertSafeArgv, normalizeModelId, redactPrivatePaths } = require('./contract');
 const { spawnSafe } = require('./spawn-safe');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -14,11 +14,13 @@ const path = require('node:path');
 
 const SECRET_RE = /sk-[a-zA-Z0-9]{10,}|Bearer\s+\S+|XAI_API_KEY\s*=\s*\S+/gi;
 
-function buildGrokArgv({ promptFile, sessionId } = {}) {
+function buildGrokArgv({ promptFile, sessionId, model } = {}) {
   if (!promptFile) throw new Error('Grok prompt file is required');
+  const requestedModel = normalizeModelId(model);
   const args = [
     '--prompt-file', promptFile,
     ...(sessionId ? ['--resume', String(sessionId)] : []),
+    ...(requestedModel ? ['--model', requestedModel] : []),
     '--output-format', 'json',
     '--permission-mode', 'default',
     '--no-subagents',
@@ -66,6 +68,9 @@ function capabilityContract() {
     streaming: false,
     streamingSchema: null,
     status: 'limited',
+    modelSelection: 'catalog',
+    models: [],
+    defaultModel: null,
     message: 'Grok CLI has no stable public streaming schema in Agent Calendar; batch result only when installed',
   };
 }
@@ -104,13 +109,16 @@ async function probeGrok({ timeoutMs = 8_000 } = {}) {
 }
 
 async function runGrok(input = {}) {
-  const { goal, cwd, onCheckpoint, signal, timeoutMs = 180_000, providerSession } = input;
+  const {
+    goal, cwd, model, onCheckpoint, signal, timeoutMs = 180_000, providerSession,
+  } = input;
+  const requestedModel = normalizeModelId(model);
   const contract = capabilityContract();
   const promptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-calendar-grok-'));
   const promptFile = path.join(promptDir, 'prompt.txt');
   fs.writeFileSync(promptFile, String(goal || ''), { mode: 0o600 });
   const boundSessionId = providerSession?.externalSessionId || '';
-  const args = buildGrokArgv({ promptFile, sessionId: boundSessionId });
+  const args = buildGrokArgv({ promptFile, sessionId: boundSessionId, model: requestedModel });
 
   if (typeof onCheckpoint === 'function') {
     await onCheckpoint({
@@ -148,6 +156,7 @@ async function runGrok(input = {}) {
     return {
       ok: true,
       summary: 'Grok execution completed (batch, no stream schema)',
+      ...(requestedModel ? { model: requestedModel } : {}),
       capability: contract,
       artifacts: preview ? [{ name: 'grok-preview.txt', content: preview, contentType: 'text/plain' }] : [],
       resume: boundSessionId ? { sessionId: boundSessionId } : undefined,

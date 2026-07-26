@@ -734,6 +734,22 @@ const PRODUCTION_ROUTES = [
     method: 'POST', pathPattern: '/api/runner/device/connectors/fail', class: 'runner_device',
     persistence: 'write', action: 'runner_device_connector_fail', idempotent: true, role: 'none',
   },
+  {
+    method: 'POST', pathPattern: '/api/runner/device/channels/telegram/bind', class: 'runner_device',
+    persistence: 'write', action: 'runner_device_telegram_bind', idempotent: true, role: 'none',
+  },
+  {
+    method: 'POST', pathPattern: '/api/runner/device/channels/telegram/inbound', class: 'runner_device',
+    persistence: 'write', action: 'runner_device_telegram_inbound', idempotent: true, role: 'none',
+  },
+  {
+    method: 'POST', pathPattern: '/api/runner/device/channels/telegram/next', class: 'runner_device',
+    persistence: 'write', action: 'runner_device_telegram_next', idempotent: false, role: 'none',
+  },
+  {
+    method: 'POST', pathPattern: '/api/runner/device/channels/telegram/ack', class: 'runner_device',
+    persistence: 'write', action: 'runner_device_telegram_ack', idempotent: true, role: 'none',
+  },
 
   // Legacy adapter path disabled in production (use Runner capabilities)
   {

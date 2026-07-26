@@ -22,6 +22,7 @@ type AgentOperationsScreenProps = {
   readonly agents: readonly AgentRosterEntry[];
   readonly runners: readonly PublicRunner[];
   readonly automationJobs: readonly HermesAutomationJob[];
+  readonly controlPlaneBaseUrl: string;
   readonly error: string;
   readonly busy: string;
   readonly onRetry: () => Promise<boolean>;
@@ -66,6 +67,7 @@ export function AgentOperationsScreen(props: AgentOperationsScreenProps) {
         agents={props.agents}
         runners={props.runners}
         automationJobs={props.automationJobs}
+        controlPlaneBaseUrl={props.controlPlaneBaseUrl}
         aggregateStale={Boolean(props.error)}
         busy={props.busy}
         onCreateAgent={props.onCreateAgent}

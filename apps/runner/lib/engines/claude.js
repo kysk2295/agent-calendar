@@ -6,15 +6,17 @@
  * Never expose raw stream-json as artifacts. Never bypass permissions.
  */
 
-const { assertSafeArgv, redactPrivatePaths } = require('./contract');
+const { assertSafeArgv, normalizeModelId, redactPrivatePaths } = require('./contract');
 const { spawnSafe } = require('./spawn-safe');
 
 const SECRET_RE = /sk-[a-zA-Z0-9]{10,}|Bearer\s+\S+|ANTHROPIC_API_KEY\s*=\s*\S+/gi;
 
-function buildClaudeArgv({ sessionId } = {}) {
+function buildClaudeArgv({ sessionId, model } = {}) {
+  const requestedModel = normalizeModelId(model);
   const args = [
     '-p',
     ...(sessionId ? ['--resume', String(sessionId)] : []),
+    ...(requestedModel ? ['--model', requestedModel] : []),
     '--output-format', 'stream-json',
     '--verbose',
     '--permission-mode', 'default',
@@ -31,6 +33,22 @@ function redactLine(line) {
 
 function completionCheckpointText() {
   return 'Claude execution completed';
+}
+
+function appendNonDuplicateText(existing, next) {
+  const current = String(existing || '');
+  const incoming = String(next || '');
+  if (!incoming) return current;
+  if (!current) return incoming;
+  if (current.endsWith(incoming)) return current;
+  if (incoming.startsWith(current)) return incoming;
+  const overlapLimit = Math.min(current.length, incoming.length);
+  for (let overlap = overlapLimit; overlap > 0; overlap -= 1) {
+    if (current.endsWith(incoming.slice(0, overlap))) {
+      return `${current}${incoming.slice(overlap)}`;
+    }
+  }
+  return `${current}${incoming}`;
 }
 
 function extractText(obj) {
@@ -62,42 +80,61 @@ function parseClaudeStreamJsonLine(line) {
   const type = String(obj.type || obj.event || '').toLowerCase();
   const subtype = String(obj.subtype || '').toLowerCase();
   const sessionId = obj.session_id || obj.sessionId || null;
+  const model = normalizeModelId(obj.model || obj.message?.model || '');
   const text = redactLine(extractText(obj));
   const toolUse = Array.isArray(obj.message?.content)
     ? obj.message.content.find((content) => ['tool_use', 'server_tool_use'].includes(String(content?.type || '')))
     : null;
 
   if (type === 'error' || obj.is_error) {
-    return { kind: 'error', text: redactLine(obj.error || obj.message || 'Claude error'), sessionId };
+    return {
+      kind: 'error', text: redactLine(obj.error || obj.message || 'Claude error'), sessionId, model,
+    };
   }
   if (type === 'init' || (type === 'system' && subtype === 'init')) {
-    return { kind: 'plan', text: text || 'Claude session initialized', sessionId };
+    return {
+      kind: 'plan', text: text || 'Claude session initialized', sessionId, model,
+    };
   }
   if (type === 'system') return null;
   if (toolUse) {
     const rawName = String(toolUse.name || 'tool');
     const name = /^[A-Za-z0-9_.:-]{1,80}$/.test(rawName) ? rawName : 'tool';
-    return { kind: 'tool', text: `Claude 도구 · ${name}`, sessionId };
+    return {
+      kind: 'tool', text: `Claude 도구 · ${name}`, sessionId, model,
+    };
   }
   if (type === 'assistant') {
-    return { kind: 'progress', text: text || 'Claude assistant message', sessionId, assistantText: text || null };
+    return {
+      kind: 'progress', text: text || 'Claude assistant message', sessionId, model, assistantText: text || null,
+    };
   }
   if (type === 'content_block_delta' || type.includes('delta')) {
-    return { kind: 'progress', text: text || 'Claude delta', sessionId, assistantText: text || null };
+    return {
+      kind: 'progress', text: text || 'Claude delta', sessionId, model, assistantText: text || null,
+    };
   }
   if (type === 'result' || type === 'message_stop') {
-    return { kind: 'result', text: text || 'Claude result', sessionId, assistantText: text || null };
+    return {
+      kind: 'result', text: text || 'Claude result', sessionId, model, assistantText: text || null,
+    };
   }
-  return text ? { kind: 'progress', text, sessionId } : null;
+  return text ? {
+    kind: 'progress', text, sessionId, model,
+  } : null;
 }
 
 async function runClaude(input = {}) {
-  const { goal, cwd, onCheckpoint, signal, timeoutMs = 180_000, providerSession } = input;
+  const {
+    goal, cwd, model, onCheckpoint, signal, timeoutMs = 180_000, providerSession,
+  } = input;
+  const requestedModel = normalizeModelId(model);
   const boundSessionId = providerSession?.externalSessionId || '';
-  const args = buildClaudeArgv({ sessionId: boundSessionId });
+  const args = buildClaudeArgv({ sessionId: boundSessionId, model: requestedModel });
   let resumeSessionId = boundSessionId || null;
   let progressCount = 0;
   let curatedFinalText = '';
+  let resolvedModel = requestedModel;
 
   if (typeof onCheckpoint === 'function') {
     await onCheckpoint({
@@ -111,11 +148,12 @@ async function runClaude(input = {}) {
     const parsed = parseClaudeStreamJsonLine(line);
     if (!parsed) return;
     if (parsed.sessionId) resumeSessionId = parsed.sessionId;
+    if (parsed.model) resolvedModel = parsed.model;
     const providerSession = parsed.sessionId
       ? { externalSessionId: String(parsed.sessionId) }
       : undefined;
     if (parsed.assistantText) {
-      curatedFinalText = `${curatedFinalText}${parsed.assistantText}`.slice(0, 4000);
+      curatedFinalText = appendNonDuplicateText(curatedFinalText, parsed.assistantText).slice(0, 4000);
     }
     if (typeof onCheckpoint !== 'function') return;
     if (parsed.kind === 'plan') {
@@ -190,6 +228,7 @@ async function runClaude(input = {}) {
       summary: curatedFinalText
         ? `Claude: ${curatedFinalText.slice(0, 200)}`
         : 'Claude execution completed',
+      ...(resolvedModel ? { model: resolvedModel } : {}),
       resume: resumeSessionId ? { sessionId: resumeSessionId } : undefined,
       artifacts,
     };
@@ -218,6 +257,7 @@ async function runClaude(input = {}) {
 
 module.exports = {
   id: 'claude',
+  appendNonDuplicateText,
   buildArgv: buildClaudeArgv,
   completionCheckpointText,
   parseClaudeStreamJsonLine,
@@ -226,6 +266,9 @@ module.exports = {
     streaming: true,
     streamingSchema: 'claude-stream-json',
     status: 'available',
+    modelSelection: 'identifier',
+    models: [],
+    defaultModel: null,
   }),
   run: runClaude,
 };

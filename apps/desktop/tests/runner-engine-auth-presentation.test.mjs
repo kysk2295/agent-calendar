@@ -47,3 +47,27 @@ test('engine presentation separates installation from Runner-hosted authenticati
     },
   );
 });
+
+test('model presentation keeps a safe Runner default even when the provider has no catalog API', () => {
+  const models = runnerApi.engineModels([{
+    id: 'runner-model',
+    status: 'active',
+    connectionState: 'connected',
+    capabilities: {
+      engines: {
+        codex: {
+          available: true,
+          models: [],
+          defaultModel: 'gpt-5.6-sol',
+          modelSelection: 'identifier',
+        },
+      },
+    },
+  }], 'codex');
+
+  assert.deepEqual(models, {
+    models: [],
+    defaultModel: 'gpt-5.6-sol',
+    modelSelection: 'identifier',
+  });
+});

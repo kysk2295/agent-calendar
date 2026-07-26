@@ -52,6 +52,16 @@ const CONVERSATION_FIXTURE = {
   ok: true,
   work: BASE_WORK,
   conversation: BASE_CONVERSATION,
+  channels: [
+    {
+      id: 'channel_telegram_1',
+      channel: 'telegram',
+      status: 'active',
+      runnerId: 'runner_local_1',
+      ingressOwnership: 'unverified',
+      lastActivityAt: '2026-07-14T09:03:30.000Z',
+    },
+  ],
   checkpoints: [
     { id: 'event-z-progress', sessionId: 'task-session-1', sequence: 3, kind: 'progress', text: '진행 중', createdAt: '2026-07-14T09:02:00.000Z', metadata: { progress: 50 } },
     { id: 'event-raw-tool', sessionId: 'task-session-1', sequence: 2, kind: 'tool_activity', text: 'rm -rf /tmp/work', createdAt: '2026-07-14T09:01:00.000Z', metadata: { command: 'rm -rf /tmp/work' } },
@@ -143,7 +153,9 @@ test('conversation parser preserves safe tool checkpoints and excludes raw tool 
   assert.equal(page.checkpoints[4].metadata.applicationMode, 'checkpoint_result');
   assert.equal(page.checkpoints[4].metadata.jobId, 'job-1');
   assert.equal(page.checkpoints[5].metadata.applicationMode, 'applied_at_checkpoint');
+  assert.deepEqual(page.channels, CONVERSATION_FIXTURE.channels);
   assert.doesNotMatch(JSON.stringify(page), /rm -rf/);
+  assert.doesNotMatch(JSON.stringify(page.channels), /token|chat.?id|binding/i);
 });
 
 test('complete conversation loader follows every cursor and keeps 205 ordered unique checkpoints', async () => {
@@ -544,13 +556,24 @@ test('request identity is retained across failed retries and rotates after accep
   await client.create({ ...draft, objective: '다른 문서를 정리한다' });
   await assert.rejects(() => client.send('work-2', 'pause'), /transient message failure/);
   await client.send('work-2', 'pause');
-  await client.send('work-2', 'pause');
+  await client.send('work-2', 'pause', 'claude', 'claude-sonnet-4-6');
+  await client.send('work-2', 'compare', undefined, undefined, [
+    { executionEngine: 'codex' },
+    { executionEngine: 'claude' },
+  ]);
 
   // Then
   assert.equal(createRequests[0].clientRequestId, createRequests[1].clientRequestId);
   assert.notEqual(createRequests[1].clientRequestId, createRequests[2].clientRequestId);
   assert.equal(messageRequests[0].clientMessageId, messageRequests[1].clientMessageId);
   assert.notEqual(messageRequests[1].clientMessageId, messageRequests[2].clientMessageId);
+  assert.equal(messageRequests[2].executionEngine, 'claude');
+  assert.equal(messageRequests[2].requestedModel, 'claude-sonnet-4-6');
+  assert.equal(messageRequests[3].executionEngine, undefined);
+  assert.deepEqual(messageRequests[3].comparisonTargets, [
+    { executionEngine: 'codex' },
+    { executionEngine: 'claude' },
+  ]);
 });
 
 test('HTTP failures expose stable status and backend error codes', async () => {

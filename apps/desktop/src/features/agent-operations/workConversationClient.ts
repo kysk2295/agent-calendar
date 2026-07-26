@@ -97,7 +97,13 @@ export type AgentWorkTransport = {
 
 export type AgentWorkClient = {
   readonly create: (draft: AgentWorkCreateDraft) => Promise<AgentWorkCreateResponse>;
-  readonly send: (missionId: string, text: string) => Promise<AgentWorkMessageResponse>;
+  readonly send: (
+    missionId: string,
+    text: string,
+    executionEngine?: AgentWorkMessageRequest['executionEngine'],
+    requestedModel?: string,
+    comparisonTargets?: AgentWorkMessageRequest['comparisonTargets'],
+  ) => Promise<AgentWorkMessageResponse>;
 };
 
 export type AgentWorkClientOptions = {
@@ -113,6 +119,7 @@ function draftKey(draft: AgentWorkCreateDraft): string {
     draft.initialMessage.trim(),
     draft.agentId || '',
     draft.executionEngine || 'auto',
+    draft.requestedModel || '',
     draft.deliverable?.kind || 'report',
     draft.deliverable?.format || 'markdown',
   ].join('\u0000');
@@ -127,6 +134,7 @@ function createRequest(draft: AgentWorkCreateDraft, clientRequestId: string): Ag
     initialMessage: draft.initialMessage.trim(),
     ...(draft.agentId ? { agentId: draft.agentId } : {}),
     executionEngine: draft.executionEngine || 'auto',
+    ...(draft.requestedModel ? { requestedModel: draft.requestedModel } : {}),
     deliverable: draft.deliverable || { kind: 'report', format: 'markdown' },
   };
 }
@@ -151,12 +159,23 @@ export function createAgentWorkClient(options: AgentWorkClientOptions): AgentWor
       pendingCreateIds.delete(key);
       return response;
     },
-    send: async (missionId, value) => {
+    send: async (missionId, value, executionEngine, requestedModel, comparisonTargets) => {
       const text = value.trim();
-      const key = `${missionId}\u0000${text}`;
+      const model = String(requestedModel || '').trim();
+      const targets = comparisonTargets?.map((target) => ({
+        executionEngine: target.executionEngine,
+        ...(target.requestedModel?.trim() ? { requestedModel: target.requestedModel.trim() } : {}),
+      }));
+      const key = `${missionId}\u0000${executionEngine || ''}\u0000${model}\u0000${JSON.stringify(targets || [])}\u0000${text}`;
       const clientMessageId = pendingMessageIds.get(key) || options.createId();
       pendingMessageIds.set(key, clientMessageId);
-      const response = await options.transport.sendAgentWorkMessage(missionId, { clientMessageId, text });
+      const response = await options.transport.sendAgentWorkMessage(missionId, {
+        clientMessageId,
+        text,
+        ...(executionEngine ? { executionEngine } : {}),
+        ...(model ? { requestedModel: model } : {}),
+        ...(targets?.length ? { comparisonTargets: targets } : {}),
+      });
       pendingMessageIds.delete(key);
       return response;
     },

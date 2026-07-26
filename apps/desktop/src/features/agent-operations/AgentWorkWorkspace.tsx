@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { isAgentSelectable } from '../../domains/agent-work/agentRoster';
-import type { PublicRunner } from '../runner/runnerApi';
+import { engineModels, type PublicRunner } from '../runner/runnerApi';
 import { compareAgentTasksBySchedule } from './agentOperations';
 import { AgentControlRoomBoard } from './AgentControlRoomBoard';
 import { AgentDirectoryPanel } from './AgentDirectoryPanel';
@@ -30,6 +30,7 @@ type AgentWorkWorkspaceProps = {
   readonly agents: readonly AgentRosterEntry[];
   readonly runners: readonly PublicRunner[];
   readonly automationJobs: readonly HermesAutomationJob[];
+  readonly controlPlaneBaseUrl: string;
   readonly aggregateStale: boolean;
   readonly busy: string;
   readonly onCreateAgent: (input: AgentDirectoryMutationInput) => Promise<boolean>;
@@ -102,6 +103,7 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
   const [request, setRequest] = useState('');
   const [agentId, setAgentId] = useState('');
   const [engine, setEngine] = useState<AgentExecutionEngine>('auto');
+  const [requestedModel, setRequestedModel] = useState('');
   const [selectedMissionId, setSelectedMissionId] = useState('');
   const [provisionalMission, setProvisionalMission] = useState<AgentMission | null>(null);
   const [returnFocusTarget, setReturnFocusTarget] = useState('');
@@ -158,6 +160,7 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
   const runningCount = directoryState.tasks.filter((task) => task.status === 'running').length;
   const attentionCount = directoryState.tasks.filter((task) => ['proposed', 'blocked', 'failed'].includes(task.status)).length;
   const activeAutomationCount = props.automationJobs.filter((job) => job.status === 'active').length;
+  const creationModels = engineModels(props.runners, engine);
   const controlHomeState = useMemo(() => ({
     ...directoryState,
     missions: directoryState.missions.map((mission) => ({ ...mission, title: displayMissionTitle(mission.title, mission.objective) })),
@@ -250,7 +253,15 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
   const submit = async () => {
     const objective = request.trim();
     if (!objective || props.busy === 'create') return;
-    const created = await props.onCreateMission({ templateId: 'general-agent-work', title: titleFromRequest(objective), objective, ...(effectiveAgentId ? { agentId: effectiveAgentId } : {}), executionEngine: engine, deliverable: { kind: 'file', format: 'auto' } });
+    const created = await props.onCreateMission({
+      templateId: 'general-agent-work',
+      title: titleFromRequest(objective),
+      objective,
+      ...(effectiveAgentId ? { agentId: effectiveAgentId } : {}),
+      executionEngine: engine,
+      ...(requestedModel ? { requestedModel } : {}),
+      deliverable: { kind: 'file', format: 'auto' },
+    });
     if (created) {
       setProvisionalMission({
         id: created.id, templateId: 'general-agent-work', title: fullTitleFromRequest(objective), objective,
@@ -279,7 +290,8 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
         <AgentDirectoryPanel
           agents={props.agents}
           runners={props.runners}
-          selectedAgentId={agentId}
+          selectedAgentId={selectedMission.agentId}
+          sessionsOnly
           runnerConnected={runnerConnected}
           busy={Boolean(props.busy)}
           onSelect={selectDirectoryAgent}
@@ -316,16 +328,14 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
             busy={props.busy}
             onBack={closeMission}
             onRefresh={refreshConversation}
-            onSendMessage={(text): Promise<AgentWorkDelivery> => sendLiveTurn(text)}
-            onPlanMission={props.onPlanMission}
-            onApprovePlan={props.onApprovePlan}
-            onMissionWorkAction={props.onMissionWorkAction}
+            onSendMessage={(text, executionEngine, requestedModel, comparisonTargets): Promise<AgentWorkDelivery> => sendLiveTurn(text, executionEngine, requestedModel, comparisonTargets)}
             onTaskAction={props.onTaskAction}
-            onRunTaskNow={props.onRunTaskNow}
             onOpenSession={props.onOpenSession}
             onReportFeedback={props.onReportFeedback}
             onFollowUpDecision={props.onFollowUpDecision}
             liveTurn={liveTurn}
+            runners={props.runners}
+            controlPlaneBaseUrl={props.controlPlaneBaseUrl}
           />
         </div>
       </div>
@@ -338,6 +348,7 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
         agents={props.agents}
         runners={props.runners}
         selectedAgentId={agentId}
+        sessionsOnly={false}
         runnerConnected={runnerConnected}
         busy={Boolean(props.busy)}
         onSelect={selectDirectoryAgent}
@@ -375,7 +386,7 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
           <textarea aria-label="에이전트에게 작업 지시" rows={1} value={request} onChange={(event) => setRequest(event.target.value)} onKeyDown={keyDown} placeholder={directoryAgent ? `${directoryAgent.displayName}에게 작업을 지시하세요` : '작업을 설명하세요. 예: 경쟁사 3곳을 조사해서 문서로 정리해줘'} />
           <button className="agent-delegate-send" type="button" aria-label="위임" disabled={!request.trim() || props.busy === 'create' || Boolean(directoryAgent && !effectiveAgentId)} onClick={() => void submit()}><span>위임</span></button>
         </div>
-        <details className="agent-delegate-advanced"><summary>고급 설정</summary><div><label><span>담당 에이전트</span><select aria-label="담당 에이전트" value={effectiveAgentId} onChange={(event) => setAgentId(event.target.value)}><option value="">자동 배정</option>{props.agents.map((agent) => <option value={agent.id} key={agent.id}>{agent.displayName}</option>)}</select></label><label><span>실행 엔진</span><select aria-label="실행 엔진" value={engine} onChange={(event) => setEngine(executionEngine(event.target.value))}>{ENGINE_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label></div></details>
+        <details className="agent-delegate-advanced"><summary>고급 설정</summary><div><label><span>담당 에이전트</span><select aria-label="담당 에이전트" value={effectiveAgentId} onChange={(event) => setAgentId(event.target.value)}><option value="">자동 배정</option>{props.agents.map((agent) => <option value={agent.id} key={agent.id}>{agent.displayName}</option>)}</select></label><label><span>실행 엔진</span><select aria-label="실행 엔진" value={engine} onChange={(event) => { setEngine(executionEngine(event.target.value)); setRequestedModel(''); }}>{ENGINE_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>{['codex', 'claude', 'grok', 'hermes'].includes(engine) && <label><span>실행 모델</span>{creationModels.models.length ? <select aria-label="실행 모델" value={requestedModel} onChange={(event) => setRequestedModel(event.target.value)}><option value="">Runner 기본 모델</option>{creationModels.models.map((model) => <option value={model} key={model}>{model}</option>)}</select> : <input aria-label="실행 모델" value={requestedModel} onChange={(event) => setRequestedModel(event.target.value)} placeholder="예: gpt-5.6-codex" />}</label>}</div></details>
 
         <AgentControlRoomBoard state={controlHomeState} agents={directoryAgent ? [directoryAgent] : props.agents} automationJobs={props.automationJobs} readOnly={props.aggregateStale} busy={props.busy} onOpenMission={openMission} onTaskAction={props.onTaskAction} />
       </div>

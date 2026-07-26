@@ -32,6 +32,32 @@ function stringList(value, maximumItems = 12, maximumLength = 80) {
     .slice(0, maximumItems);
 }
 
+function profileVersion(value) {
+  const version = Number(value);
+  return Number.isSafeInteger(version) && version > 0
+    ? Math.min(version, 1_000_000)
+    : 1;
+}
+
+function profileMeaning(value) {
+  const input = objectValue(value);
+  return JSON.stringify({
+    displayName: input.displayName || '',
+    role: input.role || '',
+    responsibility: input.responsibility || '',
+    instructions: input.instructions || '',
+    responseStyle: input.responseStyle || '',
+    specialties: Array.isArray(input.specialties) ? input.specialties : [],
+    memories: Array.isArray(input.memories) ? input.memories : [],
+    sourceKind: input.sourceKind || '',
+    provider: input.provider || '',
+    externalAgentId: input.externalAgentId || '',
+    defaultExecutionEngine: input.defaultExecutionEngine || 'auto',
+    defaultRunnerId: input.defaultRunnerId || '',
+    enabled: input.enabled !== false,
+  });
+}
+
 function legacySourceKind(input) {
   const source = String(input.sourceKind || input.agentSource || input.source || '').toLowerCase();
   if (SOURCE_KINDS.has(source)) return source;
@@ -78,7 +104,10 @@ function projectWorkspaceAgent(value = {}) {
     role: boundedText(input.role, '', 160),
     responsibility: boundedText(input.responsibility || input.persona, '', 1_200),
     instructions: boundedText(input.instructions, '', 6_000),
+    responseStyle: boundedText(input.responseStyle || input.style, '', 1_200),
     specialties: stringList(input.specialties || input.allowedTaskClasses),
+    memories: stringList(input.memories || input.memory, 24, 500),
+    profileVersion: profileVersion(input.profileVersion),
     sourceKind,
     provider,
     externalAgentId,
@@ -123,14 +152,16 @@ function normalizeWorkspaceAgent(value = {}, { id, workspaceId, existing } = {})
     );
   }
 
-  return {
+  const normalized = {
     id: boundedText(id, '', 120, { required: true }),
     displayName,
     name: displayName,
     role: boundedText(input.role, '', 160),
     responsibility: boundedText(input.responsibility, '', 1_200),
     instructions: boundedText(input.instructions, '', 6_000),
+    responseStyle: boundedText(input.responseStyle, '', 1_200),
     specialties: stringList(input.specialties),
+    memories: stringList(input.memories, 24, 500),
     sourceKind,
     provider,
     externalAgentId,
@@ -142,9 +173,71 @@ function normalizeWorkspaceAgent(value = {}, { id, workspaceId, existing } = {})
     ...(boundedText(input.emoji, '', 16) ? { emoji: boundedText(input.emoji, '', 16) } : {}),
     workspaceId: boundedText(workspaceId, '', 120, { required: true }),
   };
+  const existingProfile = existing
+    ? projectWorkspaceAgent({
+      id,
+      ...objectValue(existing),
+      workspaceId,
+    })
+    : null;
+  const version = existingProfile
+    ? profileVersion(existingProfile.profileVersion)
+      + (profileMeaning(existingProfile) === profileMeaning(normalized) ? 0 : 1)
+    : 1;
+  return {
+    ...normalized,
+    profileVersion: version,
+  };
+}
+
+function agentExecutionProfile(value = {}) {
+  const agent = projectWorkspaceAgent(value);
+  return Object.freeze({
+    agentId: agent.id,
+    displayName: agent.displayName,
+    role: agent.role,
+    responsibility: agent.responsibility,
+    instructions: agent.instructions,
+    responseStyle: agent.responseStyle,
+    specialties: Object.freeze([...agent.specialties]),
+    memories: Object.freeze([...agent.memories]),
+    profileVersion: agent.profileVersion,
+    memoryScope: 'agent_profile',
+  });
+}
+
+function applyAgentExecutionProfile(goal, snapshotValue) {
+  const snapshot = objectValue(snapshotValue);
+  if (!snapshot.agentId) return String(goal || '').slice(0, 12_000);
+  const specialties = stringList(snapshot.specialties).join(', ');
+  const memories = stringList(snapshot.memories, 24, 500);
+  const profileContext = [
+    '[Agent Calendar Responsible Agent Profile]',
+    'Follow this Workspace-owned profile unless it conflicts with platform safety or the current user request.',
+    `Profile version: ${profileVersion(snapshot.profileVersion)}`,
+    `Name: ${boundedText(snapshot.displayName, 'Agent', 120)}`,
+    boundedText(snapshot.role, '', 160) ? `Role: ${boundedText(snapshot.role, '', 160)}` : '',
+    boundedText(snapshot.responsibility, '', 1_200)
+      ? `Responsibility: ${boundedText(snapshot.responsibility, '', 1_200)}`
+      : '',
+    boundedText(snapshot.instructions, '', 6_000)
+      ? `Working instructions:\n${boundedText(snapshot.instructions, '', 6_000)}`
+      : '',
+    boundedText(snapshot.responseStyle, '', 1_200)
+      ? `Voice and personality:\n${boundedText(snapshot.responseStyle, '', 1_200)}`
+      : '',
+    specialties ? `Specialties: ${specialties}` : '',
+    memories.length
+      ? `Long-term agent memory (user-managed):\n${memories.map((memory) => `- ${memory}`).join('\n')}`
+      : '',
+    '[End Responsible Agent Profile]',
+  ].filter(Boolean).join('\n\n').slice(0, 16_000);
+  return `${profileContext}\n\nDelegated work:\n${String(goal || '').slice(0, 12_000)}`;
 }
 
 module.exports = {
+  agentExecutionProfile,
+  applyAgentExecutionProfile,
   normalizeWorkspaceAgent,
   projectWorkspaceAgent,
   WorkspaceAgentDirectoryError,

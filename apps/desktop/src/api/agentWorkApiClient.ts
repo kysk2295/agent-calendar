@@ -1,7 +1,7 @@
 import { hermesApi } from './hermesApi';
 import { createAgentWorkClient, createdWorkIdentity } from '../features/agent-operations/workConversationClient';
 import type { AgentMissionCreateInput } from '../features/agent-operations/types';
-import type { AgentCreatedWork, AgentWorkMessageResponse } from '../features/agent-operations/workConversationTypes';
+import type { AgentCreatedWork, AgentWorkMessageRequest, AgentWorkMessageResponse } from '../features/agent-operations/workConversationTypes';
 
 const agentWorkClient = createAgentWorkClient({
   transport: hermesApi,
@@ -16,11 +16,24 @@ export async function createAgentWork(input: AgentMissionCreateInput): Promise<A
     initialMessage: input.objective,
     ...(input.agentId ? { agentId: input.agentId } : {}),
     executionEngine: input.executionEngine,
+    ...(input.requestedModel ? { requestedModel: input.requestedModel } : {}),
     deliverable: input.deliverable,
   });
   return createdWorkIdentity(response);
 }
 
-export function sendAgentWorkMessage(missionId: string, text: string): Promise<AgentWorkMessageResponse> {
-  return agentWorkClient.send(missionId, text);
+export function sendAgentWorkMessage(
+  missionId: string,
+  text: string,
+  executionEngine?: AgentWorkMessageRequest['executionEngine'],
+  requestedModel?: string,
+  comparisonTargets?: AgentWorkMessageRequest['comparisonTargets'],
+): Promise<AgentWorkMessageResponse> {
+  return agentWorkClient.send(
+    missionId,
+    text,
+    executionEngine,
+    requestedModel,
+    comparisonTargets,
+  );
 }

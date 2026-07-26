@@ -498,6 +498,36 @@ test('phase3 hostile durable execution matrix', async () => {
         }),
       });
       assert.equal(ev1.status, 200, JSON.stringify(ev1.json));
+      const planCheckpoint = await pool.query(
+        `select payload
+         from agent_session_events
+         where workspace_id = 'ws-a' and session_id = $1
+           and payload->>'text' = 'Plan ready'
+         limit 1`,
+        [lease.sessionId],
+      );
+      assert.equal(planCheckpoint.rowCount, 1);
+      assert.deepEqual(
+        {
+          jobId: planCheckpoint.rows[0].payload.metadata.jobId,
+          turnIndex: planCheckpoint.rows[0].payload.metadata.turnIndex,
+          turnTargetIndex: planCheckpoint.rows[0].payload.metadata.turnTargetIndex,
+          turnMode: planCheckpoint.rows[0].payload.metadata.turnMode,
+          resolvedExecutionEngine: planCheckpoint.rows[0].payload.metadata.resolvedExecutionEngine,
+        },
+        {
+          jobId: lease.jobId,
+          turnIndex: 1,
+          turnTargetIndex: 0,
+          turnMode: 'single',
+          resolvedExecutionEngine: 'fake',
+        },
+      );
+      assert.equal(
+        Object.values(planCheckpoint.rows[0].payload.metadata).includes(null),
+        false,
+        'optional checkpoint metadata must be omitted instead of serialized as null',
+      );
       // Idempotent replay
       const ev2 = await httpJson(baseUrl, 'POST', '/api/runner/device/event', {
         body: eventBody,
@@ -1660,6 +1690,12 @@ test('Work Conversation follow-up leases the same provider session and restores 
         token: tokenA,
         body: {
           displayName: 'Codex Researcher',
+          role: '시장 리서처',
+          responsibility: '근거가 있는 시장 분석을 만든다.',
+          instructions: '사실과 추정을 분리한다.',
+          responseStyle: '차분한 존댓말로 핵심부터 쓴다.',
+          specialties: ['시장 조사', '출처 검증'],
+          memories: ['사용자는 한국어를 선호한다.'],
           defaultExecutionEngine: 'codex',
           defaultRunnerId: runnerA.runnerId,
         },
@@ -1695,6 +1731,11 @@ test('Work Conversation follow-up leases the same provider session and restores 
       assert.equal(next.status, 200);
       assert.equal(next.json.offer.requestedEngine, 'codex');
       assert.equal(next.json.offer.providerSession.status, 'pending');
+      assert.equal(next.json.offer.payload.profileSnapshot.profileVersion, 1);
+      assert.deepEqual(next.json.offer.payload.profileSnapshot.memories, ['사용자는 한국어를 선호한다.']);
+      assert.match(next.json.offer.goal, /Responsible Agent Profile/);
+      assert.match(next.json.offer.goal, /차분한 존댓말/);
+      assert.match(next.json.offer.goal, /Delegated work:\nCreate the first result/);
       const providerSessionId = next.json.offer.providerSession.id;
 
       const leaseBody = {
@@ -1947,6 +1988,21 @@ test('Work Conversation follow-up leases the same provider session and restores 
       );
       assert.equal(foreignArtifact.rows[0].n, 0);
 
+      const revisedAgent = await httpJson(
+        baseUrl,
+        'PATCH',
+        `/api/agents/${encodeURIComponent(agentId)}`,
+        {
+          token: tokenA,
+          body: {
+            responseStyle: '간결한 반말로 결론부터 쓴다.',
+            memories: ['사용자는 한국어를 선호한다.', '표에는 기준일을 표시한다.'],
+          },
+        },
+      );
+      assert.equal(revisedAgent.status, 200, JSON.stringify(revisedAgent.json));
+      assert.equal(revisedAgent.json.agent.profileVersion, 2);
+
       const followUp = await httpJson(
         baseUrl,
         'POST',
@@ -1977,7 +2033,13 @@ test('Work Conversation follow-up leases the same provider session and restores 
       assert.equal(nextFollowUp.status, 200);
       assert.equal(nextFollowUp.json.offer.providerSession.id, providerSessionId);
       assert.equal(nextFollowUp.json.offer.providerSession.externalSessionId, 'codex-thread-a');
-      assert.equal(nextFollowUp.json.offer.goal, 'Continue with a second result');
+      assert.equal(nextFollowUp.json.offer.payload.profileSnapshot.profileVersion, 2);
+      assert.deepEqual(nextFollowUp.json.offer.payload.profileSnapshot.memories, [
+        '사용자는 한국어를 선호한다.',
+        '표에는 기준일을 표시한다.',
+      ]);
+      assert.match(nextFollowUp.json.offer.goal, /간결한 반말/);
+      assert.match(nextFollowUp.json.offer.goal, /Delegated work:\nContinue with a second result/);
 
       const followLeaseBody = {
         runnerId: runnerA.runnerId,
@@ -2069,12 +2131,780 @@ test('Work Conversation follow-up leases the same provider session and restores 
       assert.equal(persisted.rows[0].status, 'auth_required');
       assert.equal(persisted.rows[0].work_conversation_id, createdWork.json.sessionId);
       const jobCount = await pool.query(
-        `select count(*)::int as n
+        `select count(*)::int as n,
+                array_agg((payload->'profileSnapshot'->>'profileVersion')::int order by turn_index) as profile_versions
          from execution_jobs
          where workspace_id = 'ws-a' and mission_id = $1`,
         [createdWork.json.missionId],
       );
       assert.equal(jobCount.rows[0].n, 2);
+      assert.deepEqual(jobCount.rows[0].profile_versions, [1, 2]);
+    } finally {
+      runtime.durableExecution.stopBackgroundWorkers();
+      if (runtime.unifiedCalendar?.stopBackgroundWorkers) runtime.unifiedCalendar.stopBackgroundWorkers();
+      await close(server);
+      delete process.env.WORKSPACE_AUTH_MODE;
+    }
+  });
+});
+
+test('one Work Conversation switches Codex and Claude endpoints without forking or fanout', async () => {
+  await withEphemeralPostgres(async ({ pool }) => {
+    await seedUsers(pool);
+    process.env.WORKSPACE_AUTH_MODE = 'production';
+    const runtime = createPhase1Runtime({
+      pool,
+      identityVerifier: null,
+      authKit: null,
+      workosConfig: null,
+      env: { DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+    });
+    const server = createRailwayGatewayServer({
+      env: {
+        WORKSPACE_AUTH_MODE: 'production',
+        DURABLE_EXECUTION_CLAIMS_ENABLED: 'true',
+        DURABLE_EXECUTION_BACKGROUND_WORKERS: '0',
+      },
+      phase1Runtime: runtime,
+      phase1Pool: pool,
+      gatewayStore: { getState: () => ({}), ready: Promise.resolve() },
+      fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({}) }),
+    });
+    const baseUrl = await listen(server);
+    try {
+      const tokenA = await issueToken(pool, 'subject-a', 'ws-a');
+      const tokenB = await issueToken(pool, 'subject-b', 'ws-b');
+      const keysA = generateEd25519Keypair();
+      const runnerA = await enrollActiveRunner(baseUrl, tokenA, keysA, 'cross-engine-a');
+      await pool.query(
+        `update runners
+         set capabilities = $2::jsonb
+         where workspace_id = 'ws-a' and id = $1`,
+        [runnerA.runnerId, JSON.stringify({
+          engines: {
+            codex: {
+              available: true,
+              status: 'available',
+              authStatus: 'authenticated',
+              version: 'test',
+              modelSelection: 'catalog',
+              models: ['gpt-5.6-codex'],
+            },
+            claude: {
+              available: true,
+              status: 'available',
+              authStatus: 'authenticated',
+              version: 'test',
+              modelSelection: 'catalog',
+              models: ['claude-sonnet-4-6'],
+            },
+          },
+        })],
+      );
+
+      const createdAgent = await httpJson(baseUrl, 'POST', '/api/agents', {
+        token: tokenA,
+        body: {
+          displayName: 'Cross-engine Researcher',
+          defaultExecutionEngine: 'codex',
+          defaultRunnerId: runnerA.runnerId,
+        },
+      });
+      assert.equal(createdAgent.status, 200, JSON.stringify(createdAgent.json));
+
+      const createdWork = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
+        token: tokenA,
+        body: {
+          title: 'One canonical conversation',
+          goal: 'Start this investigation in Codex',
+          agentId: createdAgent.json.agent.id,
+          executionEngine: 'codex',
+          requestedModel: 'gpt-5.6-codex',
+        },
+      });
+      assert.equal(createdWork.status, 200, JSON.stringify(createdWork.json));
+
+      const initialEndpoint = await pool.query(
+        `select id, engine, work_conversation_id
+         from provider_agent_sessions
+         where workspace_id = 'ws-a' and work_conversation_id = $1`,
+        [createdWork.json.sessionId],
+      );
+      assert.equal(initialEndpoint.rowCount, 1);
+      assert.equal(initialEndpoint.rows[0].engine, 'codex');
+
+      const continueInClaude = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Review the same investigation in Claude',
+            clientMessageId: 'cross-engine-claude',
+            executionEngine: 'claude',
+            requestedModel: 'claude-sonnet-4-6',
+          },
+        },
+      );
+      assert.equal(continueInClaude.status, 200, JSON.stringify(continueInClaude.json));
+
+      const endpoints = await pool.query(
+        `select id, engine, runner_id, work_conversation_id
+         from provider_agent_sessions
+         where workspace_id = 'ws-a' and work_conversation_id = $1
+         order by engine`,
+        [createdWork.json.sessionId],
+      );
+      assert.equal(endpoints.rowCount, 2);
+      assert.deepEqual(endpoints.rows.map((row) => row.engine), ['claude', 'codex']);
+      assert.ok(endpoints.rows.every((row) => row.runner_id === runnerA.runnerId));
+      assert.ok(endpoints.rows.every((row) => row.work_conversation_id === createdWork.json.sessionId));
+      const claudeEndpoint = endpoints.rows.find((row) => row.engine === 'claude');
+      assert.ok(claudeEndpoint);
+
+      const claudeJob = await pool.query(
+        `select requested_engine, requested_model, provider_session_id, goal
+         from execution_jobs
+         where workspace_id = 'ws-a' and mission_id = $1
+         order by turn_index desc
+         limit 1`,
+        [createdWork.json.missionId],
+      );
+      assert.equal(claudeJob.rows[0].requested_engine, 'claude');
+      assert.equal(claudeJob.rows[0].requested_model, 'claude-sonnet-4-6');
+      assert.equal(claudeJob.rows[0].provider_session_id, claudeEndpoint.id);
+      assert.match(claudeJob.rows[0].goal, /Start this investigation in Codex/);
+      assert.match(claudeJob.rows[0].goal, /Review the same investigation in Claude/);
+
+      const returnToCodex = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Apply that review back in Codex',
+            clientMessageId: 'cross-engine-codex',
+            executionEngine: 'codex',
+            requestedModel: 'gpt-5.6-codex',
+          },
+        },
+      );
+      assert.equal(returnToCodex.status, 200, JSON.stringify(returnToCodex.json));
+
+      const codexJob = await pool.query(
+        `select requested_engine, requested_model, provider_session_id, goal
+         from execution_jobs
+         where workspace_id = 'ws-a' and mission_id = $1
+         order by turn_index desc
+         limit 1`,
+        [createdWork.json.missionId],
+      );
+      assert.equal(codexJob.rows[0].requested_engine, 'codex');
+      assert.equal(codexJob.rows[0].requested_model, 'gpt-5.6-codex');
+      assert.equal(codexJob.rows[0].provider_session_id, initialEndpoint.rows[0].id);
+      assert.match(codexJob.rows[0].goal, /Responsible Agent Profile/);
+      assert.match(codexJob.rows[0].goal, /Delegated work:\nApply that review back in Codex/);
+
+      const runnerPost = (urlPath, body) => httpJson(baseUrl, 'POST', urlPath, {
+        body,
+        headers: deviceAuthHeaders({
+          keys: keysA,
+          runnerId: runnerA.runnerId,
+          credential: runnerA.credential,
+          method: 'POST',
+          path: urlPath,
+          body,
+          sessionId: runnerA.sessionId,
+          cursor: runnerA.cursor,
+        }),
+      });
+      const leaseAndComplete = async (
+        expectedEngine,
+        expectedModel,
+        expectedProviderSessionId,
+        externalSessionId,
+        terminalKey,
+      ) => {
+        const nextPath = '/api/runner/device/next-offer';
+        const next = await runnerPost(nextPath, { runnerId: runnerA.runnerId });
+        assert.equal(next.status, 200, JSON.stringify(next.json));
+        assert.equal(next.json.offer.requestedEngine, expectedEngine);
+        assert.equal(next.json.offer.requestedModel, expectedModel);
+        assert.equal(next.json.offer.providerSession.id, expectedProviderSessionId);
+        if (externalSessionId && next.json.offer.providerSession.externalSessionId) {
+          assert.equal(next.json.offer.providerSession.externalSessionId, externalSessionId);
+        }
+        const leasePath = '/api/runner/device/lease';
+        const lease = await runnerPost(leasePath, {
+          runnerId: runnerA.runnerId,
+          offerId: next.json.offer.offerId,
+        });
+        assert.equal(lease.status, 200, JSON.stringify(lease.json));
+        assert.equal(lease.json.lease.requestedModel, expectedModel);
+        if (!next.json.offer.providerSession.externalSessionId) {
+          const bindPath = '/api/runner/device/provider-session/bind';
+          const bind = await runnerPost(bindPath, {
+            runnerId: runnerA.runnerId,
+            providerSessionId: expectedProviderSessionId,
+            externalSessionId,
+          });
+          assert.equal(bind.status, 200, JSON.stringify(bind.json));
+        }
+        const completePath = '/api/runner/device/complete';
+        const complete = await runnerPost(completePath, {
+          runnerId: runnerA.runnerId,
+          attemptId: lease.json.lease.attemptId,
+          leaseEpoch: lease.json.lease.leaseEpoch,
+          summary: `${expectedEngine} completed`,
+          resolvedModel: expectedModel,
+          idempotencyKey: terminalKey,
+          providerSession: {
+            id: expectedProviderSessionId,
+            externalSessionId,
+          },
+        });
+        assert.equal(complete.status, 200, JSON.stringify(complete.json));
+      };
+
+      await leaseAndComplete('codex', 'gpt-5.6-codex', initialEndpoint.rows[0].id, 'codex-canonical-thread', 'terminal:canonical-codex-1');
+      await leaseAndComplete('claude', 'claude-sonnet-4-6', claudeEndpoint.id, 'claude-canonical-session', 'terminal:canonical-claude');
+
+      const resumedCodex = await runnerPost('/api/runner/device/next-offer', {
+        runnerId: runnerA.runnerId,
+      });
+      assert.equal(resumedCodex.status, 200, JSON.stringify(resumedCodex.json));
+      assert.equal(resumedCodex.json.offer.requestedEngine, 'codex');
+      assert.equal(resumedCodex.json.offer.requestedModel, 'gpt-5.6-codex');
+      assert.equal(resumedCodex.json.offer.providerSession.id, initialEndpoint.rows[0].id);
+      assert.equal(resumedCodex.json.offer.providerSession.externalSessionId, 'codex-canonical-thread');
+
+      const conversation = await httpJson(
+        baseUrl,
+        'GET',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/conversation`,
+        { token: tokenA },
+      );
+      assert.equal(conversation.status, 200, JSON.stringify(conversation.json));
+      assert.equal(conversation.json.work.workConversationId, createdWork.json.sessionId);
+      assert.equal(conversation.json.work.activeExecutionModel, 'gpt-5.6-codex');
+      assert.equal(conversation.json.work.resolvedExecutionModel, 'claude-sonnet-4-6');
+      assert.ok(conversation.json.checkpoints.some((item) => item.text === 'Review the same investigation in Claude'));
+      assert.ok(conversation.json.checkpoints.some((item) => item.text === 'Apply that review back in Codex'));
+
+      const foreignConversation = await httpJson(
+        baseUrl,
+        'GET',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/conversation`,
+        { token: tokenB },
+      );
+      assert.equal(foreignConversation.status, 404);
+
+      const jobs = await pool.query(
+        `select count(*)::int as n
+         from execution_jobs
+         where workspace_id = 'ws-a' and mission_id = $1`,
+        [createdWork.json.missionId],
+      );
+      assert.equal(jobs.rows[0].n, 3);
+    } finally {
+      runtime.durableExecution.stopBackgroundWorkers();
+      if (runtime.unifiedCalendar?.stopBackgroundWorkers) runtime.unifiedCalendar.stopBackgroundWorkers();
+      await close(server);
+      delete process.env.WORKSPACE_AUTH_MODE;
+    }
+  });
+});
+
+test('explicit comparison fans one canonical user turn out to exact provider endpoints only', async () => {
+  await withEphemeralPostgres(async ({ pool }) => {
+    await seedUsers(pool);
+    process.env.WORKSPACE_AUTH_MODE = 'production';
+    const runtime = createPhase1Runtime({
+      pool,
+      identityVerifier: null,
+      authKit: null,
+      workosConfig: null,
+      env: { DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+    });
+    const server = createRailwayGatewayServer({
+      env: {
+        WORKSPACE_AUTH_MODE: 'production',
+        DURABLE_EXECUTION_CLAIMS_ENABLED: 'true',
+        DURABLE_EXECUTION_BACKGROUND_WORKERS: '0',
+      },
+      phase1Runtime: runtime,
+      phase1Pool: pool,
+      gatewayStore: { getState: () => ({}), ready: Promise.resolve() },
+      fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({}) }),
+    });
+    const baseUrl = await listen(server);
+    try {
+      const tokenA = await issueToken(pool, 'subject-a', 'ws-a');
+      const keysA = generateEd25519Keypair();
+      const runnerA = await enrollActiveRunner(baseUrl, tokenA, keysA, 'comparison-a');
+      await pool.query(
+        `update runners
+         set capabilities = $2::jsonb
+         where workspace_id = 'ws-a' and id = $1`,
+        [runnerA.runnerId, JSON.stringify({
+          engines: {
+            codex: {
+              available: true,
+              status: 'available',
+              authStatus: 'authenticated',
+              version: 'test',
+              modelSelection: 'catalog',
+              models: ['gpt-5.6-codex'],
+            },
+            claude: {
+              available: true,
+              status: 'available',
+              authStatus: 'authenticated',
+              version: 'test',
+              modelSelection: 'catalog',
+              models: ['claude-sonnet-4-6'],
+            },
+          },
+        })],
+      );
+      const createdWork = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
+        token: tokenA,
+        body: {
+          title: 'Compare one canonical turn',
+          goal: 'Prepare the shared context',
+          executionEngine: 'codex',
+          requestedModel: 'gpt-5.6-codex',
+        },
+      });
+      assert.equal(createdWork.status, 200, JSON.stringify(createdWork.json));
+      await pool.query(
+        `update execution_jobs
+         set status = 'completed', terminal_at = now()
+         where workspace_id = 'ws-a' and mission_id = $1`,
+        [createdWork.json.missionId],
+      );
+
+      const comparisonBody = {
+        text: 'Compare both engines on the same evidence',
+        clientMessageId: 'comparison-turn-1',
+        comparisonTargets: [
+          { executionEngine: 'codex', requestedModel: 'gpt-5.6-codex' },
+          { executionEngine: 'claude', requestedModel: 'claude-sonnet-4-6' },
+        ],
+      };
+      const comparison = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        { token: tokenA, body: comparisonBody },
+      );
+      assert.equal(comparison.status, 200, JSON.stringify(comparison.json));
+      assert.equal(comparison.json.comparison, true);
+      assert.deepEqual(
+        comparison.json.jobs.map((job) => job.executionEngine),
+        ['codex', 'claude'],
+      );
+
+      const comparisonJobs = await pool.query(
+        `select id, requested_engine, requested_model, provider_session_id,
+                turn_index, turn_target_index, turn_mode, payload
+         from execution_jobs
+         where workspace_id = 'ws-a' and mission_id = $1 and turn_index = 2
+         order by turn_target_index`,
+        [createdWork.json.missionId],
+      );
+      assert.equal(comparisonJobs.rowCount, 2);
+      assert.deepEqual(comparisonJobs.rows.map((row) => row.requested_engine), ['codex', 'claude']);
+      assert.deepEqual(
+        comparisonJobs.rows.map((row) => row.requested_model),
+        ['gpt-5.6-codex', 'claude-sonnet-4-6'],
+      );
+      assert.ok(comparisonJobs.rows.every((row) => row.turn_index === 2));
+      assert.deepEqual(comparisonJobs.rows.map((row) => row.turn_target_index), [0, 1]);
+      assert.ok(comparisonJobs.rows.every((row) => row.turn_mode === 'comparison'));
+      assert.ok(comparisonJobs.rows.every((row) => row.payload.comparison === true));
+      const officialEndpoints = await pool.query(
+        `select agent_id, official_profile, engine
+         from provider_agent_sessions
+         where workspace_id = 'ws-a' and work_conversation_id = $1
+         order by engine`,
+        [createdWork.json.sessionId],
+      );
+      assert.equal(officialEndpoints.rowCount, 2);
+      assert.ok(officialEndpoints.rows.every((row) => row.agent_id === null));
+      assert.ok(officialEndpoints.rows.every((row) => row.official_profile === 'default'));
+
+      const canonicalMessage = await pool.query(
+        `select count(*)::int as n
+         from agent_session_events
+         where workspace_id = 'ws-a' and session_id = $1
+           and kind = 'user_message' and payload->>'clientMessageId' = 'comparison-turn-1'`,
+        [createdWork.json.sessionId],
+      );
+      assert.equal(canonicalMessage.rows[0].n, 1);
+
+      const replay = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        { token: tokenA, body: comparisonBody },
+      );
+      assert.equal(replay.status, 200, JSON.stringify(replay.json));
+      assert.equal(replay.json.idempotentReplay, true);
+      const jobsAfterReplay = await pool.query(
+        `select count(*)::int as n
+         from execution_jobs
+         where workspace_id = 'ws-a' and mission_id = $1 and turn_index = 2`,
+        [createdWork.json.missionId],
+      );
+      assert.equal(jobsAfterReplay.rows[0].n, 2);
+
+      const invalidComparison = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Do not accept duplicate targets',
+            clientMessageId: 'comparison-duplicate',
+            comparisonTargets: [
+              { executionEngine: 'codex' },
+              { executionEngine: 'codex' },
+            ],
+          },
+        },
+      );
+      assert.equal(invalidComparison.status, 422, JSON.stringify(invalidComparison.json));
+
+      const runnerPost = (urlPath, body) => httpJson(baseUrl, 'POST', urlPath, {
+        body,
+        headers: deviceAuthHeaders({
+          keys: keysA,
+          runnerId: runnerA.runnerId,
+          credential: runnerA.credential,
+          method: 'POST',
+          path: urlPath,
+          body,
+          sessionId: runnerA.sessionId,
+          cursor: runnerA.cursor,
+        }),
+      });
+      for (let index = 0; index < 2; index += 1) {
+        const next = await runnerPost('/api/runner/device/next-offer', {
+          runnerId: runnerA.runnerId,
+        });
+        assert.equal(next.status, 200, JSON.stringify(next.json));
+        assert.ok(next.json.offer);
+        const lease = await runnerPost('/api/runner/device/lease', {
+          runnerId: runnerA.runnerId,
+          offerId: next.json.offer.offerId,
+        });
+        const providerSession = next.json.offer.providerSession;
+        const complete = await runnerPost('/api/runner/device/complete', {
+          runnerId: runnerA.runnerId,
+          attemptId: lease.json.lease.attemptId,
+          leaseEpoch: lease.json.lease.leaseEpoch,
+          summary: `${next.json.offer.requestedEngine} comparison result`,
+          resolvedModel: next.json.offer.requestedModel,
+          idempotencyKey: `comparison-terminal-${index}`,
+          providerSession: {
+            id: providerSession.id,
+            externalSessionId: providerSession.externalSessionId
+              || `${next.json.offer.requestedEngine}-comparison-session`,
+          },
+        });
+        assert.equal(complete.status, 200, JSON.stringify(complete.json));
+        const mission = await pool.query(
+          `select status from agent_missions
+           where workspace_id = 'ws-a' and id = $1`,
+          [createdWork.json.missionId],
+        );
+        assert.equal(mission.rows[0].status, index === 0 ? 'active' : 'completed');
+      }
+
+      const resultEvents = await pool.query(
+        `select payload
+         from agent_session_events
+         where workspace_id = 'ws-a' and session_id = $1
+           and payload->>'phase' = 'result'
+           and payload->'metadata'->>'turnMode' = 'comparison'
+         order by sequence`,
+        [createdWork.json.sessionId],
+      );
+      assert.equal(resultEvents.rowCount, 2);
+      assert.deepEqual(
+        new Set(resultEvents.rows.map((row) => row.payload.metadata.resolvedExecutionEngine)),
+        new Set(['codex', 'claude']),
+      );
+      assert.ok(resultEvents.rows.every((row) => row.payload.metadata.resolvedExecutionModel));
+
+      const cancellableComparison = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Compare again, then cancel both targets',
+            clientMessageId: 'comparison-turn-cancel',
+            comparisonTargets: [
+              { executionEngine: 'codex' },
+              { executionEngine: 'claude' },
+            ],
+          },
+        },
+      );
+      assert.equal(cancellableComparison.status, 200, JSON.stringify(cancellableComparison.json));
+      const cancelled = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/missions/${encodeURIComponent(createdWork.json.missionId)}/cancel`,
+        { token: tokenA, body: {} },
+      );
+      assert.equal(cancelled.status, 200, JSON.stringify(cancelled.json));
+      const cancelledJobs = await pool.query(
+        `select status, cancellation_requested
+         from execution_jobs
+         where workspace_id = 'ws-a' and mission_id = $1 and turn_index = 3
+         order by turn_target_index`,
+        [createdWork.json.missionId],
+      );
+      assert.equal(cancelledJobs.rowCount, 2);
+      assert.ok(cancelledJobs.rows.every((row) => row.status === 'cancelled'));
+      assert.ok(cancelledJobs.rows.every((row) => row.cancellation_requested === true));
+    } finally {
+      runtime.durableExecution.stopBackgroundWorkers();
+      if (runtime.unifiedCalendar?.stopBackgroundWorkers) runtime.unifiedCalendar.stopBackgroundWorkers();
+      await close(server);
+      delete process.env.WORKSPACE_AUTH_MODE;
+    }
+  });
+});
+
+test('Runner-local Telegram endpoint appends and replays one canonical Work Conversation without storing chat credentials', async () => {
+  await withEphemeralPostgres(async ({ pool }) => {
+    await seedUsers(pool);
+    process.env.WORKSPACE_AUTH_MODE = 'production';
+    const runtime = createPhase1Runtime({
+      pool,
+      identityVerifier: null,
+      authKit: null,
+      workosConfig: null,
+      env: { DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+    });
+    const server = createRailwayGatewayServer({
+      env: {
+        WORKSPACE_AUTH_MODE: 'production',
+        DURABLE_EXECUTION_CLAIMS_ENABLED: 'true',
+        DURABLE_EXECUTION_BACKGROUND_WORKERS: '0',
+      },
+      phase1Runtime: runtime,
+      phase1Pool: pool,
+      gatewayStore: { getState: () => ({}), ready: Promise.resolve() },
+      fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({}) }),
+    });
+    const baseUrl = await listen(server);
+    try {
+      const tokenA = await issueToken(pool, 'subject-a', 'ws-a');
+      const keysA = generateEd25519Keypair();
+      const keysB = generateEd25519Keypair();
+      const runnerA = await enrollActiveRunner(baseUrl, tokenA, keysA, 'telegram-a');
+      const tokenB = await issueToken(pool, 'subject-b', 'ws-b');
+      const runnerB = await enrollActiveRunner(baseUrl, tokenB, keysB, 'telegram-b');
+      await pool.query(
+        `update runners set capabilities = $2::jsonb
+         where id = $1 and workspace_id = 'ws-a'`,
+        [runnerA.runnerId, JSON.stringify({
+          engines: {
+            codex: {
+              available: true,
+              status: 'available',
+              authStatus: 'authenticated',
+              modelSelection: 'identifier',
+              models: [],
+            },
+          },
+        })],
+      );
+      const agent = await httpJson(baseUrl, 'POST', '/api/agents', {
+        token: tokenA,
+        body: {
+          displayName: 'Telegram Agent',
+          defaultExecutionEngine: 'codex',
+          defaultRunnerId: runnerA.runnerId,
+        },
+      });
+      const work = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
+        token: tokenA,
+        body: {
+          title: 'Shared channel conversation',
+          goal: 'Continue this work from Desktop and Telegram',
+          agentId: agent.json.agent.id,
+          executionEngine: 'codex',
+          requestedModel: 'gpt-5.6-sol',
+        },
+      });
+      const runnerPost = (runner, keys, urlPath, body) => httpJson(baseUrl, 'POST', urlPath, {
+        body,
+        headers: deviceAuthHeaders({
+          keys,
+          runnerId: runner.runnerId,
+          credential: runner.credential,
+          method: 'POST',
+          path: urlPath,
+          body,
+          sessionId: runner.sessionId,
+          cursor: runner.cursor,
+        }),
+      });
+      const bindPath = '/api/runner/device/channels/telegram/bind';
+      const bindingHandle = 'tg_binding_local_only_abcdef';
+      const conversationTailBeforeBind = await pool.query(
+        `select coalesce(max(sequence), 0)::int as sequence
+         from agent_session_events
+         where workspace_id = 'ws-a' and session_id = $1`,
+        [work.json.sessionId],
+      );
+      const bound = await runnerPost(runnerA, keysA, bindPath, {
+        runnerId: runnerA.runnerId,
+        workConversationId: work.json.sessionId,
+        bindingHandle,
+      });
+      assert.equal(bound.status, 200, JSON.stringify(bound.json));
+      const endpointId = bound.json.endpoint.id;
+      const projectedConversation = await httpJson(
+        baseUrl,
+        'GET',
+        `/api/agent-operations/work/${encodeURIComponent(work.json.missionId)}/conversation`,
+        { token: tokenA },
+      );
+      assert.equal(projectedConversation.status, 200, JSON.stringify(projectedConversation.json));
+      assert.equal(projectedConversation.json.channels.length, 1);
+      assert.deepEqual(
+        {
+          ...projectedConversation.json.channels[0],
+          lastActivityAt: typeof projectedConversation.json.channels[0].lastActivityAt,
+        },
+        {
+          id: endpointId,
+          channel: 'telegram',
+          status: 'active',
+          runnerId: runnerA.runnerId,
+          ingressOwnership: 'unverified',
+          lastActivityAt: 'string',
+        },
+      );
+      assert.doesNotMatch(JSON.stringify(projectedConversation.json.channels), /binding|token|chat.?id/i);
+      const boundCursor = await pool.query(
+        `select outbound_cursor::int as outbound_cursor
+         from work_conversation_channel_endpoints
+         where workspace_id = 'ws-a' and id = $1`,
+        [endpointId],
+      );
+      assert.equal(
+        boundCursor.rows[0].outbound_cursor,
+        conversationTailBeforeBind.rows[0].sequence,
+        'a new Telegram binding starts at the current conversation tail',
+      );
+
+      const foreign = await runnerPost(runnerB, keysB, bindPath, {
+        runnerId: runnerB.runnerId,
+        workConversationId: work.json.sessionId,
+        bindingHandle: 'tg_binding_foreign_abcdef',
+      });
+      assert.equal(foreign.status, 404);
+
+      const inboundPath = '/api/runner/device/channels/telegram/inbound';
+      const emptyInbound = await runnerPost(runnerA, keysA, inboundPath, {
+        runnerId: runnerA.runnerId,
+        endpointId,
+        deliveryKey: 'update_99_message_199',
+        text: '   ',
+        executionEngine: 'codex',
+      });
+      assert.equal(emptyInbound.status, 422);
+
+      const inboundBody = {
+        runnerId: runnerA.runnerId,
+        endpointId,
+        deliveryKey: 'update_100_message_200',
+        text: 'Telegram에서도 같은 작업을 이어서 수정해줘',
+        executionEngine: 'codex',
+        requestedModel: 'gpt-5.6-sol',
+      };
+      const first = await runnerPost(runnerA, keysA, inboundPath, inboundBody);
+      const replay = await runnerPost(runnerA, keysA, inboundPath, inboundBody);
+      assert.equal(first.status, 200, JSON.stringify(first.json));
+      assert.equal(replay.status, 200, JSON.stringify(replay.json));
+      assert.equal(replay.json.idempotentReplay, true);
+
+      const canonical = await pool.query(
+        `select payload
+         from agent_session_events
+         where workspace_id = 'ws-a' and session_id = $1
+           and kind = 'user_message'
+           and payload->>'clientMessageId' = $2`,
+        [work.json.sessionId, `channel:${endpointId}:update_100_message_200`],
+      );
+      assert.equal(canonical.rowCount, 1);
+      assert.equal(canonical.rows[0].payload.origin, 'telegram');
+      assert.equal(canonical.rows[0].payload.originEndpointId, endpointId);
+
+      const nextPath = '/api/runner/device/channels/telegram/next';
+      const beforeResult = await runnerPost(runnerA, keysA, nextPath, {
+        runnerId: runnerA.runnerId,
+        endpointId,
+      });
+      assert.equal(beforeResult.status, 200, JSON.stringify(beforeResult.json));
+      assert.equal(beforeResult.json.delivery, null, 'Telegram does not replay pre-bind history or echo its own inbound message');
+
+      const nextSequence = await pool.query(
+        `select coalesce(max(sequence), 0)::int + 1 as sequence
+         from agent_session_events
+         where workspace_id = 'ws-a' and session_id = $1`,
+        [work.json.sessionId],
+      );
+      await pool.query(
+        `insert into agent_session_events (
+           id, workspace_id, session_id, sequence, kind, payload
+         ) values
+           ('event_telegram_progress_test','ws-a',$1,$2,'progress',$3::jsonb),
+           ('event_telegram_agent_message_test','ws-a',$1,$2 + 1,'agent_message',$4::jsonb),
+           ('event_telegram_generic_completion_test','ws-a',$1,$2 + 2,'completion',$5::jsonb),
+           ('event_telegram_artifact_test','ws-a',$1,$2 + 3,'artifact',$6::jsonb),
+           ('event_telegram_result_test','ws-a',$1,$2 + 4,'completion',$7::jsonb)`,
+        [
+          work.json.sessionId,
+          nextSequence.rows[0].sequence,
+          JSON.stringify({ text: 'Runner leased attempt 1 with engine codex', metadata: { jobId: 'job_test' } }),
+          JSON.stringify({ text: 'Telegram round trip complete', metadata: { jobId: 'job_test' } }),
+          JSON.stringify({ text: 'Codex execution completed', metadata: { jobId: 'job_test' } }),
+          JSON.stringify({ text: 'Artifact ready: codex-result.txt', metadata: { jobId: 'job_test' } }),
+          JSON.stringify({ text: 'Codex: Telegram round trip complete', origin: 'execution', metadata: { jobId: 'job_test' } }),
+        ],
+      );
+      const delivery = await runnerPost(runnerA, keysA, nextPath, {
+        runnerId: runnerA.runnerId,
+        endpointId,
+      });
+      assert.equal(delivery.status, 200, JSON.stringify(delivery.json));
+      assert.ok(delivery.json.delivery);
+      assert.equal(delivery.json.delivery.text, 'Codex: Telegram round trip complete');
+      assert.equal(typeof delivery.json.delivery.text, 'string');
+      assert.equal(JSON.stringify(delivery.json).includes(bindingHandle), false);
+
+      const stored = await pool.query(
+        `select binding_handle, public_metadata
+         from work_conversation_channel_endpoints
+         where workspace_id = 'ws-a' and id = $1`,
+        [endpointId],
+      );
+      assert.equal(stored.rowCount, 1);
+      assert.equal(stored.rows[0].binding_handle, bindingHandle);
+      assert.doesNotMatch(JSON.stringify(stored.rows[0]), /1234|bot|token|chat_id/i);
     } finally {
       runtime.durableExecution.stopBackgroundWorkers();
       if (runtime.unifiedCalendar?.stopBackgroundWorkers) runtime.unifiedCalendar.stopBackgroundWorkers();

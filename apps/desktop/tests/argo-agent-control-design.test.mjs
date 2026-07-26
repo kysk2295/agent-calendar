@@ -13,6 +13,10 @@ test('Agent Work translates the Argo roster into an accountable agent directory'
   assert.match(directorySource, /에이전트 만들기/);
   assert.match(directorySource, /외부 에이전트 연결/);
   assert.match(directorySource, /책임/);
+  assert.match(directorySource, /말투와 성격/);
+  assert.match(directorySource, /계속 기억할 내용/);
+  assert.match(directorySource, /프로필 v/);
+  assert.match(directorySource, /실시간 작업/);
   assert.match(directorySource, /출처/);
   assert.match(directorySource, /Runner/);
   assert.doesNotMatch(directorySource, /크루 영입|회사 기억|사장님/);

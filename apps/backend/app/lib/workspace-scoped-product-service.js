@@ -5,10 +5,13 @@ const { assertActiveMembership, assertWorkspaceScope } = require('./workspace-sc
 const { withAppRoleWorkspaceTransaction } = require('./workspace-request-context');
 const { normalizeInferencePolicy } = require('./workspace-inference-broker');
 const {
+  agentExecutionProfile,
+  applyAgentExecutionProfile,
   normalizeWorkspaceAgent,
   projectWorkspaceAgent,
   WorkspaceAgentDirectoryError,
 } = require('./workspace-agent-directory');
+const { isOfficialProfileName } = require('./official-profiles');
 
 function newId(prefix) {
   return `${prefix}_${crypto.randomBytes(12).toString('hex')}`;
@@ -16,6 +19,118 @@ function newId(prefix) {
 
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function explicitProviderEngine(value) {
+  const engine = String(value || '').trim().toLowerCase();
+  if (!engine || engine === 'auto' || engine === 'automatic') return '';
+  if (['codex', 'claude', 'grok', 'hermes'].includes(engine)) return engine;
+  const error = new Error('Execution Engine is not supported for this Work Conversation');
+  error.code = 'provider_engine_invalid';
+  error.statusHint = 422;
+  throw error;
+}
+
+function publicExecutionModel(value) {
+  const model = String(value || '').trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(model)
+    && !/^(sk-|bearer|token|cookie|secret)/i.test(model)
+    ? model
+    : '';
+}
+
+function requestedExecutionModel(value) {
+  const model = String(value || '').trim();
+  if (!model) return '';
+  const normalized = publicExecutionModel(model);
+  if (normalized) return normalized;
+  const error = new Error('Execution model identifier is invalid');
+  error.code = 'execution_model_invalid';
+  error.statusHint = 422;
+  throw error;
+}
+
+function requestedComparisonTargets(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length < 2 || value.length > 4) {
+    const error = new Error('Comparison requires between two and four explicit Execution Engines');
+    error.code = 'comparison_targets_invalid';
+    error.statusHint = 422;
+    throw error;
+  }
+  const targets = value.map((entry) => {
+    const target = asObject(entry);
+    const executionEngine = explicitProviderEngine(target.executionEngine);
+    if (!executionEngine) {
+      const error = new Error('Comparison target requires an explicit Execution Engine');
+      error.code = 'comparison_target_engine_required';
+      error.statusHint = 422;
+      throw error;
+    }
+    return {
+      executionEngine,
+      requestedModel: requestedExecutionModel(target.requestedModel),
+    };
+  });
+  if (new Set(targets.map((target) => target.executionEngine)).size !== targets.length) {
+    const error = new Error('Comparison target Execution Engines must be unique');
+    error.code = 'comparison_target_duplicate';
+    error.statusHint = 422;
+    throw error;
+  }
+  return targets;
+}
+
+function providerSessionOwner(agentId, agentRow) {
+  const id = String(agentId || '').trim();
+  if (agentRow) return { agentId: id, officialProfile: '' };
+  if (isOfficialProfileName(id)) return { agentId: null, officialProfile: id };
+  const error = new Error('Provider session owner is unavailable in this Workspace');
+  error.code = 'provider_session_owner_unavailable';
+  error.statusHint = 409;
+  throw error;
+}
+
+function assertRunnerSupportsModel(capabilities, engine, model) {
+  if (!model) return;
+  const engineCapability = asObject(asObject(capabilities).engines)[engine];
+  const publicCapability = asObject(engineCapability);
+  const models = Array.isArray(publicCapability.models)
+    ? publicCapability.models.map(publicExecutionModel).filter(Boolean)
+    : [];
+  if (models.length && !models.includes(model)) {
+    const error = new Error(`Execution model ${model} is unavailable on this Workspace Runner`);
+    error.code = 'execution_model_unavailable';
+    error.statusHint = 409;
+    throw error;
+  }
+}
+
+function providerSessionStateError(status) {
+  const normalized = String(status || 'unavailable');
+  const error = new Error(`Provider session is ${normalized}`);
+  error.code = `provider_session_${normalized}`;
+  error.statusHint = 409;
+  return error;
+}
+
+function canonicalContextGoal({ objective, events, message }) {
+  const transcript = events
+    .map((event) => {
+      const payload = asObject(event.payload);
+      const text = String(payload.text || '').trim();
+      if (!text) return '';
+      return `${event.kind === 'agent_message' ? 'Assistant' : 'User'}: ${text}`;
+    })
+    .filter(Boolean)
+    .join('\n')
+    .slice(-8_000);
+  return [
+    'Continue the same Agent Calendar Work Conversation using this canonical context.',
+    `Work objective: ${String(objective || '').trim().slice(0, 2_000)}`,
+    transcript ? `Transcript:\n${transcript}` : '',
+    `Current user message: ${String(message || '').trim().slice(0, 4_000)}`,
+  ].filter(Boolean).join('\n\n').slice(0, 12_000);
 }
 
 function scrubSettingsValue(value) {
@@ -1200,16 +1315,18 @@ class WorkspaceScopedProductService {
         : 'active';
 
       // Prefer mission payload, then durable job.resolved_engine, then checkpoint engine metadata.
+      let latestJob = null;
       let resolvedExecutionEngine = String(
         payload.resolvedExecutionEngine || payload.resolvedEngine || '',
       ).toLowerCase();
       if (!['hermes', 'codex', 'claude', 'grok', 'fake'].includes(resolvedExecutionEngine)) {
         const job = await client.query(
-          `select resolved_engine from execution_jobs
+          `select requested_model, resolved_model, resolved_engine from execution_jobs
            where workspace_id = $1 and mission_id = $2
            order by updated_at desc nulls last limit 1`,
           [valid.workspaceId, m.id],
         );
+        latestJob = job.rowCount ? job.rows[0] : null;
         resolvedExecutionEngine = job.rowCount
           ? String(job.rows[0].resolved_engine || '').toLowerCase()
           : '';
@@ -1227,6 +1344,28 @@ class WorkspaceScopedProductService {
       if (!['hermes', 'codex', 'claude', 'grok', 'fake'].includes(resolvedExecutionEngine)) {
         resolvedExecutionEngine = '';
       }
+      const activeExecutionEngineCandidate = String(
+        payload.activeExecutionEngine || resolvedExecutionEngine || '',
+      ).toLowerCase();
+      const activeExecutionEngine = ['hermes', 'codex', 'claude', 'grok'].includes(activeExecutionEngineCandidate)
+        ? activeExecutionEngineCandidate
+        : (engine === 'automatic' ? 'auto' : engine);
+      if (!latestJob) {
+        const job = await client.query(
+          `select requested_model, resolved_model
+           from execution_jobs
+           where workspace_id = $1 and mission_id = $2
+           order by updated_at desc nulls last limit 1`,
+          [valid.workspaceId, m.id],
+        );
+        latestJob = job.rowCount ? job.rows[0] : null;
+      }
+      const activeExecutionModel = publicExecutionModel(
+        payload.activeExecutionModel || latestJob?.requested_model || '',
+      );
+      const resolvedExecutionModel = publicExecutionModel(
+        payload.resolvedExecutionModel || latestJob?.resolved_model || '',
+      );
 
       const work = {
         id: m.id,
@@ -1237,7 +1376,10 @@ class WorkspaceScopedProductService {
         agentId: m.agent_id || 'default',
         assignmentReason: 'default:official',
         executionEngine: engine === 'automatic' ? 'auto' : engine,
+        activeExecutionEngine,
         ...(resolvedExecutionEngine ? { resolvedExecutionEngine } : {}),
+        activeExecutionModel,
+        resolvedExecutionModel,
         deliverable,
         missionThreadId: sessionId,
         workConversationId: sessionId,
@@ -1257,6 +1399,25 @@ class WorkspaceScopedProductService {
         createdAt,
         updatedAt,
       };
+      const channelEndpoints = sessionId
+        ? await client.query(
+          `select id, channel, status, runner_id, last_activity_at
+           from work_conversation_channel_endpoints
+           where workspace_id = $1 and work_conversation_id = $2
+           order by created_at asc, id asc`,
+          [valid.workspaceId, sessionId],
+        )
+        : { rows: [] };
+      const channels = channelEndpoints.rows.map((row) => ({
+        id: row.id,
+        channel: row.channel,
+        status: row.status,
+        runnerId: row.runner_id,
+        ingressOwnership: 'unverified',
+        lastActivityAt: row.last_activity_at
+          ? new Date(row.last_activity_at).toISOString()
+          : null,
+      }));
 
       const checkpoints = events.map((e) => {
         const p = asObject(e.payload);
@@ -1278,6 +1439,7 @@ class WorkspaceScopedProductService {
         ok: true,
         work,
         conversation,
+        channels,
         checkpoints,
         nextCursor: null,
         missionId: m.id,
@@ -1289,8 +1451,343 @@ class WorkspaceScopedProductService {
     });
   }
 
+  async #comparisonProviderEndpoint({
+    client,
+    valid,
+    mission,
+    sessionId,
+    missionPayload,
+    providerRows,
+    target,
+  }) {
+    let providerSession = providerRows.find((row) => row.engine === target.executionEngine);
+    let created = false;
+    if (!providerSession) {
+      const { resolveEngine } = require('./durable-execution');
+      const runnerResult = await client.query(
+        `select id, connection_state, status as runner_status, capabilities
+         from runners
+         where workspace_id = $1 and status = 'active'
+         order by
+           case when id = $2 then 0 else 1 end,
+           updated_at desc,
+           id asc`,
+        [
+          valid.workspaceId,
+          String(providerRows[0]?.runner_id || missionPayload.preferredRunnerId || ''),
+        ],
+      );
+      const eligibleRunner = runnerResult.rows.find((runner) => (
+        runner.connection_state === 'connected'
+        && resolveEngine(target.executionEngine, runner.capabilities || {}).resolved
+          === target.executionEngine
+      ));
+      if (!eligibleRunner) {
+        const unavailable = new Error(
+          `Execution Engine ${target.executionEngine} is unavailable on this Workspace Runner`,
+        );
+        unavailable.code = 'provider_endpoint_unavailable';
+        unavailable.statusHint = 409;
+        throw unavailable;
+      }
+      const agentResult = await client.query(
+        `select payload
+         from agents
+         where workspace_id = $1 and id = $2
+         limit 1`,
+        [valid.workspaceId, mission.agent_id],
+      );
+      const owner = providerSessionOwner(mission.agent_id, agentResult.rows[0]);
+      const providerSessionId = newId('psess');
+      const inserted = await client.query(
+        `insert into provider_agent_sessions (
+           id, workspace_id, agent_id, official_profile, runner_id, work_conversation_id,
+           provider, engine, external_agent_id, status, title, public_metadata,
+           context_sync_mode, last_activity_at
+         ) values ($1,$2,$3,$4,$5,$6,$7,$7,$8,'pending',$9,$10::jsonb,'context_only',now())
+         on conflict (workspace_id, work_conversation_id, engine, runner_id)
+         do update set updated_at = now()
+         returning *`,
+        [
+          providerSessionId,
+          valid.workspaceId,
+          owner.agentId,
+          owner.officialProfile,
+          eligibleRunner.id,
+          sessionId,
+          target.executionEngine,
+          String(asObject(agentResult.rows[0]?.payload).externalAgentId || '').slice(0, 160),
+          String(missionPayload.title || 'Work Conversation').slice(0, 300),
+          JSON.stringify({
+            source: 'work_conversation_comparison',
+            contextSyncMode: 'context_only',
+          }),
+        ],
+      );
+      providerSession = {
+        ...inserted.rows[0],
+        connection_state: eligibleRunner.connection_state,
+        runner_status: eligibleRunner.runner_status,
+        capabilities: eligibleRunner.capabilities,
+      };
+      created = providerSession.id === providerSessionId;
+      providerRows.push(providerSession);
+    }
+    if ([
+      'auth_required',
+      'missing',
+      'deleted',
+      'quota_exhausted',
+      'unavailable',
+      'archived',
+    ].includes(providerSession.status)) {
+      throw providerSessionStateError(providerSession.status);
+    }
+    assertRunnerSupportsModel(
+      providerSession.capabilities,
+      providerSession.engine,
+      target.requestedModel,
+    );
+    return { providerSession, created };
+  }
+
+  async #addAgentWorkComparison({
+    client,
+    valid,
+    mission,
+    sessionId,
+    input,
+    targets,
+    profileSnapshot,
+  }) {
+    const text = String(input.text || input.message || '').trim().slice(0, 4_000);
+    if (!text) {
+      const error = new Error('Comparison message text is required');
+      error.code = 'comparison_text_required';
+      error.statusHint = 422;
+      throw error;
+    }
+    if (explicitProviderEngine(input.executionEngine) || requestedExecutionModel(input.requestedModel)) {
+      const error = new Error('Comparison targets cannot be combined with a single Execution Engine');
+      error.code = 'comparison_request_ambiguous';
+      error.statusHint = 422;
+      throw error;
+    }
+    const providerResult = await client.query(
+      `select ps.*, r.connection_state, r.status as runner_status, r.capabilities
+       from provider_agent_sessions ps
+       inner join runners r
+         on r.workspace_id = ps.workspace_id and r.id = ps.runner_id
+       where ps.workspace_id = $1 and ps.work_conversation_id = $2
+       order by ps.updated_at desc, ps.id asc`,
+      [valid.workspaceId, sessionId],
+    );
+    const providerRows = [...providerResult.rows];
+    const missionPayload = asObject(mission.payload);
+    const endpoints = [];
+    for (const target of targets) {
+      endpoints.push(await this.#comparisonProviderEndpoint({
+        client,
+        valid,
+        mission,
+        sessionId,
+        missionPayload,
+        providerRows,
+        target,
+      }));
+    }
+    const contextEvents = endpoints.some((endpoint) => endpoint.created)
+      ? await client.query(
+        `select kind, payload
+         from agent_session_events
+         where workspace_id = $1 and session_id = $2
+           and kind in ('user_message', 'agent_message')
+         order by sequence desc
+         limit 24`,
+        [valid.workspaceId, sessionId],
+      )
+      : { rows: [] };
+    const seqResult = await client.query(
+      `select coalesce(max(sequence), 0)::int as n
+       from agent_session_events
+       where workspace_id = $1 and session_id = $2`,
+      [valid.workspaceId, sessionId],
+    );
+    const sequence = (Number(seqResult.rows[0].n) || 0) + 1;
+    const turnResult = await client.query(
+      `select coalesce(max(turn_index), 0)::int as n
+       from execution_jobs
+       where workspace_id = $1 and mission_id = $2`,
+      [valid.workspaceId, mission.id],
+    );
+    const turnIndex = (Number(turnResult.rows[0].n) || 0) + 1;
+    const clientMessageId = String(input.clientMessageId || '').slice(0, 160);
+    const eventId = newId('evt');
+    const publicTargets = targets.map((target) => ({
+      executionEngine: target.executionEngine,
+      requestedModel: target.requestedModel,
+    }));
+    const eventPayload = {
+      text,
+      clientMessageId: clientMessageId || null,
+      executionEngine: null,
+      requestedModel: '',
+      providerSessionId: null,
+      comparison: true,
+      comparisonTargets: publicTargets,
+      turnIndex,
+      origin: String(input.origin || 'desktop').slice(0, 40),
+      originEndpointId: String(input.originEndpointId || '').slice(0, 160),
+      role: 'user',
+      workspaceId: valid.workspaceId,
+    };
+    await client.query(
+      `insert into agent_session_events (id, session_id, sequence, kind, payload, workspace_id)
+       values ($1, $2, $3, 'user_message', $4::jsonb, $5)`,
+      [eventId, sessionId, sequence, JSON.stringify(eventPayload), valid.workspaceId],
+    );
+
+    const jobs = [];
+    for (let targetIndex = 0; targetIndex < endpoints.length; targetIndex += 1) {
+      const { providerSession, created } = endpoints[targetIndex];
+      const target = targets[targetIndex];
+      const { projectAgentWorkCalendarState, resolveEngine } = require('./durable-execution');
+      const resolved = providerSession.connection_state === 'connected'
+        && providerSession.runner_status === 'active'
+        ? resolveEngine(providerSession.engine, providerSession.capabilities || {})
+        : { requested: providerSession.engine, resolved: '', reason: 'waiting_runner' };
+      const jobStatus = resolved.resolved ? 'accepted' : 'waiting_runner';
+      const jobId = newId('job');
+      const projectionKey = `proj:${mission.id}:turn:${turnIndex}:target:${targetIndex}`;
+      const conversationGoal = created
+        ? canonicalContextGoal({
+          objective: missionPayload.objective || missionPayload.goal,
+          events: [...contextEvents.rows].reverse(),
+          message: text,
+        })
+        : text;
+      const effectiveGoal = profileSnapshot
+        ? applyAgentExecutionProfile(conversationGoal, profileSnapshot)
+        : conversationGoal;
+      await client.query(
+        `insert into execution_jobs (
+           id, workspace_id, mission_id, session_id, requested_engine,
+           requested_model, resolved_engine, resolved_model, engine_reason,
+           preferred_runner_id, status, goal, payload, available_at, max_attempts,
+           projection_key, turn_index, turn_target_index, turn_mode, provider_session_id
+         ) values (
+           $1,$2,$3,$4,$5,$6,$7,'',$8,$9,$10,$11,$12::jsonb,now(),5,
+           $13,$14,$15,'comparison',$16
+         )`,
+        [
+          jobId,
+          valid.workspaceId,
+          mission.id,
+          sessionId,
+          providerSession.engine,
+          target.requestedModel,
+          resolved.resolved || '',
+          resolved.reason,
+          providerSession.runner_id,
+          jobStatus,
+          effectiveGoal,
+          JSON.stringify({
+            agentId: mission.agent_id || 'default',
+            clientMessageId,
+            executionEngine: providerSession.engine,
+            requestedModel: target.requestedModel,
+            origin: eventPayload.origin,
+            turnIndex,
+            turnTargetIndex: targetIndex,
+            turnTargetCount: targets.length,
+            turnMode: 'comparison',
+            comparison: true,
+            providerSessionId: providerSession.id,
+            contextSyncMode: created ? 'context_only' : 'native',
+            ...(profileSnapshot ? { profileSnapshot } : {}),
+          }),
+          projectionKey,
+          turnIndex,
+          targetIndex,
+          providerSession.id,
+        ],
+      );
+      await projectAgentWorkCalendarState(client, {
+        workspaceId: valid.workspaceId,
+        projectionKey,
+        jobId,
+        missionId: mission.id,
+        sessionId,
+        goal: conversationGoal,
+        lifecycleStatus: 'scheduled',
+        occurredAt: new Date().toISOString(),
+        turnIndex,
+        providerSessionId: providerSession.id,
+      });
+      await client.query(
+        `update provider_agent_sessions
+         set last_activity_at = now(),
+             last_context_sequence = greatest(last_context_sequence, $3),
+             updated_at = now()
+         where workspace_id = $1 and id = $2`,
+        [valid.workspaceId, providerSession.id, sequence],
+      );
+      jobs.push({
+        id: jobId,
+        status: jobStatus,
+        turnIndex,
+        turnTargetIndex: targetIndex,
+        providerSessionId: providerSession.id,
+        executionEngine: providerSession.engine,
+        requestedModel: target.requestedModel,
+      });
+    }
+    const missionStatus = jobs.some((job) => job.status === 'accepted')
+      ? 'accepted'
+      : 'waiting_runner';
+    await client.query(
+      `update agent_missions
+       set status = $3, payload = payload || $4::jsonb, updated_at = now()
+       where workspace_id = $1 and id = $2`,
+      [
+        valid.workspaceId,
+        mission.id,
+        missionStatus,
+        JSON.stringify({
+          status: missionStatus,
+          updatedAt: new Date().toISOString(),
+          comparisonTurnIndex: turnIndex,
+          comparisonTargets: publicTargets,
+          comparisonStatus: 'running',
+        }),
+      ],
+    );
+    await client.query(
+      `update agent_sessions
+       set status = $3, payload = payload || $4::jsonb, updated_at = now()
+       where workspace_id = $1 and id = $2`,
+      [
+        valid.workspaceId,
+        sessionId,
+        missionStatus,
+        JSON.stringify({ status: missionStatus, comparisonTurnIndex: turnIndex }),
+      ],
+    );
+    return {
+      ok: true,
+      missionId: mission.id,
+      sessionId,
+      event: { id: eventId, sequence, kind: 'user_message', ...eventPayload },
+      comparison: true,
+      jobs,
+      workspaceId: valid.workspaceId,
+    };
+  }
+
   async addAgentWorkMessage(scope, missionId, input = {}) {
     return this.#run(scope, async (client, valid) => {
+      const requestedProviderEngine = explicitProviderEngine(input.executionEngine);
+      const comparisonTargets = requestedComparisonTargets(input.comparisonTargets);
       const mission = await client.query(
         `select id, agent_id, payload
          from agent_missions
@@ -1307,6 +1804,27 @@ class WorkspaceScopedProductService {
       );
       if (!session.rowCount) return null;
       const sessionId = session.rows[0].id;
+      const agentResult = await client.query(
+        `select payload
+         from agents
+         where workspace_id = $1 and id = $2
+         limit 1`,
+        [valid.workspaceId, mission.rows[0].agent_id],
+      );
+      const profileSnapshot = agentResult.rowCount
+        ? agentExecutionProfile({
+          id: mission.rows[0].agent_id,
+          ...asObject(agentResult.rows[0].payload),
+          workspaceId: valid.workspaceId,
+        })
+        : null;
+      await client.query(
+        `select id
+         from agent_sessions
+         where workspace_id = $1 and id = $2
+         for update`,
+        [valid.workspaceId, sessionId],
+      );
       const clientMessageId = String(input.clientMessageId || '').slice(0, 160);
       if (clientMessageId) {
         const replay = await client.query(
@@ -1334,27 +1852,135 @@ class WorkspaceScopedProductService {
           };
         }
       }
+      if (comparisonTargets.length) {
+        return this.#addAgentWorkComparison({
+          client,
+          valid,
+          mission: mission.rows[0],
+          sessionId,
+          input,
+          targets: comparisonTargets,
+          profileSnapshot,
+        });
+      }
       const providerResult = await client.query(
         `select ps.*, r.connection_state, r.status as runner_status, r.capabilities
          from provider_agent_sessions ps
          inner join runners r
            on r.workspace_id = ps.workspace_id and r.id = ps.runner_id
          where ps.workspace_id = $1 and ps.work_conversation_id = $2
-         limit 1`,
+         order by ps.updated_at desc, ps.id asc`,
         [valid.workspaceId, sessionId],
       );
-      if (providerResult.rowCount && [
+      const missionPayload = asObject(mission.rows[0].payload);
+      const activeProviderSessionId = String(
+        missionPayload.activeProviderSessionId || missionPayload.providerSessionId || '',
+      );
+      let providerSession = requestedProviderEngine
+        ? providerResult.rows.find((row) => row.engine === requestedProviderEngine)
+        : providerResult.rows.find((row) => row.id === activeProviderSessionId) || providerResult.rows[0];
+      let createdProviderEndpoint = false;
+      if (requestedProviderEngine && !providerSession) {
+        const {
+          resolveEngine,
+        } = require('./durable-execution');
+        const runnerResult = await client.query(
+          `select id, connection_state, status as runner_status, capabilities
+           from runners
+           where workspace_id = $1 and status = 'active'
+           order by
+             case when id = $2 then 0 else 1 end,
+             updated_at desc,
+             id asc`,
+          [
+            valid.workspaceId,
+            String(providerResult.rows[0]?.runner_id || ''),
+          ],
+        );
+        const eligibleRunner = runnerResult.rows.find((runner) => (
+          runner.connection_state === 'connected'
+          && resolveEngine(requestedProviderEngine, runner.capabilities || {}).resolved === requestedProviderEngine
+        ));
+        if (!eligibleRunner) {
+          const unavailable = new Error(`Execution Engine ${requestedProviderEngine} is unavailable on this Workspace Runner`);
+          unavailable.code = 'provider_endpoint_unavailable';
+          unavailable.statusHint = 409;
+          throw unavailable;
+        }
+        const agentResult = await client.query(
+          `select payload
+           from agents
+           where workspace_id = $1 and id = $2
+           limit 1`,
+          [valid.workspaceId, mission.rows[0].agent_id],
+        );
+        const owner = providerSessionOwner(
+          mission.rows[0].agent_id,
+          agentResult.rows[0],
+        );
+        const providerSessionId = newId('psess');
+        const inserted = await client.query(
+          `insert into provider_agent_sessions (
+             id, workspace_id, agent_id, official_profile, runner_id, work_conversation_id,
+             provider, engine, external_agent_id, status, title, public_metadata,
+             context_sync_mode, last_activity_at
+           ) values ($1,$2,$3,$4,$5,$6,$7,$7,$8,'pending',$9,$10::jsonb,'context_only',now())
+           on conflict (workspace_id, work_conversation_id, engine, runner_id)
+           do update set updated_at = now()
+           returning *`,
+          [
+            providerSessionId,
+            valid.workspaceId,
+            owner.agentId,
+            owner.officialProfile,
+            eligibleRunner.id,
+            sessionId,
+            requestedProviderEngine,
+            String(asObject(agentResult.rows[0]?.payload).externalAgentId || '').slice(0, 160),
+            String(missionPayload.title || 'Work Conversation').slice(0, 300),
+            JSON.stringify({
+              source: 'work_conversation_engine_switch',
+              contextSyncMode: 'context_only',
+            }),
+          ],
+        );
+        providerSession = {
+          ...inserted.rows[0],
+          connection_state: eligibleRunner.connection_state,
+          runner_status: eligibleRunner.runner_status,
+          capabilities: eligibleRunner.capabilities,
+        };
+        createdProviderEndpoint = providerSession.id === providerSessionId;
+      }
+      if (providerSession && [
         'auth_required',
         'missing',
         'deleted',
         'quota_exhausted',
+        'unavailable',
         'archived',
-      ].includes(providerResult.rows[0].status)) {
-        const error = new Error(`Provider session is ${providerResult.rows[0].status}`);
-        error.code = `provider_session_${providerResult.rows[0].status}`;
-        error.statusHint = 409;
-        throw error;
+      ].includes(providerSession.status)) {
+        throw providerSessionStateError(providerSession.status);
       }
+      const requestedModel = requestedExecutionModel(input.requestedModel);
+      if (providerSession) {
+        assertRunnerSupportsModel(
+          providerSession.capabilities,
+          providerSession.engine,
+          requestedModel,
+        );
+      }
+      const contextEvents = createdProviderEndpoint
+        ? await client.query(
+          `select kind, payload
+           from agent_session_events
+           where workspace_id = $1 and session_id = $2
+             and kind in ('user_message', 'agent_message')
+           order by sequence desc
+           limit 24`,
+          [valid.workspaceId, sessionId],
+        )
+        : { rows: [] };
       const seqResult = await client.query(
         `select coalesce(max(sequence), 0)::int as n
          from agent_session_events
@@ -1366,6 +1992,11 @@ class WorkspaceScopedProductService {
       const payload = {
         text: String(input.text || input.message || ''),
         clientMessageId: clientMessageId || null,
+        executionEngine: providerSession?.engine || requestedProviderEngine || null,
+        requestedModel,
+        providerSessionId: providerSession?.id || null,
+        origin: String(input.origin || 'desktop').slice(0, 40),
+        originEndpointId: String(input.originEndpointId || '').slice(0, 160),
         role: 'user',
         workspaceId: valid.workspaceId,
       };
@@ -1375,8 +2006,7 @@ class WorkspaceScopedProductService {
         [eventId, sessionId, sequence, JSON.stringify(payload), valid.workspaceId],
       );
       let job = null;
-      if (providerResult.rowCount && payload.text) {
-        const providerSession = providerResult.rows[0];
+      if (providerSession && payload.text) {
         const {
           projectAgentWorkCalendarState,
           resolveEngine,
@@ -1395,14 +2025,24 @@ class WorkspaceScopedProductService {
         const turnIndex = (Number(turnResult.rows[0].n) || 0) + 1;
         const jobId = newId('job');
         const projectionKey = `proj:${mission.rows[0].id}:turn:${turnIndex}`;
+        const conversationGoal = createdProviderEndpoint
+          ? canonicalContextGoal({
+            objective: missionPayload.objective || missionPayload.goal,
+            events: [...contextEvents.rows].reverse(),
+            message: payload.text,
+          })
+          : payload.text.slice(0, 4_000);
+        const effectiveGoal = profileSnapshot
+          ? applyAgentExecutionProfile(conversationGoal, profileSnapshot)
+          : conversationGoal;
         await client.query(
           `insert into execution_jobs (
              id, workspace_id, mission_id, session_id, requested_engine,
-             resolved_engine, engine_reason, preferred_runner_id, status,
+             requested_model, resolved_engine, resolved_model, engine_reason, preferred_runner_id, status,
              goal, payload, available_at, max_attempts, projection_key,
              turn_index, provider_session_id
            ) values (
-             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,now(),5,$12,$13,$14
+             $1,$2,$3,$4,$5,$6,$7,'',$8,$9,$10,$11,$12::jsonb,now(),5,$13,$14,$15
            )`,
           [
             jobId,
@@ -1410,16 +2050,22 @@ class WorkspaceScopedProductService {
             mission.rows[0].id,
             sessionId,
             providerSession.engine,
+            requestedModel,
             resolved.resolved || '',
             resolved.reason,
             providerSession.runner_id,
             jobStatus,
-            payload.text.slice(0, 4000),
+            effectiveGoal,
             JSON.stringify({
               agentId: mission.rows[0].agent_id || 'default',
               clientMessageId,
+              executionEngine: providerSession.engine,
+              requestedModel,
+              origin: payload.origin,
               turnIndex,
               providerSessionId: providerSession.id,
+              contextSyncMode: createdProviderEndpoint ? 'context_only' : 'native',
+              ...(profileSnapshot ? { profileSnapshot } : {}),
             }),
             projectionKey,
             turnIndex,
@@ -1432,7 +2078,7 @@ class WorkspaceScopedProductService {
           jobId,
           missionId: mission.rows[0].id,
           sessionId,
-          goal: payload.text.slice(0, 4000),
+          goal: conversationGoal,
           lifecycleStatus: 'scheduled',
           occurredAt: new Date().toISOString(),
           turnIndex,
@@ -1450,6 +2096,9 @@ class WorkspaceScopedProductService {
               status: jobStatus,
               updatedAt: new Date().toISOString(),
               providerSessionId: providerSession.id,
+              activeProviderSessionId: providerSession.id,
+              activeExecutionEngine: providerSession.engine,
+              activeExecutionModel: requestedModel,
             }),
           ],
         );
@@ -1463,6 +2112,14 @@ class WorkspaceScopedProductService {
             jobStatus,
             JSON.stringify({ status: jobStatus }),
           ],
+        );
+        await client.query(
+          `update provider_agent_sessions
+           set last_activity_at = now(),
+               last_context_sequence = greatest(last_context_sequence, $3),
+               updated_at = now()
+           where workspace_id = $1 and id = $2`,
+          [valid.workspaceId, providerSession.id, sequence],
         );
         job = {
           id: jobId,

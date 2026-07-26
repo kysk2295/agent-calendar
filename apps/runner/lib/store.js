@@ -144,14 +144,102 @@ function removeKnowledgeSource(stateDir, sourceId) {
   return true;
 }
 
+function telegramChannelsPath(stateDir) {
+  return path.join(stateDir, 'telegram-channels.json');
+}
+
+function listTelegramChannels(stateDir) {
+  const filePath = telegramChannelsPath(stateDir);
+  if (!fs.existsSync(filePath)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return Array.isArray(parsed.channels) ? parsed.channels : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveTelegramChannels(stateDir, channels) {
+  writePrivateFile(
+    telegramChannelsPath(stateDir),
+    `${JSON.stringify({ channels }, null, 2)}\n`,
+  );
+  return channels;
+}
+
+function registerTelegramChannel(stateDir, {
+  workConversationId,
+  botToken,
+  chatId,
+  executionEngine = 'auto',
+  requestedModel = '',
+} = {}) {
+  const conversationId = String(workConversationId || '').trim();
+  const token = String(botToken || '').trim();
+  const localChatId = String(chatId || '').trim();
+  const engine = String(executionEngine || 'auto').trim().toLowerCase();
+  const model = String(requestedModel || '').trim();
+  if (!/^[A-Za-z][A-Za-z0-9_-]{1,159}$/.test(conversationId)) {
+    throw Object.assign(new Error('workConversationId is invalid'), { code: 'TELEGRAM_CONVERSATION_ID_INVALID' });
+  }
+  if (!token || !localChatId) {
+    throw Object.assign(new Error('Telegram bot token and chat id are required locally'), { code: 'TELEGRAM_LOCAL_CREDENTIAL_REQUIRED' });
+  }
+  if (!['auto', 'codex', 'claude', 'grok', 'hermes'].includes(engine)) {
+    throw Object.assign(new Error('Telegram execution engine is invalid'), { code: 'TELEGRAM_ENGINE_INVALID' });
+  }
+  if (model && (
+    !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(model)
+    || /^(sk-|bearer|token|cookie|secret)/i.test(model)
+  )) {
+    throw Object.assign(new Error('Telegram execution model is invalid'), { code: 'TELEGRAM_MODEL_INVALID' });
+  }
+  const channels = listTelegramChannels(stateDir);
+  const sameLocalChat = channels.find((channel) => (
+    channel.botToken === token
+    && String(channel.chatId) === localChatId
+    && channel.workConversationId !== conversationId
+  ));
+  if (sameLocalChat) {
+    throw Object.assign(
+      new Error('Telegram chat is already bound to another Work Conversation'),
+      { code: 'TELEGRAM_CHAT_ALREADY_BOUND' },
+    );
+  }
+  const sameConversation = channels.find((channel) => channel.workConversationId === conversationId);
+  const channel = {
+    bindingHandle: sameConversation?.bindingHandle || `tg_${crypto.randomBytes(16).toString('hex')}`,
+    endpointId: sameConversation?.endpointId || '',
+    workConversationId: conversationId,
+    botToken: token,
+    chatId: localChatId,
+    executionEngine: engine,
+    requestedModel: model,
+    updateOffset: Number(sameConversation?.updateOffset || 0),
+    updateOffsetInitialized: sameConversation
+      ? sameConversation.updateOffsetInitialized === true
+        || Number(sameConversation.updateOffset || 0) > 0
+      : false,
+    updatedAt: new Date().toISOString(),
+  };
+  saveTelegramChannels(stateDir, [
+    ...channels.filter((item) => item.workConversationId !== conversationId),
+    channel,
+  ]);
+  return channel;
+}
+
 module.exports = {
   defaultStateDir,
   ensureDir,
   loadOrCreateIdentity,
   listKnowledgeSources,
+  listTelegramChannels,
   loadState,
   registerKnowledgeSource,
   removeKnowledgeSource,
+  registerTelegramChannel,
   saveState,
+  saveTelegramChannels,
   writePrivateFile,
 };

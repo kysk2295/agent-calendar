@@ -30,6 +30,7 @@ const { createCalendarAiModelAdapter } = require('./calendar-ai-model-adapter');
 const { createRunnerWorkspaceInferenceCompletion } = require('./calendar-ai-runner-adapter');
 const { WorkspaceInferenceBroker } = require('./workspace-inference-broker');
 const { ProviderAgentBridge } = require('./provider-agent-session-bridge');
+const { WorkConversationChannelService } = require('./work-conversation-channel-service');
 const { AutomationFederation } = require('./automation-federation');
 const { RunnerAutomationSourceAdapter } = require('./runner-automation-source-adapter');
 const { readProductionRequestBody } = require('./production-request-safety');
@@ -161,6 +162,7 @@ function createPhase1Runtime({
   }
   const product = new WorkspaceScopedProductService({ pool, useAppRole: true });
   const providerAgentBridge = new ProviderAgentBridge({ pool, env });
+  const workConversationChannels = new WorkConversationChannelService({ pool });
   const cloudModelAdapter = createCalendarAiModelAdapter({ env });
   const inferenceBroker = workspaceInferenceBroker || new WorkspaceInferenceBroker({
     pool,
@@ -208,6 +210,7 @@ function createPhase1Runtime({
     runnerControl: new RunnerControl({ pool }),
     durableExecution,
     providerAgentBridge,
+    workConversationChannels,
     inferenceBroker,
     unifiedCalendar,
     knowledge,

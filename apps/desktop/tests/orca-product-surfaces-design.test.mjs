@@ -11,6 +11,7 @@ const onboardingCss = await readFile(new URL('src/features/onboarding/onboarding
 const controlRoomSource = await readFile(new URL('src/features/agent-operations/AgentControlRoomBoard.tsx', desktopRoot), 'utf8');
 const controlRoomCss = await readFile(new URL('src/features/agent-operations/agent-workspace.css', desktopRoot), 'utf8');
 const runnerSource = await readFile(new URL('src/features/runner/RunnerSetupPanel.tsx', desktopRoot), 'utf8');
+const conversationSource = await readFile(new URL('src/features/agent-operations/AgentWorkConversationView.tsx', desktopRoot), 'utf8');
 const wikiSource = await readFile(new URL('src/features/knowledge/WikiScreen.tsx', desktopRoot), 'utf8');
 const wikiGraphSource = await readFile(new URL('src/features/knowledge/WikiGraphPanel.tsx', desktopRoot), 'utf8');
 
@@ -174,6 +175,18 @@ test('runner setup uses neutral tool sections instead of warm card stacks', () =
 
   const ready = cssBlock(cssSource, '.runner-ready');
   assert.doesNotMatch(ready, /gradient/);
+});
+
+test('Telegram continuation is a quiet Work Conversation tool, not a success-colored card', () => {
+  assert.match(conversationSource, /Telegram에서 이어가기/);
+  assert.match(conversationSource, /Bot token과 chat id는 Runner에만 저장됩니다/);
+  assert.match(conversationSource, /수신 소유권 미확인/);
+  assert.match(conversationSource, /기존 Hermes poller/);
+  assert.match(conversationSource, /data-testid="agent-work-telegram"/);
+
+  const channel = cssBlock(controlRoomCss, '.agent-work-telegram');
+  assert.match(channel, /border-top:\s*1px solid var\(--line\)/);
+  assert.doesNotMatch(channel, /green|gradient|box-shadow|border-radius/);
 });
 
 test('wiki is a compact tool surface without prompt pills or card walls', () => {

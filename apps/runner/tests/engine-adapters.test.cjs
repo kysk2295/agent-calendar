@@ -2,7 +2,11 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { BANNED_FLAGS, assertSafeArgv } = require('../lib/engines/contract');
+const {
+  BANNED_FLAGS,
+  assertSafeArgv,
+  normalizeModelId,
+} = require('../lib/engines/contract');
 const codex = require('../lib/engines/codex');
 const claude = require('../lib/engines/claude');
 const hermes = require('../lib/engines/hermes');
@@ -11,6 +15,7 @@ const fake = require('../lib/engines/fake');
 const { spawnSafe } = require('../lib/engines/spawn-safe');
 const {
   DEFAULT_PROBES,
+  extractConfiguredModel,
   interpretAuthProbe,
   probeAllEngines,
 } = require('../lib/capabilities');
@@ -31,6 +36,11 @@ test('codex argv is safe sandbox workspace-write', () => {
   assert.ok(args.includes('--skip-git-repo-check'));
   assert.equal(args.includes('--yolo'), false);
   assertSafeArgv(args);
+});
+
+test('Codex adapter reports only a bounded configured default model', () => {
+  const model = codex.configuredCodexModel();
+  assert.match(model, /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$|^$/);
 });
 
 test('claude argv uses stream-json with safe permission mode', () => {
@@ -65,6 +75,41 @@ test('provider adapters explicitly resume the exact bound provider session', () 
   assert.ok(hermesArgs.includes('hermes-session-1'));
 });
 
+test('provider adapters bind the exact requested model without treating it as argv', () => {
+  assert.equal(normalizeModelId('gpt-5.6-codex'), 'gpt-5.6-codex');
+  assert.equal(normalizeModelId('anthropic/claude-sonnet-4-6'), 'anthropic/claude-sonnet-4-6');
+  assert.throws(() => normalizeModelId('--dangerously-skip-permissions'), /model/i);
+  assert.throws(() => normalizeModelId('gpt-5; rm -rf work'), /model/i);
+  assert.throws(() => normalizeModelId('sk-secret-token-value'), /model/i);
+
+  const codexArgs = codex.buildArgv({ cwd: '/tmp/work', model: 'gpt-5.6-codex' });
+  assert.deepEqual(codexArgs.slice(codexArgs.indexOf('--model'), codexArgs.indexOf('--model') + 2), [
+    '--model',
+    'gpt-5.6-codex',
+  ]);
+
+  const claudeArgs = claude.buildArgv({ model: 'claude-sonnet-4-6' });
+  assert.deepEqual(claudeArgs.slice(claudeArgs.indexOf('--model'), claudeArgs.indexOf('--model') + 2), [
+    '--model',
+    'claude-sonnet-4-6',
+  ]);
+
+  const grokArgs = grok.buildArgv({
+    promptFile: '/tmp/runner-prompt.txt',
+    model: 'grok-code-fast-1',
+  });
+  assert.deepEqual(grokArgs.slice(grokArgs.indexOf('--model'), grokArgs.indexOf('--model') + 2), [
+    '--model',
+    'grok-code-fast-1',
+  ]);
+
+  const hermesArgs = hermes.buildArgv({ model: 'openai/gpt-5.5' });
+  assert.deepEqual(hermesArgs.slice(hermesArgs.indexOf('--model'), hermesArgs.indexOf('--model') + 2), [
+    '--model',
+    'openai/gpt-5.5',
+  ]);
+});
+
 test('installed engine probes require an explicit authenticated signal', () => {
   assert.deepEqual(DEFAULT_PROBES.codex.authArgs, ['login', 'status']);
   assert.deepEqual(DEFAULT_PROBES.claude.authArgs, ['auth', 'status']);
@@ -91,6 +136,12 @@ test('installed engine probes require an explicit authenticated signal', () => {
     }).authenticated,
     false,
   );
+});
+
+test('Runner publishes only a bounded public model id from local Codex configuration', () => {
+  assert.equal(extractConfiguredModel('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "high"'), 'gpt-5.6-sol');
+  assert.equal(extractConfiguredModel('model = "unsafe value --flag"'), '');
+  assert.equal(extractConfiguredModel('OPENAI_API_KEY = "secret"'), '');
 });
 
 test('current Grok and Hermes argv use supported safe non-interactive forms', () => {
@@ -210,6 +261,12 @@ test('public completion checkpoints omit provider thread and session identifiers
   assert.equal(claude.completionCheckpointText('session-private-456'), 'Claude execution completed');
 });
 
+test('Claude final text does not duplicate the same assistant content repeated by the result event', () => {
+  assert.equal(claude.appendNonDuplicateText('', 'COMPARISON_OK'), 'COMPARISON_OK');
+  assert.equal(claude.appendNonDuplicateText('COMPARISON_OK', 'COMPARISON_OK'), 'COMPARISON_OK');
+  assert.equal(claude.appendNonDuplicateText('first ', 'second'), 'first second');
+});
+
 test('claude real-schema fixtures: system, assistant, content_block_delta, result', () => {
   assert.equal(claude.parseClaudeStreamJsonLine(JSON.stringify({
     type: 'system',
@@ -229,9 +286,13 @@ test('claude real-schema fixtures: system, assistant, content_block_delta, resul
   const asst = claude.parseClaudeStreamJsonLine(JSON.stringify({
     type: 'assistant',
     session_id: 'c-sess',
-    message: { content: [{ type: 'text', text: 'Hi ANTHROPIC_API_KEY=supersecret' }] },
+    message: {
+      model: 'claude-sonnet-4-6',
+      content: [{ type: 'text', text: 'Hi ANTHROPIC_API_KEY=supersecret' }],
+    },
   }));
   assert.equal(asst.kind, 'progress');
+  assert.equal(asst.model, 'claude-sonnet-4-6');
   assert.doesNotMatch(asst.text, /supersecret/);
 
   const tool = claude.parseClaudeStreamJsonLine(JSON.stringify({
@@ -317,6 +378,9 @@ test('grok and hermes publish honest limited capability contracts merged into pr
   assert.equal(probed.engines.grok.streamingSchema, null);
   assert.equal(probed.engines.hermes.streaming, false);
   assert.match(String(probed.engines.grok.message || ''), /no stable/i);
+  assert.equal(probed.engines.codex.modelSelection, 'identifier');
+  assert.deepEqual(probed.engines.codex.models, []);
+  assert.equal(probed.engines.grok.modelSelection, 'catalog');
 });
 
 test('adapter metadata never hides an unavailable engine authentication failure', async () => {

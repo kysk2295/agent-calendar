@@ -27,6 +27,7 @@ export type AgentMissionCreateInput = {
   readonly objective: string;
   readonly agentId?: string;
   readonly executionEngine: AgentExecutionEngine;
+  readonly requestedModel?: string;
   readonly deliverable: AgentDeliverable;
 };
 
@@ -201,7 +202,10 @@ export type AgentRosterEntry = {
   readonly allowedTaskClasses: readonly string[];
   readonly responsibility?: string;
   readonly instructions?: string;
+  readonly responseStyle?: string;
   readonly specialties?: readonly string[];
+  readonly memories?: readonly string[];
+  readonly profileVersion?: number;
   readonly sourceKind?: 'native' | 'connected';
   readonly externalAgentId?: string;
   readonly connectionStatus?: string;
@@ -215,7 +219,9 @@ export type AgentDirectoryMutationInput = {
   readonly role: string;
   readonly responsibility: string;
   readonly instructions: string;
+  readonly responseStyle: string;
   readonly specialties: readonly string[];
+  readonly memories: readonly string[];
   readonly sourceKind: 'native' | 'connected';
   readonly provider: string;
   readonly externalAgentId: string;

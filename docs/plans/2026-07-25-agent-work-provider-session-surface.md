@@ -99,3 +99,34 @@ Work Conversation과 provider session 연결 계약은 보존한다.
   새 활동 표현이 그 문구 자체를 정제하지 않는다.
   - Mitigation: 기존 sanitizer와 checkpoint filter를 유지하고, 이번 범위는 presentation에
     한정한다.
+
+## 2026-07-26 Corrective Pass
+
+사용자 표면 검토에서 선택된 작업 화면이 여전히 에이전트 관리 패널, 대화, 작업 정보
+rail로 분할되고 사용자 메시지 말풍선이 넓은 카드처럼 보이는 문제가 확인됐다.
+
+추가 성공 기준:
+
+- [x] 선택된 작업의 두 번째 왼쪽 rail은 에이전트 관리 카드 대신 세션 전환 기능만 보여준다.
+- [x] 우측 작업 정보 rail과 `작업 중단` 제어는 기본 대화 화면에 나타나지 않는다.
+- [x] 사용자 메시지는 내용 너비에 맞는 중립 말풍선이며 이름과 시간이 말풍선 안에서
+  반복되지 않는다.
+- [x] 에이전트 답변은 별도 말풍선이나 아바타 카드 없이 넓은 읽기 흐름으로 표시된다.
+- [x] 입력창과 대화 본문이 1280px 화면의 중심 작업 영역을 차지한다.
+- [x] light와 dark 실제 데스크톱 화면에서 동일한 중립 표면과 한 가지 radius 규칙이 유지된다.
+
+추가 검증:
+
+- RED 후 focused Desktop design contract
+- Desktop typecheck
+- Playwright selected-work light/dark 표면 및 스크린샷
+
+검증 결과:
+
+- focused design contract: 29/29 pass
+- Desktop test: 286/286 pass
+- Desktop production build: pass
+- Playwright selected-work light/dark: pass
+- Evidence:
+  - `.omo/evidence/agent-work-orca-chat-light.png`
+  - `.omo/evidence/agent-work-orca-chat-dark.png`

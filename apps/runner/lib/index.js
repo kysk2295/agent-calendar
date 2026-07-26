@@ -10,5 +10,6 @@ module.exports = {
   ...require('./provider-connectors'),
   ...require('./automation-connectors'),
   ...require('./connector-loop'),
+  ...require('./telegram-channel'),
   engines: require('./engines'),
 };

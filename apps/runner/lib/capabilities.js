@@ -8,6 +8,9 @@
  */
 
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const BANNED_ARGS = Object.freeze([
   '--yolo',
@@ -121,6 +124,37 @@ function interpretAuthProbe(engine, {
   };
 }
 
+function extractModelIds(output) {
+  const ids = new Set();
+  for (const token of String(output || '').split(/[\s,|]+/)) {
+    const value = token.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9._:/-]+$/g, '');
+    if (/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(value)
+      && (value.includes('-') || value.includes('/') || value.includes(':'))) {
+      ids.add(value);
+    }
+  }
+  return [...ids].slice(0, 100);
+}
+
+function extractConfiguredModel(content) {
+  const match = String(content || '').match(/^model\s*=\s*['"]([^'"]+)['"]/m);
+  const model = String(match?.[1] || '').trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(model)
+    && !/^(sk-|bearer|token|cookie|secret)/i.test(model)
+    ? model
+    : '';
+}
+
+function configuredDefaultModel(engine) {
+  if (engine !== 'codex') return '';
+  const configPath = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'config.toml');
+  try {
+    return extractConfiguredModel(fs.readFileSync(configPath, 'utf8'));
+  } catch {
+    return '';
+  }
+}
+
 async function spawnProbe({
   engine,
   command,
@@ -170,12 +204,18 @@ async function spawnProbe({
     maxOutputBytes,
   });
   const auth = interpretAuthProbe(engine, authResult);
+  const models = engine === 'grok' && auth.authenticated
+    ? extractModelIds(authResult.output)
+    : [];
   return {
     installed: true,
     available: auth.authenticated,
     status: auth.authenticated ? 'available' : 'auth_required',
     version,
     authStatus: auth.authStatus,
+    models,
+    defaultModel: configuredDefaultModel(engine) || null,
+    modelSelection: engine === 'grok' ? 'catalog' : 'identifier',
     message: auth.authenticated
       ? 'CLI installed and authentication verified on this Runner host.'
       : 'CLI installed, but authentication was not verified. Sign in on this Runner host.',
@@ -224,6 +264,11 @@ async function probeAllEngines(options = {}) {
           : engines[name].message,
         streaming: contract.streaming,
         streamingSchema: contract.streamingSchema,
+        modelSelection: contract.modelSelection || engines[name].modelSelection || 'identifier',
+        models: Array.isArray(engines[name].models) && engines[name].models.length
+          ? engines[name].models
+          : (Array.isArray(contract.models) ? contract.models : []),
+        defaultModel: engines[name].defaultModel || contract.defaultModel || null,
       };
     };
     merge('grok', grok);
@@ -256,6 +301,8 @@ module.exports = {
   DEFAULT_PROBES,
   assertSafeArgs,
   interpretAuthProbe,
+  extractModelIds,
+  extractConfiguredModel,
   spawnProbe,
   probeAllEngines,
 };

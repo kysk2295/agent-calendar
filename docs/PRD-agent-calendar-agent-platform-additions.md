@@ -27,8 +27,9 @@ Agent Calendar의 중심은 일정 관리다. 에이전트는 별도 챗봇이 �
 
 Provider 세션 연속성은 더 앞서 있다. Codex의 기존 에이전트와 세션을 Runner에서
 가져오고, 같은 provider 세션으로 후속 지시를 보내고, 앱과 Gateway 재시작 뒤 복구하는
-흐름이 실제로 확인됐다. 그러나 원래 Codex/Claude 앱, Telegram, 향후 Mobile과 같은
-외부 표면이 동일한 Work Conversation을 동시에 공유하는 계약은 없다.
+흐름이 실제로 확인됐다. 이제 하나의 Work Conversation에 Codex, Claude, Telegram 같은
+여러 provider/channel endpoint가 연결되고 어느 표면에서든 같은 canonical transcript를
+읽고 쓰는 계약으로 확장한다.
 
 Argo에서 참고할 점은 다음과 같다.
 
@@ -44,15 +45,18 @@ Agent Calendar는 이를 그대로 복제하지 않는다. 캘린더, 승인, �
 ## 4. Objective
 
 사용자가 에이전트를 만들거나 가져온 뒤 Agent Calendar 안에서 장기간 함께 일할 수
-있게 한다. 사용자가 정한 역할과 규칙은 매 실행에 정확히 적용되고, 같은 작업 대화는
-앱 종료와 네트워크 단절 뒤에도 같은 provider 세션과 연결되어야 한다.
+있게 한다. 사용자가 정한 역할과 규칙은 매 실행에 정확히 적용된다. 같은 작업 대화는
+앱 종료와 네트워크 단절 뒤에도 유지되며 Codex, Claude, Telegram 등 연결된 endpoint가
+같은 canonical transcript와 작업 상태를 공유해야 한다.
 
 ### Key Results
 
 - 에이전트 작업의 100%가 실행 당시의 정확한 Runtime Profile 버전을 기록한다.
 - 에이전트 규칙·도구·기억 범위를 무시한 실행을 0건으로 유지한다.
-- 후속 메시지의 100%가 기존 provider 세션을 사용하거나 명시적인 새 세션 선택을
-  요구한다. 조용한 fallback은 0건이다.
+- 후속 메시지의 100%가 사용자가 선택한 exact provider endpoint를 사용하거나 명시적인
+  새 세션 선택을 요구한다. 조용한 engine/session fallback은 0건이다.
+- Desktop, Telegram, provider endpoint에서 수신한 메시지의 100%가 하나의 canonical
+  sequence로 저장되며 replay로 중복되는 메시지는 0건이다.
 - Workspace A/B hostile isolation 테스트에서 에이전트, 세션, 기억, 도구 결과,
   채널 상태의 교차 노출이 0건이다.
 - 앱·Gateway·Runner 재시작 뒤 Work Conversation과 provider 세션 매핑 복구 성공률을
@@ -101,8 +105,9 @@ Agent Calendar는 이를 그대로 복제하지 않는다. 캘린더, 승인, �
 
 ### 끊기지 않는 작업 대화
 
-Desktop에서 시작한 Work Conversation은 같은 provider 세션에 연결된다. 앱을 다시
-열거나 허용된 외부 채널에서 접근해도 사용자가 맥락을 다시 설명하지 않는다.
+Desktop에서 시작한 Work Conversation은 여러 provider/channel endpoint를 가질 수 있다.
+Codex에서 시작해 Claude나 Telegram으로 이동해도 사용자가 맥락을 다시 설명하지 않는다.
+대화 원본은 Agent Calendar가 소유하고 각 endpoint는 마지막으로 동기화한 위치를 가진다.
 
 ### 고객이 소유하는 AI 계정과 실행 환경
 
@@ -139,18 +144,21 @@ Workspace가 허용한 작업과 공개 실행 증거만 관리한다.
 #### 대화와 세션
 
 1. 에이전트를 선택하면 해당 에이전트의 Work Conversation 목록이 보인다.
-2. 새 작업은 새 Work Conversation과 provider 세션을 만든다.
-3. 기존 provider 세션을 가져오면 Work Conversation 하나에 1:1로 연결한다.
-4. 후속 메시지는 같은 세션으로 전송한다.
-5. 세션이 만료되거나 삭제되면 상태를 보여주고, 사용자가 선택하기 전에는 새 세션을
+2. 새 작업은 새 Work Conversation을 만들고 선택한 engine의 provider endpoint를 연결한다.
+3. 같은 Work Conversation에 Codex, Claude 등 여러 provider endpoint를 연결할 수 있다.
+4. 후속 메시지는 사용자가 선택한 active endpoint의 exact session으로 전송한다.
+5. 다른 endpoint는 canonical transcript 또는 권한이 제한된 context snapshot으로
+   같은 맥락을 이어간다.
+6. 세션이 만료되거나 삭제되면 상태를 보여주고, 사용자가 선택하기 전에는 새 세션을
    만들지 않는다.
-6. 작업 결과, artifact, 승인, 오류, 수정 차수는 통합 캘린더와 대화에 함께 남는다.
+7. 작업 결과, artifact, 승인, 오류, 수정 차수는 통합 캘린더와 대화에 함께 남는다.
 
 #### 외부 채널
 
 1. 사용자는 Workspace 설정에서 Telegram 같은 채널을 연결한다.
-2. 채널의 대화는 에이전트가 아니라 정확한 Work Conversation에 연결한다.
-3. Desktop과 외부 채널은 같은 메시지 순서와 읽기 상태를 공유한다.
+2. 채널의 대화는 에이전트가 아니라 정확한 Work Conversation endpoint에 연결한다.
+3. Desktop, Telegram, provider endpoint는 같은 canonical 메시지 순서와 작업 상태를
+   공유한다.
 4. 동시에 들어온 두 지시는 한 turn씩 직렬화하거나 명시적으로 fork한다.
 5. 외부 채널에서 위험한 행동은 동일한 Approval Gate를 사용한다.
 
@@ -166,8 +174,9 @@ Workspace가 허용한 작업과 공개 실행 증거만 관리한다.
    - 실제 Runner prompt와 tool policy에 강제 적용
 
 2. **Session continuity contract**
-   - Work Conversation ↔ provider session 1:1
-   - follow-up turn의 exact session reuse
+   - Work Conversation 하나 ↔ 여러 provider/channel endpoint
+   - turn별 active endpoint의 exact session reuse
+   - Codex → Claude → Codex 전환 뒤에도 같은 canonical transcript 유지
    - concurrent turn lock, idempotency, restart recovery
    - missing, deleted, auth expired, quota exhausted의 정확한 상태
    - 새 세션, 기존 세션 재개, 명시적 fork

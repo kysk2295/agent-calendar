@@ -27,6 +27,18 @@ function assertSafeArgv(args) {
   }
 }
 
+function normalizeModelId(value) {
+  const model = String(value || '').trim();
+  if (!model) return '';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(model)
+    || /^(sk-|bearer|token|cookie|secret)/i.test(model)) {
+    const error = new Error('invalid execution model identifier');
+    error.code = 'INVALID_EXECUTION_MODEL';
+    throw error;
+  }
+  return model;
+}
+
 function redactPrivatePaths(value) {
   return String(value || '')
     .replace(/\/(?:Users|home)\/[^/\s"'`]+(?:\/[^\s"'`]*)?/g, '[private-path]')
@@ -55,5 +67,6 @@ function redactPrivatePaths(value) {
 module.exports = {
   BANNED_FLAGS,
   assertSafeArgv,
+  normalizeModelId,
   redactPrivatePaths,
 };

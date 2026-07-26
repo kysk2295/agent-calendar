@@ -92,6 +92,18 @@ async function handleExecutionDeviceRouteWithPath({
       case 'runner_device_connector_fail':
         sendJson(res, 200, await runtime.providerAgentBridge.failConnectorRequest(runner, body || {}));
         return true;
+      case 'runner_device_telegram_bind':
+        sendJson(res, 200, await runtime.workConversationChannels.bind(runner, body || {}));
+        return true;
+      case 'runner_device_telegram_inbound':
+        sendJson(res, 200, await runtime.workConversationChannels.inbound(runner, body || {}));
+        return true;
+      case 'runner_device_telegram_next':
+        sendJson(res, 200, await runtime.workConversationChannels.nextOutbound(runner, body || {}));
+        return true;
+      case 'runner_device_telegram_ack':
+        sendJson(res, 200, await runtime.workConversationChannels.ackOutbound(runner, body || {}));
+        return true;
       default:
         return false;
     }

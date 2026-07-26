@@ -64,7 +64,10 @@ export type AgentWorkSummary = {
   readonly agentId: string;
   readonly assignment: AgentAssignment;
   readonly executionEngine: AgentExecutionEngine;
+  readonly activeExecutionEngine: AgentExecutionEngine;
   readonly resolvedExecutionEngine: AgentResolvedExecutionEngine | null;
+  readonly activeExecutionModel: string;
+  readonly resolvedExecutionModel: string;
   readonly deliverable: AgentDeliverable;
   readonly missionThreadId: string;
   readonly workConversationId: string;
@@ -101,6 +104,13 @@ export type AgentWorkCheckpointMetadata = {
   readonly progress?: number;
   readonly code?: string;
   readonly jobId?: string;
+  readonly providerSessionId?: string;
+  readonly requestedExecutionModel?: string;
+  readonly resolvedExecutionModel?: string;
+  readonly resolvedExecutionEngine?: AgentResolvedExecutionEngine;
+  readonly turnIndex?: number;
+  readonly turnTargetIndex?: number;
+  readonly turnMode?: 'single' | 'comparison';
 };
 
 export type AgentWorkCheckpoint = {
@@ -113,9 +123,19 @@ export type AgentWorkCheckpoint = {
   readonly createdAt: string;
 };
 
+export type AgentWorkChannelEndpoint = {
+  readonly id: string;
+  readonly channel: 'telegram';
+  readonly status: 'active' | 'offline' | 'revoked';
+  readonly runnerId: string;
+  readonly ingressOwnership: 'unverified';
+  readonly lastActivityAt: string | null;
+};
+
 export type AgentWorkConversationPage = {
   readonly work: AgentWorkSummary;
   readonly conversation: AgentWorkConversation;
+  readonly channels: readonly AgentWorkChannelEndpoint[];
   readonly checkpoints: readonly AgentWorkCheckpoint[];
   readonly nextCursor: string | null;
 };
@@ -137,19 +157,34 @@ export type AgentWorkCreateRequest = {
   readonly initialMessage: string;
   readonly agentId?: string;
   readonly executionEngine?: AgentExecutionEngine;
+  readonly requestedModel?: string;
   readonly deliverable?: AgentDeliverable;
 };
 
 export type AgentWorkCreateDraft = Omit<AgentWorkCreateRequest, 'clientRequestId'>;
 
+export type AgentWorkComparisonTarget = Readonly<{
+  readonly executionEngine: Extract<AgentExecutionEngine, 'codex' | 'claude' | 'grok' | 'hermes'>;
+  readonly requestedModel?: string;
+}>;
+
 export type AgentWorkMessageRequest = {
   readonly clientMessageId: string;
   readonly text: string;
+  readonly executionEngine?: AgentExecutionEngine;
+  readonly requestedModel?: string;
+  readonly comparisonTargets?: readonly AgentWorkComparisonTarget[];
 };
 
 export type AgentWorkLiveTurnRequest =
   | Readonly<{ initial: true }>
-  | Readonly<{ clientMessageId: string; text: string }>;
+  | Readonly<{
+    clientMessageId: string;
+    text: string;
+    executionEngine?: AgentExecutionEngine;
+    requestedModel?: string;
+    comparisonTargets?: readonly AgentWorkComparisonTarget[];
+  }>;
 
 export type AgentWorkLiveCheckpoint = Pick<
   AgentWorkCheckpoint,

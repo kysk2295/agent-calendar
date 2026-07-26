@@ -234,7 +234,11 @@ async function dispatchProductionApi(req, res, requestUrl, {
       || action === 'runner_device_attempt_heartbeat'
       || action === 'runner_device_connector_next'
       || action === 'runner_device_connector_complete'
-      || action === 'runner_device_connector_fail') {
+      || action === 'runner_device_connector_fail'
+      || action === 'runner_device_telegram_bind'
+      || action === 'runner_device_telegram_inbound'
+      || action === 'runner_device_telegram_next'
+      || action === 'runner_device_telegram_ack') {
       await handleExecutionDeviceRouteWithPath({
         res,
         route,

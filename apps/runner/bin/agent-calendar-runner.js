@@ -19,8 +19,10 @@ const {
   defaultStateDir,
   loadState,
   listKnowledgeSources,
+  listTelegramChannels,
   loadOrCreateIdentity,
   registerKnowledgeSource,
+  registerTelegramChannel,
   removeKnowledgeSource,
   formatFingerprint,
   fingerprint,
@@ -68,6 +70,8 @@ Commands:
   capabilities --base-url URL
   heartbeat --base-url URL
   connector-once --base-url URL
+  telegram-bind --base-url URL --work-conversation-id ID --chat-id ID [--bot-token-env NAME]
+  telegram-once --base-url URL
   knowledge-add --source-id ID --path PATH [--label LABEL]
   knowledge-list
   knowledge-remove --source-id ID
@@ -265,6 +269,38 @@ Commands:
     return;
   }
 
+  if (command === 'telegram-bind') {
+    const tokenEnvName = String(args['bot-token-env'] || 'AGENT_CALENDAR_TELEGRAM_BOT_TOKEN');
+    const channel = registerTelegramChannel(stateDir, {
+      workConversationId: args['work-conversation-id'],
+      botToken: process.env[tokenEnvName],
+      chatId: args['chat-id'],
+      executionEngine: args.engine || 'auto',
+      requestedModel: args.model || '',
+    });
+    const { ensureDeviceRequest } = require('../lib/execution-loop');
+    const { bindTelegramChannels } = require('../lib/telegram-channel');
+    ensureDeviceRequest(client);
+    const channels = await bindTelegramChannels(client, listTelegramChannels(stateDir));
+    const bound = channels.find((item) => item.bindingHandle === channel.bindingHandle) || channel;
+    printJson({
+      ok: true,
+      channel: 'telegram',
+      workConversationId: channel.workConversationId,
+      bindingHandle: channel.bindingHandle,
+      endpointId: bound.endpointId,
+    });
+    return;
+  }
+
+  if (command === 'telegram-once') {
+    const { ensureDeviceRequest } = require('../lib/execution-loop');
+    const { runTelegramChannelOnce } = require('../lib/telegram-channel');
+    ensureDeviceRequest(client);
+    printJson(await runTelegramChannelOnce(client));
+    return;
+  }
+
   if (command === 'daemon') {
     // enroll if challenge provided
     if (args['challenge-id'] && args.code) {
@@ -302,6 +338,7 @@ Commands:
     if (once) return;
     const { runOnce, ensureDeviceRequest } = require('../lib/execution-loop');
     const { runConnectorOnce } = require('../lib/connector-loop');
+    const { runTelegramChannelOnce } = require('../lib/telegram-channel');
     ensureDeviceRequest(client);
     let workRunning = false;
 
@@ -313,7 +350,7 @@ Commands:
     const workTimer = setInterval(() => {
       if (workRunning) return;
       workRunning = true;
-      runConnectorOnce(client).then(() => runOnce(client, {
+      runConnectorOnce(client).then(() => runTelegramChannelOnce(client)).then(() => runOnce(client, {
         allowFake: process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE === '1',
       })).catch((error) => {
         process.stderr.write(`${JSON.stringify({ ok: false, error: error.code || error.message })}\n`);

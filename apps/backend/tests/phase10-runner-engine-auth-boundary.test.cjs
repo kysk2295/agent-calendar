@@ -54,6 +54,9 @@ test('Runner capability normalization fails closed when availability lacks verif
       version: '1.2.3',
       authStatus: 'missing',
       message: 'CLI installed, but authentication is not verified on this Runner host.',
+      models: [],
+      defaultModel: null,
+      modelSelection: 'identifier',
     },
   );
 
@@ -62,4 +65,19 @@ test('Runner capability normalization fails closed when availability lacks verif
     status: 'available',
     authStatus: 'ok',
   }).available, true);
+});
+
+test('Runner capability normalization preserves only public model identifiers', () => {
+  const capability = normalizeEngine({
+    available: true,
+    status: 'available',
+    authStatus: 'authenticated',
+    models: ['gpt-5.6-sol', 'unsafe model', 'sk-secret-token-value'],
+    defaultModel: 'gpt-5.6-sol',
+    modelSelection: 'catalog',
+  });
+  assert.deepEqual(capability.models, ['gpt-5.6-sol']);
+  assert.equal(capability.defaultModel, 'gpt-5.6-sol');
+  assert.equal(capability.modelSelection, 'catalog');
+  assert.doesNotMatch(JSON.stringify(capability), /secret-token/);
 });

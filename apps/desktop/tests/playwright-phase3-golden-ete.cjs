@@ -33,10 +33,20 @@ const repoRoot = path.resolve(desktopRoot, '../..');
 const runnerBin = path.join(repoRoot, 'apps/runner/bin/agent-calendar-runner.js');
 const selectedEngine = String(process.env.AGENT_CALENDAR_E2E_LIVE_ENGINE || 'fake').toLowerCase();
 assert.ok(['fake', 'codex', 'claude', 'grok', 'hermes'].includes(selectedEngine), 'unsupported E2E engine');
+const crossEngine = String(process.env.AGENT_CALENDAR_E2E_CROSS_ENGINE || '').toLowerCase();
+assert.ok(['', 'codex', 'claude', 'grok', 'hermes'].includes(crossEngine), 'unsupported cross E2E engine');
 const useFakeEngine = selectedEngine === 'fake';
 const expectedErrorCode = String(process.env.AGENT_CALENDAR_E2E_EXPECT_ERROR || '').toLowerCase();
 const expectFailure = Boolean(expectedErrorCode);
 const twoAccountMode = process.env.AGENT_CALENDAR_E2E_TWO_ACCOUNT === '1';
+const comparisonMode = process.env.AGENT_CALENDAR_E2E_COMPARISON === '1';
+const telegramMode = process.env.AGENT_CALENDAR_E2E_TELEGRAM === '1';
+const telegramInboundMessage = String(
+  process.env.AGENT_CALENDAR_E2E_TELEGRAM_MESSAGE || '',
+).trim();
+const telegramExpectedReply = String(
+  process.env.AGENT_CALENDAR_E2E_TELEGRAM_EXPECTED_REPLY || '',
+).trim();
 const releaseEvidencePath = String(
   process.env.AGENT_CALENDAR_E2E_RELEASE_EVIDENCE_PATH || '',
 ).trim();
@@ -46,6 +56,23 @@ const releaseBindingJson = String(
 assert.match(expectedErrorCode, expectFailure ? /^[a-z0-9_]{1,80}$/ : /^$/, 'invalid expected E2E error code');
 assert.ok(!expectFailure || !useFakeEngine, 'failure E2E requires a live Engine');
 assert.ok(!twoAccountMode || !expectFailure, 'two-account E2E requires a successful Engine path');
+assert.ok(!crossEngine || (!useFakeEngine && !expectFailure && !twoAccountMode), 'cross-engine E2E requires one successful live account');
+assert.ok(!crossEngine || crossEngine !== selectedEngine, 'cross-engine E2E requires two different Engines');
+assert.ok(!comparisonMode || (selectedEngine === 'codex' && !expectFailure && !twoAccountMode && !crossEngine), 'comparison E2E requires a successful live Codex account without cross-engine mode');
+assert.ok(
+  !telegramMode || (
+    selectedEngine === 'codex'
+    && !expectFailure
+    && !twoAccountMode
+    && !crossEngine
+    && !comparisonMode
+  ),
+  'Telegram E2E requires one successful live Codex account',
+);
+assert.ok(!telegramMode || process.env.AGENT_CALENDAR_E2E_TELEGRAM_BOT_TOKEN, 'Telegram E2E requires a bot token');
+assert.ok(!telegramMode || process.env.AGENT_CALENDAR_E2E_TELEGRAM_CHAT_ID, 'Telegram E2E requires a chat id');
+assert.ok(!telegramMode || telegramInboundMessage, 'Telegram E2E requires an inbound message');
+assert.ok(!telegramMode || telegramExpectedReply, 'Telegram E2E requires an expected reply');
 assert.ok(!releaseEvidencePath || !twoAccountMode, 'release evidence requires the single-account ETE');
 assert.ok(
   !releaseEvidencePath || (!useFakeEngine && !expectFailure),
@@ -59,19 +86,20 @@ assert.equal(
 const expectedEngineLabel = selectedEngine === 'fake'
   ? 'Fake'
   : `${selectedEngine.slice(0, 1).toUpperCase()}${selectedEngine.slice(1)}`;
-const expectedResultMarker = {
+const ENGINE_RESULT_MARKERS = Object.freeze({
   fake: 'Completed fake execution',
   codex: 'Codex execution completed',
   claude: 'Claude execution completed',
   grok: 'Grok batch execution completed',
   hermes: 'Hermes safe-profile execution completed',
-}[selectedEngine];
+});
+const expectedResultMarker = useFakeEngine ? ENGINE_RESULT_MARKERS.fake : 'ENGINE_OK';
 const artifactDir = path.join(
   desktopRoot,
   'test-results',
   useFakeEngine
     ? (twoAccountMode ? 'phase3-two-account-isolation-ete' : 'phase3-golden-ete')
-    : `phase3-golden-ete-${selectedEngine}${expectFailure ? '-failure' : ''}`,
+    : `phase3-golden-ete-${selectedEngine}${expectFailure ? '-failure' : ''}${comparisonMode ? '-comparison' : ''}${telegramMode ? '-telegram' : ''}`,
 );
 function createDesktopContext(label = '') {
   const suffix = label ? ` ${label}` : '';
@@ -108,6 +136,12 @@ const providerSessionShots = {
   continued: path.join(artifactDir, 'provider-session-continued.png'),
   rehydrated: path.join(artifactDir, 'provider-session-rehydrated.png'),
 };
+const crossEngineShot = path.join(artifactDir, 'cross-engine-same-conversation.png');
+const comparisonShot = path.join(artifactDir, 'explicit-engine-comparison.png');
+const telegramShots = Object.freeze({
+  inbound: path.join(artifactDir, 'telegram-inbound-visible-in-desktop.png'),
+  completed: path.join(artifactDir, 'telegram-codex-result-visible-in-desktop.png'),
+});
 const TWO_ACCOUNT_GOALS = Object.freeze({
   a: 'Workspace A private delegated result',
   b: 'Workspace B private delegated result',
@@ -519,6 +553,8 @@ async function enrollAccountRunner({
 
 async function openAgentControl(page) {
   await page.getByRole('button', { name: /에이전트/ }).first().click();
+  const back = page.getByRole('button', { name: '관제 홈으로 돌아가기' });
+  if (await back.count()) await back.click();
   await page.waitForSelector('[data-testid="agent-runner-live"]', { timeout: 20_000 });
 }
 
@@ -563,10 +599,13 @@ async function runAccountWork({
     const text = document.querySelector('.agent-work-timeline')?.textContent || '';
     return text.includes(String(resultMarker));
   }, expectedResultMarker, { timeout: 90_000 });
-  await page.waitForSelector('[data-testid="agent-work-resolved-engine"]', { timeout: 15_000 });
-  assert.equal(
-    (await page.textContent('[data-testid="agent-work-resolved-engine"]') || '').trim(),
-    expectedEngineLabel,
+  await page.waitForFunction((engineLabel) => {
+    const text = document.querySelector('.agent-work-session-engine')?.textContent || '';
+    return text.toLowerCase().includes(String(engineLabel).toLowerCase());
+  }, expectedEngineLabel, { timeout: 15_000 });
+  assert.match(
+    (await page.textContent('.agent-work-session-engine') || '').trim(),
+    new RegExp(expectedEngineLabel, 'i'),
   );
   const completedBody = await page.locator('body').innerText();
   assert.ok(completedBody.includes(goal));
@@ -1004,6 +1043,238 @@ async function runTwoAccountIsolation({ pool, baseUrl, authState }) {
   }
 }
 
+async function runCrossEngineConversationJourney({
+  page,
+  baseUrl,
+  runnerStateDir,
+  pool,
+  workspaceId,
+  providerJourney,
+}) {
+  const sessionResult = await pool.query(
+    `select id, mission_id
+     from agent_sessions
+     where workspace_id = $1 and id = $2
+     limit 1`,
+    [workspaceId, providerJourney.workConversationId],
+  );
+  assert.equal(sessionResult.rowCount, 1);
+  const missionId = sessionResult.rows[0].mission_id;
+  const workConversationId = sessionResult.rows[0].id;
+  const initialEndpoint = await pool.query(
+    `select id, external_session_id
+     from provider_agent_sessions
+     where workspace_id = $1 and work_conversation_id = $2 and engine = $3
+     limit 1`,
+    [workspaceId, workConversationId, selectedEngine],
+  );
+  assert.equal(initialEndpoint.rowCount, 1);
+  assert.equal(initialEndpoint.rows[0].id, providerJourney.providerSessionId);
+  assert.ok(initialEndpoint.rows[0].external_session_id);
+
+  const composer = page.locator('.agent-work-composer');
+  const engineSelect = composer.getByLabel('이 메시지의 실행 엔진');
+  const messageInput = composer.getByLabel('작업 대화 메시지');
+  const send = composer.getByRole('button', { name: '작업 대화에 보내기' });
+  const runTurn = async (engine, message) => {
+    const marker = ENGINE_RESULT_MARKERS[engine];
+    const beforeText = await page.locator('.agent-work-timeline').innerText();
+    const beforeCount = beforeText.split(marker).length - 1;
+    await engineSelect.selectOption(engine);
+    await messageInput.fill(message);
+    await send.click();
+    await page.getByText(message, { exact: true }).waitFor({ timeout: 30_000 });
+    const output = await runRunner([
+      'work-once', '--base-url', baseUrl, '--state-dir', runnerStateDir,
+    ], { stateDir: runnerStateDir }).done;
+    assert.match(output, /completed|ok/i);
+    await page.waitForFunction(({ expectedMarker, minimum }) => {
+      const text = document.querySelector('.agent-work-timeline')?.textContent || '';
+      return text.split(expectedMarker).length - 1 > minimum;
+    }, { expectedMarker: marker, minimum: beforeCount }, { timeout: 120_000 });
+  };
+
+  const crossMessage = `Continue this same Work Conversation in ${crossEngine}. Reply exactly CROSS_ENGINE_OK. Do not modify files.`;
+  await runTurn(crossEngine, crossMessage);
+  const returnMessage = `Return to the original ${selectedEngine} session in this same Work Conversation. Reply exactly RETURN_ENGINE_OK. Do not modify files.`;
+  await runTurn(selectedEngine, returnMessage);
+
+  const endpoints = await pool.query(
+    `select id, engine, external_session_id, work_conversation_id
+     from provider_agent_sessions
+     where workspace_id = $1 and work_conversation_id = $2
+     order by engine`,
+    [workspaceId, workConversationId],
+  );
+  assert.equal(endpoints.rowCount, 2);
+  assert.deepEqual(endpoints.rows.map((row) => row.engine), [crossEngine, selectedEngine].sort());
+  assert.ok(endpoints.rows.every((row) => row.external_session_id));
+  assert.ok(endpoints.rows.every((row) => row.work_conversation_id === workConversationId));
+  const originalAfter = endpoints.rows.find((row) => row.engine === selectedEngine);
+  assert.equal(originalAfter.id, initialEndpoint.rows[0].id);
+  assert.equal(originalAfter.external_session_id, initialEndpoint.rows[0].external_session_id);
+
+  const latestJob = await pool.query(
+    `select requested_engine, provider_session_id
+     from execution_jobs
+     where workspace_id = $1 and mission_id = $2
+     order by turn_index desc
+     limit 1`,
+    [workspaceId, missionId],
+  );
+  assert.deepEqual(latestJob.rows[0], {
+    requested_engine: selectedEngine,
+    provider_session_id: initialEndpoint.rows[0].id,
+  });
+  const aggregateCount = await pool.query(
+    `select
+       (select count(*)::int from agent_missions where workspace_id = $1 and id = $2) as missions,
+       (select count(*)::int from agent_sessions where workspace_id = $1 and mission_id = $2) as conversations`,
+    [workspaceId, missionId],
+  );
+  assert.deepEqual(aggregateCount.rows[0], { missions: 1, conversations: 1 });
+  const canonicalMessages = await pool.query(
+    `select payload->>'text' as text
+     from agent_session_events
+     where workspace_id = $1 and session_id = $2 and kind = 'user_message'
+     order by sequence`,
+    [workspaceId, workConversationId],
+  );
+  assert.ok(canonicalMessages.rows.some((row) => row.text === crossMessage));
+  assert.ok(canonicalMessages.rows.some((row) => row.text === returnMessage));
+  assert.equal(await page.locator('.agent-work-conversation').count(), 1);
+  assert.equal(await engineSelect.inputValue(), selectedEngine);
+  await page.locator('.agent-work-timeline').evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.screenshot({ path: crossEngineShot, fullPage: true });
+  return {
+    missionId,
+    workConversationId,
+    crossMessage,
+    returnMessage,
+    initialProviderSessionId: initialEndpoint.rows[0].id,
+    initialExternalSessionId: initialEndpoint.rows[0].external_session_id,
+  };
+}
+
+async function runLiveComparisonJourney({
+  page,
+  baseUrl,
+  runnerStateDir,
+  pool,
+}) {
+  const comparisonMessage = 'Compare this exact request independently. Reply exactly COMPARISON_OK. Do not modify files.';
+  const mission = await pool.query(
+    `select id, workspace_id
+     from agent_missions
+     where payload->>'goal' = $1
+     order by created_at asc
+     limit 1`,
+    [WORK_GOAL],
+  );
+  assert.equal(mission.rowCount, 1);
+  const missionId = mission.rows[0].id;
+  const workspaceId = mission.rows[0].workspace_id;
+  const conversation = await pool.query(
+    `select id from agent_sessions
+     where workspace_id = $1 and mission_id = $2
+     order by created_at asc
+     limit 1`,
+    [workspaceId, missionId],
+  );
+  assert.equal(conversation.rowCount, 1);
+
+  const composer = page.locator('.agent-work-composer');
+  await composer.getByRole('button', { name: '여러 실행 엔진 비교' }).click();
+  const targets = composer.locator('.agent-work-comparison-targets');
+  await targets.waitFor({ state: 'visible', timeout: 15_000 });
+  for (const engine of ['Codex', 'Claude']) {
+    const checkbox = targets.getByRole('checkbox', { name: engine });
+    assert.equal(await checkbox.count(), 1, `${engine} comparison target must be available`);
+    if (!await checkbox.isChecked()) await checkbox.check();
+  }
+  for (const engine of ['Grok', 'Hermes']) {
+    const checkbox = targets.getByRole('checkbox', { name: engine });
+    if (await checkbox.count() && await checkbox.isChecked()) await checkbox.uncheck();
+  }
+  assert.equal(await targets.getByRole('checkbox', { checked: true }).count(), 2);
+
+  const messageInput = composer.getByLabel('작업 대화 메시지');
+  await messageInput.fill(comparisonMessage);
+  const liveResponsePromise = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && response.url().includes(`/api/agent-operations/work/${missionId}/live`)
+  ), { timeout: 30_000 });
+  await composer.getByRole('button', { name: '작업 대화에 보내기' }).click();
+  const liveResponse = await liveResponsePromise;
+  if (!liveResponse.ok()) {
+    throw new Error(
+      `comparison live request failed: status=${liveResponse.status()} body=${await liveResponse.text()}`,
+    );
+  }
+  await page.waitForFunction((message) => {
+    const input = document.querySelector('.agent-work-composer textarea');
+    const timeline = document.querySelector('.agent-work-timeline')?.textContent || '';
+    return input instanceof HTMLTextAreaElement
+      && input.value === ''
+      && timeline.includes(String(message));
+  }, comparisonMessage, { timeout: 30_000 });
+
+  const jobs = await pool.query(
+    `select id, requested_engine, turn_index, turn_target_index, turn_mode
+     from execution_jobs
+     where workspace_id = $1 and mission_id = $2
+       and turn_index = (
+         select max(turn_index) from execution_jobs
+         where workspace_id = $1 and mission_id = $2
+       )
+     order by turn_target_index`,
+    [workspaceId, missionId],
+  );
+  assert.equal(jobs.rowCount, 2, JSON.stringify(jobs.rows));
+  assert.deepEqual(jobs.rows.map((row) => row.requested_engine), ['codex', 'claude']);
+  assert.ok(jobs.rows.every((row) => row.turn_mode === 'comparison'));
+  assert.deepEqual(jobs.rows.map((row) => row.turn_target_index), [0, 1]);
+  assert.equal(new Set(jobs.rows.map((row) => row.turn_index)).size, 1);
+
+  for (let index = 0; index < 2; index += 1) {
+    const output = await runRunner([
+      'work-once', '--base-url', baseUrl, '--state-dir', runnerStateDir,
+    ], { stateDir: runnerStateDir }).done;
+    assert.match(output, /completed|ok/i);
+  }
+
+  await page.waitForFunction(() => {
+    const runs = [...document.querySelectorAll('.agent-checkpoint-run')];
+    const codex = runs.some((run) => (
+      /Codex/.test(run.querySelector(':scope > header')?.textContent || '')
+      && /COMPARISON_OK/.test(run.textContent || '')
+    ));
+    const claude = runs.some((run) => (
+      /Claude/.test(run.querySelector(':scope > header')?.textContent || '')
+      && /COMPARISON_OK/.test(run.textContent || '')
+    ));
+    return codex && claude;
+  }, null, { timeout: 120_000 });
+
+  const canonicalMessage = await pool.query(
+    `select count(*)::int as n
+     from agent_session_events
+     where workspace_id = $1 and session_id = $2
+       and kind = 'user_message' and payload->>'text' = $3`,
+    [workspaceId, conversation.rows[0].id, comparisonMessage],
+  );
+  assert.equal(canonicalMessage.rows[0].n, 1);
+  await page.locator('.agent-work-timeline').evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.screenshot({ path: comparisonShot, fullPage: true });
+  return { missionId, workspaceId, workConversationId: conversation.rows[0].id };
+}
+
 async function runLiveProviderSessionJourney({
   page,
   baseUrl,
@@ -1168,6 +1439,7 @@ async function verifyLiveProviderSessionRehydrated(
   page,
   journey,
   screenshot = providerSessionShots.rehydrated,
+  crossJourney = null,
 ) {
   const back = page.getByRole('button', { name: /관제 홈/ }).first();
   if (await back.count()) await back.click();
@@ -1186,6 +1458,15 @@ async function verifyLiveProviderSessionRehydrated(
       && text.includes(tool)
       && text.includes('Artifact ready: codex-result.txt');
   }, { marker: journey.continuityMarker, tool: journey.toolMarker }, { timeout: 30_000 });
+  if (crossJourney) {
+    await page.waitForFunction(({ crossMessage, returnMessage }) => {
+      const text = document.querySelector('.agent-work-timeline')?.textContent || '';
+      return text.includes(crossMessage) && text.includes(returnMessage);
+    }, {
+      crossMessage: crossJourney.crossMessage,
+      returnMessage: crossJourney.returnMessage,
+    }, { timeout: 30_000 });
+  }
   await page.screenshot({ path: screenshot, fullPage: true });
 
   await sessionRow.getByRole('button', { name: '보관' }).click();
@@ -1198,6 +1479,140 @@ async function verifyLiveProviderSessionRehydrated(
   await page.getByLabel('에이전트에게 작업 지시').waitFor({ state: 'visible', timeout: 20_000 });
 }
 
+async function runLiveTelegramJourney({
+  page,
+  baseUrl,
+  runnerStateDir,
+  pool,
+}) {
+  const mission = await pool.query(
+    `select id, workspace_id
+     from agent_missions
+     where payload->>'goal' = $1
+     order by created_at asc
+     limit 1`,
+    [WORK_GOAL],
+  );
+  assert.equal(mission.rowCount, 1);
+  const conversation = await pool.query(
+    `select id
+     from agent_sessions
+     where workspace_id = $1 and mission_id = $2
+     order by created_at asc
+     limit 1`,
+    [mission.rows[0].workspace_id, mission.rows[0].id],
+  );
+  assert.equal(conversation.rowCount, 1);
+  const workConversationId = conversation.rows[0].id;
+  const chatId = String(process.env.AGENT_CALENDAR_E2E_TELEGRAM_CHAT_ID || '').trim();
+
+  const boundOutput = await runRunner([
+    'telegram-bind',
+    '--base-url', baseUrl,
+    '--state-dir', runnerStateDir,
+    '--work-conversation-id', workConversationId,
+    '--bot-token-env', 'AGENT_CALENDAR_E2E_TELEGRAM_BOT_TOKEN',
+    '--chat-id', chatId,
+    '--engine', 'codex',
+    '--model', 'gpt-5.6-sol',
+  ], { stateDir: runnerStateDir }).done;
+  const bound = JSON.parse(boundOutput);
+  assert.equal(bound.ok, true);
+  assert.ok(bound.endpointId);
+
+  const initializedOutput = await runRunner([
+    'telegram-once', '--base-url', baseUrl, '--state-dir', runnerStateDir,
+  ], { stateDir: runnerStateDir }).done;
+  const initialized = JSON.parse(initializedOutput);
+  assert.deepEqual(
+    { bindings: initialized.bindings, inbound: initialized.inbound, outbound: initialized.outbound },
+    { bindings: 1, inbound: 0, outbound: 0 },
+    'a new Telegram binding must not replay pre-bind conversation history',
+  );
+
+  console.log(JSON.stringify({
+    phase: 'telegram-ready',
+    message: telegramInboundMessage,
+  }));
+
+  let inbound = null;
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const output = await runRunner([
+      'telegram-once', '--base-url', baseUrl, '--state-dir', runnerStateDir,
+    ], { stateDir: runnerStateDir }).done;
+    const result = JSON.parse(output);
+    if (result.inbound > 0) {
+      inbound = result;
+      break;
+    }
+    await sleep(1_000);
+  }
+  assert.ok(inbound, 'Telegram inbound message did not reach the Runner within 120 seconds');
+  assert.equal(inbound.bindings, 1);
+  assert.equal(inbound.inbound, 1);
+
+  await page.waitForFunction((message) => {
+    const text = document.querySelector('.agent-work-timeline')?.textContent || '';
+    return text.includes(String(message));
+  }, telegramInboundMessage, { timeout: 30_000 });
+  await page.locator('.agent-work-timeline').evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await page.screenshot({ path: telegramShots.inbound, fullPage: true });
+
+  const workOnceOutput = await runRunner([
+    'work-once', '--base-url', baseUrl, '--state-dir', runnerStateDir,
+  ], { stateDir: runnerStateDir }).done;
+  assert.match(workOnceOutput, /completed|ok|idle/i);
+  await page.waitForFunction((reply) => {
+    const text = document.querySelector('.agent-work-timeline')?.textContent || '';
+    return text.includes(String(reply));
+  }, telegramExpectedReply, { timeout: 120_000 });
+
+  const deliveredOutput = await runRunner([
+    'telegram-once', '--base-url', baseUrl, '--state-dir', runnerStateDir,
+  ], { stateDir: runnerStateDir }).done;
+  const delivered = JSON.parse(deliveredOutput);
+  assert.equal(delivered.bindings, 1);
+  assert.ok(delivered.outbound > 0, 'Telegram must receive at least one post-bind Work Conversation event');
+
+  const canonicalInbound = await pool.query(
+    `select count(*)::int as count
+     from agent_session_events
+     where workspace_id = $1 and session_id = $2
+       and payload->>'origin' = 'telegram'
+       and payload->>'text' = $3`,
+    [mission.rows[0].workspace_id, workConversationId, telegramInboundMessage],
+  );
+  assert.equal(canonicalInbound.rows[0].count, 1);
+  const deliveredReply = await pool.query(
+    `select count(*)::int as count
+     from work_conversation_channel_receipts receipt
+     inner join agent_session_events event
+       on event.workspace_id = receipt.workspace_id and event.id = receipt.event_id
+     where receipt.workspace_id = $1 and receipt.endpoint_id = $2
+       and receipt.direction = 'outbound' and receipt.status = 'delivered'
+       and event.payload->>'text' like $3`,
+    [mission.rows[0].workspace_id, bound.endpointId, `%${telegramExpectedReply}%`],
+  );
+  assert.equal(deliveredReply.rows[0].count, 1);
+
+  await page.locator('.agent-work-timeline').evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await page.screenshot({ path: telegramShots.completed, fullPage: true });
+  console.log(JSON.stringify({
+    phase: 'telegram-delivered',
+    inbound: inbound.inbound,
+    outbound: delivered.outbound,
+  }));
+  return {
+    workConversationId,
+    inboundCount: inbound.inbound,
+    outboundCount: delivered.outbound,
+  };
+}
+
 async function main() {
   const started = Date.now();
   const evidenceBinding = releaseBinding();
@@ -1207,11 +1622,16 @@ async function main() {
   let electronApp = null;
   let authState = null;
   let providerJourney = null;
+  let crossJourney = null;
+  let comparisonJourney = null;
+  let telegramJourney = null;
   const runnerStateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase3-runner-'));
   let fixedPort = null;
 
   try {
-    execFileSync('npm', ['run', 'build'], { cwd: desktopRoot, stdio: 'inherit', timeout: 180_000 });
+    if (process.env.AGENT_CALENDAR_E2E_SKIP_BUILD !== '1') {
+      execFileSync('npm', ['run', 'build'], { cwd: desktopRoot, stdio: 'inherit', timeout: 180_000 });
+    }
     pg = await startPostgres();
     authState = createAuthKitState();
     http = await startHttpServer({ pool: pg.pool, authKit: authState.authKit });
@@ -1341,15 +1761,35 @@ async function main() {
     const workOnce = runRunner([
       'work-once', '--base-url', http.baseUrl, '--state-dir', runnerStateDir,
     ], { stateDir: runnerStateDir });
+    const workOnceSettled = workOnce.done.then(
+      (output) => ({ status: 'fulfilled', output }),
+      (error) => ({ status: 'rejected', error }),
+    );
+    let earlyExecOut = '';
 
     // Stream Engines expose Plan/Progress. Grok and Hermes are batch-only, so their
     // persisted Engine checkpoint is the only honest pre-result live evidence.
-    await page.waitForFunction((engine) => {
+    const waitForLiveCheckpoint = (timeout = 90_000) => page.waitForFunction((engine) => {
       const text = document.body ? document.body.innerText : '';
       if (engine === 'hermes') return /Hermes:|Hermes safe profile/i.test(text);
       if (engine === 'grok') return /Grok:|Grok CLI/i.test(text);
       return /Plan:|Progress:/i.test(text);
-    }, selectedEngine, { timeout: 90_000 });
+    }, selectedEngine, { timeout });
+    const liveCheckpointRace = await Promise.race([
+      waitForLiveCheckpoint().then(() => ({ status: 'checkpoint' })),
+      workOnceSettled,
+    ]);
+    if (liveCheckpointRace.status === 'rejected') {
+      throw new Error(
+        `Runner failed before a live ${selectedEngine} checkpoint reached the Work Conversation:\n${
+          String(liveCheckpointRace.error?.message || liveCheckpointRace.error || '')
+        }`,
+      );
+    }
+    if (liveCheckpointRace.status === 'fulfilled') {
+      earlyExecOut = liveCheckpointRace.output;
+      await waitForLiveCheckpoint();
+    }
     const liveText = await page.locator('body').innerText();
     assert.match(
       liveText,
@@ -1362,7 +1802,7 @@ async function main() {
     assert.doesNotMatch(liveText, /Completed fake execution/i);
     await page.screenshot({ path: shots.live, fullPage: true });
 
-    const execOut = await workOnce.done;
+    const execOut = earlyExecOut || await workOnce.done;
     if (expectFailure) {
       assert.match(execOut, /"failed"\s*:\s*true/i);
       assert.match(execOut, new RegExp(expectedErrorCode, 'i'));
@@ -1373,10 +1813,23 @@ async function main() {
       await page.waitForSelector('.agent-work-status-badge[data-status="failed"]', { timeout: 30_000 });
     } else {
       assert.match(execOut, /completed|ok|idle/i);
-      await page.waitForFunction((resultMarker) => {
-        const text = document.querySelector('.agent-work-timeline')?.textContent || '';
-        return text.includes(String(resultMarker));
-      }, expectedResultMarker, { timeout: 90_000 });
+      try {
+        await page.waitForFunction((resultMarker) => {
+          const timeline = document.querySelector('.agent-work-timeline');
+          return timeline instanceof HTMLElement && timeline.innerText.includes(String(resultMarker));
+        }, expectedResultMarker, { timeout: Number(process.env.AGENT_CALENDAR_E2E_RESULT_WAIT_MS || 90_000) });
+      } catch (error) {
+        const checkpointVisibility = await page.locator('.agent-checkpoint-run').evaluateAll((runs, marker) => runs.map((run) => ({
+          origin: run.querySelector(':scope > header span')?.textContent || '',
+          primaryKind: run.querySelector(':scope > .agent-checkpoint')?.getAttribute('data-kind') || '',
+          primaryContainsMarker: (run.querySelector(':scope > .agent-checkpoint > p')?.textContent || '').includes(String(marker)),
+          traceContainsMarker: (run.querySelector('.agent-checkpoint-trace')?.textContent || '').includes(String(marker)),
+          markerTraceKinds: [...run.querySelectorAll('.agent-checkpoint-trace-row')]
+            .filter((row) => (row.textContent || '').includes(String(marker)))
+            .map((row) => row.querySelector('span')?.textContent || ''),
+        })), expectedResultMarker).catch(() => []);
+        throw new Error(`terminal result not visible: ${JSON.stringify(checkpointVisibility)}`, { cause: error });
+      }
       assert.ok((await page.locator('.agent-work-timeline').innerText()).includes(expectedResultMarker));
     }
 
@@ -1386,20 +1839,60 @@ async function main() {
       assert.match(completedText, /재시도 필요/);
       assert.match(completedText, new RegExp(expectedErrorCode, 'i'));
     }
-    // Execution Engine contract: requested stays 자동 선택; actual resolved engine is visible.
-    await page.waitForSelector('[data-testid="agent-work-resolved-engine"]', { timeout: 15_000 });
-    const resolvedLabel = (await page.textContent('[data-testid="agent-work-resolved-engine"]') || '').trim();
-    assert.notEqual(resolvedLabel, '확인 불가');
+    // Execution Engine contract: requested choice remains durable; actual engine is visible.
+    await page.waitForFunction((engineLabel) => {
+      const text = document.querySelector('.agent-work-session-engine')?.textContent || '';
+      return text.toLowerCase().includes(String(engineLabel).toLowerCase());
+    }, expectedEngineLabel, { timeout: 15_000 });
+    const resolvedLabel = (await page.textContent('.agent-work-session-engine') || '').trim();
     assert.match(resolvedLabel, new RegExp(expectedEngineLabel, 'i'));
-    if (useFakeEngine) {
-      assert.match(completedText, /요청 방식[\s\S]*자동 선택/);
-    } else {
-      assert.match(completedText, new RegExp(`요청 방식[\\s\\S]*${expectedEngineLabel}`, 'i'));
-    }
-    assert.match(completedText, new RegExp(`실제 실행[\\s\\S]*${expectedEngineLabel}`, 'i'));
+    const requestedEngine = await pg.pool.query(
+      `select requested_engine
+       from execution_jobs
+       where goal = $1
+       order by created_at asc
+       limit 1`,
+      [WORK_GOAL],
+    );
+    assert.equal(requestedEngine.rowCount, 1);
+    assert.equal(requestedEngine.rows[0].requested_engine, useFakeEngine ? 'auto' : selectedEngine);
     await page.screenshot({ path: shots.completed, fullPage: true });
 
-    if (!useFakeEngine && !expectFailure && selectedEngine === 'codex') {
+    if (comparisonMode) {
+      comparisonJourney = await runLiveComparisonJourney({
+        page,
+        baseUrl: http.baseUrl,
+        runnerStateDir,
+        pool: pg.pool,
+      });
+    }
+    if (crossEngine) {
+      assert.equal(selectedEngine, 'codex', 'cross-engine ETE currently starts from an imported Codex provider session');
+      providerJourney = await runLiveProviderSessionJourney({
+        page,
+        baseUrl: http.baseUrl,
+        runnerStateDir,
+        pool: pg.pool,
+      });
+      const runnerState = JSON.parse(fs.readFileSync(path.join(runnerStateDir, 'state.json'), 'utf8'));
+      crossJourney = await runCrossEngineConversationJourney({
+        page,
+        baseUrl: http.baseUrl,
+        runnerStateDir,
+        pool: pg.pool,
+        workspaceId: String(runnerState.workspaceId || ''),
+        providerJourney,
+      });
+    }
+    if (telegramMode) {
+      telegramJourney = await runLiveTelegramJourney({
+        page,
+        baseUrl: http.baseUrl,
+        runnerStateDir,
+        pool: pg.pool,
+      });
+    }
+    if (!comparisonMode && !crossEngine && !telegramMode && !useFakeEngine && !expectFailure && selectedEngine === 'codex') {
       providerJourney = await runLiveProviderSessionJourney({
         page,
         baseUrl: http.baseUrl,
@@ -1407,7 +1900,17 @@ async function main() {
         pool: pg.pool,
       });
     }
-    const expectedCompletedAttempts = expectFailure ? 0 : (providerJourney ? 2 : 1);
+    const expectedCompletedAttempts = expectFailure
+      ? 0
+      : comparisonJourney
+        ? 3
+      : crossJourney
+          ? 4
+          : telegramJourney
+            ? 2
+          : providerJourney
+            ? 2
+            : 1;
 
     // Assert DB terminals only as result verification (not journey-driving)
     const completedAttempts = await pg.pool.query(
@@ -1477,15 +1980,34 @@ async function main() {
       assert.match(await page.locator('.agent-work-timeline').innerText(), new RegExp(expectedErrorCode, 'i'));
     }
     await page.waitForFunction((engineLabel) => {
-      const el = document.querySelector('[data-testid="agent-work-resolved-engine"]');
-      return el && String(el.textContent || '').toLowerCase().includes(String(engineLabel).toLowerCase());
+      const text = document.querySelector('.agent-work-session-engine')?.textContent || '';
+      return text.toLowerCase().includes(String(engineLabel).toLowerCase());
     }, expectedEngineLabel, { timeout: 20_000 });
-    const rehydratedResolved = (await page.textContent('[data-testid="agent-work-resolved-engine"]') || '').trim();
-    assert.equal(rehydratedResolved, expectedEngineLabel);
-    assert.doesNotMatch(await page.locator('body').innerText(), /실제 실행\s*확인 불가/);
+    const rehydratedResolved = (await page.textContent('.agent-work-session-engine') || '').trim();
+    assert.match(rehydratedResolved, new RegExp(expectedEngineLabel, 'i'));
     await page.screenshot({ path: shots.rehydrated, fullPage: true });
+    if (crossJourney) {
+      const restoredEndpoint = await pg.pool.query(
+        `select id, external_session_id
+         from provider_agent_sessions
+         where workspace_id = (
+           select workspace_id from agent_missions where id = $1 limit 1
+         ) and work_conversation_id = $2 and engine = $3
+         limit 1`,
+        [crossJourney.missionId, crossJourney.workConversationId, selectedEngine],
+      );
+      assert.deepEqual(restoredEndpoint.rows[0], {
+        id: crossJourney.initialProviderSessionId,
+        external_session_id: crossJourney.initialExternalSessionId,
+      });
+    }
     if (providerJourney) {
-      await verifyLiveProviderSessionRehydrated(page, providerJourney);
+      await verifyLiveProviderSessionRehydrated(
+        page,
+        providerJourney,
+        providerSessionShots.rehydrated,
+        crossJourney,
+      );
     }
 
     // 10) After reconnect, no terminal replay or duplicate Calendar projection.
@@ -1503,11 +2025,30 @@ async function main() {
     const calCount = await pg.pool.query(
       `select count(*)::int as n from calendar_events where payload->>'source' = 'agent-work'`,
     );
-    assert.equal(calCount.rows[0].n, providerJourney ? 2 : 1, 'Calendar projection count matches work turns');
+    assert.equal(
+      calCount.rows[0].n,
+      expectedCompletedAttempts,
+      'Calendar projection count matches work turns',
+    );
 
     // Screenshot uniqueness + state-specific text
     const hashes = {};
-    const evidenceShots = providerJourney
+    const evidenceShots = comparisonJourney
+      ? { ...shots, explicitEngineComparison: comparisonShot }
+      : crossJourney
+      ? {
+        ...shots,
+        providerSessionContinued: providerSessionShots.continued,
+        providerSessionRehydrated: providerSessionShots.rehydrated,
+        crossEngineConversation: crossEngineShot,
+      }
+      : telegramJourney
+      ? {
+        ...shots,
+        telegramInboundVisibleInDesktop: telegramShots.inbound,
+        telegramCodexResultVisibleInDesktop: telegramShots.completed,
+      }
+      : providerJourney
       ? {
         ...shots,
         providerSessionContinued: providerSessionShots.continued,
@@ -1549,6 +2090,13 @@ async function main() {
       providerSessionContinued: Boolean(providerJourney),
       providerSessionRestored: Boolean(providerJourney),
       providerSessionArchived: Boolean(providerJourney),
+      explicitEngineComparison: Boolean(comparisonJourney),
+      telegramRoundTrip: Boolean(telegramJourney),
+      telegramInboundCount: telegramJourney?.inboundCount || 0,
+      telegramOutboundCount: telegramJourney?.outboundCount || 0,
+      crossEngineConversation: Boolean(crossJourney),
+      crossEngine: crossEngine || null,
+      crossEngineReturnedToOriginalSession: Boolean(crossJourney),
       completeCount: authState.getCompleteCount(),
       expectedErrorCode: expectedErrorCode || null,
       completedAttempts: completedAttempts2.rows[0].n,

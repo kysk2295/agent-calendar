@@ -755,9 +755,12 @@ export function App() {
     allowedTaskClasses: stringList(agent, 'allowedTaskClasses'),
     responsibility: text(agent.responsibility || agent.persona),
     instructions: text(agent.instructions),
+    responseStyle: text(agent.responseStyle || agent.style),
     specialties: stringList(agent, 'specialties').length
       ? stringList(agent, 'specialties')
       : stringList(agent, 'allowedTaskClasses'),
+    memories: stringList(agent, 'memories'),
+    profileVersion: Math.max(1, Number(agent.profileVersion) || 1),
     sourceKind: agentSourceKind(agent),
     externalAgentId: text(agent.externalAgentId || agent.profileId || agent.profileName),
     connectionStatus: text(agent.connectionStatus || agent.hermesProfileStatus || agent.status),
@@ -2261,6 +2264,8 @@ export function App() {
       responsibility: '',
       instructions: '',
       specialties: [],
+      responseStyle: '',
+      memories: [],
       sourceKind: 'native',
       provider: 'agent-calendar',
       externalAgentId: '',
@@ -3378,7 +3383,7 @@ export function App() {
             {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} loadDocument={loadKnowledgeDocument} knowledgeV2={state.wiki.knowledgeV2 === true} knowledgeSources={arr(state.wiki, 'sources')} sourceBusy={wikiSourceBusy} sourceMessage={wikiSourceMessage} addCloudFile={addCloudKnowledgeFile} revokeSource={revokeKnowledgeSource} resolveEvidence={resolveKnowledgeEvidence} />}
             {screen === 'diary' && <DiaryScreen docs={diaryDocs} diaryText={diaryText} setDiaryText={setDiaryText} diaryMood={diaryMood} setDiaryMood={setDiaryMood} saveDiary={saveDiary} loadDocument={loadKnowledgeDocument} />}
             {screen === 'search' && <SearchScreen query={query} setQuery={setQuery} tasks={tasks} docs={docs} openTask={openTask} openDoc={openDoc} />}
-            {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} runners={automationRunners} automationJobs={hermesAutomationJobs} error={agentOperationsError} busy={agentOperationsBusy} onRetry={retryAgentOperations} onRefreshAgentOperations={retryAgentOperations} onCreateAgent={createWorkspaceAgent} onUpdateAgent={updateWorkspaceAgent} onRequestAgentCatalog={requestAgentCatalog} onGetAgentCatalogRequest={getAgentCatalogRequest} onImportAgentCatalogEntry={importAgentCatalogEntry} onListProviderAgentSessions={listProviderAgentSessions} onRequestProviderSessionCatalog={requestProviderSessionCatalog} onImportProviderSessionCatalogEntry={importProviderSessionCatalogEntry} onUpdateProviderAgentSession={updateProviderAgentSession} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onContinueSession={continueAgentSession} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
+            {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} runners={automationRunners} automationJobs={hermesAutomationJobs} controlPlaneBaseUrl={settings.apiBaseUrl} error={agentOperationsError} busy={agentOperationsBusy} onRetry={retryAgentOperations} onRefreshAgentOperations={retryAgentOperations} onCreateAgent={createWorkspaceAgent} onUpdateAgent={updateWorkspaceAgent} onRequestAgentCatalog={requestAgentCatalog} onGetAgentCatalogRequest={getAgentCatalogRequest} onImportAgentCatalogEntry={importAgentCatalogEntry} onListProviderAgentSessions={listProviderAgentSessions} onRequestProviderSessionCatalog={requestProviderSessionCatalog} onImportProviderSessionCatalogEntry={importProviderSessionCatalogEntry} onUpdateProviderAgentSession={updateProviderAgentSession} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onContinueSession={continueAgentSession} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
             {screen === 'automation' && (
               <HermesAutomationDashboard
                 sources={connectedAutomationSources}

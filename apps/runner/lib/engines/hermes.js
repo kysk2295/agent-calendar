@@ -6,15 +6,17 @@
  * Never yolo / one-shot bypass flags.
  */
 
-const { assertSafeArgv, redactPrivatePaths } = require('./contract');
+const { assertSafeArgv, normalizeModelId, redactPrivatePaths } = require('./contract');
 const { spawnSafe } = require('./spawn-safe');
 
 const SECRET_RE = /sk-[a-zA-Z0-9]{10,}|Bearer\s+\S+|HERMES_API_KEY\s*=\s*\S+/gi;
 
-function buildHermesArgv({ sessionId } = {}) {
+function buildHermesArgv({ sessionId, model } = {}) {
+  const requestedModel = normalizeModelId(model);
   const args = [
     '--cli',
     ...(sessionId ? ['--resume', String(sessionId)] : []),
+    ...(requestedModel ? ['--model', requestedModel] : []),
     '-t', 'safe',
   ];
   assertSafeArgv(args);
@@ -33,6 +35,9 @@ function capabilityContract() {
     streaming: false,
     streamingSchema: null,
     status: 'limited',
+    modelSelection: 'identifier',
+    models: [],
+    defaultModel: null,
     message: 'Hermes safe profile runs batch tool source; no stable stream schema claimed',
   };
 }
@@ -72,9 +77,12 @@ async function probeHermes({ timeoutMs = 8_000 } = {}) {
 }
 
 async function runHermes(input = {}) {
-  const { goal, cwd, onCheckpoint, signal, timeoutMs = 180_000, providerSession } = input;
+  const {
+    goal, cwd, model, onCheckpoint, signal, timeoutMs = 180_000, providerSession,
+  } = input;
+  const requestedModel = normalizeModelId(model);
   const boundSessionId = providerSession?.externalSessionId || '';
-  const args = buildHermesArgv({ sessionId: boundSessionId });
+  const args = buildHermesArgv({ sessionId: boundSessionId, model: requestedModel });
   const contract = capabilityContract();
 
   if (typeof onCheckpoint === 'function') {
@@ -114,6 +122,7 @@ async function runHermes(input = {}) {
     return {
       ok: true,
       summary: 'Hermes execution completed (safe profile, batch)',
+      ...(requestedModel ? { model: requestedModel } : {}),
       capability: contract,
       artifacts: preview ? [{ name: 'hermes-preview.txt', content: preview, contentType: 'text/plain' }] : [],
       resume: boundSessionId ? { sessionId: boundSessionId } : undefined,

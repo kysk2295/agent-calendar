@@ -31,6 +31,7 @@ type AgentDirectoryPanelProps = {
   readonly agents: readonly AgentRosterEntry[];
   readonly runners: readonly PublicRunner[];
   readonly selectedAgentId: string;
+  readonly sessionsOnly: boolean;
   readonly runnerConnected: boolean;
   readonly busy: boolean;
   readonly onSelect: (agentId: string) => void;
@@ -61,7 +62,9 @@ type AgentFormState = {
   readonly role: string;
   readonly responsibility: string;
   readonly instructions: string;
+  readonly responseStyle: string;
   readonly specialties: string;
+  readonly memories: string;
   readonly provider: string;
   readonly externalAgentId: string;
   readonly defaultExecutionEngine: AgentExecutionEngine;
@@ -73,7 +76,9 @@ const EMPTY_FORM: AgentFormState = {
   role: '',
   responsibility: '',
   instructions: '',
+  responseStyle: '',
   specialties: '',
+  memories: '',
   provider: 'hermes',
   externalAgentId: '',
   defaultExecutionEngine: 'auto',
@@ -99,7 +104,9 @@ function formFromAgent(agent: AgentRosterEntry): AgentFormState {
     role: agent.role,
     responsibility: agent.responsibility || '',
     instructions: agent.instructions || '',
+    responseStyle: agent.responseStyle || '',
     specialties: (agent.specialties || agent.allowedTaskClasses).join(', '),
+    memories: (agent.memories || []).join('\n'),
     provider: agent.provider || 'external',
     externalAgentId: agent.externalAgentId || '',
     defaultExecutionEngine: agent.defaultExecutionEngine || 'auto',
@@ -113,7 +120,9 @@ function mutationInput(form: AgentFormState, sourceKind: 'native' | 'connected')
     role: form.role.trim(),
     responsibility: form.responsibility.trim(),
     instructions: form.instructions.trim(),
+    responseStyle: form.responseStyle.trim(),
     specialties: form.specialties.split(',').map((value) => value.trim()).filter(Boolean),
+    memories: [...new Set(form.memories.split('\n').map((value) => value.trim()).filter(Boolean))],
     sourceKind,
     provider: sourceKind === 'native' ? 'agent-calendar' : form.provider.trim().toLowerCase(),
     externalAgentId: sourceKind === 'native' ? '' : form.externalAgentId.trim(),
@@ -496,18 +505,22 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
   };
 
   return (
-    <aside className="agent-directory-panel" aria-label="담당 에이전트 디렉터리">
+    <aside
+      className="agent-directory-panel"
+      data-mode={props.sessionsOnly ? 'sessions' : 'directory'}
+      aria-label={props.sessionsOnly ? '작업 세션' : '담당 에이전트 디렉터리'}
+    >
       <header>
         <span>
-          <strong>담당 에이전트</strong>
-          <small>{props.agents.length}명</small>
+          <strong>{props.sessionsOnly ? selectedAgent?.displayName || '작업 세션' : '담당 에이전트'}</strong>
+          <small>{props.sessionsOnly ? selectedAgent?.role || '세션' : `${props.agents.length}명`}</small>
         </span>
-        <button type="button" aria-label="에이전트 만들기" onClick={openCreate}>
+        {!props.sessionsOnly && <button type="button" aria-label="에이전트 만들기" onClick={openCreate}>
           <Plus size={15} weight="bold" aria-hidden="true" />
-        </button>
+        </button>}
       </header>
 
-      <nav aria-label="에이전트 선택">
+      {!props.sessionsOnly && <nav aria-label="에이전트 선택">
         <button
           className="agent-directory-all"
           data-selected={!props.selectedAgentId}
@@ -542,9 +555,9 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
           ))}
           {!connected.length && <p>외부에서 연결한 에이전트가 없습니다.</p>}
         </section>
-      </nav>
+      </nav>}
 
-      {selectedAgent && (
+      {!props.sessionsOnly && selectedAgent && (
         <section className="agent-directory-card" aria-label="선택한 에이전트 카드">
           <header>
             <span>
@@ -557,11 +570,17 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
           </header>
           <dl>
             <div><dt>책임</dt><dd>{selectedAgent.responsibility || '위임 요청에 맞춰 수행'}</dd></div>
+            <div><dt>스타일</dt><dd>{selectedAgent.responseStyle || '요청에 맞춰 조정'}</dd></div>
             <div><dt>출처</dt><dd>{agentSourceLabel(recordValue(selectedAgent))}</dd></div>
             <div><dt>상태</dt><dd>{agentConnectionLabel(recordValue(selectedAgent), { runnerConnected: props.runnerConnected })}</dd></div>
             <div><dt>실행 엔진</dt><dd>{selectedAgent.defaultExecutionEngine === 'auto' || !selectedAgent.defaultExecutionEngine ? '자동' : selectedAgent.defaultExecutionEngine}</dd></div>
             <div><dt>Runner</dt><dd>{props.runners.find((runner) => runner.id === selectedAgent.defaultRunnerId) ? runnerLabel(props.runners.find((runner) => runner.id === selectedAgent.defaultRunnerId)!) : '자동 선택'}</dd></div>
           </dl>
+          <div className="agent-directory-profile-state" aria-label="프로필 실행 상태">
+            <span>프로필 v{selectedAgent.profileVersion || 1}</span>
+            <span>{selectedAgent.memories?.length ? `기억 ${selectedAgent.memories.length}개` : '저장된 기억 없음'}</span>
+            <span>실시간 작업</span>
+          </div>
           {!!selectedAgent.specialties?.length && (
             <ul aria-label="전문 분야">
               {selectedAgent.specialties.slice(0, 4).map((specialty) => <li key={specialty}>{specialty}</li>)}
@@ -586,7 +605,7 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
         />
       )}
 
-      <footer>
+      {!props.sessionsOnly && <footer>
         <button type="button" onClick={openCreate}>
           <Plus size={14} weight="bold" aria-hidden="true" />
           에이전트 만들기
@@ -595,7 +614,7 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
           <DownloadSimple size={14} aria-hidden="true" />
           Runner에서 가져오기
         </button>
-      </footer>
+      </footer>}
 
       {editorMode && (
         <div className="agent-directory-dialog-backdrop" role="presentation" onMouseDown={(event) => {
@@ -777,8 +796,16 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
                 <textarea value={form.instructions} onChange={(event) => setForm({ ...form, instructions: event.target.value })} placeholder="결과 형식, 금지 사항, 검증 원칙을 적으세요." />
               </label>
               <label>
+                <span>말투와 성격</span>
+                <textarea value={form.responseStyle} onChange={(event) => setForm({ ...form, responseStyle: event.target.value })} placeholder="예: 차분한 존댓말로 핵심부터 설명하고, 불확실하면 솔직하게 말한다." />
+              </label>
+              <label>
                 <span>전문 분야</span>
                 <input value={form.specialties} onChange={(event) => setForm({ ...form, specialties: event.target.value })} placeholder="쉼표로 구분 · 시장 조사, 출처 검증" />
+              </label>
+              <label>
+                <span>계속 기억할 내용</span>
+                <textarea value={form.memories} onChange={(event) => setForm({ ...form, memories: event.target.value })} placeholder={'한 줄에 하나씩 · 사용자가 선호하는 형식\n반복해서 지켜야 할 작업 맥락'} />
               </label>
               <details>
                 <summary>고급 설정</summary>

@@ -3,6 +3,7 @@ import type {
   AgentAssignment,
   AgentResolvedExecutionEngine,
   AgentWorkCheckpoint,
+  AgentWorkChannelEndpoint,
   AgentWorkConversation,
   AgentWorkConversationPage,
   AgentWorkCreateResponse,
@@ -19,6 +20,7 @@ import {
 import {
   booleanValue,
   conversationStatus,
+  executionEngine,
   finiteNumber,
   missionState,
   optionalIdentifier,
@@ -70,7 +72,12 @@ function parseWork(value: unknown, contract: WorkConversationContract): AgentWor
     agentId,
     assignment: assignment(source.assignmentReason, agentId),
     executionEngine: contract.executionEngine,
+    activeExecutionEngine: source.activeExecutionEngine === undefined
+      ? contract.executionEngine
+      : executionEngine(source.activeExecutionEngine, 'work.activeExecutionEngine'),
     resolvedExecutionEngine: resolvedExecutionEngine(source.resolvedExecutionEngine),
+    activeExecutionModel: optionalString(source.activeExecutionModel, 'work.activeExecutionModel'),
+    resolvedExecutionModel: optionalString(source.resolvedExecutionModel, 'work.resolvedExecutionModel'),
     deliverable: contract.deliverable,
     missionThreadId: text(source.missionThreadId, 'work.missionThreadId'),
     workConversationId: source.workConversationId === undefined ? text(source.missionThreadId, 'work.missionThreadId') : text(source.workConversationId, 'work.workConversationId'),
@@ -135,6 +142,27 @@ function requiredCheckpoint(value: unknown, field: string): AgentWorkCheckpoint 
   return parsed;
 }
 
+function parseChannelEndpoint(value: unknown): AgentWorkChannelEndpoint {
+  const source = record(value, 'channel');
+  if (source.channel !== 'telegram') throw new AgentWorkParseError('channel.channel');
+  if (!['active', 'offline', 'revoked'].includes(String(source.status || ''))) {
+    throw new AgentWorkParseError('channel.status');
+  }
+  if (source.ingressOwnership !== 'unverified') {
+    throw new AgentWorkParseError('channel.ingressOwnership');
+  }
+  return {
+    id: text(source.id, 'channel.id'),
+    channel: 'telegram',
+    status: source.status as AgentWorkChannelEndpoint['status'],
+    runnerId: text(source.runnerId, 'channel.runnerId'),
+    ingressOwnership: 'unverified',
+    lastActivityAt: source.lastActivityAt === null || source.lastActivityAt === undefined
+      ? null
+      : timestamp(source.lastActivityAt, 'channel.lastActivityAt'),
+  };
+}
+
 function parseSuccess(value: unknown): Readonly<Record<string, unknown>> {
   const source = record(value, 'response');
   if (source.ok !== true) throw new AgentWorkParseError('response.ok');
@@ -151,9 +179,13 @@ export function parseAgentWorkConversationPage(value: unknown): AgentWorkConvers
   const work = parseWork(source.work, contract);
   const conversation = parseConversation(source.conversation, contract);
   matchWorkConversation(work, conversation);
+  if (source.channels !== undefined && !Array.isArray(source.channels)) {
+    throw new AgentWorkParseError('channels');
+  }
   return {
     work,
     conversation,
+    channels: (source.channels || []).map(parseChannelEndpoint),
     checkpoints: source.checkpoints.map(parseCheckpoint).filter((item): item is AgentWorkCheckpoint => item !== null).sort(compareAgentWorkCheckpoints),
     nextCursor: source.nextCursor,
   };

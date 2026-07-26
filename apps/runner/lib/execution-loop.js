@@ -52,6 +52,7 @@ async function runOnce(client, {
       jobId: lease.jobId,
       leaseEpoch: lease.leaseEpoch,
       engine: lease.engine,
+      requestedModel: String(lease.requestedModel || ''),
       missionId: lease.missionId,
       sessionId: lease.sessionId,
       providerSession: lease.providerSession?.id && lease.providerSession?.externalSessionId
@@ -103,6 +104,7 @@ async function runOnce(client, {
 
     const result = await adapter.run({
       goal: lease.goal,
+      model: lease.requestedModel || '',
       cwd,
       jobPayload: offer.payload && typeof offer.payload === 'object' ? offer.payload : {},
       providerSession: lease.providerSession || offer.providerSession || null,
@@ -218,6 +220,7 @@ async function runOnce(client, {
       attemptId: lease.attemptId,
       leaseEpoch: lease.leaseEpoch,
       summary: result.summary || 'completed',
+      resolvedModel: result.model || '',
       idempotencyKey: 'terminal:complete',
       ...(lease.providerSession?.id ? {
         providerSession: {

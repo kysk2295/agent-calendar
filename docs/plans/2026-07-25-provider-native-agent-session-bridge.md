@@ -45,10 +45,11 @@ fail-closed로 강제한다.
 Control Space 안에서 실제 provider 에이전트와 장기적으로 일하게 한다.
 
 Workspace의 Runner가 사용자 동의 아래 로컬 agent/profile/session 공개 메타데이터를
-조회하고, Agent Calendar의 Work Conversation 하나를 실제 provider session 하나와
-1:1로 연결한다. 후속 지시는 같은 provider session으로 전달되고, 앱·Gateway·Runner
-재시작과 네트워크 단절 이후에도 대화, 실행 증거, 결과물, Calendar projection이
-복구되어야 한다.
+조회하고 실제 provider session을 Agent Calendar Work Conversation endpoint로 연결한다.
+이 문서에서 검증한 exact provider session continuity는 유지하지만, 최종 cardinality는
+Work Conversation 하나에 여러 provider/channel endpoint를 허용한다. 상세 canonical
+conversation과 cross-channel 계약은
+`docs/plans/2026-07-26-unified-cross-channel-work-conversation.md`가 소유한다.
 
 ## Non-Goals
 
@@ -105,7 +106,7 @@ Workspace의 Runner가 사용자 동의 아래 로컬 agent/profile/session 공�
   - same-Workspace Runner 선택/검증
   - connector request lifecycle
   - public metadata projection과 secret rejection
-  - provider session ↔ Work Conversation 1:1 mapping
+  - provider session ↔ Work Conversation endpoint mapping
   - durable execution job/attempt/event/artifact 연결
   - provider-specific error를 공통 상태로 정규화
 
@@ -133,7 +134,7 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
 
 - `provider_agent_sessions`
   - Workspace, agent, Runner, engine/provider, external agent id
-  - Work Conversation id와 external provider session id의 1:1 mapping
+  - Work Conversation endpoint와 external provider session id의 exact mapping
   - title/status/last activity/public metadata/error code
 - `runner_connector_requests`
   - Workspace와 정확한 Runner에 묶인 catalog/session control request
@@ -153,8 +154,11 @@ capability/status처럼 allowlist된 공개 메타데이터만 보낸다.
       가져오기 한다.
 - [x] catalog API가 없는 provider는 동의된 Runner local connector를 사용하고,
       불가능할 때만 수동 reference를 fallback으로 제공한다.
-- [x] Work Conversation 하나와 실제 provider session 하나가 1:1이며 후속 메시지가
-      같은 external session id로 전달된다.
+- [x] 하나의 provider endpoint 안에서 후속 메시지가 같은 external session id로
+      전달된다.
+- [ ] 하나의 Work Conversation에 여러 provider/channel endpoint를 연결하고 engine
+      전환 뒤에도 canonical transcript를 유지한다.
+      이 기준은 2026-07-26 cross-channel 계획에서 구현·검증한다.
 - [x] 에이전트별 session 목록, 새 session, 재개, 제목 변경, 검색, 보관이 동작한다.
 - [x] 전체 채팅, 계획, tool 실행, Work Checkpoint, 승인, 오류, artifact, 결과,
       수정 차수가 durable storage에서 복구된다.

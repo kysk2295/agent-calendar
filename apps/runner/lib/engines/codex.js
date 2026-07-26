@@ -7,12 +7,16 @@
  * Never expose raw JSONL as artifacts. Never --full-auto / --yolo.
  */
 
-const { assertSafeArgv, redactPrivatePaths } = require('./contract');
+const { assertSafeArgv, normalizeModelId, redactPrivatePaths } = require('./contract');
 const { spawnSafe } = require('./spawn-safe');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const SECRET_RE = /sk-[a-zA-Z0-9]{10,}|Bearer\s+\S+|OPENAI_API_KEY\s*=\s*\S+/gi;
 
-function buildCodexArgv({ cwd, sessionId } = {}) {
+function buildCodexArgv({ cwd, sessionId, model } = {}) {
+  const requestedModel = normalizeModelId(model);
   const args = sessionId
     ? [
       'exec',
@@ -20,6 +24,7 @@ function buildCodexArgv({ cwd, sessionId } = {}) {
       '--skip-git-repo-check',
       '--json',
       '--sandbox', 'workspace-write',
+      ...(requestedModel ? ['--model', requestedModel] : []),
       'resume', String(sessionId), '-',
     ]
     : [
@@ -28,6 +33,7 @@ function buildCodexArgv({ cwd, sessionId } = {}) {
       '--skip-git-repo-check',
       '--json',
       '--sandbox', 'workspace-write',
+      ...(requestedModel ? ['--model', requestedModel] : []),
     ];
   assertSafeArgv(args);
   return args;
@@ -41,6 +47,16 @@ function redactLine(line) {
 
 function completionCheckpointText() {
   return 'Codex execution completed';
+}
+
+function configuredCodexModel() {
+  try {
+    const configPath = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'config.toml');
+    const match = fs.readFileSync(configPath, 'utf8').match(/^model\s*=\s*['"]([^'"]+)['"]/m);
+    return normalizeModelId(match?.[1] || '');
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -142,9 +158,12 @@ function parseCodexJsonlLine(line) {
 }
 
 async function runCodex(input = {}) {
-  const { goal, cwd, onCheckpoint, signal, timeoutMs = 180_000, providerSession } = input;
+  const {
+    goal, cwd, model, onCheckpoint, signal, timeoutMs = 180_000, providerSession,
+  } = input;
+  const requestedModel = normalizeModelId(model);
   const boundSessionId = providerSession?.externalSessionId || '';
-  const args = buildCodexArgv({ cwd, sessionId: boundSessionId });
+  const args = buildCodexArgv({ cwd, sessionId: boundSessionId, model: requestedModel });
   let resumeThreadId = boundSessionId || null;
   let planEmitted = false;
   let progressCount = 0;
@@ -260,11 +279,13 @@ async function runCodex(input = {}) {
     const artifacts = curatedFinalText
       ? [{ name: 'codex-result.txt', content: redactLine(curatedFinalText), contentType: 'text/plain' }]
       : [];
+    const resolvedModel = requestedModel || configuredCodexModel();
     return {
       ok: true,
       summary: curatedFinalText
         ? `Codex: ${curatedFinalText.slice(0, 200)}`
         : 'Codex execution completed',
+      ...(resolvedModel ? { model: resolvedModel } : {}),
       resume: resumeThreadId ? { threadId: resumeThreadId } : undefined,
       artifacts,
     };
@@ -295,12 +316,16 @@ module.exports = {
   id: 'codex',
   buildArgv: buildCodexArgv,
   completionCheckpointText,
+  configuredCodexModel,
   parseCodexJsonlLine,
   capabilityContract: () => ({
     id: 'codex',
     streaming: true,
     streamingSchema: 'codex-exec-jsonl',
     status: 'available',
+    modelSelection: 'identifier',
+    models: [],
+    defaultModel: null,
   }),
   run: runCodex,
 };

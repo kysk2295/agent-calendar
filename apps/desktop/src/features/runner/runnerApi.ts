@@ -10,7 +10,16 @@ export type RunnerEngineCapability = {
   version?: string | null;
   authStatus?: string;
   message?: string;
+  models?: string[];
+  defaultModel?: string | null;
+  modelSelection?: 'catalog' | 'identifier';
 };
+
+export type RunnerEngineModels = Readonly<{
+  models: readonly string[];
+  defaultModel: string;
+  modelSelection: 'catalog' | 'identifier';
+}>;
 
 export type EngineAuthenticationPresentation = Readonly<{
   state: 'authenticated' | 'auth_required' | 'unavailable';
@@ -180,4 +189,33 @@ export function engineList(runner: PublicRunner | null | undefined): Array<{ nam
     name,
     cap: engines[name] || { available: false, status: 'unavailable', message: 'Not reported' },
   }));
+}
+
+export function engineModels(
+  runners: readonly PublicRunner[],
+  engine: string,
+): RunnerEngineModels {
+  const capability = runners
+    .filter((runner) => runner.status === 'active' && runner.connectionState === 'connected')
+    .map((runner) => {
+      const engines = (runner.capabilities as { engines?: Record<string, RunnerEngineCapability> } | undefined)?.engines;
+      return engines?.[engine];
+    })
+    .find((candidate) => candidate?.available === true);
+  const models = Array.isArray(capability?.models)
+    ? capability.models.filter((model) => (
+      /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(model)
+      && !/^(sk-|bearer|token|cookie|secret)/i.test(model)
+    ))
+    : [];
+  const reportedDefaultModel = String(capability?.defaultModel || '');
+  const defaultModel = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(reportedDefaultModel)
+    && !/^(sk-|bearer|token|cookie|secret)/i.test(reportedDefaultModel)
+    ? reportedDefaultModel
+    : '';
+  return {
+    models,
+    defaultModel,
+    modelSelection: capability?.modelSelection === 'catalog' ? 'catalog' : 'identifier',
+  };
 }

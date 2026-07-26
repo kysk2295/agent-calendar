@@ -122,6 +122,7 @@ test('execution-loop sends the exact provider session to the adapter and returns
           sessionId: 'conversation-provider',
           leaseEpoch: 1,
           engine: 'codex',
+          requestedModel: 'gpt-5.6-codex',
           goal: 'continue the same work',
           providerSession,
         },
@@ -143,6 +144,7 @@ test('execution-loop sends the exact provider session to the adapter and returns
         return {
           ok: true,
           summary: 'continued',
+          model: 'gpt-5.6-codex',
           resume: { sessionId: 'codex-thread-a' },
           artifacts: [],
         };
@@ -152,7 +154,9 @@ test('execution-loop sends the exact provider session to the adapter and returns
 
   assert.equal(result.completed, true);
   assert.equal(adapterInput.providerSession.externalSessionId, 'codex-thread-a');
+  assert.equal(adapterInput.model, 'gpt-5.6-codex');
   const completed = client.calls.find((call) => call.path === '/api/runner/device/complete');
+  assert.equal(completed.body.resolvedModel, 'gpt-5.6-codex');
   assert.deepEqual(completed.body.providerSession, {
     id: 'provider-session-a',
     externalSessionId: 'codex-thread-a',

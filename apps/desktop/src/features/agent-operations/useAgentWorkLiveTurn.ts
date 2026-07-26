@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { hermesApi, HermesApiError } from '../../api/hermesApi';
 import { consumeAgentWorkLiveSse } from './agentWorkLiveStream';
-import type { AgentWorkDelivery, AgentWorkLiveTurnRequest } from './workConversationTypes';
+import type { AgentExecutionEngine } from './types';
+import type {
+  AgentWorkComparisonTarget,
+  AgentWorkDelivery,
+  AgentWorkLiveTurnRequest,
+} from './workConversationTypes';
 
 export type AgentWorkLiveTurnState = Readonly<{
   active: boolean;
@@ -27,7 +32,14 @@ function errorCopy(error: unknown): string {
 export function useAgentWorkLiveTurn(missionId: string, onRefresh: () => Promise<boolean>) {
   const [ownedState, setOwnedState] = useState<OwnedAgentWorkLiveTurnState>({ missionId, turn: IDLE });
   const abortRef = useRef<AbortController | null>(null);
-  const retryMessageRef = useRef<Readonly<{ missionId: string; text: string; clientMessageId: string }> | null>(null);
+  const retryMessageRef = useRef<Readonly<{
+    missionId: string;
+    text: string;
+    executionEngine?: AgentExecutionEngine;
+    requestedModel: string;
+    comparisonTargets: readonly AgentWorkComparisonTarget[];
+    clientMessageId: string;
+  }> | null>(null);
   const missionIdRef = useRef(missionId);
   const onRefreshRef = useRef(onRefresh);
   missionIdRef.current = missionId;
@@ -133,13 +145,40 @@ export function useAgentWorkLiveTurn(missionId: string, onRefresh: () => Promise
     });
   }, [missionId]);
 
-  const send = useCallback(async (text: string) => {
-    const pending = retryMessageRef.current?.missionId === missionId && retryMessageRef.current.text === text
+  const send = useCallback(async (
+    text: string,
+    executionEngine?: AgentExecutionEngine,
+    requestedModel = '',
+    comparisonTargets: readonly AgentWorkComparisonTarget[] = [],
+  ) => {
+    const model = requestedModel.trim();
+    const targets = comparisonTargets.map((target) => ({
+      executionEngine: target.executionEngine,
+      ...(target.requestedModel?.trim() ? { requestedModel: target.requestedModel.trim() } : {}),
+    }));
+    const pending = retryMessageRef.current?.missionId === missionId
+      && retryMessageRef.current.text === text
+      && retryMessageRef.current.executionEngine === executionEngine
+      && retryMessageRef.current.requestedModel === model
+      && JSON.stringify(retryMessageRef.current.comparisonTargets) === JSON.stringify(targets)
       ? retryMessageRef.current
-      : { missionId, text, clientMessageId: globalThis.crypto.randomUUID() };
+      : {
+        missionId,
+        text,
+        executionEngine,
+        requestedModel: model,
+        comparisonTargets: targets,
+        clientMessageId: globalThis.crypto.randomUUID(),
+      };
     retryMessageRef.current = pending;
     try {
-      const accepted = await start({ text: pending.text, clientMessageId: pending.clientMessageId });
+      const accepted = await start({
+        text: pending.text,
+        ...(pending.executionEngine ? { executionEngine: pending.executionEngine } : {}),
+        ...(pending.requestedModel ? { requestedModel: pending.requestedModel } : {}),
+        ...(pending.comparisonTargets.length ? { comparisonTargets: pending.comparisonTargets } : {}),
+        clientMessageId: pending.clientMessageId,
+      });
       if (retryMessageRef.current === pending) retryMessageRef.current = null;
       return accepted;
     } catch (error) {

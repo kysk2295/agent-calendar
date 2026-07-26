@@ -15,6 +15,10 @@ const {
   engineReportsAvailability,
 } = require('./engine-capability-auth');
 const { providerSessionFailureStatus } = require('./provider-agent-session-bridge');
+const {
+  agentExecutionProfile,
+  applyAgentExecutionProfile,
+} = require('./workspace-agent-directory');
 
 const OFFER_TTL_MS = 30_000;
 const LEASE_TTL_MS = 120_000;
@@ -82,6 +86,25 @@ function assertNoProviderSecrets(payload) {
 
 function isPublicResolvedEngine(value) {
   return ['hermes', 'codex', 'claude', 'grok', 'fake'].includes(String(value || '').toLowerCase());
+}
+
+function normalizeExecutionModel(value) {
+  const model = String(value || '').trim();
+  if (!model) return '';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(model)
+    || /^(sk-|bearer|token|cookie|secret)/i.test(model)) {
+    reject('INVALID_EXECUTION_MODEL', 'execution model identifier is invalid', 422);
+  }
+  return model;
+}
+
+function runnerSupportsModel(capabilities, engine, model) {
+  if (!model) return true;
+  const engineCapability = capabilities?.engines?.[engine];
+  const models = Array.isArray(engineCapability?.models)
+    ? engineCapability.models.filter((item) => typeof item === 'string')
+    : [];
+  return !models.length || models.includes(model);
 }
 
 function shouldProjectJobToCalendar(payload) {
@@ -353,6 +376,7 @@ class DurableExecution {
     const goal = String(input.goal || input.title || input.text || 'Delegated work').slice(0, 4000);
     const agentId = String(input.agentId || input.agent || 'default').slice(0, 120);
     const requestedEngineInput = String(input.executionEngine || input.engine || 'auto').toLowerCase() || 'auto';
+    const requestedModel = normalizeExecutionModel(input.requestedModel);
     const clientRequestId = input.clientRequestId ? String(input.clientRequestId) : null;
     const missionId = String(input.missionId || input.id || newId('mission'));
     const sessionId = String(input.sessionId || newId('session'));
@@ -387,6 +411,16 @@ class DurableExecution {
       const requestedEngine = requestedEngineInput === 'auto' && agentDefaultEngine !== 'auto'
         ? agentDefaultEngine
         : requestedEngineInput;
+      const profileSnapshot = directoryAgent
+        ? agentExecutionProfile({
+          id: agentId,
+          ...directoryAgent,
+          workspaceId: valid.workspaceId,
+        })
+        : null;
+      const effectiveGoal = profileSnapshot
+        ? applyAgentExecutionProfile(goal, profileSnapshot)
+        : goal;
 
       // preferredRunnerId: only same-Workspace active runners; ignore foreign/stale ids (never stall).
       let preferredRunnerId = input.preferredRunnerId || input.runnerId
@@ -421,7 +455,10 @@ class DurableExecution {
         selectedRunner = pick;
         const caps = pick.capabilities || {};
         resolved = resolveEngine(requestedEngine, caps);
-        if (resolved.resolved) status = 'accepted';
+        if (resolved.resolved && runnerSupportsModel(caps, resolved.resolved, requestedModel)) status = 'accepted';
+        else if (resolved.resolved) {
+          resolved = { ...resolved, reason: 'model_unavailable' };
+        }
         else status = 'waiting_runner';
       }
       if (!selectedRunner && preferredRunnerId) {
@@ -446,6 +483,7 @@ class DurableExecution {
         agentId,
         status,
         executionEngine: requestedEngine,
+        activeExecutionModel: requestedModel,
         resolvedEngine: resolved.resolved || '',
         ...(isPublicResolvedEngine(resolved.resolved)
           ? { resolvedExecutionEngine: resolved.resolved }
@@ -457,6 +495,7 @@ class DurableExecution {
         missionThreadId: sessionId,
         workConversationId: sessionId,
         ...(providerSessionId ? { providerSessionId } : {}),
+        ...(profileSnapshot ? { profileSnapshot } : {}),
         ...(hiddenSystemWork
           ? { hiddenFromAgentWork: true, systemKind: inputPayload.kind }
           : {}),
@@ -525,6 +564,7 @@ class DurableExecution {
             checkpoint: true,
             phase: 'accepted',
             requestedEngine,
+            requestedModel,
             resolvedEngine: resolved.resolved,
             engineReason: resolved.reason,
             sessionId,
@@ -537,26 +577,30 @@ class DurableExecution {
 
       await client.query(
         `insert into execution_jobs (
-           id, workspace_id, mission_id, session_id, requested_engine, resolved_engine, engine_reason,
+           id, workspace_id, mission_id, session_id, requested_engine, requested_model,
+           resolved_engine, resolved_model, engine_reason,
            preferred_runner_id, status, goal, payload, available_at, max_attempts, projection_key,
            turn_index, provider_session_id
-         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb, now(), $12, $13, 1, $14)`,
+         ) values ($1,$2,$3,$4,$5,$6,$7,'',$8,$9,$10,$11,$12::jsonb, now(), $13, $14, 1, $15)`,
         [
           jobId,
           valid.workspaceId,
           missionId,
           sessionId,
           requestedEngine,
+          requestedModel,
           resolved.resolved || '',
           resolved.reason,
           preferredRunnerId,
           status,
-          goal,
+          effectiveGoal,
           JSON.stringify(redactSecrets({
             agentId,
             clientRequestId,
             title,
+            requestedModel,
             ...(providerSessionId ? { providerSessionId } : {}),
+            ...(profileSnapshot ? { profileSnapshot } : {}),
             // Spread system payload kinds (e.g. knowledge_search) at top level for protocol adapters.
             ...(input.payload && typeof input.payload === 'object' ? redactSecrets(input.payload) : {}),
             input: redactSecrets(input.payload || {}),
@@ -589,6 +633,8 @@ class DurableExecution {
         agentId,
         assignmentReason: agentId && agentId !== 'default' ? `explicit:${agentId}` : 'default:official',
         executionEngine: requestedEngine === 'automatic' ? 'auto' : requestedEngine,
+        activeExecutionModel: requestedModel,
+        resolvedExecutionModel: '',
         ...(isPublicResolvedEngine(resolved.resolved)
           ? { resolvedExecutionEngine: resolved.resolved, resolvedEngine: resolved.resolved }
           : {}),
@@ -658,77 +704,98 @@ class DurableExecution {
     assertWorkspaceScope(scope);
     // App-role path: jobs + session events only (cannot mutate offers).
     const result = await withAppRoleWorkspaceTransaction(this.pool, scope, async (client, valid) => {
-      const job = await client.query(
+      const jobs = await client.query(
         `select * from execution_jobs
          where workspace_id = $1 and mission_id = $2
+         order by turn_index desc, turn_target_index asc
          for update`,
         [valid.workspaceId, String(missionId || '')],
       );
-      if (!job.rowCount) return null;
-      const row = job.rows[0];
-      if (['completed', 'cancelled', 'dead_letter'].includes(row.status)) {
-        return { ok: true, status: row.status, jobId: row.id, replay: true, withdrawOffers: false };
+      if (!jobs.rowCount) return null;
+      const terminalStatuses = new Set(['completed', 'cancelled', 'dead_letter', 'failed']);
+      const live = jobs.rows.filter((row) => !terminalStatuses.has(row.status));
+      if (!live.length) {
+        const latest = jobs.rows[0];
+        return {
+          ok: true,
+          status: latest.status,
+          jobId: latest.id,
+          jobIds: [],
+          replay: true,
+          withdrawOffers: false,
+        };
       }
+      const liveIds = live.map((row) => row.id);
+      const immediate = live.filter((row) => (
+        ['offered', 'accepted', 'waiting_runner'].includes(row.status)
+      ));
+      const immediateIds = immediate.map((row) => row.id);
+      const running = live.filter((row) => ['leased', 'running'].includes(row.status));
       await client.query(
         `update execution_jobs
          set cancellation_requested = true,
              updated_at = now(),
              last_error_code = 'cancellation_requested',
              last_error_message = 'user cancel'
-         where id = $1 and workspace_id = $2`,
-        [row.id, valid.workspaceId],
+         where workspace_id = $1 and id = any($2::text[])`,
+        [valid.workspaceId, liveIds],
       );
-
-      // Not yet leased: terminal-cancel job immediately (offers withdrawn via service path).
-      if (row.status === 'offered' || row.status === 'accepted' || row.status === 'waiting_runner') {
+      if (immediateIds.length) {
         await client.query(
           `update execution_jobs
            set status = 'cancelled', terminal_at = now(), updated_at = now()
-           where id = $1 and workspace_id = $2`,
-          [row.id, valid.workspaceId],
+           where workspace_id = $1 and id = any($2::text[])`,
+          [valid.workspaceId, immediateIds],
         );
-        await this.#appendSessionCheckpoint(client, {
-          workspaceId: valid.workspaceId,
-          sessionId: row.session_id,
-          text: 'Cancellation applied; open offers will be withdrawn',
-          status: 'cancelled',
-          phase: 'cancel',
-        });
-        return {
-          ok: true,
-          status: 'cancelled',
-          jobId: row.id,
-          workspaceId: valid.workspaceId,
-          withdrawOffers: true,
-        };
       }
-
-      // Leased/running: flag only; Runner heartbeats and cancel-acks.
+      const fullyCancelled = running.length === 0;
+      if (fullyCancelled) {
+        const cancelledPayload = JSON.stringify({
+          status: 'cancelled',
+          cancelledAt: new Date(this.clock()).toISOString(),
+        });
+        await client.query(
+          `update agent_missions
+           set status = 'cancelled', payload = payload || $1::jsonb, updated_at = now()
+           where workspace_id = $2 and id = $3`,
+          [cancelledPayload, valid.workspaceId, String(missionId || '')],
+        );
+        await client.query(
+          `update agent_sessions
+           set status = 'cancelled', payload = payload || $1::jsonb, updated_at = now()
+           where workspace_id = $2 and id = $3`,
+          [cancelledPayload, valid.workspaceId, live[0].session_id],
+        );
+      }
       await this.#appendSessionCheckpoint(client, {
         workspaceId: valid.workspaceId,
-        sessionId: row.session_id,
-        text: 'Cancellation requested',
-        status: 'cancelling',
-        phase: 'cancel',
+        sessionId: live[0].session_id,
+        text: fullyCancelled
+          ? 'Cancellation applied to all active execution targets'
+          : 'Cancellation requested for all active execution targets',
+        status: fullyCancelled ? 'cancelled' : 'cancelling',
+        phase: fullyCancelled ? 'cancel' : 'cancelling',
       });
       return {
         ok: true,
-        status: 'cancellation_requested',
-        jobId: row.id,
+        status: fullyCancelled ? 'cancelled' : 'cancellation_requested',
+        jobId: live[0].id,
+        jobIds: liveIds,
         workspaceId: valid.workspaceId,
-        withdrawOffers: false,
+        withdrawOffers: immediateIds.length > 0,
+        withdrawJobIds: immediateIds,
       };
     });
 
-    if (result && result.withdrawOffers && result.jobId) {
+    if (result && result.withdrawOffers && result.withdrawJobIds?.length) {
       await withServiceTransaction(this.pool, async (client) => {
         await client.query(
           `update execution_offers set status = 'withdrawn'
-           where workspace_id = $1 and job_id = $2 and status = 'open'`,
-          [result.workspaceId, result.jobId],
+           where workspace_id = $1 and job_id = any($2::text[]) and status = 'open'`,
+          [result.workspaceId, result.withdrawJobIds],
         );
       });
-      return { ...result, withdrawnOffers: true };
+      return { ...result, withdrawnOffers: true, withdrawJobIds: undefined };
     }
     return result;
   }
@@ -804,6 +871,17 @@ class DurableExecution {
         );
         return { ok: true, offer: null, reason: resolved.reason };
       }
+      if (!runnerSupportsModel(caps, resolved.resolved, job.requested_model)) {
+        await client.query(
+          `update execution_jobs
+           set status = 'waiting_runner',
+               engine_reason = 'model_unavailable',
+               updated_at = now()
+           where id = $1 and workspace_id = $2`,
+          [job.id, job.workspace_id],
+        );
+        return { ok: true, offer: null, reason: 'model_unavailable' };
+      }
 
       const offerId = newId('offer');
       const expiresAt = new Date(now + this.offerTtlMs).toISOString();
@@ -831,8 +909,12 @@ class DurableExecution {
           sessionId: job.session_id,
           goal: job.goal,
           requestedEngine: job.requested_engine,
+          requestedModel: String(job.requested_model || ''),
           resolvedEngine: resolved.resolved,
           engineReason: resolved.reason,
+          turnIndex: Number(job.turn_index || 1),
+          turnTargetIndex: Number(job.turn_target_index || 0),
+          turnMode: String(job.turn_mode || 'single'),
           expiresAt,
           workspaceId: job.workspace_id,
           // Redacted job payload (knowledge_search kind, query metadata — never provider secrets).
@@ -851,9 +933,10 @@ class DurableExecution {
     const now = this.clock();
     return withServiceTransaction(this.pool, async (client) => {
       const offerResult = await client.query(
-        `select o.*, j.attempt_count, j.max_attempts, j.requested_engine, j.goal, j.mission_id, j.session_id,
+        `select o.*, j.attempt_count, j.max_attempts, j.requested_engine, j.requested_model,
+                j.goal, j.mission_id, j.session_id,
                 j.status as job_status, j.cancellation_requested, j.provider_session_id,
-                j.projection_key, j.payload, j.turn_index
+                j.projection_key, j.payload, j.turn_index, j.turn_target_index, j.turn_mode
          from execution_offers o
          inner join execution_jobs j on j.id = o.job_id and j.workspace_id = o.workspace_id
          where o.id = $1 and o.workspace_id = $2
@@ -886,6 +969,9 @@ class DurableExecution {
       const caps = runnerRow.capabilities || {};
       const resolved = resolveEngine(offer.requested_engine, caps);
       if (!resolved.resolved) reject('ENGINE_INELIGIBLE', resolved.reason, 409);
+      if (!runnerSupportsModel(caps, resolved.resolved, offer.requested_model)) {
+        reject('MODEL_INELIGIBLE', 'requested model is unavailable on this Runner', 409);
+      }
       let providerSession = null;
       if (offer.provider_session_id) {
         const providerResult = await client.query(
@@ -949,11 +1035,13 @@ class DurableExecution {
         [attemptNumber, resolved.resolved, resolved.reason, offer.job_id, runnerRow.workspace_id],
       );
 
-      await this.#persistMissionResolvedEngine(client, {
-        workspaceId: runnerRow.workspace_id,
-        missionId: offer.mission_id,
-        resolvedEngine: resolved.resolved,
-      });
+      if (offer.turn_mode !== 'comparison') {
+        await this.#persistMissionResolvedEngine(client, {
+          workspaceId: runnerRow.workspace_id,
+          missionId: offer.mission_id,
+          resolvedEngine: resolved.resolved,
+        });
+      }
 
       await this.#appendSessionCheckpoint(client, {
         workspaceId: runnerRow.workspace_id,
@@ -963,6 +1051,12 @@ class DurableExecution {
         phase: 'leased',
         attemptId,
         engine: resolved.resolved,
+        jobId: offer.job_id,
+        providerSessionId: offer.provider_session_id,
+        requestedModel: offer.requested_model,
+        turnIndex: offer.turn_index,
+        turnTargetIndex: offer.turn_target_index,
+        turnMode: offer.turn_mode,
       });
       if (shouldProjectJobToCalendar(offer.payload)) {
         await projectAgentWorkCalendarState(client, {
@@ -991,7 +1085,11 @@ class DurableExecution {
           leaseEpoch,
           leaseExpiresAt: leaseExpires,
           engine: resolved.resolved,
+          requestedModel: String(offer.requested_model || ''),
           goal: offer.goal,
+          turnIndex: Number(offer.turn_index || 1),
+          turnTargetIndex: Number(offer.turn_target_index || 0),
+          turnMode: String(offer.turn_mode || 'single'),
           workspaceId: runnerRow.workspace_id,
           ...(providerSession ? { providerSession } : {}),
         },
@@ -1080,6 +1178,13 @@ class DurableExecution {
         attemptId: att.id,
         engine: att.engine,
         sequence,
+        jobId: att.job_id,
+        providerSessionId: att.provider_session_id,
+        requestedModel: att.requested_model,
+        resolvedModel: att.resolved_model,
+        turnIndex: att.turn_index,
+        turnTargetIndex: att.turn_target_index,
+        turnMode: att.turn_mode,
       });
 
       return {
@@ -1191,6 +1296,7 @@ class DurableExecution {
     attemptId,
     leaseEpoch,
     summary = '',
+    resolvedModel = '',
     idempotencyKey = 'terminal:complete',
     providerSession = null,
   } = {}) {
@@ -1219,6 +1325,13 @@ class DurableExecution {
 
       const nowIso = new Date(this.clock()).toISOString();
       const resultSummary = String(summary || 'Work completed').slice(0, 4000);
+      const completedModel = String(resolvedModel || '').trim();
+      if (completedModel && (
+        !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(completedModel)
+        || /^(sk-|bearer|token|cookie|secret)/i.test(completedModel)
+      )) {
+        reject('INVALID_RESOLVED_MODEL', 'resolved model identifier is invalid', 422);
+      }
       const completedResolved = isPublicResolvedEngine(att.engine)
         ? String(att.engine)
         : (isPublicResolvedEngine(att.resolved_engine) ? String(att.resolved_engine) : '');
@@ -1257,27 +1370,23 @@ class DurableExecution {
       );
       await client.query(
         `update execution_jobs
-         set status = 'completed', terminal_at = $1::timestamptz, updated_at = now()
-         where id = $2 and workspace_id = $3`,
-        [nowIso, att.job_id, att.workspace_id],
+         set status = 'completed', resolved_model = $2,
+             terminal_at = $1::timestamptz, updated_at = now()
+         where id = $3 and workspace_id = $4`,
+        [nowIso, completedModel, att.job_id, att.workspace_id],
       );
-      await client.query(
-        `update agent_missions set status = 'completed', payload = payload || $1::jsonb, updated_at = now()
-         where id = $2 and workspace_id = $3`,
-        [JSON.stringify({
+      const missionState = await this.#syncMissionAfterJobTerminal(client, att, {
+        status: 'completed',
+        payload: {
           status: 'completed',
           resultSummary,
           completedAt: nowIso,
           ...(completedResolved
             ? { resolvedExecutionEngine: completedResolved, resolvedEngine: completedResolved }
             : {}),
-        }), att.mission_id, att.workspace_id],
-      );
-      await client.query(
-        `update agent_sessions set status = 'completed', payload = payload || $1::jsonb
-         where id = $2 and workspace_id = $3`,
-        [JSON.stringify({ status: 'completed' }), att.session_id, att.workspace_id],
-      );
+          resolvedExecutionModel: completedModel,
+        },
+      });
 
       // Authoritative agent report (once).
       const reportId = `report_${att.job_id}`;
@@ -1298,6 +1407,8 @@ class DurableExecution {
             resultSummary,
             engine: completedResolved || att.engine,
             resolvedExecutionEngine: completedResolved || null,
+            requestedExecutionModel: String(att.requested_model || ''),
+            resolvedExecutionModel: completedModel || null,
             jobId: att.job_id,
             attemptId: att.id,
             ...(!shouldProjectJobToCalendar(att.payload)
@@ -1318,6 +1429,13 @@ class DurableExecution {
         phase: 'result',
         attemptId: att.id,
         engine: att.engine,
+        jobId: att.job_id,
+        providerSessionId: att.provider_session_id,
+        requestedModel: att.requested_model,
+        resolvedModel: completedModel,
+        turnIndex: att.turn_index,
+        turnTargetIndex: att.turn_target_index,
+        turnMode: att.turn_mode,
       });
 
       let eventId = null;
@@ -1364,6 +1482,7 @@ class DurableExecution {
         calendarEventId: eventId,
         reportId,
         summary: resultSummary,
+        missionStatus: missionState.status,
       };
     });
   }
@@ -1443,18 +1562,10 @@ class DurableExecution {
            where id = $5 and workspace_id = $6`,
           [terminal, nowIso, safeErrorCode, safeErrorMessage, att.job_id, att.workspace_id],
         );
-        await client.query(
-          `update agent_missions
-           set status = 'failed', payload = payload || $1::jsonb, updated_at = now()
-           where id = $2 and workspace_id = $3`,
-          [JSON.stringify(failurePayload), att.mission_id, att.workspace_id],
-        );
-        await client.query(
-          `update agent_sessions
-           set status = 'failed', payload = payload || $1::jsonb
-           where id = $2 and workspace_id = $3`,
-          [JSON.stringify(failurePayload), att.session_id, att.workspace_id],
-        );
+        await this.#syncMissionAfterJobTerminal(client, att, {
+          status: 'failed',
+          payload: failurePayload,
+        });
         await this.#appendSessionCheckpoint(client, {
           workspaceId: att.workspace_id,
           sessionId: att.session_id,
@@ -1463,6 +1574,12 @@ class DurableExecution {
           phase: 'failed',
           attemptId: att.id,
           engine: failedResolved || undefined,
+          jobId: att.job_id,
+          providerSessionId: att.provider_session_id,
+          requestedModel: att.requested_model,
+          turnIndex: att.turn_index,
+          turnTargetIndex: att.turn_target_index,
+          turnMode: att.turn_mode,
         });
         if (shouldProjectJobToCalendar(att.payload)) {
           await projectAgentWorkCalendarState(client, {
@@ -1552,6 +1669,10 @@ class DurableExecution {
          where id = $2 and workspace_id = $3`,
         [nowIso, att.job_id, att.workspace_id],
       );
+      await this.#syncMissionAfterJobTerminal(client, att, {
+        status: 'cancelled',
+        payload: { status: 'cancelled', cancelledAt: nowIso },
+      });
       await this.#appendSessionCheckpoint(client, {
         workspaceId: att.workspace_id,
         sessionId: att.session_id,
@@ -1559,6 +1680,12 @@ class DurableExecution {
         status: 'cancelled',
         phase: 'cancel',
         attemptId: att.id,
+        jobId: att.job_id,
+        providerSessionId: att.provider_session_id,
+        requestedModel: att.requested_model,
+        turnIndex: att.turn_index,
+        turnTargetIndex: att.turn_target_index,
+        turnMode: att.turn_mode,
       });
       return { ok: true, status: 'cancelled', jobId: att.job_id };
     });
@@ -1761,7 +1888,8 @@ class DurableExecution {
       `select a.*,
               j.session_id, j.mission_id, j.cancellation_requested, j.status as job_status,
               j.attempt_count, j.max_attempts, j.resolved_engine, j.goal, j.projection_key,
-              j.payload, j.provider_session_id, j.turn_index
+              j.requested_model, j.resolved_model, j.payload, j.provider_session_id, j.turn_index,
+              j.turn_target_index, j.turn_mode
        from execution_attempts a
        inner join execution_jobs j on j.id = a.job_id and j.workspace_id = a.workspace_id
        where a.id = $1 and a.workspace_id = $2
@@ -1798,6 +1926,64 @@ class DurableExecution {
     return att;
   }
 
+  async #syncMissionAfterJobTerminal(client, att, terminal) {
+    const latest = await client.query(
+      `select coalesce(max(turn_index), 0)::int as turn_index
+       from execution_jobs
+       where workspace_id = $1 and mission_id = $2`,
+      [att.workspace_id, att.mission_id],
+    );
+    const latestTurnIndex = Number(latest.rows[0].turn_index || 0);
+    const latestJobs = await client.query(
+      `select status, turn_mode
+       from execution_jobs
+       where workspace_id = $1 and mission_id = $2 and turn_index = $3
+       order by turn_target_index`,
+      [att.workspace_id, att.mission_id, latestTurnIndex],
+    );
+    const pending = latestJobs.rows.some((job) => (
+      ['accepted', 'waiting_runner', 'offered', 'leased', 'running'].includes(job.status)
+    ));
+    const failed = latestJobs.rows.some((job) => ['failed', 'dead_letter'].includes(job.status));
+    const completed = latestJobs.rows.some((job) => job.status === 'completed');
+    const comparison = latestJobs.rows.some((job) => job.turn_mode === 'comparison');
+    let status = 'active';
+    if (!pending) {
+      if (failed) status = 'failed';
+      else if (completed) status = 'completed';
+      else status = 'cancelled';
+    }
+    const currentIsLatest = Number(att.turn_index || 1) === latestTurnIndex;
+    let payload = { status };
+    if (!comparison && terminal.status === 'completed') {
+      payload = { ...terminal.payload, status };
+    } else if (!pending && currentIsLatest) {
+      if (comparison) {
+        payload = {
+          status,
+          comparisonTurnIndex: latestTurnIndex,
+          comparisonStatus: status,
+          comparisonCompletedAt: new Date(this.clock()).toISOString(),
+        };
+      } else if (status === terminal.status) {
+        payload = { ...terminal.payload, status };
+      }
+    }
+    await client.query(
+      `update agent_missions
+       set status = $1, payload = payload || $2::jsonb, updated_at = now()
+       where id = $3 and workspace_id = $4`,
+      [status, JSON.stringify(payload), att.mission_id, att.workspace_id],
+    );
+    await client.query(
+      `update agent_sessions
+       set status = $1, payload = payload || $2::jsonb, updated_at = now()
+       where id = $3 and workspace_id = $4`,
+      [status, JSON.stringify(payload), att.session_id, att.workspace_id],
+    );
+    return { status, latestTurnIndex, pending, comparison };
+  }
+
   async #persistMissionResolvedEngine(client, { workspaceId, missionId, resolvedEngine }) {
     if (!missionId || !isPublicResolvedEngine(resolvedEngine)) return;
     const engine = String(resolvedEngine);
@@ -1826,6 +2012,13 @@ class DurableExecution {
     engine = null,
     sequence = null,
     artifactId = null,
+    jobId = null,
+    providerSessionId = null,
+    requestedModel = '',
+    resolvedModel = '',
+    turnIndex = null,
+    turnTargetIndex = null,
+    turnMode = 'single',
   }) {
     if (!sessionId) return;
     // Lock session row for concurrency-safe sequence allocation.
@@ -1864,6 +2057,17 @@ class DurableExecution {
           metadata: {
             applicationMode: phase === 'result' || phase === 'artifact' ? 'checkpoint_result' : 'next_checkpoint',
             phase,
+            ...(jobId ? { jobId: String(jobId) } : {}),
+            ...(providerSessionId ? { providerSessionId: String(providerSessionId) } : {}),
+            ...(requestedModel ? { requestedExecutionModel: String(requestedModel) } : {}),
+            ...(resolvedModel ? { resolvedExecutionModel: String(resolvedModel) } : {}),
+            ...(turnIndex !== null && turnIndex !== undefined
+              ? { turnIndex: Number(turnIndex) }
+              : {}),
+            ...(turnTargetIndex !== null && turnTargetIndex !== undefined
+              ? { turnTargetIndex: Number(turnTargetIndex) }
+              : {}),
+            turnMode,
             ...(isPublicResolvedEngine(engine) ? { resolvedExecutionEngine: engine } : {}),
           },
         })),

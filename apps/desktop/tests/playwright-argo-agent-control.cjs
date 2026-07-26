@@ -27,7 +27,10 @@ function publicAgent(input, id) {
     role: input.role || '',
     responsibility: input.responsibility || '',
     instructions: input.instructions || '',
+    responseStyle: input.responseStyle || '',
     specialties: input.specialties || [],
+    memories: input.memories || [],
+    profileVersion: input.profileVersion || 1,
     sourceKind,
     provider: sourceKind === 'connected' ? input.provider : 'agent-calendar',
     externalAgentId: sourceKind === 'connected' ? input.externalAgentId : '',
@@ -307,7 +310,9 @@ async function main() {
     await nativeDialog.getByLabel('역할').fill('시니어 에디터');
     await nativeDialog.getByLabel('책임').fill('결과 문서를 읽기 쉽게 다듬는다.');
     await nativeDialog.getByLabel('작업 지침').fill('근거를 바꾸지 않는다.');
+    await nativeDialog.getByLabel('말투와 성격').fill('차분한 존댓말로 핵심부터 설명한다.');
     await nativeDialog.getByLabel('전문 분야').fill('편집, 사실 확인');
+    await nativeDialog.getByLabel('계속 기억할 내용').fill('사용자는 요약을 먼저 본다.\n표에는 출처 열을 포함한다.');
     await page.screenshot({ path: path.join(evidenceDir, `${theme}-create-agent.png`), animations: 'disabled' });
     await nativeDialog.getByRole('button', { name: '만들기', exact: true }).click();
     await page.locator('.agent-directory-row').filter({ hasText: '문서 편집자' }).waitFor();
@@ -315,8 +320,17 @@ async function main() {
     assert.ok(createCall);
     assert.equal(createCall.body.provider, 'agent-calendar');
     assert.deepEqual(createCall.body.specialties, ['편집', '사실 확인']);
+    assert.equal(createCall.body.responseStyle, '차분한 존댓말로 핵심부터 설명한다.');
+    assert.deepEqual(createCall.body.memories, ['사용자는 요약을 먼저 본다.', '표에는 출처 열을 포함한다.']);
+    await page.locator('.agent-directory-row').filter({ hasText: '문서 편집자' }).click();
+    const agentCard = page.getByRole('region', { name: '선택한 에이전트 카드' });
+    await agentCard.getByText('프로필 v1').waitFor();
+    await agentCard.getByText('기억 2개').waitFor();
+    await agentCard.getByText('실시간 작업').waitFor();
+    await page.screenshot({ path: path.join(evidenceDir, `${theme}-profile-memory-card.png`), animations: 'disabled' });
 
-    await page.locator('.agent-directory-panel > footer button').filter({ hasText: '외부 에이전트 연결' }).click();
+    await page.locator('.agent-directory-panel > footer button').filter({ hasText: 'Runner에서 가져오기' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: '목록을 읽을 수 없으면 ID로 직접 연결' }).click();
     const connectDialog = page.getByRole('dialog');
     await connectDialog.getByLabel('이름').fill('Hermes 경쟁 분석가');
     await connectDialog.getByLabel('역할').fill('경쟁 분석가');

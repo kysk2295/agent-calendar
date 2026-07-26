@@ -1415,6 +1415,17 @@ function normalizeEngine(value) {
     : installed
       ? 'CLI installed, but authentication is not verified on this Runner host.'
       : (value.message || 'Unavailable on host — install/authenticate on the Runner machine');
+  const modelId = (candidate) => {
+    const model = String(candidate || '').trim();
+    return /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(model)
+      && !/^(sk-|bearer|token|cookie|secret)/i.test(model)
+      ? model
+      : '';
+  };
+  const models = Array.isArray(value.models)
+    ? [...new Set(value.models.map(modelId).filter(Boolean))].slice(0, 100)
+    : [];
+  const defaultModel = modelId(value.defaultModel);
   return {
     ...(Object.prototype.hasOwnProperty.call(value, 'installed') ? { installed } : {}),
     available,
@@ -1422,6 +1433,9 @@ function normalizeEngine(value) {
     version: value.version != null ? String(value.version) : null,
     authStatus,
     message,
+    models,
+    defaultModel: defaultModel || null,
+    modelSelection: value.modelSelection === 'catalog' ? 'catalog' : 'identifier',
   };
 }
 
