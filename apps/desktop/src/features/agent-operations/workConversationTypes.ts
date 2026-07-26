@@ -128,7 +128,8 @@ export type AgentWorkChannelEndpoint = {
   readonly channel: 'telegram';
   readonly status: 'active' | 'offline' | 'revoked';
   readonly runnerId: string;
-  readonly ingressOwnership: 'unverified';
+  readonly ingressOwnership: 'unverified' | 'owned' | 'conflict';
+  readonly ingressCheckedAt: string | null;
   readonly lastActivityAt: string | null;
 };
 

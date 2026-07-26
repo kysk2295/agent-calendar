@@ -29,6 +29,18 @@ function publicModel(value) {
   return model;
 }
 
+function reportedIngressOwnership(value) {
+  const ownership = String(value || '').trim().toLowerCase();
+  if (!['owned', 'conflict'].includes(ownership)) {
+    reject(
+      'CHANNEL_INGRESS_OWNERSHIP_INVALID',
+      'channel ingress ownership is invalid',
+      400,
+    );
+  }
+  return ownership;
+}
+
 function newId(prefix) {
   return `${prefix}_${crypto.randomBytes(12).toString('hex')}`;
 }
@@ -133,6 +145,28 @@ class WorkConversationChannelService {
       userId: membership.rows[0].user_id,
       workspaceId,
     });
+  }
+
+  async reportIngressOwnership(runner, input = {}) {
+    const endpoint = await this.#endpoint(runner, input.endpointId);
+    const ingressOwnership = reportedIngressOwnership(input.ingressOwnership);
+    const updated = await this.pool.query(
+      `update work_conversation_channel_endpoints
+       set public_metadata = public_metadata || jsonb_build_object(
+             'ingressOwnership', $3::text,
+             'ingressCheckedAt', now()
+           ),
+           last_activity_at = now(),
+           updated_at = now()
+       where workspace_id = $1 and id = $2
+       returning public_metadata->>'ingressCheckedAt' as ingress_checked_at`,
+      [runner.workspace_id, endpoint.id, ingressOwnership],
+    );
+    return {
+      ok: true,
+      ingressOwnership,
+      ingressCheckedAt: new Date(updated.rows[0].ingress_checked_at).toISOString(),
+    };
   }
 
   async inbound(runner, input = {}) {

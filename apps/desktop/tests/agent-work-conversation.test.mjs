@@ -59,6 +59,7 @@ const CONVERSATION_FIXTURE = {
       status: 'active',
       runnerId: 'runner_local_1',
       ingressOwnership: 'unverified',
+      ingressCheckedAt: null,
       lastActivityAt: '2026-07-14T09:03:30.000Z',
     },
   ],
@@ -156,6 +157,41 @@ test('conversation parser preserves safe tool checkpoints and excludes raw tool 
   assert.deepEqual(page.channels, CONVERSATION_FIXTURE.channels);
   assert.doesNotMatch(JSON.stringify(page), /rm -rf/);
   assert.doesNotMatch(JSON.stringify(page.channels), /token|chat.?id|binding/i);
+});
+
+test('Telegram ingress ownership remains strict and has user-facing operational copy', () => {
+  const checkedAt = '2026-07-26T01:20:00.000Z';
+  const expected = [
+    ['unverified', '수신 소유권 미확인'],
+    ['owned', '수신 확인됨'],
+    ['conflict', '다른 수신 주체와 충돌'],
+  ];
+  for (const [ingressOwnership, label] of expected) {
+    const page = apiModule.parseAgentWorkConversationPage({
+      ...CONVERSATION_FIXTURE,
+      channels: [{
+        ...CONVERSATION_FIXTURE.channels[0],
+        ingressOwnership,
+        ingressCheckedAt: ingressOwnership === 'unverified' ? null : checkedAt,
+      }],
+    });
+    assert.equal(page.channels[0].ingressOwnership, ingressOwnership);
+    assert.equal(
+      page.channels[0].ingressCheckedAt,
+      ingressOwnership === 'unverified' ? null : checkedAt,
+    );
+    assert.equal(apiModule.telegramIngressOwnershipLabel(ingressOwnership), label);
+  }
+  assert.throws(
+    () => apiModule.parseAgentWorkConversationPage({
+      ...CONVERSATION_FIXTURE,
+      channels: [{
+        ...CONVERSATION_FIXTURE.channels[0],
+        ingressOwnership: 'ready',
+      }],
+    }),
+    (error) => error?.name === 'AgentWorkParseError',
+  );
 });
 
 test('complete conversation loader follows every cursor and keeps 205 ordered unique checkpoints', async () => {

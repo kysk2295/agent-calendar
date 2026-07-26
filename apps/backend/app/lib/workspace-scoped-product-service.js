@@ -21,6 +21,20 @@ function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function channelIngressProjection(value) {
+  const metadata = asObject(value);
+  const ingressOwnership = ['owned', 'conflict'].includes(metadata.ingressOwnership)
+    ? metadata.ingressOwnership
+    : 'unverified';
+  const checkedAt = new Date(String(metadata.ingressCheckedAt || ''));
+  return {
+    ingressOwnership,
+    ingressCheckedAt: ingressOwnership !== 'unverified' && Number.isFinite(checkedAt.getTime())
+      ? checkedAt.toISOString()
+      : null,
+  };
+}
+
 function explicitProviderEngine(value) {
   const engine = String(value || '').trim().toLowerCase();
   if (!engine || engine === 'auto' || engine === 'automatic') return '';
@@ -1401,23 +1415,26 @@ class WorkspaceScopedProductService {
       };
       const channelEndpoints = sessionId
         ? await client.query(
-          `select id, channel, status, runner_id, last_activity_at
+          `select id, channel, status, runner_id, public_metadata, last_activity_at
            from work_conversation_channel_endpoints
            where workspace_id = $1 and work_conversation_id = $2
            order by created_at asc, id asc`,
           [valid.workspaceId, sessionId],
         )
         : { rows: [] };
-      const channels = channelEndpoints.rows.map((row) => ({
-        id: row.id,
-        channel: row.channel,
-        status: row.status,
-        runnerId: row.runner_id,
-        ingressOwnership: 'unverified',
-        lastActivityAt: row.last_activity_at
-          ? new Date(row.last_activity_at).toISOString()
-          : null,
-      }));
+      const channels = channelEndpoints.rows.map((row) => {
+        const ingress = channelIngressProjection(row.public_metadata);
+        return {
+          id: row.id,
+          channel: row.channel,
+          status: row.status,
+          runnerId: row.runner_id,
+          ...ingress,
+          lastActivityAt: row.last_activity_at
+            ? new Date(row.last_activity_at).toISOString()
+            : null,
+        };
+      });
 
       const checkpoints = events.map((e) => {
         const p = asObject(e.payload);

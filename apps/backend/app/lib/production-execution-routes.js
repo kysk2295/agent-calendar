@@ -95,6 +95,9 @@ async function handleExecutionDeviceRouteWithPath({
       case 'runner_device_telegram_bind':
         sendJson(res, 200, await runtime.workConversationChannels.bind(runner, body || {}));
         return true;
+      case 'runner_device_telegram_status':
+        sendJson(res, 200, await runtime.workConversationChannels.reportIngressOwnership(runner, body || {}));
+        return true;
       case 'runner_device_telegram_inbound':
         sendJson(res, 200, await runtime.workConversationChannels.inbound(runner, body || {}));
         return true;

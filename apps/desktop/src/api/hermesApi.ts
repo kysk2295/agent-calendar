@@ -36,6 +36,7 @@ export {
   deliveryStatusLabel,
   responsibleAgentAssignmentCopy,
   responsibleAgentLabel,
+  telegramIngressOwnershipLabel,
 } from '../features/agent-operations/workConversationPresentation';
 export type * from '../features/agent-operations/workConversationTypes';
 

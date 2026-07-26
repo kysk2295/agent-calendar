@@ -739,6 +739,10 @@ const PRODUCTION_ROUTES = [
     persistence: 'write', action: 'runner_device_telegram_bind', idempotent: true, role: 'none',
   },
   {
+    method: 'POST', pathPattern: '/api/runner/device/channels/telegram/status', class: 'runner_device',
+    persistence: 'write', action: 'runner_device_telegram_status', idempotent: true, role: 'none',
+  },
+  {
     method: 'POST', pathPattern: '/api/runner/device/channels/telegram/inbound', class: 'runner_device',
     persistence: 'write', action: 'runner_device_telegram_inbound', idempotent: true, role: 'none',
   },

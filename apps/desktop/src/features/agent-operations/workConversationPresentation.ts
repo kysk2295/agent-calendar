@@ -3,11 +3,23 @@ import type {
   AgentWorkApplicationMode,
   AgentWorkCheckpointApplicationMode,
   AgentWorkDeliveryStatus,
+  AgentWorkChannelEndpoint,
 } from './workConversationTypes';
 import type { AgentDeliverableKind } from './types';
 
 function unreachable(value: never): never {
   throw new Error(`Unreachable Agent Work variant: ${String(value)}`);
+}
+
+export function telegramIngressOwnershipLabel(
+  ownership: AgentWorkChannelEndpoint['ingressOwnership'],
+): string {
+  switch (ownership) {
+    case 'unverified': return '수신 소유권 미확인';
+    case 'owned': return '수신 확인됨';
+    case 'conflict': return '다른 수신 주체와 충돌';
+    default: return unreachable(ownership);
+  }
 }
 
 export function deliveryStatusLabel(status: AgentWorkDeliveryStatus): string {

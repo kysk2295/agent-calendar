@@ -10,7 +10,11 @@ import {
   type PublicRunner,
   type RunnerEngineModels,
 } from '../runner/runnerApi';
-import { preserveWorkClosingPhrase, responsibleAgentAssignmentCopy } from './workConversationPresentation';
+import {
+  preserveWorkClosingPhrase,
+  responsibleAgentAssignmentCopy,
+  telegramIngressOwnershipLabel,
+} from './workConversationPresentation';
 import type { AgentExecutionEngine, AgentMission, AgentReport, AgentTask, AgentTaskAction } from './types';
 import type {
   AgentWorkComparisonTarget,
@@ -117,6 +121,12 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
     && typeof telegramRunner.hostMetadata.hostName === 'string'
     ? telegramRunner.hostMetadata.hostName
     : telegramEndpoint?.runnerId || '';
+  const telegramIngressLabel = telegramEndpoint
+    ? telegramIngressOwnershipLabel(telegramEndpoint.ingressOwnership)
+    : '';
+  const telegramCheckedAt = telegramEndpoint?.ingressCheckedAt
+    ? new Date(telegramEndpoint.ingressCheckedAt).toLocaleString('ko-KR')
+    : '아직 없음';
   const telegramCommand = [
     'agent-calendar-runner telegram-bind',
     `--base-url '${(props.controlPlaneBaseUrl || '<GATEWAY_URL>').replace(/'/g, "'\\''")}'`,
@@ -184,8 +194,8 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
             <dl>
               <div><dt>Runner</dt><dd>{telegramRunnerName}</dd></div>
               <div><dt>Runner 상태</dt><dd>{telegramRunner?.connectionState === 'connected' ? '연결됨' : '연결 확인 필요'}</dd></div>
-              <div><dt>Telegram 수신</dt><dd>수신 소유권 미확인</dd></div>
-              <div><dt>최근 동기화</dt><dd>{telegramEndpoint.lastActivityAt ? new Date(telegramEndpoint.lastActivityAt).toLocaleString('ko-KR') : '아직 없음'}</dd></div>
+              <div><dt>Telegram 수신</dt><dd>{telegramIngressLabel}</dd></div>
+              <div><dt>최근 수신 확인</dt><dd>{telegramCheckedAt}</dd></div>
             </dl>
           ) : (
             <>

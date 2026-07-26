@@ -5,6 +5,8 @@ const {
   saveTelegramChannels,
 } = require('./store');
 
+const INGRESS_REPORT_INTERVAL_MS = 60_000;
+
 async function telegramRequest(botToken, method, body, fetchImpl) {
   const response = await fetchImpl(`https://api.telegram.org/bot${botToken}/${method}`, {
     method: 'POST',
@@ -55,25 +57,55 @@ async function bindTelegramChannels(client, channels) {
   return channels;
 }
 
+async function reportTelegramIngressOwnership(client, channel, ingressOwnership, now = Date.now()) {
+  const lastReportedAt = Date.parse(String(channel.ingressReportedAt || ''));
+  if (
+    channel.ingressOwnership === ingressOwnership
+    && Number.isFinite(lastReportedAt)
+    && now - lastReportedAt < INGRESS_REPORT_INTERVAL_MS
+  ) {
+    return false;
+  }
+  await client.deviceRequest(
+    'POST',
+    '/api/runner/device/channels/telegram/status',
+    {
+      endpointId: channel.endpointId,
+      ingressOwnership,
+    },
+  );
+  channel.ingressOwnership = ingressOwnership;
+  channel.ingressReportedAt = new Date(now).toISOString();
+  return true;
+}
+
 async function initializeTelegramChannelOffsets(
   stateDir,
   channels,
-  { fetchImpl = fetch } = {},
+  { fetchImpl = fetch, onIngressConflict } = {},
 ) {
   let changed = false;
   for (const channel of channels) {
     if (channel.updateOffsetInitialized === true) continue;
-    const updates = await telegramRequest(
-      channel.botToken,
-      'getUpdates',
-      {
-        offset: -1,
-        limit: 1,
-        timeout: 0,
-        allowed_updates: ['message', 'edited_message'],
-      },
-      fetchImpl,
-    );
+    let updates;
+    try {
+      updates = await telegramRequest(
+        channel.botToken,
+        'getUpdates',
+        {
+          offset: -1,
+          limit: 1,
+          timeout: 0,
+          allowed_updates: ['message', 'edited_message'],
+        },
+        fetchImpl,
+      );
+    } catch (error) {
+      if (error?.code === 'TELEGRAM_INGRESS_CONFLICT' && onIngressConflict) {
+        await onIngressConflict(channel);
+      }
+      throw error;
+    }
     const latestUpdateId = (Array.isArray(updates) ? updates : [])
       .map((update) => Number(update?.update_id))
       .filter(Number.isSafeInteger)
@@ -88,20 +120,40 @@ async function initializeTelegramChannelOffsets(
 
 async function runTelegramChannelOnce(client, { fetchImpl = fetch } = {}) {
   const channels = await bindTelegramChannels(client, listTelegramChannels(client.stateDir));
-  await initializeTelegramChannelOffsets(client.stateDir, channels, { fetchImpl });
+  await initializeTelegramChannelOffsets(client.stateDir, channels, {
+    fetchImpl,
+    onIngressConflict: async (channel) => {
+      try {
+        await reportTelegramIngressOwnership(client, channel, 'conflict');
+        saveTelegramChannels(client.stateDir, channels);
+      } catch {}
+    },
+  });
   let inbound = 0;
   let outbound = 0;
   for (const channel of channels) {
-    const updates = await telegramRequest(
-      channel.botToken,
-      'getUpdates',
-      {
-        offset: Number(channel.updateOffset || 0),
-        timeout: 0,
-        allowed_updates: ['message', 'edited_message'],
-      },
-      fetchImpl,
-    );
+    let updates;
+    try {
+      updates = await telegramRequest(
+        channel.botToken,
+        'getUpdates',
+        {
+          offset: Number(channel.updateOffset || 0),
+          timeout: 0,
+          allowed_updates: ['message', 'edited_message'],
+        },
+        fetchImpl,
+      );
+    } catch (error) {
+      if (error?.code === 'TELEGRAM_INGRESS_CONFLICT') {
+        try {
+          await reportTelegramIngressOwnership(client, channel, 'conflict');
+          saveTelegramChannels(client.stateDir, channels);
+        } catch {}
+      }
+      throw error;
+    }
+    await reportTelegramIngressOwnership(client, channel, 'owned');
     for (const update of Array.isArray(updates) ? updates : []) {
       const message = update.message || update.edited_message || {};
       const updateId = Number(update.update_id);
@@ -165,5 +217,6 @@ async function runTelegramChannelOnce(client, { fetchImpl = fetch } = {}) {
 module.exports = {
   bindTelegramChannels,
   initializeTelegramChannelOffsets,
+  reportTelegramIngressOwnership,
   runTelegramChannelOnce,
 };

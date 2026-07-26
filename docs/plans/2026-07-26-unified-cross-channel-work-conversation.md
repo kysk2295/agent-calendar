@@ -255,6 +255,8 @@ Telegram 같은 채널은 이 원본에 연결된 endpoint다. 실행 엔진을 
 - [x] Step 8: full regression, evidence, release gate update
 - [x] Step 9: checkpoint 실행 묶음과 결과 우선 Orca식 평면 UI, 실제 화면 QA
 - [x] Step 10: Work Conversation의 Telegram 연결·상태·안전한 Runner 설정 UI
+- [x] Step 10a: Runner의 Telegram 수신 성공/409를 credential-free 상태로 보고하고
+      Work Conversation에 별도 표시
 
 ## Rollback
 
@@ -334,6 +336,14 @@ Telegram 같은 채널은 이 원본에 연결된 endpoint다. 실행 엔진을 
     Runner registration state, and explicit existing-poller warning;
   - mocked Playwright rendered the registered state without sending any Telegram message:
     `apps/desktop/test-results/telegram-continuation-ui/connected-state.png`.
+- Telegram ingress ownership visibility:
+  - Runner가 `getUpdates` 성공을 `owned`, Bot API 409를 `conflict`로 보고하고 동일 상태의
+    반복 쓰기는 60초 동안 제한한다;
+  - Gateway는 same-Workspace/same-Runner endpoint만 갱신하고 public response에는
+    `unverified | owned | conflict`와 확인 시각만 투영한다;
+  - Desktop은 "Runner에 등록됨"과 "수신 확인됨 / 다른 수신 주체와 충돌"을 별도 행으로
+    표시하며 새 카드나 성공색 테두리를 추가하지 않는다;
+  - 실제 Telegram 메시지 없이 mocked 409를 밝은/어두운 테마에서 수동 확인했다.
 
 ## Remaining Risks
 

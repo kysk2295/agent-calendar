@@ -9,7 +9,10 @@ const {
   listTelegramChannels,
   registerTelegramChannel,
 } = require('../lib/store');
-const { runTelegramChannelOnce } = require('../lib/telegram-channel');
+const {
+  reportTelegramIngressOwnership,
+  runTelegramChannelOnce,
+} = require('../lib/telegram-channel');
 
 test('Runner keeps Telegram credentials local while one canonical conversation flows both directions', async () => {
   const stateDir = mkdtempSync(path.join(os.tmpdir(), 'agent-calendar-telegram-runner-'));
@@ -44,6 +47,7 @@ test('Runner keeps Telegram credentials local while one canonical conversation f
         if (requestPath.endsWith('/inbound')) {
           return { ok: true, idempotentReplay: false, eventId: 'evt_inbound' };
         }
+        if (requestPath.endsWith('/status')) return { ok: true };
         if (requestPath.endsWith('/next')) {
           const delivered = deviceCalls.filter((call) => call.requestPath.endsWith('/next')).length;
           return delivered === 1
@@ -115,6 +119,12 @@ test('Runner keeps Telegram credentials local while one canonical conversation f
     assert.equal(inbound.body.text, '텔레그램에서 이어서 수정해줘');
     assert.equal(inbound.body.executionEngine, 'codex');
     assert.equal(inbound.body.requestedModel, 'gpt-5.6-sol');
+    const ingressReports = deviceCalls.filter((call) => call.requestPath.endsWith('/status'));
+    assert.ok(ingressReports.length >= 1);
+    assert.deepEqual(ingressReports[0].body, {
+      endpointId: 'channel_endpoint_a',
+      ingressOwnership: 'owned',
+    });
     assert.doesNotMatch(JSON.stringify(deviceCalls), /local-secret-token|998877/);
 
     const send = telegramCalls.find((call) => call.url.includes('/sendMessage'));
@@ -157,6 +167,30 @@ test('one local Telegram chat cannot be bound to two Work Conversations', () => 
   }
 });
 
+test('Telegram ingress report changes immediately and throttles repeated ownership writes', async () => {
+  const bodies = [];
+  const client = {
+    deviceRequest: async (_method, requestPath, body) => {
+      assert.equal(requestPath, '/api/runner/device/channels/telegram/status');
+      bodies.push(structuredClone(body));
+      return { ok: true };
+    },
+  };
+  const channel = {
+    endpointId: 'channel_endpoint_transition',
+    ingressOwnership: 'conflict',
+    ingressReportedAt: '2026-07-26T01:00:00.000Z',
+  };
+  const now = Date.parse('2026-07-26T01:00:10.000Z');
+
+  assert.equal(await reportTelegramIngressOwnership(client, channel, 'owned', now), true);
+  assert.equal(await reportTelegramIngressOwnership(client, channel, 'owned', now + 1_000), false);
+  assert.deepEqual(bodies, [{
+    endpointId: 'channel_endpoint_transition',
+    ingressOwnership: 'owned',
+  }]);
+});
+
 test('Telegram getUpdates ownership conflict is reported explicitly without exposing credentials', async () => {
   const stateDir = mkdtempSync(path.join(os.tmpdir(), 'agent-calendar-telegram-runner-'));
   try {
@@ -165,12 +199,15 @@ test('Telegram getUpdates ownership conflict is reported explicitly without expo
       botToken: '100000001:local-secret-token',
       chatId: '998877',
     });
+    const deviceCalls = [];
     const client = {
       stateDir,
-      deviceRequest: async (_method, requestPath) => {
+      deviceRequest: async (_method, requestPath, body) => {
+        deviceCalls.push({ requestPath, body: structuredClone(body) });
         if (requestPath.endsWith('/bind')) {
           return { endpoint: { id: 'channel_endpoint_conflict' } };
         }
+        if (requestPath.endsWith('/status')) return { ok: true };
         throw new Error(`unexpected ${requestPath}`);
       },
     };
@@ -192,6 +229,14 @@ test('Telegram getUpdates ownership conflict is reported explicitly without expo
         return true;
       },
     );
+    assert.deepEqual(
+      deviceCalls.filter((call) => call.requestPath.endsWith('/status')).map((call) => call.body),
+      [{
+        endpointId: 'channel_endpoint_conflict',
+        ingressOwnership: 'conflict',
+      }],
+    );
+    assert.doesNotMatch(JSON.stringify(deviceCalls), /local-secret-token|998877/);
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
   }

@@ -250,6 +250,7 @@ test('phase3 execution routes registered', () => {
   assert.ok(matchProductionRoute('POST', '/api/runner/device/provider-session/bind'));
   assert.ok(matchProductionRoute('POST', '/api/runner/device/complete'));
   assert.ok(matchProductionRoute('POST', '/api/runner/device/attempt-heartbeat'));
+  assert.ok(matchProductionRoute('POST', '/api/runner/device/channels/telegram/status'));
 });
 
 test('phase3 engine adapters reject banned flags', () => {
@@ -2794,10 +2795,54 @@ test('Runner-local Telegram endpoint appends and replays one canonical Work Conv
           status: 'active',
           runnerId: runnerA.runnerId,
           ingressOwnership: 'unverified',
+          ingressCheckedAt: null,
           lastActivityAt: 'string',
         },
       );
       assert.doesNotMatch(JSON.stringify(projectedConversation.json.channels), /binding|token|chat.?id/i);
+      const statusPath = '/api/runner/device/channels/telegram/status';
+      const invalidStatus = await runnerPost(runnerA, keysA, statusPath, {
+        runnerId: runnerA.runnerId,
+        endpointId,
+        ingressOwnership: 'ready',
+      });
+      assert.equal(invalidStatus.status, 400);
+      const foreignStatus = await runnerPost(runnerB, keysB, statusPath, {
+        runnerId: runnerB.runnerId,
+        endpointId,
+        ingressOwnership: 'owned',
+      });
+      assert.equal(foreignStatus.status, 404);
+      const ownedStatus = await runnerPost(runnerA, keysA, statusPath, {
+        runnerId: runnerA.runnerId,
+        endpointId,
+        ingressOwnership: 'owned',
+      });
+      assert.equal(ownedStatus.status, 200, JSON.stringify(ownedStatus.json));
+      const ownedConversation = await httpJson(
+        baseUrl,
+        'GET',
+        `/api/agent-operations/work/${encodeURIComponent(work.json.missionId)}/conversation`,
+        { token: tokenA },
+      );
+      assert.equal(ownedConversation.json.channels[0].ingressOwnership, 'owned');
+      assert.match(ownedConversation.json.channels[0].ingressCheckedAt, /^\d{4}-\d{2}-\d{2}T/);
+      assert.doesNotMatch(JSON.stringify(ownedConversation.json.channels), /binding|token|chat.?id/i);
+      const conflictStatus = await runnerPost(runnerA, keysA, statusPath, {
+        runnerId: runnerA.runnerId,
+        endpointId,
+        ingressOwnership: 'conflict',
+      });
+      assert.equal(conflictStatus.status, 200, JSON.stringify(conflictStatus.json));
+      const conflictConversation = await httpJson(
+        baseUrl,
+        'GET',
+        `/api/agent-operations/work/${encodeURIComponent(work.json.missionId)}/conversation`,
+        { token: tokenA },
+      );
+      assert.equal(conflictConversation.json.channels[0].ingressOwnership, 'conflict');
+      assert.match(conflictConversation.json.channels[0].ingressCheckedAt, /^\d{4}-\d{2}-\d{2}T/);
+      assert.doesNotMatch(JSON.stringify(conflictConversation.json.channels), /binding|token|chat.?id/i);
       const boundCursor = await pool.query(
         `select outbound_cursor::int as outbound_cursor
          from work_conversation_channel_endpoints

@@ -348,14 +348,16 @@ async function main() {
     channel: 'telegram',
     status: 'active',
     runnerId: 'runner-engine-selection-qa',
-    ingressOwnership: 'unverified',
+    ingressOwnership: 'conflict',
+    ingressCheckedAt: '2026-07-26T00:20:00.000Z',
     lastActivityAt: '2026-07-26T00:20:00.000Z',
   }];
   await page.waitForFunction(() => (
     document.querySelector('[data-testid="agent-work-telegram"] summary')?.textContent?.includes('Runner에 등록됨')
   ), null, { timeout: 5_000 });
   assert.match(await telegramPanel.textContent() || '', /QA Runner/);
-  assert.match(await telegramPanel.textContent() || '', /수신 소유권 미확인/);
+  assert.match(await telegramPanel.textContent() || '', /다른 수신 주체와 충돌/);
+  assert.match(await telegramPanel.textContent() || '', /최근 수신 확인/);
   const telegramEvidencePath = String(process.env.AGENT_CALENDAR_TELEGRAM_UI_EVIDENCE || '').trim();
   if (telegramEvidencePath) {
     fs.mkdirSync(path.dirname(telegramEvidencePath), { recursive: true });

@@ -148,15 +148,23 @@ function parseChannelEndpoint(value: unknown): AgentWorkChannelEndpoint {
   if (!['active', 'offline', 'revoked'].includes(String(source.status || ''))) {
     throw new AgentWorkParseError('channel.status');
   }
-  if (source.ingressOwnership !== 'unverified') {
+  if (!['unverified', 'owned', 'conflict'].includes(String(source.ingressOwnership || ''))) {
     throw new AgentWorkParseError('channel.ingressOwnership');
+  }
+  const ingressOwnership = source.ingressOwnership as AgentWorkChannelEndpoint['ingressOwnership'];
+  const ingressCheckedAt = source.ingressCheckedAt === null || source.ingressCheckedAt === undefined
+    ? null
+    : timestamp(source.ingressCheckedAt, 'channel.ingressCheckedAt');
+  if (ingressOwnership !== 'unverified' && ingressCheckedAt === null) {
+    throw new AgentWorkParseError('channel.ingressCheckedAt');
   }
   return {
     id: text(source.id, 'channel.id'),
     channel: 'telegram',
     status: source.status as AgentWorkChannelEndpoint['status'],
     runnerId: text(source.runnerId, 'channel.runnerId'),
-    ingressOwnership: 'unverified',
+    ingressOwnership,
+    ingressCheckedAt,
     lastActivityAt: source.lastActivityAt === null || source.lastActivityAt === undefined
       ? null
       : timestamp(source.lastActivityAt, 'channel.lastActivityAt'),
