@@ -257,6 +257,8 @@ Telegram 같은 채널은 이 원본에 연결된 endpoint다. 실행 엔진을 
 - [x] Step 10: Work Conversation의 Telegram 연결·상태·안전한 Runner 설정 UI
 - [x] Step 10a: Runner의 Telegram 수신 성공/409를 credential-free 상태로 보고하고
       Work Conversation에 별도 표시
+- [x] Step 10b: Gateway의 150초 ingress freshness와 Runner/endpoint 상태를 결합한
+      production readiness를 기존 평면 정보 행에 표시
 
 ## Rollback
 
@@ -344,6 +346,17 @@ Telegram 같은 채널은 이 원본에 연결된 endpoint다. 실행 엔진을 
   - Desktop은 "Runner에 등록됨"과 "수신 확인됨 / 다른 수신 주체와 충돌"을 별도 행으로
     표시하며 새 카드나 성공색 테두리를 추가하지 않는다;
   - 실제 Telegram 메시지 없이 mocked 409를 밝은/어두운 테마에서 수동 확인했다.
+- Telegram ingress readiness:
+  - Gateway는 한 응답에서 동일한 기준 시각으로 `unverified | ready | conflict | stale`를
+    계산하고 malformed timestamp는 `unverified`로 fail closed한다;
+  - Desktop strict parser는 ownership/readiness의 불가능한 조합을 거부한다;
+  - endpoint가 offline/revoked이거나 Runner가 disconnected면 과거의 fresh `owned`
+    관찰만으로 "수신 준비됨"을 표시하지 않는다;
+  - Backend 515/515, Desktop 294/294, Runner 60/60 전체 회귀와 production build가
+    통과했다;
+  - light/dark evidence:
+    `apps/desktop/test-results/telegram-ingress-readiness/conflict-light.png`,
+    `apps/desktop/test-results/telegram-ingress-readiness/conflict-dark.png`.
 
 ## Remaining Risks
 

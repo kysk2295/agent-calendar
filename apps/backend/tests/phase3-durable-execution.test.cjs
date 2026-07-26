@@ -2795,6 +2795,7 @@ test('Runner-local Telegram endpoint appends and replays one canonical Work Conv
           status: 'active',
           runnerId: runnerA.runnerId,
           ingressOwnership: 'unverified',
+          ingressReadiness: 'unverified',
           ingressCheckedAt: null,
           lastActivityAt: 'string',
         },
@@ -2826,6 +2827,7 @@ test('Runner-local Telegram endpoint appends and replays one canonical Work Conv
         { token: tokenA },
       );
       assert.equal(ownedConversation.json.channels[0].ingressOwnership, 'owned');
+      assert.equal(ownedConversation.json.channels[0].ingressReadiness, 'ready');
       assert.match(ownedConversation.json.channels[0].ingressCheckedAt, /^\d{4}-\d{2}-\d{2}T/);
       assert.doesNotMatch(JSON.stringify(ownedConversation.json.channels), /binding|token|chat.?id/i);
       const conflictStatus = await runnerPost(runnerA, keysA, statusPath, {
@@ -2841,8 +2843,63 @@ test('Runner-local Telegram endpoint appends and replays one canonical Work Conv
         { token: tokenA },
       );
       assert.equal(conflictConversation.json.channels[0].ingressOwnership, 'conflict');
+      assert.equal(conflictConversation.json.channels[0].ingressReadiness, 'conflict');
       assert.match(conflictConversation.json.channels[0].ingressCheckedAt, /^\d{4}-\d{2}-\d{2}T/);
       assert.doesNotMatch(JSON.stringify(conflictConversation.json.channels), /binding|token|chat.?id/i);
+      await pool.query(
+        `update work_conversation_channel_endpoints
+         set public_metadata = jsonb_set(
+           public_metadata,
+           '{ingressCheckedAt}',
+           to_jsonb((now() - interval '10 minutes')::timestamptz)
+         )
+         where workspace_id = 'ws-a' and id = $1`,
+        [endpointId],
+      );
+      const staleConversation = await httpJson(
+        baseUrl,
+        'GET',
+        `/api/agent-operations/work/${encodeURIComponent(work.json.missionId)}/conversation`,
+        { token: tokenA },
+      );
+      assert.equal(staleConversation.json.channels[0].ingressOwnership, 'conflict');
+      assert.equal(staleConversation.json.channels[0].ingressReadiness, 'stale');
+      await pool.query(
+        `update work_conversation_channel_endpoints
+         set public_metadata = jsonb_set(
+           public_metadata,
+           '{ingressCheckedAt}',
+           to_jsonb('not-a-timestamp'::text)
+         )
+         where workspace_id = 'ws-a' and id = $1`,
+        [endpointId],
+      );
+      const malformedConversation = await httpJson(
+        baseUrl,
+        'GET',
+        `/api/agent-operations/work/${encodeURIComponent(work.json.missionId)}/conversation`,
+        { token: tokenA },
+      );
+      assert.equal(malformedConversation.json.channels[0].ingressOwnership, 'unverified');
+      assert.equal(malformedConversation.json.channels[0].ingressReadiness, 'unverified');
+      assert.equal(malformedConversation.json.channels[0].ingressCheckedAt, null);
+      await pool.query(
+        `update work_conversation_channel_endpoints
+         set public_metadata = public_metadata || jsonb_build_object(
+           'ingressOwnership', 'owned',
+           'ingressCheckedAt', now() + interval '10 minutes'
+         )
+         where workspace_id = 'ws-a' and id = $1`,
+        [endpointId],
+      );
+      const futureConversation = await httpJson(
+        baseUrl,
+        'GET',
+        `/api/agent-operations/work/${encodeURIComponent(work.json.missionId)}/conversation`,
+        { token: tokenA },
+      );
+      assert.equal(futureConversation.json.channels[0].ingressOwnership, 'owned');
+      assert.equal(futureConversation.json.channels[0].ingressReadiness, 'ready');
       const boundCursor = await pool.query(
         `select outbound_cursor::int as outbound_cursor
          from work_conversation_channel_endpoints

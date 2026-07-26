@@ -22,6 +22,22 @@ export function telegramIngressOwnershipLabel(
   }
 }
 
+export function telegramIngressReadinessLabel(
+  readiness: AgentWorkChannelEndpoint['ingressReadiness'],
+  endpointStatus: AgentWorkChannelEndpoint['status'],
+  runnerConnected: boolean,
+): string {
+  if (endpointStatus === 'revoked') return 'Telegram 다시 설정 필요';
+  if (endpointStatus === 'offline') return 'Telegram 연결 필요';
+  switch (readiness) {
+    case 'unverified': return '확인 전';
+    case 'ready': return runnerConnected ? '수신 준비됨' : 'Runner 연결 필요';
+    case 'conflict': return '수신 주체 전환 필요';
+    case 'stale': return '다시 확인 필요';
+    default: return unreachable(readiness);
+  }
+}
+
 export function deliveryStatusLabel(status: AgentWorkDeliveryStatus): string {
   switch (status) {
     case 'accepted': return '접수됨';

@@ -151,11 +151,22 @@ function parseChannelEndpoint(value: unknown): AgentWorkChannelEndpoint {
   if (!['unverified', 'owned', 'conflict'].includes(String(source.ingressOwnership || ''))) {
     throw new AgentWorkParseError('channel.ingressOwnership');
   }
+  if (!['unverified', 'ready', 'conflict', 'stale'].includes(String(source.ingressReadiness || ''))) {
+    throw new AgentWorkParseError('channel.ingressReadiness');
+  }
   const ingressOwnership = source.ingressOwnership as AgentWorkChannelEndpoint['ingressOwnership'];
+  const ingressReadiness = source.ingressReadiness as AgentWorkChannelEndpoint['ingressReadiness'];
+  const validIngressState = (
+    (ingressOwnership === 'unverified' && ingressReadiness === 'unverified')
+    || (ingressOwnership === 'owned' && ['ready', 'stale'].includes(ingressReadiness))
+    || (ingressOwnership === 'conflict' && ['conflict', 'stale'].includes(ingressReadiness))
+  );
+  if (!validIngressState) throw new AgentWorkParseError('channel.ingressReadiness');
   const ingressCheckedAt = source.ingressCheckedAt === null || source.ingressCheckedAt === undefined
     ? null
     : timestamp(source.ingressCheckedAt, 'channel.ingressCheckedAt');
-  if (ingressOwnership !== 'unverified' && ingressCheckedAt === null) {
+  const expectsIngressTimestamp = ingressOwnership !== 'unverified' || ingressReadiness !== 'unverified';
+  if (expectsIngressTimestamp !== (ingressCheckedAt !== null)) {
     throw new AgentWorkParseError('channel.ingressCheckedAt');
   }
   return {
@@ -164,6 +175,7 @@ function parseChannelEndpoint(value: unknown): AgentWorkChannelEndpoint {
     status: source.status as AgentWorkChannelEndpoint['status'],
     runnerId: text(source.runnerId, 'channel.runnerId'),
     ingressOwnership,
+    ingressReadiness,
     ingressCheckedAt,
     lastActivityAt: source.lastActivityAt === null || source.lastActivityAt === undefined
       ? null

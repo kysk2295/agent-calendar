@@ -13,6 +13,8 @@ const {
 } = require('./workspace-agent-directory');
 const { isOfficialProfileName } = require('./official-profiles');
 
+const TELEGRAM_INGRESS_FRESHNESS_MS = 150_000;
+
 function newId(prefix) {
   return `${prefix}_${crypto.randomBytes(12).toString('hex')}`;
 }
@@ -21,17 +23,29 @@ function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-function channelIngressProjection(value) {
+function channelIngressProjection(value, now = Date.now()) {
   const metadata = asObject(value);
-  const ingressOwnership = ['owned', 'conflict'].includes(metadata.ingressOwnership)
+  const reportedOwnership = ['owned', 'conflict'].includes(metadata.ingressOwnership)
     ? metadata.ingressOwnership
     : 'unverified';
   const checkedAt = new Date(String(metadata.ingressCheckedAt || ''));
+  const hasValidObservation = reportedOwnership !== 'unverified' && Number.isFinite(checkedAt.getTime());
+  const ingressOwnership = hasValidObservation ? reportedOwnership : 'unverified';
+  const ingressCheckedAt = hasValidObservation
+    ? checkedAt.toISOString()
+    : null;
+  let ingressReadiness = 'unverified';
+  if (ingressCheckedAt && Math.max(0, now - checkedAt.getTime()) > TELEGRAM_INGRESS_FRESHNESS_MS) {
+    ingressReadiness = 'stale';
+  } else if (ingressCheckedAt && ingressOwnership === 'owned') {
+    ingressReadiness = 'ready';
+  } else if (ingressCheckedAt && ingressOwnership === 'conflict') {
+    ingressReadiness = 'conflict';
+  }
   return {
     ingressOwnership,
-    ingressCheckedAt: ingressOwnership !== 'unverified' && Number.isFinite(checkedAt.getTime())
-      ? checkedAt.toISOString()
-      : null,
+    ingressReadiness,
+    ingressCheckedAt,
   };
 }
 
@@ -1422,8 +1436,9 @@ class WorkspaceScopedProductService {
           [valid.workspaceId, sessionId],
         )
         : { rows: [] };
+      const ingressProjectionTime = Date.now();
       const channels = channelEndpoints.rows.map((row) => {
-        const ingress = channelIngressProjection(row.public_metadata);
+        const ingress = channelIngressProjection(row.public_metadata, ingressProjectionTime);
         return {
           id: row.id,
           channel: row.channel,

@@ -184,6 +184,12 @@ test('Telegram continuation is a quiet Work Conversation tool, not a success-col
   assert.match(conversationPresentationSource, /수신 소유권 미확인/);
   assert.match(conversationPresentationSource, /수신 확인됨/);
   assert.match(conversationPresentationSource, /다른 수신 주체와 충돌/);
+  assert.match(conversationPresentationSource, /수신 준비됨/);
+  assert.match(conversationPresentationSource, /Runner 연결 필요/);
+  assert.match(conversationPresentationSource, /수신 주체 전환 필요/);
+  assert.match(conversationPresentationSource, /다시 확인 필요/);
+  assert.match(conversationPresentationSource, /Telegram 연결 필요/);
+  assert.match(conversationPresentationSource, /Telegram 다시 설정 필요/);
   assert.match(conversationSource, /기존 Hermes poller/);
   assert.match(conversationSource, /data-testid="agent-work-telegram"/);
 

@@ -59,6 +59,7 @@ const CONVERSATION_FIXTURE = {
       status: 'active',
       runnerId: 'runner_local_1',
       ingressOwnership: 'unverified',
+      ingressReadiness: 'unverified',
       ingressCheckedAt: null,
       lastActivityAt: '2026-07-14T09:03:30.000Z',
     },
@@ -162,16 +163,17 @@ test('conversation parser preserves safe tool checkpoints and excludes raw tool 
 test('Telegram ingress ownership remains strict and has user-facing operational copy', () => {
   const checkedAt = '2026-07-26T01:20:00.000Z';
   const expected = [
-    ['unverified', '수신 소유권 미확인'],
-    ['owned', '수신 확인됨'],
-    ['conflict', '다른 수신 주체와 충돌'],
+    ['unverified', 'unverified', '수신 소유권 미확인'],
+    ['owned', 'ready', '수신 확인됨'],
+    ['conflict', 'conflict', '다른 수신 주체와 충돌'],
   ];
-  for (const [ingressOwnership, label] of expected) {
+  for (const [ingressOwnership, ingressReadiness, label] of expected) {
     const page = apiModule.parseAgentWorkConversationPage({
       ...CONVERSATION_FIXTURE,
       channels: [{
         ...CONVERSATION_FIXTURE.channels[0],
         ingressOwnership,
+        ingressReadiness,
         ingressCheckedAt: ingressOwnership === 'unverified' ? null : checkedAt,
       }],
     });
@@ -188,6 +190,67 @@ test('Telegram ingress ownership remains strict and has user-facing operational 
       channels: [{
         ...CONVERSATION_FIXTURE.channels[0],
         ingressOwnership: 'ready',
+      }],
+    }),
+    (error) => error?.name === 'AgentWorkParseError',
+  );
+  assert.throws(
+    () => apiModule.parseAgentWorkConversationPage({
+      ...CONVERSATION_FIXTURE,
+      channels: [{
+        ...CONVERSATION_FIXTURE.channels[0],
+        ingressOwnership: 'conflict',
+        ingressReadiness: 'ready',
+        ingressCheckedAt: '2026-07-26T01:20:00.000Z',
+      }],
+    }),
+    (error) => error?.name === 'AgentWorkParseError',
+  );
+  assert.throws(
+    () => apiModule.parseAgentWorkConversationPage({
+      ...CONVERSATION_FIXTURE,
+      channels: [{
+        ...CONVERSATION_FIXTURE.channels[0],
+        ingressCheckedAt: '2026-07-26T01:20:00.000Z',
+      }],
+    }),
+    (error) => error?.name === 'AgentWorkParseError',
+  );
+});
+
+test('Telegram ingress readiness combines fresh observation with current Runner connectivity', () => {
+  const expected = [
+    ['unverified', 'active', true, '확인 전'],
+    ['ready', 'active', true, '수신 준비됨'],
+    ['ready', 'active', false, 'Runner 연결 필요'],
+    ['conflict', 'active', true, '수신 주체 전환 필요'],
+    ['conflict', 'active', false, '수신 주체 전환 필요'],
+    ['stale', 'active', true, '다시 확인 필요'],
+    ['ready', 'offline', true, 'Telegram 연결 필요'],
+    ['ready', 'revoked', true, 'Telegram 다시 설정 필요'],
+  ];
+  for (const [ingressReadiness, endpointStatus, runnerConnected, label] of expected) {
+    assert.equal(
+      apiModule.telegramIngressReadinessLabel(ingressReadiness, endpointStatus, runnerConnected),
+      label,
+    );
+  }
+  const ready = apiModule.parseAgentWorkConversationPage({
+    ...CONVERSATION_FIXTURE,
+    channels: [{
+      ...CONVERSATION_FIXTURE.channels[0],
+      ingressOwnership: 'owned',
+      ingressReadiness: 'ready',
+      ingressCheckedAt: '2026-07-26T01:20:00.000Z',
+    }],
+  });
+  assert.equal(ready.channels[0].ingressReadiness, 'ready');
+  assert.throws(
+    () => apiModule.parseAgentWorkConversationPage({
+      ...CONVERSATION_FIXTURE,
+      channels: [{
+        ...CONVERSATION_FIXTURE.channels[0],
+        ingressReadiness: 'online',
       }],
     }),
     (error) => error?.name === 'AgentWorkParseError',

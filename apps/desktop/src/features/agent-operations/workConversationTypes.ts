@@ -129,6 +129,7 @@ export type AgentWorkChannelEndpoint = {
   readonly status: 'active' | 'offline' | 'revoked';
   readonly runnerId: string;
   readonly ingressOwnership: 'unverified' | 'owned' | 'conflict';
+  readonly ingressReadiness: 'unverified' | 'ready' | 'conflict' | 'stale';
   readonly ingressCheckedAt: string | null;
   readonly lastActivityAt: string | null;
 };

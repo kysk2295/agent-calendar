@@ -14,6 +14,7 @@ import {
   preserveWorkClosingPhrase,
   responsibleAgentAssignmentCopy,
   telegramIngressOwnershipLabel,
+  telegramIngressReadinessLabel,
 } from './workConversationPresentation';
 import type { AgentExecutionEngine, AgentMission, AgentReport, AgentTask, AgentTaskAction } from './types';
 import type {
@@ -124,6 +125,13 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
   const telegramIngressLabel = telegramEndpoint
     ? telegramIngressOwnershipLabel(telegramEndpoint.ingressOwnership)
     : '';
+  const telegramReadinessLabel = telegramEndpoint
+    ? telegramIngressReadinessLabel(
+      telegramEndpoint.ingressReadiness,
+      telegramEndpoint.status,
+      telegramRunner?.connectionState === 'connected',
+    )
+    : '';
   const telegramCheckedAt = telegramEndpoint?.ingressCheckedAt
     ? new Date(telegramEndpoint.ingressCheckedAt).toLocaleString('ko-KR')
     : '아직 없음';
@@ -193,7 +201,7 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
           {telegramEndpoint ? (
             <dl>
               <div><dt>Runner</dt><dd>{telegramRunnerName}</dd></div>
-              <div><dt>Runner 상태</dt><dd>{telegramRunner?.connectionState === 'connected' ? '연결됨' : '연결 확인 필요'}</dd></div>
+              <div><dt>운영 준비</dt><dd>{telegramReadinessLabel}</dd></div>
               <div><dt>Telegram 수신</dt><dd>{telegramIngressLabel}</dd></div>
               <div><dt>최근 수신 확인</dt><dd>{telegramCheckedAt}</dd></div>
             </dl>

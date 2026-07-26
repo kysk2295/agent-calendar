@@ -349,6 +349,7 @@ async function main() {
     status: 'active',
     runnerId: 'runner-engine-selection-qa',
     ingressOwnership: 'conflict',
+    ingressReadiness: 'conflict',
     ingressCheckedAt: '2026-07-26T00:20:00.000Z',
     lastActivityAt: '2026-07-26T00:20:00.000Z',
   }];
@@ -357,6 +358,7 @@ async function main() {
   ), null, { timeout: 5_000 });
   assert.match(await telegramPanel.textContent() || '', /QA Runner/);
   assert.match(await telegramPanel.textContent() || '', /다른 수신 주체와 충돌/);
+  assert.match(await telegramPanel.textContent() || '', /수신 주체 전환 필요/);
   assert.match(await telegramPanel.textContent() || '', /최근 수신 확인/);
   const telegramEvidencePath = String(process.env.AGENT_CALENDAR_TELEGRAM_UI_EVIDENCE || '').trim();
   if (telegramEvidencePath) {
