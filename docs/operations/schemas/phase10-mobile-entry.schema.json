@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-calendar.local/schemas/phase10-mobile-entry.schema.json",
+  "title": "Phase 10 Mobile entry manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evaluatorSchema",
+    "kind",
+    "authorityMode",
+    "sourceSha",
+    "deploymentIds",
+    "candidateIds",
+    "environment",
+    "generatedAt",
+    "expiresAt",
+    "privateBeta",
+    "legacyDecision",
+    "criteria",
+    "productionAuthorityEnvelope"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "evaluatorSchema": { "const": "phase10-mobile-entry/v1" },
+    "kind": { "const": "phase10_mobile_entry_manifest" },
+    "authorityMode": { "const": "repository_contract" },
+    "sourceSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "deploymentIds": { "$ref": "#/$defs/deploymentIds" },
+    "candidateIds": { "$ref": "#/$defs/candidateIds" },
+    "environment": { "const": "phase10-production" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "privateBeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chainRoot", "resetState"],
+      "properties": {
+        "chainRoot": { "$ref": "#/$defs/digest" },
+        "resetState": { "enum": ["clean", "reset"] }
+      }
+    },
+    "legacyDecision": { "const": "remove_eligible_routes" },
+    "criteria": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterionId", "path", "sha256", "authorityReceiptDigest", "artifactDigest"],
+        "properties": {
+          "criterionId": { "$ref": "#/$defs/criterionId" },
+          "path": { "type": "string", "pattern": "^criteria/[a-z_]+\\.json$" },
+          "sha256": { "$ref": "#/$defs/digest" },
+          "authorityReceiptDigest": { "$ref": "#/$defs/digest" },
+          "artifactDigest": { "$ref": "#/$defs/digest" }
+        }
+      }
+    },
+    "productionAuthorityEnvelope": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["publicKeyId", "payload", "signature"],
+          "properties": {
+            "publicKeyId": { "const": "phase10-mobile-entry-production-2026-01" },
+            "payload": { "type": "object" },
+            "signature": { "type": "string", "contentEncoding": "base64" }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "safeId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "deploymentIds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["staging", "production"],
+      "properties": {
+        "staging": { "$ref": "#/$defs/safeId" },
+        "production": { "$ref": "#/$defs/safeId" }
+      }
+    },
+    "candidateIds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["desktop", "runner"],
+      "properties": {
+        "desktop": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/safeId" }
+        },
+        "runner": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/safeId" }
+        }
+      }
+    },
+    "criterionId": {
+      "enum": [
+        "signed_candidates",
+        "private_beta",
+        "workos_readiness",
+        "hostile_isolation",
+        "telegram_continuity",
+        "web_handoff",
+        "observability_slo",
+        "managed_dr_rollback",
+        "legacy_lifecycle"
+      ]
+    }
+  }
+}

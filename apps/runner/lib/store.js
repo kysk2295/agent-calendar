@@ -148,14 +148,115 @@ function telegramChannelsPath(stateDir) {
   return path.join(stateDir, 'telegram-channels.json');
 }
 
+function invalidTelegramChannelState() {
+  return Object.assign(new Error('Persisted Telegram channel state is invalid'), {
+    code: 'TELEGRAM_CHANNEL_STATE_INVALID',
+  });
+}
+
+function telegramBindingLockPath(stateDir, bindingHandle) {
+  const digest = crypto.createHash('sha256').update(String(bindingHandle)).digest('hex');
+  return path.join(stateDir, `telegram-binding-${digest}.lock`);
+}
+
+function processIsAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+function appendTelegramBindingLockRecord(lockPath, record) {
+  const descriptor = fs.openSync(lockPath, 'a', 0o600);
+  try {
+    fs.fchmodSync(descriptor, 0o600);
+    const payload = Buffer.from(`\n${JSON.stringify(record)}\n`, 'utf8');
+    const written = fs.writeSync(descriptor, payload, 0, payload.length);
+    if (written !== payload.length) {
+      throw new Error('Telegram binding lock record write was interrupted');
+    }
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function liveTelegramBindingLockRecords(lockPath) {
+  const records = [];
+  const releasedTokens = new Set();
+  for (const line of fs.readFileSync(lockPath, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (record?.op === 'release' && typeof record.token === 'string') {
+      releasedTokens.add(record.token);
+    } else if (
+      record?.op === 'acquire'
+      && typeof record.token === 'string'
+      && Number.isSafeInteger(record.pid)
+    ) {
+      records.push(record);
+    } else if (Number.isSafeInteger(record?.pid)) {
+      records.push({ pid: record.pid, token: '' });
+    }
+  }
+  return records.filter((record) => (
+    !releasedTokens.has(record.token)
+    && processIsAlive(record.pid)
+  ));
+}
+
+function acquireTelegramBindingLock(stateDir, bindingHandle) {
+  ensureDir(stateDir);
+  const lockPath = telegramBindingLockPath(stateDir, bindingHandle);
+  const token = crypto.randomUUID();
+  appendTelegramBindingLockRecord(lockPath, {
+    op: 'acquire',
+    token,
+    pid: process.pid,
+  });
+  const owner = liveTelegramBindingLockRecords(lockPath)[0];
+  if (owner?.token !== token) {
+    appendTelegramBindingLockRecord(lockPath, {
+      op: 'release',
+      token,
+      pid: process.pid,
+    });
+    throw Object.assign(new Error('Telegram binding already has a local loop'), {
+      code: 'TELEGRAM_BINDING_LOCKED',
+    });
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    appendTelegramBindingLockRecord(lockPath, {
+      op: 'release',
+      token,
+      pid: process.pid,
+    });
+  };
+}
+
 function listTelegramChannels(stateDir) {
   const filePath = telegramChannelsPath(stateDir);
   if (!fs.existsSync(filePath)) return [];
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    return Array.isArray(parsed.channels) ? parsed.channels : [];
-  } catch {
-    return [];
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Array.isArray(parsed.channels)) {
+      throw invalidTelegramChannelState();
+    }
+    return parsed.channels;
+  } catch (error) {
+    if (error?.code === 'TELEGRAM_CHANNEL_STATE_INVALID') throw error;
+    throw invalidTelegramChannelState();
   }
 }
 
@@ -230,6 +331,7 @@ function registerTelegramChannel(stateDir, {
 }
 
 module.exports = {
+  acquireTelegramBindingLock,
   defaultStateDir,
   ensureDir,
   loadOrCreateIdentity,

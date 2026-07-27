@@ -13,6 +13,7 @@
  */
 
 const assert = require('node:assert/strict');
+const { randomBytes } = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
@@ -81,6 +82,7 @@ const screenshotColdRecoveredPath = path.join(artifactDir, '05-cold-start-recove
 const screenshotReleasePath = path.join(artifactDir, '01-release-ready.png');
 const screenshotRecoveryPath = path.join(artifactDir, '02-safe-recovery.png');
 const userDataName = `Agent Calendar AuthKit E2E ${process.pid}`;
+const testSecureStorageKey = randomBytes(32).toString('base64url');
 const userData = path.join(os.homedir(), 'Library', 'Application Support', userDataName);
 const sessionFile = path.join(userData, 'app-session.enc');
 const workspaceSnapshotFile = path.join(userData, 'workspace-snapshot.enc');
@@ -445,6 +447,9 @@ async function launchApp({ apiBaseUrl }) {
       ...process.env,
       AGENT_CALENDAR_USER_DATA_NAME: userDataName,
       AGENT_CALENDAR_E2E_AUTH: '1',
+      AGENT_CALENDAR_E2E_ALLOW_TEST_SECURE_STORAGE: '1',
+      AGENT_CALENDAR_E2E_EPHEMERAL_SECURE_STORAGE_KEY: testSecureStorageKey,
+      AGENT_CALENDAR_E2E_SECURE_STORAGE_PID: String(process.pid),
       AGENT_CALENDAR_E2E_RELEASE: phase8DesktopRelease ? '1' : '0',
       VITE_DEV_SERVER_URL: '',
       ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
@@ -656,20 +661,16 @@ async function runScenario(backend) {
     await page.screenshot({ path: screenshotBeforePath, fullPage: true });
     assert.ok(fs.statSync(screenshotBeforePath).size > 5_000, 'login-before-auth screenshot missing/small');
 
-    // Probe encryption availability in this real macOS Electron process.
-    const cryptoProbe = await electronApp.evaluate(async ({ safeStorage, app }) => ({
-      encryptionAvailable: Boolean(safeStorage?.isEncryptionAvailable?.()),
-      userData: app.getPath('userData'),
-    }));
-    assert.equal(
-      cryptoProbe.encryptionAvailable,
-      true,
-      `safeStorage must be available on real macOS Electron (userData=${cryptoProbe.userData})`,
-    );
-    assert.ok(
-      String(cryptoProbe.userData).includes(userDataName),
-      `unexpected userData path: ${cryptoProbe.userData}`,
-    );
+    const firstSecureStorageReceipt = await electronApp.evaluate(() => {
+      const bridge = globalThis.__agentCalendarE2E;
+      if (!bridge) throw new Error('E2E bridge missing');
+      return bridge.getSecureStorageReceipt();
+    });
+    assert.deepEqual(firstSecureStorageReceipt, {
+      backend: 'qa-aes-256-gcm',
+      nativeSafeStorageCallCount: 0,
+      nativeSafeStorageCalls: { availability: 0, encrypt: 0, decrypt: 0 },
+    });
 
     await page.getByRole('button', { name: /AuthKit으로 계속하기/ }).click();
     await page.waitForTimeout(400);
@@ -1179,6 +1180,17 @@ async function runScenario(backend) {
     assert.equal(fs.existsSync(sessionFile), false, 'logout must clear secure session file');
     assert.equal(fs.existsSync(workspaceSnapshotFile), false, 'logout must clear encrypted Workspace snapshot');
 
+    const secondSecureStorageReceipt = await electronApp.evaluate(() => {
+      const bridge = globalThis.__agentCalendarE2E;
+      if (!bridge) throw new Error('E2E bridge missing');
+      return bridge.getSecureStorageReceipt();
+    });
+    assert.deepEqual(secondSecureStorageReceipt, {
+      backend: 'qa-aes-256-gcm',
+      nativeSafeStorageCallCount: 0,
+      nativeSafeStorageCalls: { availability: 0, encrypt: 0, decrypt: 0 },
+    });
+
     const close2 = await closeApp(electronApp);
     assert.equal(close2.exited, true, 'second Electron process must exit');
     electronApp = null;
@@ -1200,7 +1212,10 @@ async function runScenario(backend) {
         recovery: phase8DesktopRelease ? screenshotRecoveryPath : null,
       },
       userData: userDataName,
-      safeStorage: true,
+      secureStorage: {
+        firstLaunch: firstSecureStorageReceipt,
+        secondLaunch: secondSecureStorageReceipt,
+      },
       restartRestore: true,
       staleProfileRecovery: phase8SessionTruth,
       googleCalendarOAuth: phase8GoogleOAuth,

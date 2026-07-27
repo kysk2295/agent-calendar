@@ -39,6 +39,7 @@ const AUTOMATION_CONNECTOR_KINDS = new Set([
   'automation_list',
   'automation_mutation',
 ]);
+const BUILDER_TEST_KIND = 'agent_builder_test';
 
 function bridgeError(code, message, statusHint = 422) {
   const error = new Error(message);
@@ -159,6 +160,37 @@ function normalizeSessionCatalogResponse(providerValue, entries) {
     throw bridgeError('provider_catalog_invalid', 'provider session catalog must be a bounded array');
   }
   return entries.map((entry) => normalizeSessionCatalogEntry(provider, entry));
+}
+
+function normalizeBuilderTestResult(value = {}) {
+  const input = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const summary = text(input.summary, { max: 500 });
+  const durationMs = Number(input.durationMs);
+  const sideEffects = input.sideEffects && typeof input.sideEffects === 'object'
+    ? input.sideEffects
+    : {};
+  const normalizedSideEffects = {};
+  for (const key of ['calendar', 'externalDelivery', 'schedulerJobs']) {
+    const count = Number(sideEffects[key]);
+    if (!Number.isSafeInteger(count) || count < 0 || count > 1_000_000) {
+      throw bridgeError('agent_test_result_invalid', 'Builder test side-effect count is invalid');
+    }
+    normalizedSideEffects[key] = count;
+  }
+  if (typeof input.passed !== 'boolean' || !summary
+    || !Number.isSafeInteger(durationMs) || durationMs < 0 || durationMs > 120_000) {
+    throw bridgeError('agent_test_result_invalid', 'Builder test result is invalid');
+  }
+  if (input.passed && Object.values(normalizedSideEffects).some((count) => count !== 0)) {
+    throw bridgeError('agent_test_side_effect', 'Builder test produced a forbidden side effect');
+  }
+  assertPublicValue(summary);
+  return {
+    passed: input.passed,
+    summary,
+    durationMs,
+    sideEffects: normalizedSideEffects,
+  };
 }
 
 function normalizeProviderSession(input = {}) {
@@ -685,7 +717,7 @@ class ProviderAgentBridge {
           kind: row.kind,
           consent: row.request?.consent === true,
           externalAgentId: String(row.request?.externalAgentId || '').slice(0, 160),
-          ...(AUTOMATION_CONNECTOR_KINDS.has(row.kind)
+          ...(AUTOMATION_CONNECTOR_KINDS.has(row.kind) || row.kind === BUILDER_TEST_KIND
             ? {
               payload: row.request?.payload && typeof row.request.payload === 'object'
                 ? row.request.payload
@@ -701,7 +733,7 @@ class ProviderAgentBridge {
     const requestId = text(input.requestId, { max: 160 });
     return withServiceTransaction(this.pool, async (client) => {
       const result = await client.query(
-        `select * from runner_connector_requests
+        `select *, expires_at <= now() as expired from runner_connector_requests
          where workspace_id = $1 and runner_id = $2 and id = $3
          for update`,
         [runnerRow.workspace_id, runnerRow.id, requestId],
@@ -713,8 +745,30 @@ class ProviderAgentBridge {
       if (!['pending', 'running'].includes(row.status)) {
         return { ok: true, replay: true, status: row.status };
       }
-      const response = AUTOMATION_CONNECTOR_KINDS.has(row.kind)
-        ? { result: normalizeAutomationConnectorResult(row.kind, input.result || {}) }
+      if (row.kind === BUILDER_TEST_KIND && row.expired) {
+        await client.query(
+          `update runner_connector_requests
+           set status = 'failed',
+               error_code = 'AGENT_BUILDER_TEST_TIMEOUT',
+               error_message = 'Disposable builder test timed out',
+               terminal_at = now(),
+               updated_at = now()
+           where workspace_id = $1 and runner_id = $2 and id = $3`,
+          [runnerRow.workspace_id, runnerRow.id, row.id],
+        );
+        return {
+          ok: true,
+          status: 'failed',
+          requestId: row.id,
+          errorCode: 'AGENT_BUILDER_TEST_TIMEOUT',
+        };
+      }
+      const response = AUTOMATION_CONNECTOR_KINDS.has(row.kind) || row.kind === BUILDER_TEST_KIND
+        ? {
+          result: row.kind === BUILDER_TEST_KIND
+            ? normalizeBuilderTestResult(input.result || {})
+            : normalizeAutomationConnectorResult(row.kind, input.result || {}),
+        }
         : {
           entries: row.kind === 'session_catalog'
             ? normalizeSessionCatalogResponse(row.provider, input.entries || [])

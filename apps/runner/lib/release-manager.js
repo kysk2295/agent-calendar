@@ -8,7 +8,10 @@ const { spawnSync } = require('node:child_process');
 const STABLE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const FULL_COMMIT_SHA = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+const PUBLIC_KEY_ID = /^runner-ed25519-[a-f0-9]{16}$/;
 const SUPPORTED_PLATFORMS = new Set(['darwin-arm64']);
+const DEFAULT_MAX_MANIFEST_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_MANIFEST_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -29,6 +32,14 @@ function canonicalManifestPayload(manifest = {}) {
 
 function sha256File(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function runnerPublicKeyId(key) {
+  const publicKey = key instanceof crypto.KeyObject && key.type === 'public'
+    ? key
+    : crypto.createPublicKey(key);
+  const der = publicKey.export({ type: 'spki', format: 'der' });
+  return `runner-ed25519-${crypto.createHash('sha256').update(der).digest('hex').slice(0, 16)}`;
 }
 
 function artifactStat(artifactPath) {
@@ -82,6 +93,7 @@ function createSignedRunnerManifest({
     throw new Error('Runner staging percentage must be an integer from 1 through 100');
   }
   if (!privateKey) throw new Error('Runner release signing private key is required');
+  const publicKeyId = runnerPublicKeyId(privateKey);
 
   const manifest = {
     schemaVersion: 1,
@@ -95,6 +107,7 @@ function createSignedRunnerManifest({
     stagingPercentage: rollout,
     generatedAt: String(generatedAt || ''),
     signatureAlgorithm: 'ed25519',
+    publicKeyId,
     artifact: {
       name: path.basename(artifact),
       size: stat.size,
@@ -128,9 +141,12 @@ function validateRunnerReleaseManifest({
   manifest = {},
   artifactPath,
   trustedPublicKey,
+  trustedPublicKeys,
   installedVersion = '',
   protocolVersion,
   stateSchemaVersion,
+  now = () => Date.now(),
+  maxManifestAgeMs = DEFAULT_MAX_MANIFEST_AGE_MS,
 } = {}) {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
     throw new Error('Runner release manifest must be an object');
@@ -147,8 +163,20 @@ function validateRunnerReleaseManifest({
   if (!FULL_COMMIT_SHA.test(String(manifest.commitSha || ''))) {
     throw new Error('Runner release commit provenance is invalid');
   }
-  if (manifest.signatureAlgorithm !== 'ed25519' || !trustedPublicKey) {
+  if (
+    manifest.signatureAlgorithm !== 'ed25519'
+    || !PUBLIC_KEY_ID.test(String(manifest.publicKeyId || ''))
+  ) {
     throw new Error('Runner release requires pinned Ed25519 trust');
+  }
+  const selectedPublicKey = trustedPublicKeys
+    ? trustedPublicKeys[manifest.publicKeyId]
+    : trustedPublicKey;
+  if (!selectedPublicKey) {
+    throw new Error('Runner release signer is unknown to pinned trust');
+  }
+  if (runnerPublicKeyId(selectedPublicKey) !== manifest.publicKeyId) {
+    throw new Error('Runner release public key id does not match pinned trust');
   }
   let signature;
   try {
@@ -159,10 +187,28 @@ function validateRunnerReleaseManifest({
   const signatureValid = signature.length > 0 && crypto.verify(
     null,
     canonicalManifestPayload(manifest),
-    trustedPublicKey,
+    selectedPublicKey,
     signature,
   );
   if (!signatureValid) throw new Error('Runner release signature verification failed');
+
+  const generatedAtMs = Date.parse(String(manifest.generatedAt || ''));
+  const currentTime = Number(now());
+  const allowedAge = Number(maxManifestAgeMs);
+  if (
+    !Number.isFinite(generatedAtMs)
+    || !Number.isFinite(currentTime)
+    || !Number.isFinite(allowedAge)
+    || allowedAge < 0
+  ) {
+    throw new Error('Runner release generated time is invalid');
+  }
+  if (generatedAtMs > currentTime + MAX_MANIFEST_FUTURE_SKEW_MS) {
+    throw new Error('Runner release generated time is in the future');
+  }
+  if (currentTime - generatedAtMs > allowedAge) {
+    throw new Error('Runner release manifest is stale');
+  }
 
   const currentProtocol = Number(protocolVersion);
   const currentStateSchema = Number(stateSchemaVersion);
@@ -200,6 +246,7 @@ function validateRunnerReleaseManifest({
     stateSchemaVersion: Number(manifest.stateSchemaVersion),
     platform: manifest.platform,
     stagingPercentage: rollout,
+    publicKeyId: manifest.publicKeyId,
     artifact: {
       name: manifest.artifact.name,
       size: stat.size,
@@ -228,6 +275,16 @@ function listArchiveEntries(artifactPath) {
   if (result.status !== 0) throw new Error('Runner release archive cannot be listed');
   const entries = String(result.stdout || '').split(/\r?\n/).filter(Boolean);
   if (entries.length < 1) throw new Error('Runner release archive is empty');
+  const verbose = spawnSync('tar', ['-tvzf', artifactPath], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  if (verbose.status !== 0) throw new Error('Runner release archive metadata cannot be inspected');
+  const types = String(verbose.stdout || '').split(/\r?\n/).filter(Boolean);
+  if (types.length !== entries.length || types.some((line) => !['-', 'd'].includes(line[0]))) {
+    throw new Error('Runner release archive contains unsupported links or special files');
+  }
+  const seen = new Set();
   for (const entry of entries) {
     const normalized = entry.replaceAll('\\', '/');
     const segments = normalized.split('/').filter(Boolean);
@@ -236,9 +293,22 @@ function listArchiveEntries(artifactPath) {
       || /^[A-Za-z]:\//.test(normalized)
       || segments.includes('..')
       || (segments[0] !== 'package')
+      || !(
+        normalized === 'package'
+        || normalized === 'package/'
+        || normalized === 'package/package.json'
+        || normalized === 'package/bin'
+        || normalized === 'package/bin/'
+        || normalized.startsWith('package/bin/')
+        || normalized === 'package/lib'
+        || normalized === 'package/lib/'
+        || normalized.startsWith('package/lib/')
+      )
+      || seen.has(normalized.replace(/\/$/, ''))
     ) {
       throw new Error('Runner release archive contains unsafe traversal path');
     }
+    seen.add(normalized.replace(/\/$/, ''));
   }
   return entries;
 }
@@ -372,6 +442,9 @@ async function installRunnerRelease({
   protocolVersion,
   stateSchemaVersion,
   postPromoteCheck = defaultReleaseHealthCheck,
+  onStage = () => {},
+  now,
+  maxManifestAgeMs,
 } = {}) {
   const root = assertSafeInstallRoot(installRoot);
   const priorState = readRunnerReleaseState(root);
@@ -382,7 +455,10 @@ async function installRunnerRelease({
     installedVersion: priorState.currentVersion,
     protocolVersion,
     stateSchemaVersion,
+    now,
+    maxManifestAgeMs,
   });
+  onStage('verified');
   const releasesDir = path.join(root, 'releases');
   fs.mkdirSync(releasesDir, { recursive: true, mode: 0o700 });
   const releaseId = `${validated.version}-${validated.commitSha.slice(0, 12)}`;
@@ -396,6 +472,7 @@ async function installRunnerRelease({
   );
   try {
     extractRunnerArchive(path.resolve(artifactPath), stagingRoot);
+    onStage('extracted');
     assertRunnerPackage(stagingRoot, validated.version);
     const healthyBeforePromotion = await defaultReleaseHealthCheck({
       releaseRoot: stagingRoot,
@@ -405,23 +482,31 @@ async function installRunnerRelease({
       throw new Error('Runner release failed pre-promotion health check');
     }
     fs.renameSync(stagingRoot, finalReleaseRoot);
+    onStage('prepared');
   } catch (error) {
     if (fs.existsSync(stagingRoot)) {
       fs.rmSync(stagingRoot, { recursive: true, force: true });
+    }
+    if (fs.existsSync(finalReleaseRoot)) {
+      fs.rmSync(finalReleaseRoot, { recursive: true, force: true });
     }
     throw error;
   }
 
   switchCurrentPointer(root, releaseId);
+  let interrupted = false;
   let healthyAfterPromotion = false;
   try {
+    onStage('promoted');
     healthyAfterPromotion = Boolean(await postPromoteCheck({
       installRoot: root,
       releaseRoot: finalReleaseRoot,
       releaseId,
       version: validated.version,
     }));
+    onStage('health_checked');
   } catch {
+    interrupted = true;
     healthyAfterPromotion = false;
   }
 
@@ -442,7 +527,7 @@ async function installRunnerRelease({
       rolledBack: true,
       attemptedVersion: validated.version,
       currentVersion: priorState.currentVersion,
-      failure: 'post_promotion_health_failed',
+      failure: interrupted ? 'update_interrupted' : 'post_promotion_health_failed',
     };
   }
 
@@ -475,5 +560,6 @@ module.exports = {
   installRunnerRelease,
   readRunnerReleaseState,
   sha256File,
+  runnerPublicKeyId,
   validateRunnerReleaseManifest,
 };

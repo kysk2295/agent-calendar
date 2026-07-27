@@ -3,19 +3,18 @@
 
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
-const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { runMigrations } = require('../app/db/migrate');
+const {
+  DEFAULT_LOCAL_POSTGRES_PORT,
+  createLocalPostgresCluster,
+} = require('../app/lib/local-postgres-lifecycle');
 const {
   buildLocalConnectionString,
   buildPublicTableListSql,
   buildRowCountSql,
   buildTableDigestSql,
-  evaluateClusterStopResult,
-  probeProcessLiveness,
-  readPostmasterPid,
-  waitForKnownPidGone,
 } = require('../app/lib/phase0-snapshot-restore');
 const {
   CURRENT_PERSISTED_TABLES,
@@ -74,18 +73,6 @@ function runBin(binDir, name, args, options = {}) {
   });
 }
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = address && typeof address === 'object' ? address.port : 0;
-      server.close((error) => (error ? reject(error) : resolve(port)));
-    });
-    server.on('error', reject);
-  });
-}
-
 async function waitForReady(binDir, socketDir, port, attempts = 120) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
@@ -101,6 +88,29 @@ async function waitForReady(binDir, socketDir, port, attempts = 120) {
     }
   }
   throw new Error('ephemeral PostgreSQL did not become ready');
+}
+
+async function waitForPromotion(
+  binDir,
+  socketDir,
+  port,
+  database,
+  attempts = 120,
+) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const promoted = queryText(
+        binDir,
+        socketDir,
+        port,
+        database,
+        'select (not pg_is_in_recovery())::text',
+      );
+      if (promoted === 'true' || promoted === 't') return;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('ephemeral PostgreSQL recovery did not promote');
 }
 
 function queryText(binDir, socketDir, port, database, sql) {
@@ -157,64 +167,6 @@ function appendConfig(filePath, values) {
   fs.appendFileSync(filePath, `\n${lines.join('\n')}\n`, 'utf8');
 }
 
-function startCluster(binDir, dataDir, logFile, socketDir, port) {
-  runBin(binDir, 'pg_ctl', [
-    '-D', dataDir,
-    '-l', logFile,
-    '-o', `-p ${port} -k ${socketDir}`,
-    'start',
-  ], { timeout: 30_000 });
-}
-
-function readPgCtlStatus(binDir, dataDir) {
-  try {
-    const output = runBin(binDir, 'pg_ctl', ['-D', dataDir, 'status'], { timeout: 10_000 });
-    return { statusOutput: String(output || ''), statusExitCode: 0 };
-  } catch (error) {
-    return {
-      statusOutput: `${error?.stdout || ''}${error?.stderr || ''}`,
-      statusExitCode: typeof error?.status === 'number' ? error.status : 1,
-    };
-  }
-}
-
-function stopCluster(binDir, dataDir) {
-  const postmasterPid = readPostmasterPid(dataDir);
-  let stopSucceeded = false;
-  try {
-    runBin(binDir, 'pg_ctl', ['-D', dataDir, '-m', 'fast', 'stop'], { timeout: 30_000 });
-    stopSucceeded = true;
-  } catch {
-    stopSucceeded = false;
-  }
-
-  let knownPidGone = postmasterPid <= 0 || probeProcessLiveness(postmasterPid).gone;
-  if (!knownPidGone && postmasterPid > 0) {
-    try {
-      process.kill(postmasterPid, 'SIGTERM');
-    } catch (error) {
-      if (error?.code === 'ESRCH') knownPidGone = true;
-    }
-    if (!knownPidGone) {
-      knownPidGone = waitForKnownPidGone(postmasterPid, {
-        attempts: 20,
-        intervalMs: 200,
-      }).gone;
-    }
-  }
-
-  const { statusOutput, statusExitCode } = readPgCtlStatus(binDir, dataDir);
-  return evaluateClusterStopResult({
-    stopSucceeded,
-    statusOutput,
-    statusExitCode,
-    postmasterPid,
-    knownPidGone,
-    fallbackKillAttempted: !stopSucceeded,
-    fallbackKillSucceeded: knownPidGone,
-  });
-}
-
 function parseWorkspaceIds(output, marker) {
   const line = String(output || '')
     .split(/\r?\n/)
@@ -259,26 +211,17 @@ function verifyWorkspaceIsolation(binDir, socketDir, port, database, expectedA, 
   };
 }
 
-async function waitForArchiveCount(
-  binDir,
-  socketDir,
-  port,
-  database,
-  minimum,
-  attempts = 120,
-) {
+async function waitForArchivedWalFile(walArchiveDir, walFile, attempts = 120) {
+  const safeName = String(walFile || '').trim();
+  if (!/^[0-9A-F]{24}(?:\.[0-9A-F]{8}\.backup)?$/.test(safeName)) {
+    throw new Error('archived WAL filename is invalid');
+  }
+  const target = path.join(walArchiveDir, safeName);
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const count = Number(queryText(
-      binDir,
-      socketDir,
-      port,
-      database,
-      'select archived_count::int from pg_stat_archiver',
-    )) || 0;
-    if (count >= minimum) return count;
+    if (fs.existsSync(target) && fs.statSync(target).size > 0) return safeName;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`WAL archive did not reach count ${minimum}`);
+  throw new Error(`WAL archive file did not arrive: ${safeName}`);
 }
 
 function emitReport(report, { writeEvidence = false } = {}) {
@@ -300,13 +243,18 @@ function safeErrorCode(error) {
     'logical_restore_verification_failed',
     'bounded_incident_did_not_apply',
     'source_cluster_did_not_stop_before_recovery',
+    'restore_point_lsn_invalid',
+    'safe_marker_missing_before_damage',
   ];
   const direct = known.find((code) => message === code || message.startsWith(`${code}:`));
   if (direct) return message;
   if (message.startsWith('pitr_verification_failed:')) return message;
   if (message.startsWith('WAL archive did not reach count')) return 'wal_archive_timeout';
+  if (message.startsWith('WAL archive file did not arrive')) return 'wal_archive_timeout';
+  if (message === 'archived WAL filename is invalid') return 'wal_archive_filename_invalid';
   if (message.includes('vector')) return 'vector_extension_unavailable';
   if (message.includes('did not become ready')) return 'postgres_readiness_timeout';
+  if (message.includes('recovery did not promote')) return 'postgres_recovery_promotion_timeout';
   if (message.includes('Command failed:')) return 'postgres_command_failed';
   return 'disaster_recovery_rehearsal_failed';
 }
@@ -342,20 +290,14 @@ async function main() {
   const logicalBackupPath = path.join(workDir, 'logical-backup.dump');
   const baseBackupDir = path.join(workDir, 'base-backup');
   const shortTempRoot = fs.existsSync('/tmp') ? '/tmp' : os.tmpdir();
-  const shortSocketRoot = fs.mkdtempSync(
-    path.join(shortTempRoot, 'agent-calendar-p10-'),
-  );
-  const sourceSocketDir = path.join(shortSocketRoot, 'source');
-  const recoverySocketDir = path.join(shortSocketRoot, 'recovery');
-  fs.mkdirSync(sourceSocketDir, { recursive: true });
-  fs.mkdirSync(recoverySocketDir, { recursive: true });
-  fs.mkdirSync(walArchiveDir, { recursive: true });
-
-  const sourcePort = await freePort();
-  const recoveryPort = await freePort();
+  let shortSocketRoot = '';
+  let sourceSocketDir = '';
+  let recoverySocketDir = '';
+  const sourcePort = DEFAULT_LOCAL_POSTGRES_PORT;
+  const recoveryPort = DEFAULT_LOCAL_POSTGRES_PORT;
   const startedAt = Date.now();
-  let sourceStartAttempted = false;
-  let recoveryStartAttempted = false;
+  let sourceCluster = null;
+  let recoveryCluster = null;
   let sourceStop = { stopped: true };
   let recoveryStop = { stopped: true };
   let migrations = [];
@@ -364,10 +306,26 @@ async function main() {
   let logicalComparison = { matchesSource: false, mismatches: ['not_run'] };
   let logicalIsolation = { ok: false };
   let pitrState = { ok: false, failures: ['not_run'] };
+  let criticalDomains = {
+    calendar: false,
+    delegatedWork: false,
+    automation: false,
+    runner: false,
+  };
   let postgresVersion = '';
+  let restorePointLsn = '';
   let verificationError = '';
 
   try {
+    shortSocketRoot = fs.mkdtempSync(
+      path.join(shortTempRoot, 'agent-calendar-p10-'),
+    );
+    sourceSocketDir = path.join(shortSocketRoot, 'source');
+    recoverySocketDir = path.join(shortSocketRoot, 'recovery');
+    fs.mkdirSync(sourceSocketDir, { recursive: true });
+    fs.mkdirSync(recoverySocketDir, { recursive: true });
+    fs.mkdirSync(walArchiveDir, { recursive: true });
+
     runBin(binDir, 'initdb', [
       '-D', sourceDataDir,
       '-A', 'trust',
@@ -384,15 +342,22 @@ async function main() {
       listen_addresses: "''",
     });
 
-    sourceStartAttempted = true;
-    startCluster(
+    sourceCluster = createLocalPostgresCluster({
       binDir,
-      sourceDataDir,
-      sourceLogFile,
-      sourceSocketDir,
-      sourcePort,
-    );
+      workDir,
+      dataDir: sourceDataDir,
+      logFile: sourceLogFile,
+      socketDir: sourceSocketDir,
+      role: LOCAL_ROLE,
+      port: sourcePort,
+    });
+    await sourceCluster.start({ initialize: false, readyAttempts: 120 });
     await waitForReady(binDir, sourceSocketDir, sourcePort);
+    if (process.env.NODE_ENV === 'test'
+      && process.env.PHASE10_TEST_FAIL_AFTER_SOURCE_READY === '1') {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      throw new Error('intentional_phase10_verification_failure');
+    }
 
     queryText(binDir, sourceSocketDir, sourcePort, 'postgres', `create database ${SOURCE_DB}`);
     queryText(
@@ -493,22 +458,40 @@ async function main() {
       sourceSocketDir,
       sourcePort,
       SOURCE_DB,
-      buildSafeMutationSql(),
+      `
+begin;
+${buildSafeMutationSql()}
+commit;
+select pg_create_restore_point('${PITR_RESTORE_POINT}');
+`,
     );
-    queryText(
+    restorePointLsn = queryText(
       binDir,
       sourceSocketDir,
       sourcePort,
       SOURCE_DB,
-      `select pg_create_restore_point('${PITR_RESTORE_POINT}')`,
+      'select pg_current_wal_insert_lsn()',
     );
-    const firstArchiveCount = Number(queryText(
+    if (!restorePointLsn) {
+      throw new Error('restore_point_lsn_invalid');
+    }
+    const safeTaskBeforeDamage = Number(queryText(
       binDir,
       sourceSocketDir,
       sourcePort,
       SOURCE_DB,
-      'select archived_count::int from pg_stat_archiver',
+      "select count(*)::int from tasks where id = 'phase10-safe-task-a'",
     )) || 0;
+    if (safeTaskBeforeDamage !== 1) {
+      throw new Error('safe_marker_missing_before_damage');
+    }
+    const restorePointWalFile = queryText(
+      binDir,
+      sourceSocketDir,
+      sourcePort,
+      SOURCE_DB,
+      'select pg_walfile_name(pg_current_wal_insert_lsn())',
+    );
     queryText(
       binDir,
       sourceSocketDir,
@@ -516,13 +499,7 @@ async function main() {
       SOURCE_DB,
       'select pg_switch_wal()',
     );
-    await waitForArchiveCount(
-      binDir,
-      sourceSocketDir,
-      sourcePort,
-      SOURCE_DB,
-      firstArchiveCount + 1,
-    );
+    await waitForArchivedWalFile(walArchiveDir, restorePointWalFile);
 
     queryText(
       binDir,
@@ -548,13 +525,13 @@ async function main() {
     if (damagedTaskCount !== 0 || damageMarkerCount !== 1) {
       throw new Error('bounded_incident_did_not_apply');
     }
-    const secondArchiveCount = Number(queryText(
+    const damageWalFile = queryText(
       binDir,
       sourceSocketDir,
       sourcePort,
       SOURCE_DB,
-      'select archived_count::int from pg_stat_archiver',
-    )) || 0;
+      'select pg_walfile_name(pg_current_wal_insert_lsn())',
+    );
     queryText(
       binDir,
       sourceSocketDir,
@@ -562,15 +539,9 @@ async function main() {
       SOURCE_DB,
       'select pg_switch_wal()',
     );
-    await waitForArchiveCount(
-      binDir,
-      sourceSocketDir,
-      sourcePort,
-      SOURCE_DB,
-      secondArchiveCount + 1,
-    );
+    await waitForArchivedWalFile(walArchiveDir, damageWalFile);
 
-    sourceStop = stopCluster(binDir, sourceDataDir);
+    sourceStop = await sourceCluster.stop();
     if (!sourceStop.stopped) {
       throw new Error('source_cluster_did_not_stop_before_recovery');
     }
@@ -580,20 +551,28 @@ async function main() {
     fs.writeFileSync(path.join(recoveryDataDir, 'recovery.signal'), '', 'utf8');
     appendConfig(path.join(recoveryDataDir, 'postgresql.auto.conf'), {
       restore_command: `'cp ${walArchiveDir}/%f %p'`,
-      recovery_target_name: `'${PITR_RESTORE_POINT}'`,
+      recovery_target_lsn: `'${restorePointLsn}'`,
       recovery_target_action: "'promote'",
       archive_mode: 'off',
     });
 
-    recoveryStartAttempted = true;
-    startCluster(
+    recoveryCluster = createLocalPostgresCluster({
       binDir,
-      recoveryDataDir,
-      recoveryLogFile,
+      workDir,
+      dataDir: recoveryDataDir,
+      logFile: recoveryLogFile,
+      socketDir: recoverySocketDir,
+      role: LOCAL_ROLE,
+      port: recoveryPort,
+    });
+    await recoveryCluster.start({ initialize: false, readyAttempts: 120 });
+    await waitForReady(binDir, recoverySocketDir, recoveryPort);
+    await waitForPromotion(
+      binDir,
       recoverySocketDir,
       recoveryPort,
+      SOURCE_DB,
     );
-    await waitForReady(binDir, recoverySocketDir, recoveryPort);
 
     const taskA = Number(queryText(
       binDir,
@@ -642,6 +621,39 @@ async function main() {
     if (!pitrState.ok) {
       throw new Error(`pitr_verification_failed:${pitrState.failures.join(',')}`);
     }
+    criticalDomains = {
+      calendar: Number(queryText(
+        binDir,
+        recoverySocketDir,
+        recoveryPort,
+        SOURCE_DB,
+        "select count(*)::int from calendar_events where id = 'phase10-event-a' and workspace_id = 'phase10-workspace-a'",
+      )) === 1,
+      delegatedWork: Number(queryText(
+        binDir,
+        recoverySocketDir,
+        recoveryPort,
+        SOURCE_DB,
+        "select count(*)::int from tasks where id = 'phase10-task-a' and workspace_id = 'phase10-workspace-a'",
+      )) === 1,
+      automation: Number(queryText(
+        binDir,
+        recoverySocketDir,
+        recoveryPort,
+        SOURCE_DB,
+        "select count(*)::int from automation_sources where id = 'phase10-automation-a' and workspace_id = 'phase10-workspace-a'",
+      )) === 1,
+      runner: Number(queryText(
+        binDir,
+        recoverySocketDir,
+        recoveryPort,
+        SOURCE_DB,
+        "select count(*)::int from runners where id = 'phase10-runner-a' and workspace_id = 'phase10-workspace-a'",
+      )) === 1,
+    };
+    if (Object.values(criticalDomains).some((present) => !present)) {
+      throw new Error('pitr_verification_failed:critical_domain_missing');
+    }
     postgresVersion = runBin(
       binDir,
       'postgres',
@@ -652,14 +664,16 @@ async function main() {
     verificationError = safeErrorCode(error);
   }
 
-  if (recoveryStartAttempted || fs.existsSync(path.join(recoveryDataDir, 'postmaster.pid'))) {
-    recoveryStop = stopCluster(binDir, recoveryDataDir);
+  if (recoveryCluster && !recoveryCluster.stopResult?.stopped) {
+    recoveryStop = await recoveryCluster.stop();
   }
-  if (sourceStartAttempted && !sourceStop.stopped) {
-    sourceStop = stopCluster(binDir, sourceDataDir);
+  if (sourceCluster && !sourceCluster.stopResult?.stopped) {
+    sourceStop = await sourceCluster.stop();
   }
   const clustersStopped = Boolean(sourceStop.stopped && recoveryStop.stopped);
-  fs.rmSync(shortSocketRoot, { recursive: true, force: true });
+  if (clustersStopped && shortSocketRoot) {
+    fs.rmSync(shortSocketRoot, { recursive: true, force: true });
+  }
   const ok = Boolean(
     !verificationError
     && logicalComparison.matchesSource
@@ -684,6 +698,7 @@ async function main() {
       damageMarkerAbsent: pitrState.ok && !pitrState.failures.includes('damage_marker_present'),
       workspaceIsolation: pitrState.ok
         && !pitrState.failures.some((item) => item.startsWith('workspace_leak')),
+      criticalDomains,
     },
     clustersStopped,
     durationMs: Date.now() - startedAt,

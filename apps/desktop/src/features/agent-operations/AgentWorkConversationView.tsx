@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { missionStatusLabel } from './AgentOperationViews';
 import { AgentWorkComposer } from './AgentWorkComposer';
+import { AgentWorkDetails } from './AgentWorkDetails';
 import { AgentWorkTimeline } from './AgentWorkTimeline';
 import { executionEngineLabel, resolvedExecutionEngineLabel } from './executionContracts';
 import {
@@ -23,6 +24,7 @@ import type {
   AgentWorkDelivery,
 } from './workConversationTypes';
 import type { AgentWorkLiveTurnState } from './useAgentWorkLiveTurn';
+import { AgentWorkDelegationPanel } from './AgentWorkDelegationPanel';
 
 type AgentWorkConversationViewProps = {
   readonly mission: AgentMission;
@@ -225,6 +227,32 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
           </p>
         </div>
       </details>
+      {props.conversation && (
+        <div
+          data-handoff-count={props.conversation.handoffGraph.handoffs.length}
+          data-provider-session-count={props.conversation.providerSessions.length}
+          data-comparison-count={props.conversation.comparison.outcomes.length}
+        >
+          <AgentWorkDelegationPanel
+            missionId={props.mission.id}
+            conversation={props.conversation}
+            disabled={props.aggregateStale || props.loading || Boolean(props.error)}
+            onRefresh={props.onRefresh}
+          />
+        </div>
+      )}
+      <AgentWorkDetails
+        mission={props.mission}
+        tasks={props.tasks}
+        responsibleAgentName={props.responsibleAgentName}
+        assignmentCopy={assignmentCopy}
+        resolvedExecutionEngine={props.conversation?.work.resolvedExecutionEngine || null}
+        effectiveConfiguration={props.conversation?.effectiveConfiguration}
+        busy={props.busy}
+        onTaskAction={props.onTaskAction}
+        onOpenSession={props.onOpenSession}
+        onRefresh={props.onRefresh}
+      />
       <div className="agent-work-layout">
         <section className="agent-work-primary" aria-label="작업 대화">
           <AgentWorkTimeline checkpoints={props.conversation?.checkpoints || []} loading={props.loading} error={props.error} readOnly={props.aggregateStale || props.loading || Boolean(props.error)} tasks={props.tasks} reports={props.reports} currentResultReportId={props.conversation?.work.revision.currentResultReportId || ''} responsibleAgentName={props.responsibleAgentName} busy={props.busy} onTaskAction={taskAction} onOpenSession={props.onOpenSession} onReportFeedback={props.onReportFeedback} onFollowUpDecision={props.onFollowUpDecision} onRefresh={props.onRefresh} onRetry={retryConversation} liveTurn={props.liveTurn} />

@@ -4,8 +4,10 @@ import { test } from 'node:test';
 
 const desktopRoot = new URL('../', import.meta.url);
 const widgetRoot = new URL('../../widget/', import.meta.url);
+const repositoryRoot = new URL('../../../', import.meta.url);
 const desktopSource = (path) => readFileSync(new URL(path, desktopRoot), 'utf8');
 const widgetSource = (path) => readFileSync(new URL(path, widgetRoot), 'utf8');
+const repositorySource = (path) => readFileSync(new URL(path, repositoryRoot), 'utf8');
 
 test('native macOS WidgetKit project exists with four Hermes widgets', () => {
   assert.equal(existsSync(new URL('macos/HermesWidgetHost/HermesWidgetHost.xcodeproj/project.pbxproj', widgetRoot)), true);
@@ -134,4 +136,15 @@ test('electron app writes native widget snapshots into the shared app group cont
   assert.match(preloadSource, /saveWidgetSnapshot/);
   assert.match(runtimePreloadSource, /saveWidgetSnapshot/);
   assert.match(typeSource, /saveWidgetSnapshot\(snapshot: HermesWidgetSnapshotPayload\): Promise<\{ ok: boolean; path: string; changed: boolean \}>/);
+});
+
+test('native widget host remains a separate companion application with its extension embedded', () => {
+  const projectSource = widgetSource('macos/HermesWidgetHost/HermesWidgetHost.xcodeproj/project.pbxproj');
+  const releaseRunbook = repositorySource('docs/operations/personal-beta-release.md');
+  assert.match(projectSource, /Agents Calendar Widgets\.app/);
+  assert.match(projectSource, /HermesWidgets\.appex in Embed App Extensions/);
+  assert.match(projectSource, /productType = "com\.apple\.product-type\.application"/);
+  assert.match(projectSource, /productType = "com\.apple\.product-type\.app-extension"/);
+  assert.match(releaseRunbook, /separately signed companion application in the same\s+Desktop DMG/i);
+  assert.match(releaseRunbook, /must not inherit the Desktop app signature/i);
 });

@@ -65,12 +65,14 @@ class RunnerClient {
     stateDir = defaultStateDir(),
     probeRunner = null,
     clock = () => Date.now(),
+    env = {},
   } = {}) {
     if (!baseUrl) throw new Error('RunnerClient requires baseUrl');
     this.baseUrl = String(baseUrl).replace(/\/+$/, '');
     this.stateDir = stateDir;
     this.probeRunner = probeRunner;
     this.clock = clock;
+    this.env = env;
     this.identity = loadOrCreateIdentity(stateDir);
     this.state = loadState(stateDir);
   }
@@ -240,10 +242,12 @@ class RunnerClient {
   async reportCapabilities() {
     const report = await probeAllEngines({
       probeRunner: this.probeRunner || undefined,
+      env: this.env,
     });
     const localKnowledge = listKnowledgeSources(this.stateDir).length > 0;
     const result = await this.deviceRequest('POST', '/api/runner/device/capabilities', {
       engines: report.engines,
+      catalog: report.catalog,
       localKnowledge,
       knowledgeSearch: localKnowledge,
     });

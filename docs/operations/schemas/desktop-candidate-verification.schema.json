@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-calendar.local/schemas/desktop-candidate-verification.schema.json",
+  "title": "Agent Calendar signed macOS candidate verification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sourceSha",
+    "tag",
+    "version",
+    "signed",
+    "notarized",
+    "stapled",
+    "ordinarySecureStorage",
+    "desktop",
+    "widget",
+    "packagedSmoke",
+    "artifactSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "sourceSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "tag": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "signed": { "const": true },
+    "notarized": { "const": true },
+    "stapled": { "const": true },
+    "ordinarySecureStorage": { "$ref": "#/$defs/ordinarySecureStorage" },
+    "desktop": { "$ref": "#/$defs/desktop" },
+    "widget": { "$ref": "#/$defs/widget" },
+    "packagedSmoke": { "$ref": "#/$defs/packagedSmoke" },
+    "artifactSha256": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dmg", "zip", "widgetArchive"],
+      "properties": {
+        "dmg": { "$ref": "#/$defs/sha256" },
+        "zip": { "$ref": "#/$defs/sha256" },
+        "widgetArchive": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "authority": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "appGroups": {
+      "type": "array",
+      "contains": { "const": "group.com.agents.calendar" }
+    },
+    "ordinarySecureStorage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "qaOverrideAbsent",
+        "sessionEncrypted",
+        "snapshotEncrypted",
+        "sessionRestored",
+        "snapshotRestored",
+        "rendererKeychainErrors",
+        "cleanupVerified"
+      ],
+      "properties": {
+        "backend": { "const": "electron-safe-storage" },
+        "qaOverrideAbsent": { "const": true },
+        "sessionEncrypted": { "const": true },
+        "snapshotEncrypted": { "const": true },
+        "sessionRestored": { "const": true },
+        "snapshotRestored": { "const": true },
+        "rendererKeychainErrors": { "const": 0 },
+        "cleanupVerified": { "const": true }
+      }
+    },
+    "desktop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundleId",
+        "codesignDeepStrict",
+        "gatekeeperAccepted",
+        "staplerValidated",
+        "authorities",
+        "teamIdentifier",
+        "appGroups"
+      ],
+      "properties": {
+        "bundleId": { "const": "com.agents.calendar" },
+        "codesignDeepStrict": { "const": true },
+        "gatekeeperAccepted": { "const": true },
+        "staplerValidated": { "const": true },
+        "authorities": { "$ref": "#/$defs/authority" },
+        "teamIdentifier": { "type": "string", "minLength": 1 },
+        "appGroups": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "widget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hostBundleId",
+        "extensionBundleId",
+        "separatelySigned",
+        "packagedInDmg",
+        "fourWidgetsExposed",
+        "appGroupHydrated",
+        "sharedTogglePersisted",
+        "codesignDeepStrict",
+        "gatekeeperAccepted",
+        "staplerValidated",
+        "authorities",
+        "teamIdentifier",
+        "appGroups"
+      ],
+      "properties": {
+        "hostBundleId": { "const": "com.agents.calendar.widgets.host" },
+        "extensionBundleId": { "const": "com.agents.calendar.widgets.host.HermesWidgets" },
+        "separatelySigned": { "const": true },
+        "packagedInDmg": { "const": true },
+        "fourWidgetsExposed": { "const": true },
+        "appGroupHydrated": { "const": true },
+        "sharedTogglePersisted": { "const": true },
+        "codesignDeepStrict": { "const": true },
+        "gatekeeperAccepted": { "const": true },
+        "staplerValidated": { "const": true },
+        "authorities": { "$ref": "#/$defs/authority" },
+        "teamIdentifier": { "type": "string", "minLength": 1 },
+        "appGroups": { "$ref": "#/$defs/appGroups" }
+      }
+    },
+    "packagedSmoke": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "productionRendererBooted",
+        "coldLaunchDeepLink",
+        "runningAppDeepLink",
+        "invalidUrlRejected",
+        "userDataRemoved"
+      ],
+      "properties": {
+        "productionRendererBooted": { "const": true },
+        "coldLaunchDeepLink": { "const": true },
+        "runningAppDeepLink": { "const": true },
+        "invalidUrlRejected": { "const": true },
+        "userDataRemoved": { "const": true }
+      }
+    }
+  }
+}

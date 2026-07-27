@@ -233,6 +233,34 @@ const PRODUCTION_ROUTES = [
     persistence: 'write', action: 'agents_create', idempotent: true, role: 'owner',
   },
   {
+    method: 'POST', pathPattern: '/api/agents/builder', class: 'scoped_product',
+    persistence: 'write', action: 'agent_builder_create', idempotent: true, role: 'owner',
+  },
+  {
+    method: 'POST', pathPattern: '/api/agents/:id/review', class: 'scoped_product',
+    persistence: 'write', action: 'agent_builder_review', idempotent: true, role: 'owner',
+  },
+  {
+    method: 'POST', pathPattern: '/api/agents/:id/tests', class: 'scoped_product',
+    persistence: 'write', action: 'agent_builder_test_start', idempotent: true, role: 'owner',
+  },
+  {
+    method: 'GET', pathPattern: '/api/agents/:id/tests/:requestId', class: 'scoped_product',
+    persistence: 'read', action: 'agent_builder_test_get', idempotent: true, role: 'owner',
+  },
+  {
+    method: 'POST', pathPattern: '/api/agents/:id/tests/:requestId/cancel', class: 'scoped_product',
+    persistence: 'write', action: 'agent_builder_test_cancel', idempotent: true, role: 'owner',
+  },
+  {
+    method: 'POST', pathPattern: '/api/agents/:id/activate', class: 'scoped_product',
+    persistence: 'write', action: 'agent_builder_activate', idempotent: true, role: 'owner',
+  },
+  {
+    method: 'GET', pathPattern: '/api/agents/:id/profile-versions', class: 'scoped_product',
+    persistence: 'read', action: 'agent_builder_versions_list', idempotent: true, role: 'owner',
+  },
+  {
     method: 'POST', pathPattern: '/api/agents/catalog/requests', class: 'scoped_product',
     persistence: 'write', action: 'agent_catalog_request', idempotent: true, role: 'owner',
   },
@@ -511,6 +539,26 @@ const PRODUCTION_ROUTES = [
     persistence: 'write', action: 'agent_work_message', idempotent: true, role: 'member',
   },
   {
+    method: 'GET', pathPattern: '/api/agent-operations/work/:missionId/handoffs', class: 'scoped_product',
+    persistence: 'read', action: 'agent_work_handoffs_list', idempotent: true, role: 'member',
+  },
+  {
+    method: 'POST', pathPattern: '/api/agent-operations/work/:missionId/handoffs', class: 'scoped_product',
+    persistence: 'write', action: 'agent_work_handoff_create', idempotent: true, role: 'member',
+  },
+  {
+    method: 'POST', pathPattern: '/api/agent-operations/work/:missionId/handoffs/:handoffId/cancel', class: 'scoped_product',
+    persistence: 'write', action: 'agent_work_handoff_cancel', idempotent: true, role: 'member',
+  },
+  {
+    method: 'POST', pathPattern: '/api/agent-operations/work/:missionId/provider-session-transitions', class: 'scoped_product',
+    persistence: 'write', action: 'agent_work_provider_session_transition', idempotent: true, role: 'member',
+  },
+  {
+    method: 'POST', pathPattern: '/api/agent-operations/work/:missionId/comparison/adopt', class: 'scoped_product',
+    persistence: 'write', action: 'agent_work_comparison_adopt', idempotent: true, role: 'member',
+  },
+  {
     method: 'POST', pathPattern: '/api/agent-operations/work/:missionId/live', class: 'scoped_product',
     persistence: 'stream', action: 'agent_work_live_deferred', idempotent: true, role: 'member',
   },
@@ -749,6 +797,10 @@ const PRODUCTION_ROUTES = [
   {
     method: 'POST', pathPattern: '/api/runner/device/channels/telegram/next', class: 'runner_device',
     persistence: 'write', action: 'runner_device_telegram_next', idempotent: false, role: 'none',
+  },
+  {
+    method: 'POST', pathPattern: '/api/runner/device/channels/telegram/begin', class: 'runner_device',
+    persistence: 'write', action: 'runner_device_telegram_begin', idempotent: true, role: 'none',
   },
   {
     method: 'POST', pathPattern: '/api/runner/device/channels/telegram/ack', class: 'runner_device',

@@ -10,6 +10,7 @@ import { useAgentWorkConversation } from './useAgentWorkConversation';
 import { useAgentWorkLiveTurn } from './useAgentWorkLiveTurn';
 import type {
   AgentCatalogRequest,
+  AgentBuilderTestRequest,
   AgentCreatedWork,
   AgentDirectoryMutationInput,
   AgentExecutionEngine,
@@ -17,6 +18,7 @@ import type {
   AgentMissionCreateInput,
   AgentOperationsState,
   AgentRosterEntry,
+  AgentProfileVersion,
   AgentTaskAction,
   HermesAutomationJob,
   ProviderAgentSession,
@@ -35,6 +37,13 @@ type AgentWorkWorkspaceProps = {
   readonly busy: string;
   readonly onCreateAgent: (input: AgentDirectoryMutationInput) => Promise<boolean>;
   readonly onUpdateAgent: (agentId: string, input: AgentDirectoryMutationInput) => Promise<boolean>;
+  readonly onCreateBuilderDraft: (request: string) => Promise<boolean>;
+  readonly onReviewBuilderDraft: (agentId: string, expectedRevision: number) => Promise<boolean>;
+  readonly onTestBuilderDraft: (agentId: string, expectedRevision: number) => Promise<AgentBuilderTestRequest | null>;
+  readonly onRefreshBuilderTest: (agentId: string, requestId: string) => Promise<AgentBuilderTestRequest | null>;
+  readonly onCancelBuilderTest: (agentId: string, requestId: string) => Promise<boolean>;
+  readonly onActivateBuilderProfile: (agentId: string, expectedRevision: number, requestId: string) => Promise<boolean>;
+  readonly onListAgentProfileVersions: (agentId: string) => Promise<readonly AgentProfileVersion[]>;
   readonly onRequestAgentCatalog: (input: Readonly<{ runnerId: string; provider: string; consent: true }>) => Promise<AgentCatalogRequest | null>;
   readonly onGetAgentCatalogRequest: (requestId: string) => Promise<AgentCatalogRequest | null>;
   readonly onImportAgentCatalogEntry: (requestId: string, input: Readonly<{ externalAgentId: string; defaultExecutionEngine: AgentExecutionEngine }>) => Promise<boolean>;
@@ -297,6 +306,13 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
           onSelect={selectDirectoryAgent}
           onCreate={props.onCreateAgent}
           onUpdate={props.onUpdateAgent}
+          onCreateBuilderDraft={props.onCreateBuilderDraft}
+          onReviewBuilderDraft={props.onReviewBuilderDraft}
+          onTestBuilderDraft={props.onTestBuilderDraft}
+          onRefreshBuilderTest={props.onRefreshBuilderTest}
+          onCancelBuilderTest={props.onCancelBuilderTest}
+          onActivateBuilderProfile={props.onActivateBuilderProfile}
+          onListAgentProfileVersions={props.onListAgentProfileVersions}
           onRequestAgentCatalog={props.onRequestAgentCatalog}
           onGetAgentCatalogRequest={props.onGetAgentCatalogRequest}
           onImportAgentCatalogEntry={props.onImportAgentCatalogEntry}
@@ -354,6 +370,13 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
         onSelect={selectDirectoryAgent}
         onCreate={props.onCreateAgent}
         onUpdate={props.onUpdateAgent}
+        onCreateBuilderDraft={props.onCreateBuilderDraft}
+        onReviewBuilderDraft={props.onReviewBuilderDraft}
+        onTestBuilderDraft={props.onTestBuilderDraft}
+        onRefreshBuilderTest={props.onRefreshBuilderTest}
+        onCancelBuilderTest={props.onCancelBuilderTest}
+        onActivateBuilderProfile={props.onActivateBuilderProfile}
+        onListAgentProfileVersions={props.onListAgentProfileVersions}
         onRequestAgentCatalog={props.onRequestAgentCatalog}
         onGetAgentCatalogRequest={props.onGetAgentCatalogRequest}
         onImportAgentCatalogEntry={props.onImportAgentCatalogEntry}

@@ -9,11 +9,16 @@ const {
   applyAgentExecutionProfile,
   normalizeWorkspaceAgent,
   projectWorkspaceAgent,
+  resolveEffectiveAgentConfiguration,
   WorkspaceAgentDirectoryError,
 } = require('./workspace-agent-directory');
 const { isOfficialProfileName } = require('./official-profiles');
+const { projectPublicDisplayEvent } = require('./public-work-conversation-event');
 
 const TELEGRAM_INGRESS_FRESHNESS_MS = 150_000;
+const MAX_HANDOFF_DEPTH = 3;
+const MAX_HANDOFF_FAN_OUT = 3;
+const CAPABILITY_ID = /^(tool|skill):[a-z0-9][a-z0-9._/-]{0,118}$/;
 
 function newId(prefix) {
   return `${prefix}_${crypto.randomBytes(12).toString('hex')}`;
@@ -21,6 +26,127 @@ function newId(prefix) {
 
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function scopedMutationError(code, message, statusHint = 422) {
+  const error = new Error(message);
+  error.code = code;
+  error.statusHint = statusHint;
+  return error;
+}
+
+function publicMutationId(value, field) {
+  const id = String(value || '').trim();
+  if (!id || id.length > 200 || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) {
+    throw scopedMutationError(`${field}_invalid`, `${field} is invalid`, 400);
+  }
+  return id;
+}
+
+function normalizedGrantSet(value = {}) {
+  const source = asObject(value);
+  const normalize = (items) => [...new Set(
+    (Array.isArray(items) ? items : [])
+      .map((item) => String(item || '').trim().toLowerCase())
+      .filter((item) => CAPABILITY_ID.test(item)),
+  )].sort();
+  const deny = normalize(source.deny);
+  return {
+    allow: normalize(source.allow).filter((item) => !deny.includes(item)),
+    deny,
+  };
+}
+
+function intersectedGrants(parentValue, receiverValue, requestedValue) {
+  const parent = normalizedGrantSet(parentValue);
+  const receiver = normalizedGrantSet(receiverValue);
+  const requested = requestedValue === undefined
+    ? parent
+    : normalizedGrantSet(requestedValue);
+  const deny = [...new Set([
+    ...parent.deny,
+    ...receiver.deny,
+    ...requested.deny,
+  ])].sort();
+  const receiverAllowed = new Set(receiver.allow);
+  const requestedAllowed = new Set(requested.allow);
+  return {
+    allow: parent.allow
+      .filter((item) => receiverAllowed.has(item) && requestedAllowed.has(item))
+      .filter((item) => !deny.includes(item))
+      .sort(),
+    deny,
+  };
+}
+
+function normalizedHandoffBudget(value = {}, fallback = {
+  maxRuns: 3,
+  maxMinutes: 60,
+  maxCostUsd: 5,
+}) {
+  const source = asObject(value);
+  const bounded = (key, maximum) => {
+    const candidate = Number(source[key]);
+    const inherited = Number(fallback[key]);
+    const safeFallback = Number.isFinite(inherited) && inherited > 0
+      ? inherited
+      : maximum;
+    return Number.isFinite(candidate) && candidate > 0
+      ? Math.min(candidate, safeFallback, maximum)
+      : Math.min(safeFallback, maximum);
+  };
+  return {
+    maxRuns: Math.floor(bounded('maxRuns', 20)),
+    maxMinutes: Math.floor(bounded('maxMinutes', 1_440)),
+    maxCostUsd: Number(bounded('maxCostUsd', 1_000).toFixed(4)),
+  };
+}
+
+function publicHandoff(row) {
+  return {
+    id: row.id,
+    clientRequestId: row.client_request_id,
+    parentMissionId: row.root_mission_id,
+    parentHandoffId: row.parent_handoff_id || '',
+    parentTaskId: row.parent_task_id || '',
+    rootAgentId: row.root_agent_id,
+    delegatorAgentId: row.delegator_agent_id,
+    receiverAgentId: row.receiver_agent_id,
+    depth: Number(row.depth),
+    lineage: Array.isArray(row.lineage) ? row.lineage.map(String) : [],
+    effectiveGrants: normalizedGrantSet(row.effective_grants),
+    effectiveBudget: normalizedHandoffBudget(row.effective_budget),
+    status: row.status,
+    resultProjection: asObject(row.result_projection),
+    cancellationRequested: row.cancellation_requested === true,
+    cancellationReason: row.cancellation_reason || '',
+    executionJobId: row.execution_job_id,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+    terminalAt: row.terminal_at ? new Date(row.terminal_at).toISOString() : null,
+  };
+}
+
+function publicTransitionSession(row) {
+  const lineage = Array.isArray(row.session_lineage) && row.session_lineage.length
+    ? row.session_lineage.map(String)
+    : [row.id];
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    agentId: row.agent_id || '',
+    runnerId: row.runner_id,
+    workConversationId: row.work_conversation_id,
+    provider: row.provider,
+    engine: row.engine,
+    externalSessionId: row.external_session_id || '',
+    status: row.status,
+    title: row.title || '',
+    parentProviderSessionId: row.parent_provider_session_id || '',
+    generation: Number(row.session_generation || 0),
+    lineage,
+    transitionAction: row.transition_action || 'existing',
+  };
 }
 
 function channelIngressProjection(value, now = Date.now()) {
@@ -142,6 +268,24 @@ function providerSessionStateError(status) {
   return error;
 }
 
+function activeProviderEndpointConflict() {
+  const error = new Error('Active provider endpoint is unavailable for this Work Conversation');
+  error.code = 'active_provider_endpoint_conflict';
+  error.statusHint = 409;
+  return error;
+}
+
+function providerEndpointEligible(providerSession) {
+  return providerSession && ![
+    'auth_required',
+    'missing',
+    'deleted',
+    'quota_exhausted',
+    'unavailable',
+    'archived',
+  ].includes(String(providerSession.status || ''));
+}
+
 function canonicalContextGoal({ objective, events, message }) {
   const transcript = events
     .map((event) => {
@@ -203,10 +347,11 @@ function requireOwner(scope) {
  * Never uses global HermesStore. Every SQL filters by workspace_id.
  */
 class WorkspaceScopedProductService {
-  constructor({ pool, useAppRole = true } = {}) {
+  constructor({ pool, useAppRole = true, env = {} } = {}) {
     if (!pool) throw new Error('WorkspaceScopedProductService requires pool');
     this.pool = pool;
     this.useAppRole = useAppRole;
+    this.env = env;
   }
 
   async #run(scope, fn) {
@@ -497,15 +642,40 @@ class WorkspaceScopedProductService {
 
   async listAgents(scope) {
     return this.#run(scope, async (client, valid) => {
-      const result = await client.query(
-        `select id, payload, workspace_id from agents where workspace_id = $1 order by id asc`,
-        [valid.workspaceId],
-      );
-      return result.rows.map((row) => projectWorkspaceAgent({
-        id: row.id,
-        ...asObject(row.payload),
-        workspaceId: row.workspace_id,
-      }));
+      const [result, runners] = await Promise.all([
+        client.query(
+          `select id, payload, workspace_id from agents where workspace_id = $1 order by id asc`,
+          [valid.workspaceId],
+        ),
+        client.query(
+          `select id, capabilities, status, connection_state
+           from runners
+           where workspace_id = $1 and status = 'active'
+           order by last_seen_at desc nulls last, id asc`,
+          [valid.workspaceId],
+        ),
+      ]);
+      return result.rows.map((row) => {
+        const agent = projectWorkspaceAgent({
+          id: row.id,
+          ...asObject(row.payload),
+          workspaceId: row.workspace_id,
+        });
+        const runner = runners.rows.find((entry) => entry.id === agent.defaultRunnerId)
+          || runners.rows.find((entry) => entry.connection_state === 'connected')
+          || runners.rows[0]
+          || { id: '', capabilities: {} };
+        return {
+          ...agent,
+          effectiveConfigurationPreview: resolveEffectiveAgentConfiguration({
+            workspaceId: valid.workspaceId,
+            agent,
+            runner,
+            requestedEngine: agent.defaultExecutionEngine,
+            reason: runner.id ? 'agent_default' : 'waiting_runner',
+          }),
+        };
+      });
     });
   }
 
@@ -513,7 +683,8 @@ class WorkspaceScopedProductService {
     requireOwner(scope);
     return this.#run(scope, async (client, valid) => {
       const id = String(input.id || newId('agent'));
-      const payload = normalizeWorkspaceAgent(input, {
+      const { approvedGrants: _ignoredApprovedGrants, ...publicInput } = asObject(input);
+      const payload = normalizeWorkspaceAgent(publicInput, {
         id,
         workspaceId: valid.workspaceId,
       });
@@ -565,10 +736,32 @@ class WorkspaceScopedProductService {
         [valid.workspaceId, String(agentId || '')],
       );
       if (!existing.rowCount) return null;
-      const payload = normalizeWorkspaceAgent(patch, {
+      const existingPayload = asObject(existing.rows[0].payload);
+      const {
+        approvedGrants: _ignoredApprovedGrants,
+        approveGrantRequestId,
+        ...publicPatch
+      } = asObject(patch);
+      const approvalGate = asObject(existingPayload.approvalGate);
+      const approvedPatch = approveGrantRequestId
+        ? (
+          String(approveGrantRequestId) === String(approvalGate.id || '')
+          && approvalGate.status === 'pending'
+            ? { ...publicPatch, approvedGrants: approvalGate.requestedGrants }
+            : null
+        )
+        : publicPatch;
+      if (!approvedPatch) {
+        throw new WorkspaceAgentDirectoryError(
+          'grant_approval_stale',
+          'Grant Approval Gate is stale or unavailable',
+          409,
+        );
+      }
+      const payload = normalizeWorkspaceAgent(approvedPatch, {
         id: existing.rows[0].id,
         workspaceId: valid.workspaceId,
-        existing: asObject(existing.rows[0].payload),
+        existing: existingPayload,
       });
       if (payload.defaultRunnerId) {
         const runner = await client.query(
@@ -1286,7 +1479,7 @@ class WorkspaceScopedProductService {
   async createDeferredAgentWork(scope, input = {}) {
     // Phase 3: durable accepted work (waiting_runner or accepted), not blocked_runner_required.
     const { DurableExecution } = require('./durable-execution');
-    const execution = new DurableExecution({ pool: this.pool });
+    const execution = new DurableExecution({ pool: this.pool, env: this.env });
     return execution.acceptWork(scope, input);
   }
 
@@ -1329,6 +1522,15 @@ class WorkspaceScopedProductService {
         const cursorNum = Number(cursor) || 0;
         events = events.filter((e) => Number(e.sequence) > cursorNum);
       }
+      const jobs = await client.query(
+        `select id, requested_engine, requested_model, resolved_engine, resolved_model,
+                engine_reason, preferred_runner_id, payload, turn_index, created_at, updated_at
+         from execution_jobs
+         where workspace_id = $1 and mission_id = $2
+         order by turn_index desc, turn_target_index asc, updated_at desc nulls last`,
+        [valid.workspaceId, m.id],
+      );
+      const latestJob = jobs.rows[0] || null;
 
       const title = String(payload.title || payload.goal || m.id);
       const goal = String(payload.goal || title);
@@ -1343,33 +1545,25 @@ class WorkspaceScopedProductService {
         : 'active';
 
       // Prefer mission payload, then durable job.resolved_engine, then checkpoint engine metadata.
-      let latestJob = null;
       let resolvedExecutionEngine = String(
         payload.resolvedExecutionEngine || payload.resolvedEngine || '',
       ).toLowerCase();
-      if (!['hermes', 'codex', 'claude', 'grok', 'fake'].includes(resolvedExecutionEngine)) {
-        const job = await client.query(
-          `select requested_model, resolved_model, resolved_engine from execution_jobs
-           where workspace_id = $1 and mission_id = $2
-           order by updated_at desc nulls last limit 1`,
-          [valid.workspaceId, m.id],
-        );
-        latestJob = job.rowCount ? job.rows[0] : null;
-        resolvedExecutionEngine = job.rowCount
-          ? String(job.rows[0].resolved_engine || '').toLowerCase()
+      if (!['hermes', 'codex', 'claude', 'grok'].includes(resolvedExecutionEngine)) {
+        resolvedExecutionEngine = latestJob
+          ? String(latestJob.resolved_engine || '').toLowerCase()
           : '';
       }
-      if (!['hermes', 'codex', 'claude', 'grok', 'fake'].includes(resolvedExecutionEngine)) {
+      if (!['hermes', 'codex', 'claude', 'grok'].includes(resolvedExecutionEngine)) {
         for (const e of events) {
           const p = asObject(e.payload);
           const candidate = String(p.engine || p.resolvedEngine || p.resolvedExecutionEngine || '').toLowerCase();
-          if (['hermes', 'codex', 'claude', 'grok', 'fake'].includes(candidate)) {
+          if (['hermes', 'codex', 'claude', 'grok'].includes(candidate)) {
             resolvedExecutionEngine = candidate;
             break;
           }
         }
       }
-      if (!['hermes', 'codex', 'claude', 'grok', 'fake'].includes(resolvedExecutionEngine)) {
+      if (!['hermes', 'codex', 'claude', 'grok'].includes(resolvedExecutionEngine)) {
         resolvedExecutionEngine = '';
       }
       const activeExecutionEngineCandidate = String(
@@ -1378,22 +1572,69 @@ class WorkspaceScopedProductService {
       const activeExecutionEngine = ['hermes', 'codex', 'claude', 'grok'].includes(activeExecutionEngineCandidate)
         ? activeExecutionEngineCandidate
         : (engine === 'automatic' ? 'auto' : engine);
-      if (!latestJob) {
-        const job = await client.query(
-          `select requested_model, resolved_model
-           from execution_jobs
-           where workspace_id = $1 and mission_id = $2
-           order by updated_at desc nulls last limit 1`,
-          [valid.workspaceId, m.id],
-        );
-        latestJob = job.rowCount ? job.rows[0] : null;
-      }
       const activeExecutionModel = publicExecutionModel(
         payload.activeExecutionModel || latestJob?.requested_model || '',
       );
       const resolvedExecutionModel = publicExecutionModel(
         payload.resolvedExecutionModel || latestJob?.resolved_model || '',
       );
+      const currentAgentResult = await client.query(
+          `select id, payload
+           from agents
+           where workspace_id = $1 and id = $2
+           limit 1`,
+          [valid.workspaceId, m.agent_id || 'default'],
+        );
+      const currentRunnerResult = await client.query(
+          `select id, capabilities, status, connection_state
+           from runners
+           where workspace_id = $1 and status = 'active'
+           order by
+             case when id = $2 then 0 else 1 end,
+             case when connection_state = 'connected' then 0 else 1 end,
+             last_seen_at desc nulls last,
+             id asc`,
+          [valid.workspaceId, String(latestJob?.preferred_runner_id || '')],
+        );
+      const currentAgent = currentAgentResult.rowCount
+        ? {
+          id: currentAgentResult.rows[0].id,
+          ...asObject(currentAgentResult.rows[0].payload),
+          workspaceId: valid.workspaceId,
+        }
+        : {
+          id: m.agent_id || 'default',
+          displayName: 'Default agent',
+          workspaceId: valid.workspaceId,
+        };
+      const currentRunner = currentRunnerResult.rows[0] || { id: '', capabilities: {} };
+      const latestHistoricalConfiguration = asObject(asObject(latestJob?.payload).effectiveConfiguration);
+      const currentEffectiveConfiguration = resolveEffectiveAgentConfiguration({
+        workspaceId: valid.workspaceId,
+        agent: currentAgent,
+        runner: currentRunner,
+        requestedEngine: latestJob?.requested_engine || engine,
+        resolvedEngine: latestJob?.resolved_engine || resolvedExecutionEngine,
+        requestedModel: latestJob?.requested_model || '',
+        reason: latestJob?.engine_reason || 'current_preview',
+        requiredCapabilities: latestHistoricalConfiguration.requiredCapabilities || [],
+      });
+      const effectiveConfigurationHistory = jobs.rows
+        .map((job) => {
+          const snapshot = asObject(asObject(job.payload).effectiveConfiguration);
+          if (!snapshot.snapshotId) return null;
+          return {
+            jobRef: `job_${crypto.createHash('sha256').update(
+              `${valid.workspaceId}:${job.id}`,
+            ).digest('hex').slice(0, 16)}`,
+            turnIndex: Number(job.turn_index || 1),
+            createdAt: job.created_at
+              ? new Date(job.created_at).toISOString()
+              : createdAt,
+            configuration: snapshot,
+          };
+        })
+        .filter(Boolean);
 
       const work = {
         id: m.id,
@@ -1451,19 +1692,124 @@ class WorkspaceScopedProductService {
         };
       });
 
-      const checkpoints = events.map((e) => {
-        const p = asObject(e.payload);
-        const kind = mapEventKind(e.kind, p.phase || p.kind);
-        return {
-          id: e.id,
+      const checkpoints = events
+        .map((event) => projectPublicDisplayEvent(event, {
           sessionId,
-          sequence: Number(e.sequence),
-          kind,
-          text: String(p.text || ''),
-          createdAt: p.createdAt || (e.created_at && new Date(e.created_at).toISOString()) || createdAt,
-          metadata: p.metadata && typeof p.metadata === 'object'
-            ? p.metadata
-            : { applicationMode: 'next_checkpoint', phase: p.phase || kind },
+          fallbackCreatedAt: createdAt,
+        }))
+        .filter(Boolean)
+        .map((event) => ({
+          id: event.id,
+          sessionId: event.sessionId || sessionId,
+          sequence: event.sequence,
+          kind: event.kind,
+          text: event.text,
+          origin: event.origin,
+          createdAt: event.createdAt,
+          metadata: event.metadata || {
+            applicationMode: 'next_checkpoint',
+            phase: event.kind,
+          },
+        }));
+      const handoffResult = await client.query(
+          `select *
+           from agent_work_handoffs
+           where workspace_id = $1 and root_mission_id = $2
+           order by depth asc, created_at asc, id asc`,
+          [valid.workspaceId, m.id],
+        );
+      const providerSessionsResult = await client.query(
+          `select *
+           from provider_agent_sessions
+           where workspace_id = $1 and work_conversation_id = $2
+           order by session_generation asc, created_at asc, id asc`,
+          [valid.workspaceId, sessionId],
+        );
+      const providerTransitionsResult = await client.query(
+          `select *
+           from provider_session_transitions
+           where workspace_id = $1 and mission_id = $2
+           order by created_at asc, id asc`,
+          [valid.workspaceId, m.id],
+        );
+      const currentResult = await client.query(
+          `select report_id, selection_version, selected_at
+           from agent_work_current_results
+           where workspace_id = $1 and mission_id = $2
+           limit 1`,
+          [valid.workspaceId, m.id],
+        );
+      const comparisonOutcomeResult = await client.query(
+          `select
+             r.id as report_id,
+             r.payload as report_payload,
+             j.id as job_id,
+             j.requested_engine,
+             j.requested_model,
+             j.turn_index,
+             j.turn_target_index,
+             j.payload as job_payload,
+             greatest(
+               0,
+               coalesce(
+                 extract(epoch from (max(a.terminal_at) - min(a.started_at))) * 1000,
+                 0
+               )
+             )::bigint as duration_ms,
+             count(distinct art.id)::int as artifact_count
+           from agent_reports r
+           inner join execution_jobs j
+             on j.workspace_id = r.workspace_id
+            and j.mission_id = r.mission_id
+            and j.id = r.payload->>'jobId'
+            and j.turn_mode = 'comparison'
+           left join execution_attempts a
+             on a.workspace_id = j.workspace_id and a.job_id = j.id
+           left join execution_artifacts art
+             on art.workspace_id = j.workspace_id and art.job_id = j.id
+           where r.workspace_id = $1 and r.mission_id = $2
+           group by r.id, r.payload, j.id, j.requested_engine,
+                    j.requested_model, j.turn_index, j.turn_target_index,
+                    j.payload
+           order by j.turn_index asc, j.turn_target_index asc, r.id asc`,
+          [valid.workspaceId, m.id],
+        );
+      const adoptionResult = await client.query(
+          `select *
+           from agent_work_result_adoptions
+           where workspace_id = $1 and mission_id = $2
+           order by selection_version asc, created_at asc, id asc`,
+          [valid.workspaceId, m.id],
+        );
+      const currentResultReportId = currentResult.rowCount
+        ? String(currentResult.rows[0].report_id)
+        : String(payload.currentResultReportId || '');
+      work.revisionCounter = Number(payload.revisionCounter || 0);
+      work.pendingRevisionId = String(payload.pendingRevisionId || '');
+      work.currentResultReportId = currentResultReportId;
+      const comparisonOutcomes = comparisonOutcomeResult.rows.map((row) => {
+        const reportPayload = asObject(row.report_payload);
+        const jobPayload = asObject(row.job_payload);
+        return {
+          reportId: row.report_id,
+          jobId: row.job_id,
+          executionEngine: row.requested_engine,
+          requestedModel: row.requested_model || '',
+          summary: String(
+            reportPayload.summary || reportPayload.resultSummary || '',
+          ).slice(0, 2_000),
+          durationMs: Number(row.duration_ms || 0),
+          costUsd: Number(
+            reportPayload.costUsd ?? jobPayload.costUsd ?? 0,
+          ),
+          evidenceCount: Math.max(
+            Number(row.artifact_count || 0),
+            Array.isArray(reportPayload.evidence)
+              ? reportPayload.evidence.length
+              : 0,
+          ),
+          turnIndex: Number(row.turn_index),
+          turnTargetIndex: Number(row.turn_target_index),
         };
       });
 
@@ -1479,6 +1825,40 @@ class WorkspaceScopedProductService {
         status: m.status,
         workspaceId: valid.workspaceId,
         messages: checkpoints,
+        effectiveConfiguration: {
+          current: currentEffectiveConfiguration,
+          history: effectiveConfigurationHistory,
+        },
+        handoffGraph: {
+          rootMissionId: m.id,
+          rootAgentId: m.agent_id,
+          maxDepth: MAX_HANDOFF_DEPTH,
+          maxFanOut: MAX_HANDOFF_FAN_OUT,
+          handoffs: handoffResult.rows.map(publicHandoff),
+        },
+        activeProviderSessionId: String(payload.activeProviderSessionId || ''),
+        providerSessions: providerSessionsResult.rows.map(publicTransitionSession),
+        providerSessionTransitions: providerTransitionsResult.rows.map((row) => ({
+          id: row.id,
+          action: row.action,
+          sourceProviderSessionId: row.source_provider_session_id || '',
+          targetProviderSessionId: row.target_provider_session_id,
+          executionJobId: row.execution_job_id,
+          clientRequestId: row.client_request_id,
+          createdAt: new Date(row.created_at).toISOString(),
+        })),
+        comparison: {
+          currentResultReportId,
+          outcomes: comparisonOutcomes,
+          adoptions: adoptionResult.rows.map((row) => ({
+            id: row.id,
+            reportId: row.report_id,
+            previousReportId: row.previous_report_id || '',
+            selectionVersion: Number(row.selection_version),
+            outcome: asObject(row.outcome_summary),
+            createdAt: new Date(row.created_at).toISOString(),
+          })),
+        },
       };
     });
   }
@@ -1511,7 +1891,7 @@ class WorkspaceScopedProductService {
       );
       const eligibleRunner = runnerResult.rows.find((runner) => (
         runner.connection_state === 'connected'
-        && resolveEngine(target.executionEngine, runner.capabilities || {}).resolved
+        && resolveEngine(target.executionEngine, runner.capabilities || {}, this.env).resolved
           === target.executionEngine
       ));
       if (!eligibleRunner) {
@@ -1591,6 +1971,7 @@ class WorkspaceScopedProductService {
     input,
     targets,
     profileSnapshot,
+    directoryAgent,
   }) {
     const text = String(input.text || input.message || '').trim().slice(0, 4_000);
     if (!text) {
@@ -1686,9 +2067,30 @@ class WorkspaceScopedProductService {
       const { projectAgentWorkCalendarState, resolveEngine } = require('./durable-execution');
       const resolved = providerSession.connection_state === 'connected'
         && providerSession.runner_status === 'active'
-        ? resolveEngine(providerSession.engine, providerSession.capabilities || {})
+        ? resolveEngine(providerSession.engine, providerSession.capabilities || {}, this.env)
         : { requested: providerSession.engine, resolved: '', reason: 'waiting_runner' };
       const jobStatus = resolved.resolved ? 'accepted' : 'waiting_runner';
+      const effectiveConfiguration = resolveEffectiveAgentConfiguration({
+        workspaceId: valid.workspaceId,
+        agent: directoryAgent,
+        runner: {
+          id: providerSession.runner_id,
+          capabilities: providerSession.capabilities || {},
+        },
+        requestedEngine: providerSession.engine,
+        resolvedEngine: resolved.resolved,
+        requestedModel: target.requestedModel,
+        reason: resolved.reason,
+        requiredCapabilities: input.requiredCapabilities,
+      });
+      if (!effectiveConfiguration.executable) {
+        const error = new Error('A required tool or skill is not granted');
+        error.code = effectiveConfiguration.grants.approvalRequired.length
+          ? 'capability_approval_required'
+          : 'capability_denied';
+        error.statusHint = effectiveConfiguration.grants.approvalRequired.length ? 409 : 403;
+        throw error;
+      }
       const jobId = newId('job');
       const projectionKey = `proj:${mission.id}:turn:${turnIndex}:target:${targetIndex}`;
       const conversationGoal = created
@@ -1737,6 +2139,7 @@ class WorkspaceScopedProductService {
             providerSessionId: providerSession.id,
             contextSyncMode: created ? 'context_only' : 'native',
             ...(profileSnapshot ? { profileSnapshot } : {}),
+            effectiveConfiguration,
           }),
           projectionKey,
           turnIndex,
@@ -1850,6 +2253,17 @@ class WorkspaceScopedProductService {
           workspaceId: valid.workspaceId,
         })
         : null;
+      const directoryAgent = agentResult.rowCount
+        ? {
+          id: mission.rows[0].agent_id,
+          ...asObject(agentResult.rows[0].payload),
+          workspaceId: valid.workspaceId,
+        }
+        : {
+          id: mission.rows[0].agent_id || 'default',
+          displayName: 'Default agent',
+          workspaceId: valid.workspaceId,
+        };
       await client.query(
         `select id
          from agent_sessions
@@ -1857,6 +2271,15 @@ class WorkspaceScopedProductService {
          for update`,
         [valid.workspaceId, sessionId],
       );
+      const lockedMission = await client.query(
+        `select id, agent_id, payload
+         from agent_missions
+         where workspace_id = $1 and id = $2
+         limit 1`,
+        [valid.workspaceId, mission.rows[0].id],
+      );
+      if (!lockedMission.rowCount) return null;
+      mission.rows[0] = lockedMission.rows[0];
       const clientMessageId = String(input.clientMessageId || '').slice(0, 160);
       if (clientMessageId) {
         const replay = await client.query(
@@ -1893,6 +2316,7 @@ class WorkspaceScopedProductService {
           input,
           targets: comparisonTargets,
           profileSnapshot,
+          directoryAgent,
         });
       }
       const providerResult = await client.query(
@@ -1901,16 +2325,40 @@ class WorkspaceScopedProductService {
          inner join runners r
            on r.workspace_id = ps.workspace_id and r.id = ps.runner_id
          where ps.workspace_id = $1 and ps.work_conversation_id = $2
-         order by ps.updated_at desc, ps.id asc`,
+         order by ps.id asc`,
         [valid.workspaceId, sessionId],
       );
       const missionPayload = asObject(mission.rows[0].payload);
       const activeProviderSessionId = String(
         missionPayload.activeProviderSessionId || missionPayload.providerSessionId || '',
       );
-      let providerSession = requestedProviderEngine
-        ? providerResult.rows.find((row) => row.engine === requestedProviderEngine)
-        : providerResult.rows.find((row) => row.id === activeProviderSessionId) || providerResult.rows[0];
+      const activeProviderSession = activeProviderSessionId
+        ? providerResult.rows.find((row) => row.id === activeProviderSessionId)
+        : null;
+      let providerSession = null;
+      if (requestedProviderEngine) {
+        if (
+          activeProviderSession?.engine === requestedProviderEngine
+          && providerEndpointEligible(activeProviderSession)
+        ) {
+          providerSession = activeProviderSession;
+        } else {
+          const matchingEndpoints = providerResult.rows.filter((row) => (
+            row.engine === requestedProviderEngine && providerEndpointEligible(row)
+          ));
+          if (matchingEndpoints.length > 1) throw activeProviderEndpointConflict();
+          providerSession = matchingEndpoints[0] || null;
+        }
+      } else if (activeProviderSessionId) {
+        if (!providerEndpointEligible(activeProviderSession)) {
+          throw activeProviderEndpointConflict();
+        }
+        providerSession = activeProviderSession;
+      } else {
+        const eligibleLegacyEndpoints = providerResult.rows.filter(providerEndpointEligible);
+        if (eligibleLegacyEndpoints.length !== 1) throw activeProviderEndpointConflict();
+        providerSession = eligibleLegacyEndpoints[0];
+      }
       let createdProviderEndpoint = false;
       if (requestedProviderEngine && !providerSession) {
         const {
@@ -1926,12 +2374,12 @@ class WorkspaceScopedProductService {
              id asc`,
           [
             valid.workspaceId,
-            String(providerResult.rows[0]?.runner_id || ''),
+            String(activeProviderSession?.runner_id || providerResult.rows[0]?.runner_id || ''),
           ],
         );
         const eligibleRunner = runnerResult.rows.find((runner) => (
           runner.connection_state === 'connected'
-          && resolveEngine(requestedProviderEngine, runner.capabilities || {}).resolved === requestedProviderEngine
+          && resolveEngine(requestedProviderEngine, runner.capabilities || {}, this.env).resolved === requestedProviderEngine
         ));
         if (!eligibleRunner) {
           const unavailable = new Error(`Execution Engine ${requestedProviderEngine} is unavailable on this Workspace Runner`);
@@ -1994,6 +2442,21 @@ class WorkspaceScopedProductService {
       ].includes(providerSession.status)) {
         throw providerSessionStateError(providerSession.status);
       }
+      if (!providerSession) throw activeProviderEndpointConflict();
+      await client.query(
+        `update agent_missions
+         set payload = payload || $3::jsonb, updated_at = now()
+         where workspace_id = $1 and id = $2`,
+        [
+          valid.workspaceId,
+          mission.rows[0].id,
+          JSON.stringify({
+            providerSessionId: providerSession.id,
+            activeProviderSessionId: providerSession.id,
+            activeExecutionEngine: providerSession.engine,
+          }),
+        ],
+      );
       const requestedModel = requestedExecutionModel(input.requestedModel);
       if (providerSession) {
         assertRunnerSupportsModel(
@@ -2045,9 +2508,31 @@ class WorkspaceScopedProductService {
         } = require('./durable-execution');
         const resolved = providerSession.connection_state === 'connected'
           && providerSession.runner_status === 'active'
-          ? resolveEngine(providerSession.engine, providerSession.capabilities || {})
+          ? resolveEngine(providerSession.engine, providerSession.capabilities || {}, this.env)
           : { requested: providerSession.engine, resolved: '', reason: 'waiting_runner' };
         const jobStatus = resolved.resolved ? 'accepted' : 'waiting_runner';
+        const effectiveConfiguration = resolveEffectiveAgentConfiguration({
+          workspaceId: valid.workspaceId,
+          agent: directoryAgent,
+          runner: {
+            id: providerSession.runner_id,
+            capabilities: providerSession.capabilities || {},
+          },
+          requestedEngine: providerSession.engine,
+          resolvedEngine: resolved.resolved,
+          requestedModel,
+          reason: resolved.reason,
+          requiredCapabilities: input.requiredCapabilities,
+          expectedSnapshotId: String(input.effectiveConfigurationSnapshotId || ''),
+        });
+        if (!effectiveConfiguration.executable) {
+          const error = new Error('A required tool or skill is not granted');
+          error.code = effectiveConfiguration.grants.approvalRequired.length
+            ? 'capability_approval_required'
+            : 'capability_denied';
+          error.statusHint = effectiveConfiguration.grants.approvalRequired.length ? 409 : 403;
+          throw error;
+        }
         const turnResult = await client.query(
           `select coalesce(max(turn_index), 0)::int as n
            from execution_jobs
@@ -2098,6 +2583,7 @@ class WorkspaceScopedProductService {
               providerSessionId: providerSession.id,
               contextSyncMode: createdProviderEndpoint ? 'context_only' : 'native',
               ...(profileSnapshot ? { profileSnapshot } : {}),
+              effectiveConfiguration,
             }),
             projectionKey,
             turnIndex,
@@ -2166,6 +2652,999 @@ class WorkspaceScopedProductService {
         sessionId,
         event: { id: eventId, sequence, kind: 'user_message', ...payload },
         ...(job ? { job } : {}),
+        workspaceId: valid.workspaceId,
+      };
+    });
+  }
+
+  async listAgentWorkHandoffs(scope, missionId) {
+    return this.#run(scope, async (client, valid) => {
+      const id = publicMutationId(missionId, 'mission_id');
+      const mission = await client.query(
+        `select id
+         from agent_missions
+         where workspace_id = $1 and id = $2
+         limit 1`,
+        [valid.workspaceId, id],
+      );
+      if (!mission.rowCount) {
+        return {
+          handoffs: [],
+          maxDepth: MAX_HANDOFF_DEPTH,
+          maxFanOut: MAX_HANDOFF_FAN_OUT,
+        };
+      }
+      const result = await client.query(
+        `select *
+         from agent_work_handoffs
+         where workspace_id = $1 and root_mission_id = $2
+         order by depth asc, created_at asc, id asc`,
+        [valid.workspaceId, id],
+      );
+      return {
+        handoffs: result.rows.map(publicHandoff),
+        maxDepth: MAX_HANDOFF_DEPTH,
+        maxFanOut: MAX_HANDOFF_FAN_OUT,
+      };
+    });
+  }
+
+  async createAgentWorkHandoff(scope, missionId, input = {}) {
+    return this.#run(scope, async (client, valid) => {
+      const untrustedFields = [
+        'lineage',
+        'depth',
+        'rootAgentId',
+        'effectiveGrants',
+        'effectiveBudget',
+        'maxDepth',
+        'maxFanOut',
+      ];
+      if (untrustedFields.some((field) => Object.hasOwn(asObject(input), field))) {
+        throw scopedMutationError(
+          'handoff_lineage_untrusted',
+          'Handoff lineage and limits are server-owned',
+          400,
+        );
+      }
+      const id = publicMutationId(missionId, 'mission_id');
+      const clientRequestId = publicMutationId(
+        input.clientRequestId,
+        'client_request_id',
+      );
+      const receiverAgentId = publicMutationId(
+        input.receiverAgentId,
+        'receiver_agent_id',
+      );
+      const delegatorAgentId = publicMutationId(
+        input.delegatorAgentId,
+        'delegator_agent_id',
+      );
+      const parentHandoffId = input.parentHandoffId
+        ? publicMutationId(input.parentHandoffId, 'parent_handoff_id')
+        : null;
+      const parentTaskId = input.parentTaskId
+        ? publicMutationId(input.parentTaskId, 'parent_task_id')
+        : '';
+      const goal = String(input.goal || '').trim().slice(0, 4_000);
+      if (!goal) {
+        throw scopedMutationError(
+          'handoff_goal_required',
+          'Child handoff goal is required',
+        );
+      }
+      const missionResult = await client.query(
+        `select id, agent_id, payload
+         from agent_missions
+         where workspace_id = $1 and id = $2
+         for update`,
+        [valid.workspaceId, id],
+      );
+      if (!missionResult.rowCount) {
+        throw scopedMutationError(
+          'handoff_mission_not_found',
+          'Root Work was not found',
+          404,
+        );
+      }
+      const replay = await client.query(
+        `select *
+         from agent_work_handoffs
+         where workspace_id = $1 and root_mission_id = $2
+           and client_request_id = $3
+         limit 1`,
+        [valid.workspaceId, id, clientRequestId],
+      );
+      if (replay.rowCount) {
+        return {
+          ok: true,
+          idempotentReplay: true,
+          handoff: publicHandoff(replay.rows[0]),
+          workspaceId: valid.workspaceId,
+        };
+      }
+      const mission = missionResult.rows[0];
+      const rootAgentId = String(mission.agent_id || '');
+      const sessionResult = await client.query(
+        `select id
+         from agent_sessions
+         where workspace_id = $1 and mission_id = $2
+         order by created_at asc
+         limit 1`,
+        [valid.workspaceId, id],
+      );
+      if (!sessionResult.rowCount) {
+        throw scopedMutationError(
+          'handoff_conversation_not_found',
+          'Root Work Conversation was not found',
+          409,
+        );
+      }
+      let parent = null;
+      if (parentHandoffId) {
+        const parentResult = await client.query(
+          `select *
+           from agent_work_handoffs
+           where workspace_id = $1 and root_mission_id = $2 and id = $3
+           for update`,
+          [valid.workspaceId, id, parentHandoffId],
+        );
+        if (!parentResult.rowCount) {
+          throw scopedMutationError(
+            'handoff_parent_not_found',
+            'Parent child handoff was not found',
+            404,
+          );
+        }
+        parent = parentResult.rows[0];
+        if (parent.status === 'cancelled') {
+          throw scopedMutationError(
+            'handoff_parent_cancelled',
+            'Cancelled child handoff cannot delegate',
+            409,
+          );
+        }
+      }
+      const expectedDelegator = parent ? parent.receiver_agent_id : rootAgentId;
+      if (delegatorAgentId !== expectedDelegator) {
+        throw scopedMutationError(
+          'handoff_delegator_mismatch',
+          'Delegator does not own the parent handoff',
+          403,
+        );
+      }
+      const depth = parent ? Number(parent.depth) + 1 : 1;
+      const parentLineage = parent
+        ? (Array.isArray(parent.lineage) ? parent.lineage.map(String) : [])
+        : [rootAgentId];
+      if (parentLineage.includes(receiverAgentId)) {
+        throw scopedMutationError(
+          'handoff_cycle',
+          'Child handoff would create a cycle',
+          409,
+        );
+      }
+      if (depth > MAX_HANDOFF_DEPTH) {
+        throw scopedMutationError(
+          'handoff_depth_exceeded',
+          'Child handoff depth limit exceeded',
+          409,
+        );
+      }
+      const fanOut = await client.query(
+        `select count(*)::int as n
+         from agent_work_handoffs
+         where workspace_id = $1 and root_mission_id = $2
+           and parent_handoff_id is not distinct from $3::text`,
+        [valid.workspaceId, id, parentHandoffId],
+      );
+      if (Number(fanOut.rows[0].n) >= MAX_HANDOFF_FAN_OUT) {
+        throw scopedMutationError(
+          'handoff_fanout_exceeded',
+          'Child handoff fan-out limit exceeded',
+          409,
+        );
+      }
+      const agents = await client.query(
+        `select id, payload
+         from agents
+         where workspace_id = $1 and id = any($2::text[])`,
+        [
+          valid.workspaceId,
+          [...new Set([rootAgentId, delegatorAgentId, receiverAgentId])],
+        ],
+      );
+      const agentById = new Map(agents.rows.map((row) => [row.id, asObject(row.payload)]));
+      if (!agentById.has(receiverAgentId)) {
+        throw scopedMutationError(
+          'handoff_workspace_mismatch',
+          'Receiver Agent is not in this Workspace',
+          404,
+        );
+      }
+      if (!agentById.has(rootAgentId) || !agentById.has(delegatorAgentId)) {
+        throw scopedMutationError(
+          'handoff_agent_not_found',
+          'Handoff Agent identity is unavailable',
+          409,
+        );
+      }
+      const missionPolicy = asObject(asObject(mission.payload).handoffPolicy);
+      const parentGrants = parent
+        ? asObject(parent.effective_grants)
+        : asObject(missionPolicy.grants).allow
+          ? missionPolicy.grants
+          : asObject(agentById.get(rootAgentId).grants);
+      const parentBudget = parent
+        ? asObject(parent.effective_budget)
+        : normalizedHandoffBudget(missionPolicy.budget);
+      const effectiveGrants = intersectedGrants(
+        parentGrants,
+        asObject(agentById.get(receiverAgentId).grants),
+        input.requestedGrants,
+      );
+      const effectiveBudget = normalizedHandoffBudget(
+        input.requestedBudget,
+        normalizedHandoffBudget(parentBudget),
+      );
+      const receiver = {
+        id: receiverAgentId,
+        ...agentById.get(receiverAgentId),
+        grants: effectiveGrants,
+        workspaceId: valid.workspaceId,
+      };
+      const runnerResult = await client.query(
+        `select id, capabilities, connection_state, status
+         from runners
+         where workspace_id = $1 and status = 'active'
+         order by
+           case when id = $2 then 0 else 1 end,
+           case when connection_state = 'connected' then 0 else 1 end,
+           updated_at desc,
+           id asc`,
+        [
+          valid.workspaceId,
+          String(receiver.defaultRunnerId || ''),
+        ],
+      );
+      const runner = runnerResult.rows[0];
+      if (!runner) {
+        throw scopedMutationError(
+          'handoff_runner_unavailable',
+          'No Workspace Runner is available for the child handoff',
+          409,
+        );
+      }
+      const requestedEngine = explicitProviderEngine(
+        input.executionEngine || receiver.defaultExecutionEngine || 'codex',
+      );
+      const { resolveEngine } = require('./durable-execution');
+      const resolved = runner.connection_state === 'connected'
+        ? resolveEngine(requestedEngine, runner.capabilities || {}, this.env)
+        : {
+          requested: requestedEngine,
+          resolved: '',
+          reason: 'waiting_runner',
+        };
+      const effectiveConfiguration = resolveEffectiveAgentConfiguration({
+        workspaceId: valid.workspaceId,
+        agent: receiver,
+        runner,
+        requestedEngine,
+        resolvedEngine: resolved.resolved,
+        requestedModel: requestedExecutionModel(input.requestedModel),
+        reason: resolved.reason,
+        requiredCapabilities: input.requiredCapabilities,
+      });
+      if (!effectiveConfiguration.executable) {
+        throw scopedMutationError(
+          'handoff_capability_denied',
+          'Child handoff effective grants do not authorize the request',
+          403,
+        );
+      }
+      const turnResult = await client.query(
+        `select coalesce(max(turn_index), 0)::int as n
+         from execution_jobs
+         where workspace_id = $1 and mission_id = $2`,
+        [valid.workspaceId, id],
+      );
+      const turnIndex = Number(turnResult.rows[0].n) + 1;
+      const handoffId = newId('handoff');
+      const jobId = newId('job');
+      const jobStatus = resolved.resolved ? 'accepted' : 'waiting_runner';
+      const projectionKey = `handoff:${handoffId}`;
+      const lineage = [...parentLineage, receiverAgentId];
+      await client.query(
+        `insert into execution_jobs (
+           id, workspace_id, mission_id, session_id, requested_engine,
+           requested_model, resolved_engine, resolved_model, engine_reason,
+           preferred_runner_id, status, goal, payload, available_at, max_attempts,
+           projection_key, turn_index, turn_target_index, turn_mode
+         ) values (
+           $1,$2,$3,$4,$5,$6,$7,'',$8,$9,$10,$11,$12::jsonb,now(),5,
+           $13,$14,0,'single'
+         )`,
+        [
+          jobId,
+          valid.workspaceId,
+          id,
+          sessionResult.rows[0].id,
+          requestedEngine,
+          requestedExecutionModel(input.requestedModel),
+          resolved.resolved || '',
+          resolved.reason,
+          runner.id,
+          jobStatus,
+          goal,
+          JSON.stringify({
+            agentId: receiverAgentId,
+            handoffId,
+            rootAgentId,
+            delegatorAgentId,
+            receiverAgentId,
+            lineage,
+            effectiveGrants,
+            effectiveBudget,
+            effectiveConfiguration,
+          }),
+          projectionKey,
+          turnIndex,
+        ],
+      );
+      const inserted = await client.query(
+        `insert into agent_work_handoffs (
+           id, workspace_id, root_mission_id, parent_handoff_id, parent_task_id,
+           root_agent_id, delegator_agent_id, receiver_agent_id, depth, lineage,
+           effective_grants, effective_budget, status, client_request_id,
+           execution_job_id
+         ) values (
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::text[],$11::jsonb,$12::jsonb,
+           $13,$14,$15
+         )
+         returning *`,
+        [
+          handoffId,
+          valid.workspaceId,
+          id,
+          parentHandoffId,
+          parentTaskId,
+          rootAgentId,
+          delegatorAgentId,
+          receiverAgentId,
+          depth,
+          lineage,
+          JSON.stringify(effectiveGrants),
+          JSON.stringify(effectiveBudget),
+          jobStatus,
+          clientRequestId,
+          jobId,
+        ],
+      );
+      return {
+        ok: true,
+        idempotentReplay: false,
+        handoff: publicHandoff(inserted.rows[0]),
+        job: {
+          id: jobId,
+          status: jobStatus,
+          turnIndex,
+        },
+        workspaceId: valid.workspaceId,
+      };
+    });
+  }
+
+  async cancelAgentWorkHandoff(scope, missionId, handoffId, input = {}) {
+    return this.#run(scope, async (client, valid) => {
+      const rootMissionId = publicMutationId(missionId, 'mission_id');
+      const id = publicMutationId(handoffId, 'handoff_id');
+      const result = await client.query(
+        `select *
+         from agent_work_handoffs
+         where workspace_id = $1 and root_mission_id = $2 and id = $3
+         for update`,
+        [valid.workspaceId, rootMissionId, id],
+      );
+      if (!result.rowCount) {
+        throw scopedMutationError(
+          'handoff_not_found',
+          'Child handoff was not found',
+          404,
+        );
+      }
+      const current = result.rows[0];
+      if (['completed', 'failed', 'cancelled'].includes(current.status)) {
+        return {
+          ok: true,
+          idempotentReplay: true,
+          handoff: publicHandoff(current),
+          workspaceId: valid.workspaceId,
+        };
+      }
+      const reason = String(input.reason || 'user_cancelled').trim().slice(0, 160);
+      await client.query(
+        `update execution_jobs
+         set cancellation_requested = true,
+             status = case
+               when status in ('accepted', 'waiting_runner', 'offered')
+                 then 'cancelled'
+               else status
+             end,
+             terminal_at = case
+               when status in ('accepted', 'waiting_runner', 'offered')
+                 then now()
+               else terminal_at
+             end,
+             updated_at = now()
+         where workspace_id = $1 and id = $2`,
+        [valid.workspaceId, current.execution_job_id],
+      );
+      const updated = await client.query(
+        `update agent_work_handoffs
+         set status = 'cancelled', cancellation_requested = true,
+             cancellation_reason = $4,
+             result_projection = result_projection || $5::jsonb,
+             terminal_at = coalesce(terminal_at, now()), updated_at = now()
+         where workspace_id = $1 and root_mission_id = $2 and id = $3
+         returning *`,
+        [
+          valid.workspaceId,
+          rootMissionId,
+          id,
+          reason,
+          JSON.stringify({ status: 'cancelled', reason }),
+        ],
+      );
+      return {
+        ok: true,
+        idempotentReplay: false,
+        handoff: publicHandoff(updated.rows[0]),
+        workspaceId: valid.workspaceId,
+      };
+    });
+  }
+
+  async transitionAgentWorkProviderSession(scope, missionId, input = {}) {
+    return this.#run(scope, async (client, valid) => {
+      const id = publicMutationId(missionId, 'mission_id');
+      const clientRequestId = publicMutationId(
+        input.clientRequestId,
+        'client_request_id',
+      );
+      const action = String(input.action || '').trim().toLowerCase();
+      if (!['rebind', 'new_session', 'fork'].includes(action)) {
+        throw scopedMutationError(
+          'provider_session_action_invalid',
+          'Provider session action must be explicit',
+          422,
+        );
+      }
+      const text = String(input.text || '').trim().slice(0, 4_000);
+      if (!text) {
+        throw scopedMutationError(
+          'provider_session_transition_text_required',
+          'Provider session transition requires an execution message',
+          422,
+        );
+      }
+      const missionResult = await client.query(
+        `select id, agent_id, payload
+         from agent_missions
+         where workspace_id = $1 and id = $2
+         for update`,
+        [valid.workspaceId, id],
+      );
+      if (!missionResult.rowCount) {
+        throw scopedMutationError(
+          'provider_session_mission_not_found',
+          'Work was not found',
+          404,
+        );
+      }
+      const replay = await client.query(
+        `select t.*, ps.*, j.status as job_status, j.turn_index
+         from provider_session_transitions t
+         inner join provider_agent_sessions ps
+           on ps.workspace_id = t.workspace_id
+          and ps.id = t.target_provider_session_id
+         inner join execution_jobs j
+           on j.workspace_id = t.workspace_id
+          and j.id = t.execution_job_id
+         where t.workspace_id = $1 and t.mission_id = $2
+           and t.client_request_id = $3
+         limit 1`,
+        [valid.workspaceId, id, clientRequestId],
+      );
+      if (replay.rowCount) {
+        const row = replay.rows[0];
+        return {
+          ok: true,
+          idempotentReplay: true,
+          transition: {
+            id: row.id,
+            action: row.action,
+            sourceProviderSessionId: row.source_provider_session_id || '',
+            targetProviderSessionId: row.target_provider_session_id,
+            clientRequestId: row.client_request_id,
+          },
+          session: publicTransitionSession(row),
+          job: {
+            id: row.execution_job_id,
+            status: row.job_status,
+            turnIndex: Number(row.turn_index),
+          },
+          workspaceId: valid.workspaceId,
+        };
+      }
+      const mission = missionResult.rows[0];
+      const payload = asObject(mission.payload);
+      const sessionResult = await client.query(
+        `select id
+         from agent_sessions
+         where workspace_id = $1 and mission_id = $2
+         order by created_at asc
+         limit 1`,
+        [valid.workspaceId, id],
+      );
+      if (!sessionResult.rowCount) {
+        throw scopedMutationError(
+          'provider_session_conversation_not_found',
+          'Work Conversation was not found',
+          409,
+        );
+      }
+      const workConversationId = sessionResult.rows[0].id;
+      const activeProviderSessionId = String(
+        payload.activeProviderSessionId || payload.providerSessionId || '',
+      );
+      const expectedActiveProviderSessionId = String(
+        input.expectedActiveProviderSessionId || '',
+      );
+      if (expectedActiveProviderSessionId !== activeProviderSessionId) {
+        throw scopedMutationError(
+          'provider_session_selection_stale',
+          'Provider session selection is stale',
+          409,
+        );
+      }
+      const loadProviderSession = async (providerSessionId) => {
+        const providerId = publicMutationId(
+          providerSessionId,
+          'provider_session_id',
+        );
+        const result = await client.query(
+          `select *
+           from provider_agent_sessions
+           where workspace_id = $1 and work_conversation_id = $2 and id = $3
+           limit 1`,
+          [valid.workspaceId, workConversationId, providerId],
+        );
+        if (!result.rowCount) {
+          throw scopedMutationError(
+            'provider_session_not_found',
+            'Provider session was not found in this Workspace',
+            404,
+          );
+        }
+        return result.rows[0];
+      };
+      let source = null;
+      let target = null;
+      if (action === 'rebind') {
+        target = await loadProviderSession(input.targetProviderSessionId);
+      } else {
+        const sourceId = action === 'fork'
+          ? input.sourceProviderSessionId
+          : activeProviderSessionId;
+        source = await loadProviderSession(sourceId);
+      }
+      const blocked = target || source;
+      if (!providerEndpointEligible(blocked)) {
+        throw scopedMutationError(
+          'provider_session_state_blocked',
+          `Provider session is ${String(blocked.status || 'unavailable')}`,
+          409,
+        );
+      }
+      if (action !== 'rebind') {
+        const requestedEngine = explicitProviderEngine(
+          input.executionEngine || source.engine,
+        );
+        const generationResult = await client.query(
+          `select coalesce(max(session_generation), -1)::int as n
+           from provider_agent_sessions
+           where workspace_id = $1 and work_conversation_id = $2
+             and engine = $3 and runner_id = $4`,
+          [
+            valid.workspaceId,
+            workConversationId,
+            requestedEngine,
+            source.runner_id,
+          ],
+        );
+        const generation = Number(generationResult.rows[0].n) + 1;
+        const providerSessionId = newId('psess');
+        const sourceLineage = Array.isArray(source.session_lineage)
+          && source.session_lineage.length
+          ? source.session_lineage.map(String)
+          : [source.id];
+        const lineage = action === 'fork'
+          ? [...sourceLineage, providerSessionId]
+          : [providerSessionId];
+        if (lineage.length > 16 || new Set(lineage).size !== lineage.length) {
+          throw scopedMutationError(
+            'provider_session_lineage_invalid',
+            'Provider session lineage is invalid',
+            409,
+          );
+        }
+        const inserted = await client.query(
+          `insert into provider_agent_sessions (
+             id, workspace_id, agent_id, official_profile, runner_id,
+             work_conversation_id, provider, engine, external_agent_id,
+             external_session_id, status, title, public_metadata,
+             context_sync_mode, parent_provider_session_id,
+             session_generation, session_lineage, transition_action,
+             last_activity_at
+           ) values (
+             $1,$2,$3,$4,$5,$6,$7,$8,$9,'','pending',$10,$11::jsonb,
+             'context_only',$12,$13,$14::text[],$15,now()
+           )
+           returning *`,
+          [
+            providerSessionId,
+            valid.workspaceId,
+            source.agent_id,
+            source.official_profile || '',
+            source.runner_id,
+            workConversationId,
+            requestedEngine,
+            requestedEngine,
+            source.external_agent_id || '',
+            String(payload.title || source.title || 'Work Conversation').slice(0, 300),
+            JSON.stringify({
+              source: `explicit_${action}`,
+              contextSyncMode: 'context_only',
+            }),
+            action === 'fork' ? source.id : null,
+            generation,
+            lineage,
+            action,
+          ],
+        );
+        target = inserted.rows[0];
+      }
+      const runnerResult = await client.query(
+        `select id, capabilities, connection_state, status
+         from runners
+         where workspace_id = $1 and id = $2 and status = 'active'
+         limit 1`,
+        [valid.workspaceId, target.runner_id],
+      );
+      if (!runnerResult.rowCount) {
+        throw scopedMutationError(
+          'provider_session_runner_unavailable',
+          'Provider session Runner is unavailable',
+          409,
+        );
+      }
+      const runner = runnerResult.rows[0];
+      const agentResult = await client.query(
+        `select id, payload
+         from agents
+         where workspace_id = $1 and id = $2
+         limit 1`,
+        [valid.workspaceId, mission.agent_id],
+      );
+      const agent = agentResult.rowCount
+        ? {
+          id: agentResult.rows[0].id,
+          ...asObject(agentResult.rows[0].payload),
+          workspaceId: valid.workspaceId,
+        }
+        : {
+          id: mission.agent_id,
+          displayName: mission.agent_id,
+          workspaceId: valid.workspaceId,
+        };
+      const { resolveEngine } = require('./durable-execution');
+      const resolved = runner.connection_state === 'connected'
+        ? resolveEngine(target.engine, runner.capabilities || {}, this.env)
+        : {
+          requested: target.engine,
+          resolved: '',
+          reason: 'waiting_runner',
+        };
+      const requestedModel = requestedExecutionModel(input.requestedModel);
+      const effectiveConfiguration = resolveEffectiveAgentConfiguration({
+        workspaceId: valid.workspaceId,
+        agent,
+        runner,
+        requestedEngine: target.engine,
+        resolvedEngine: resolved.resolved,
+        requestedModel,
+        reason: resolved.reason,
+        requiredCapabilities: input.requiredCapabilities,
+      });
+      if (!effectiveConfiguration.executable) {
+        throw scopedMutationError(
+          'provider_session_capability_denied',
+          'Provider session transition is not authorized',
+          403,
+        );
+      }
+      const turnResult = await client.query(
+        `select coalesce(max(turn_index), 0)::int as n
+         from execution_jobs
+         where workspace_id = $1 and mission_id = $2`,
+        [valid.workspaceId, id],
+      );
+      const turnIndex = Number(turnResult.rows[0].n) + 1;
+      const transitionId = newId('ptransition');
+      const jobId = newId('job');
+      const jobStatus = resolved.resolved ? 'accepted' : 'waiting_runner';
+      await client.query(
+        `insert into execution_jobs (
+           id, workspace_id, mission_id, session_id, requested_engine,
+           requested_model, resolved_engine, resolved_model, engine_reason,
+           preferred_runner_id, status, goal, payload, available_at, max_attempts,
+           projection_key, turn_index, turn_target_index, turn_mode,
+           provider_session_id
+         ) values (
+           $1,$2,$3,$4,$5,$6,$7,'',$8,$9,$10,$11,$12::jsonb,now(),5,
+           $13,$14,0,'single',$15
+         )`,
+        [
+          jobId,
+          valid.workspaceId,
+          id,
+          workConversationId,
+          target.engine,
+          requestedModel,
+          resolved.resolved || '',
+          resolved.reason,
+          target.runner_id,
+          jobStatus,
+          text,
+          JSON.stringify({
+            agentId: mission.agent_id,
+            providerSessionId: target.id,
+            providerSessionTransitionId: transitionId,
+            providerSessionAction: action,
+            effectiveConfiguration,
+          }),
+          `provider-transition:${transitionId}`,
+          turnIndex,
+          target.id,
+        ],
+      );
+      await client.query(
+        `insert into provider_session_transitions (
+           id, workspace_id, mission_id, work_conversation_id, action,
+           source_provider_session_id, target_provider_session_id,
+           execution_job_id, client_request_id
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [
+          transitionId,
+          valid.workspaceId,
+          id,
+          workConversationId,
+          action,
+          action === 'rebind'
+            ? activeProviderSessionId || null
+            : source?.id || null,
+          target.id,
+          jobId,
+          clientRequestId,
+        ],
+      );
+      await client.query(
+        `update agent_missions
+         set payload = payload || $3::jsonb, updated_at = now()
+         where workspace_id = $1 and id = $2`,
+        [
+          valid.workspaceId,
+          id,
+          JSON.stringify({
+            providerSessionId: target.id,
+            activeProviderSessionId: target.id,
+            activeExecutionEngine: target.engine,
+            activeExecutionModel: requestedModel,
+          }),
+        ],
+      );
+      return {
+        ok: true,
+        idempotentReplay: false,
+        transition: {
+          id: transitionId,
+          action,
+          sourceProviderSessionId: action === 'rebind'
+            ? activeProviderSessionId
+            : source?.id || '',
+          targetProviderSessionId: target.id,
+          clientRequestId,
+        },
+        session: publicTransitionSession(target),
+        job: {
+          id: jobId,
+          status: jobStatus,
+          turnIndex,
+        },
+        workspaceId: valid.workspaceId,
+      };
+    });
+  }
+
+  async adoptAgentWorkComparisonResult(scope, missionId, input = {}) {
+    return this.#run(scope, async (client, valid) => {
+      const id = publicMutationId(missionId, 'mission_id');
+      const selectionId = publicMutationId(input.selectionId, 'selection_id');
+      const reportId = publicMutationId(input.reportId, 'report_id');
+      const expectedCurrentResultReportId = String(
+        input.expectedCurrentResultReportId || '',
+      );
+      const mission = await client.query(
+        `select id
+         from agent_missions
+         where workspace_id = $1 and id = $2
+         for update`,
+        [valid.workspaceId, id],
+      );
+      if (!mission.rowCount) {
+        throw scopedMutationError(
+          'comparison_mission_not_found',
+          'Work was not found',
+          404,
+        );
+      }
+      const replay = await client.query(
+        `select a.*, c.report_id as current_report_id
+         from agent_work_result_adoptions a
+         inner join agent_work_current_results c
+           on c.workspace_id = a.workspace_id and c.mission_id = a.mission_id
+         where a.workspace_id = $1 and a.mission_id = $2 and a.id = $3
+         limit 1`,
+        [valid.workspaceId, id, selectionId],
+      );
+      if (replay.rowCount) {
+        const row = replay.rows[0];
+        return {
+          ok: true,
+          idempotentReplay: true,
+          currentResultReportId: row.current_report_id,
+          adoption: {
+            id: row.id,
+            reportId: row.report_id,
+            previousReportId: row.previous_report_id || '',
+            selectionVersion: Number(row.selection_version),
+            outcome: asObject(row.outcome_summary),
+            createdAt: new Date(row.created_at).toISOString(),
+          },
+          workspaceId: valid.workspaceId,
+        };
+      }
+      const pointer = await client.query(
+        `select report_id, selection_version
+         from agent_work_current_results
+         where workspace_id = $1 and mission_id = $2
+         for update`,
+        [valid.workspaceId, id],
+      );
+      const currentReportId = pointer.rowCount
+        ? String(pointer.rows[0].report_id)
+        : '';
+      if (currentReportId !== expectedCurrentResultReportId) {
+        throw scopedMutationError(
+          'comparison_selection_stale',
+          'Comparison current-result selection is stale',
+          409,
+        );
+      }
+      const outcomeResult = await client.query(
+        `select
+           r.id as report_id,
+           r.payload as report_payload,
+           j.id as job_id,
+           j.requested_engine,
+           j.requested_model,
+           j.payload as job_payload,
+           greatest(
+             0,
+             coalesce(
+               extract(epoch from (max(a.terminal_at) - min(a.started_at))) * 1000,
+               0
+             )
+           )::bigint as duration_ms,
+           count(distinct art.id)::int as artifact_count
+         from agent_reports r
+         inner join execution_jobs j
+           on j.workspace_id = r.workspace_id
+          and j.mission_id = r.mission_id
+          and j.id = r.payload->>'jobId'
+          and j.turn_mode = 'comparison'
+         left join execution_attempts a
+           on a.workspace_id = j.workspace_id and a.job_id = j.id
+         left join execution_artifacts art
+           on art.workspace_id = j.workspace_id and art.job_id = j.id
+         where r.workspace_id = $1 and r.mission_id = $2 and r.id = $3
+         group by r.id, r.payload, j.id, j.requested_engine,
+                  j.requested_model, j.payload`,
+        [valid.workspaceId, id, reportId],
+      );
+      if (!outcomeResult.rowCount) {
+        throw scopedMutationError(
+          'comparison_result_not_found',
+          'Comparison result was not found',
+          404,
+        );
+      }
+      const outcomeRow = outcomeResult.rows[0];
+      const reportPayload = asObject(outcomeRow.report_payload);
+      const jobPayload = asObject(outcomeRow.job_payload);
+      const reportEvidenceCount = Array.isArray(reportPayload.evidence)
+        ? reportPayload.evidence.length
+        : 0;
+      const outcome = {
+        reportId,
+        jobId: outcomeRow.job_id,
+        executionEngine: outcomeRow.requested_engine,
+        requestedModel: outcomeRow.requested_model || '',
+        summary: String(
+          reportPayload.summary || reportPayload.resultSummary || '',
+        ).slice(0, 2_000),
+        durationMs: Number(outcomeRow.duration_ms || 0),
+        costUsd: Number(
+          reportPayload.costUsd ?? jobPayload.costUsd ?? 0,
+        ),
+        evidenceCount: Math.max(
+          Number(outcomeRow.artifact_count || 0),
+          reportEvidenceCount,
+        ),
+      };
+      const selectionVersion = pointer.rowCount
+        ? Number(pointer.rows[0].selection_version) + 1
+        : 1;
+      await client.query(
+        `insert into agent_work_current_results (
+           workspace_id, mission_id, report_id, selection_version, selected_at
+         ) values ($1,$2,$3,$4,now())
+         on conflict (workspace_id, mission_id)
+         do update set report_id = excluded.report_id,
+                       selection_version = excluded.selection_version,
+                       selected_at = excluded.selected_at`,
+        [valid.workspaceId, id, reportId, selectionVersion],
+      );
+      const adoptionResult = await client.query(
+        `insert into agent_work_result_adoptions (
+           id, workspace_id, mission_id, report_id, previous_report_id,
+           selection_version, outcome_summary
+         ) values ($1,$2,$3,$4,$5,$6,$7::jsonb)
+         returning *`,
+        [
+          selectionId,
+          valid.workspaceId,
+          id,
+          reportId,
+          currentReportId || null,
+          selectionVersion,
+          JSON.stringify(outcome),
+        ],
+      );
+      const adoption = adoptionResult.rows[0];
+      return {
+        ok: true,
+        idempotentReplay: false,
+        currentResultReportId: reportId,
+        adoption: {
+          id: adoption.id,
+          reportId: adoption.report_id,
+          previousReportId: adoption.previous_report_id || '',
+          selectionVersion: Number(adoption.selection_version),
+          outcome,
+          createdAt: new Date(adoption.created_at).toISOString(),
+        },
         workspaceId: valid.workspaceId,
       };
     });

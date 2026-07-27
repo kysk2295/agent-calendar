@@ -7,6 +7,7 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { withEphemeralPostgres: withSharedEphemeralPostgres } = require('./support/ephemeral-postgres.cjs');
 
 const { runMigrations } = require('../app/db/migrate');
 const workspaceScope = require('../app/lib/workspace-scope');
@@ -25,102 +26,12 @@ const { resolvePostgresBinDir } = require('../app/lib/phase0-snapshot-restore');
 const LOCAL_ROLE = 'phase1';
 const DATABASE = 'phase1_workspace';
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = address && typeof address === 'object' ? address.port : 0;
-      server.close((error) => (error ? reject(error) : resolve(port)));
-    });
-    server.on('error', reject);
-  });
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
-  });
-}
-
-async function waitForReady(binDir, socketDir, port, attempts = 50) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      runBin(binDir, 'pg_isready', ['-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE], { timeout: 2000 });
-      return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-  throw new Error('ephemeral PostgreSQL did not become ready');
-}
-
-function stopCluster(binDir, dataDir) {
-  try {
-    runBin(binDir, 'pg_ctl', ['-D', dataDir, '-m', 'fast', 'stop'], { timeout: 30_000 });
-  } catch {
-    // best-effort
-  }
-  try {
-    const status = runBin(binDir, 'pg_ctl', ['-D', dataDir, 'status'], { timeout: 10_000 });
-    if (/server is running/i.test(String(status || ''))) {
-      throw new Error('postgres still running after stop');
-    }
-  } catch (error) {
-    const text = `${error && error.stdout != null ? error.stdout : ''}${error && error.stderr != null ? error.stderr : ''}${error && error.message ? error.message : ''}`;
-    if (/server is running/i.test(text)) {
-      throw new Error('postgres still running after stop');
-    }
-  }
-}
-
-async function withEphemeralPostgres(fn) {
-  const binDir = resolvePostgresBinDir(process.env);
-  if (!binDir) {
-    const err = new Error('PostgreSQL 17+ binaries not found (set PHASE0_PG_BIN)');
-    err.code = 'PG_BIN_MISSING';
-    throw err;
-  }
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1-workspace-'));
-  const dataDir = path.join(workDir, 'pgdata');
-  const socketDir = path.join(workDir, 'socket');
-  const logFile = path.join(workDir, 'postgres.log');
-  fs.mkdirSync(socketDir, { recursive: true });
-  const port = await freePort();
-  let started = false;
-  let pool = null;
-  try {
-    runBin(binDir, 'initdb', [
-      '-D', dataDir,
-      '-A', 'trust',
-      '-U', LOCAL_ROLE,
-      '--locale=C',
-      '--encoding=UTF8',
-    ], { timeout: 60_000 });
-    started = true;
-    runBin(binDir, 'pg_ctl', [
-      '-D', dataDir,
-      '-l', logFile,
-      '-o', `-p ${port} -k ${socketDir} -c listen_addresses=localhost -c unix_socket_directories=${socketDir}`,
-      'start',
-    ], { timeout: 30_000 });
-    await waitForReady(binDir, socketDir, port);
-    runBin(binDir, 'createdb', ['-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE, DATABASE], { timeout: 15_000 });
-    const connectionString = `postgresql://${encodeURIComponent(LOCAL_ROLE)}@/${encodeURIComponent(DATABASE)}?host=${encodeURIComponent(socketDir)}&port=${port}`;
-    const { Pool } = require('pg');
-    pool = new Pool({ connectionString, ssl: false, connectionTimeoutMillis: 10_000 });
-    return await fn({ pool, binDir, workDir, dataDir, socketDir, port, connectionString });
-  } finally {
-    if (pool) {
-      try { await pool.end(); } catch { /* ignore */ }
-    }
-    if (started) {
-      stopCluster(binDir, dataDir);
-    }
-    fs.rmSync(workDir, { recursive: true, force: true });
-  }
+function withEphemeralPostgres(fn) {
+  return withSharedEphemeralPostgres({
+    prefix: 'phase1-workspace-',
+    role: LOCAL_ROLE,
+    database: DATABASE,
+  }, fn);
 }
 
 async function countRows(pool, table) {

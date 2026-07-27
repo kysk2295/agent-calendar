@@ -60,6 +60,74 @@ shasum -a 256 apps/desktop/release/*.dmg apps/desktop/release/*.zip
 reject an Apple Development-signed or ad-hoc artifact for public Gatekeeper
 distribution; record that result rather than treating it as a build failure.
 
+## Verified Desktop and Widget Candidate
+
+The macOS widget host is a separately signed companion application in the same
+Desktop DMG. Its `HermesWidgets.appex` extension is embedded in that companion;
+it must not inherit the Desktop app signature. The `build` operation in
+`.github/workflows/desktop-release.yml` archives and separately signs the host and
+extension, notarizes and staples the companion, places it beside `Agent Calendar.app`
+in the DMG, mounts the DMG, and verifies the exact packaged code signatures.
+
+The workflow records all of these fail-closed checks:
+
+- `codesign --verify --deep --strict` for the Desktop app, widget host, and extension;
+- signing authority, TeamIdentifier, bundle identifier, and app-group entitlements;
+- `spctl` acceptance and `stapler validate` for the apps and DMG;
+- a mounted-DMG production-renderer and `agent-calendar://` cold/running deep-link smoke;
+- four compiled widget types, app-group snapshot hydration, a persisted shared toggle,
+  and removal of the isolated smoke user data;
+- SHA-256 for the DMG, Desktop ZIP, widget ZIP, CycloneDX SBOM, and update metadata.
+
+The machine-readable contract is
+`docs/operations/schemas/desktop-candidate-verification.schema.json`. The build phase
+retains an Actions artifact named `desktop-candidate-VERSION`; it does not create a
+GitHub Release.
+
+## Controlled N-1 to N Updater Gate
+
+Run updater QA on a clean, dedicated macOS account after downloading the exact retained
+candidate artifact. The QA feed must offer that exact ZIP and `latest-mac.yml`; record
+the ZIP SHA-256 and verify the feed SHA-512 before launching N-1.
+
+1. Install the retained, signed N-1 application and create one non-sensitive sentinel.
+2. Use the packaged update UI to check, download, and install N. Record before/offer/after
+   screenshots and their SHA-256 values.
+3. Verify N's version, `codesign --deep --strict`, `spctl`, staple, candidate ZIP SHA,
+   and preservation of the sentinel.
+4. Quit N and manually reinstall the already-retained N-1 artifact. Never enable
+   `allowDowngrade` and never ask the updater to downgrade automatically.
+5. Verify the restored version, then remove only the QA application and QA user-data
+   directory. Record both cleanup outcomes.
+
+Write `desktop-updater-evidence.json` according to
+`docs/operations/schemas/desktop-updater-evidence.schema.json`, and retain it with the
+three SHA-bound screenshots in a private Actions artifact named
+`desktop-updater-evidence-VERSION`. The evidence source SHA, tag, version transition,
+and candidate ZIP SHA must match the retained candidate. Unsigned, tampered,
+not-stapled, missing-widget, automatic-downgrade, incomplete-cleanup, and wrong-SHA
+evidence all stop promotion.
+
+Repository-side mechanics can be rehearsed before credentials are available with
+`apps/desktop/tools/local-desktop-updater-qa.mjs`. It accepts only a task-owned
+`agent-calendar-desktop-updater-qa-*` root, verifies the exact controlled-feed ZIP
+SHA-256 and SHA-512, performs an atomic N-1→N replacement, preserves isolated user
+data, restores retained N-1 manually, and removes the QA root. Its output follows
+`docs/operations/schemas/desktop-local-updater-evidence.schema.json`, sets
+`localUnsigned=true`, `signedCandidateVerified=false`, and
+`publicationEligible=false`, and therefore can never satisfy the promotion schema.
+The same producer must also be run with `interrupt-after-backup` and
+`post-update-validation` failure modes; both must restore N-1 and clean all task-owned
+state.
+
+After independent review, dispatch the workflow with `operation=promote`, the exact
+candidate build run ID, and the updater-evidence run ID. The promotion job downloads
+the prior bytes instead of rebuilding them, revalidates the evidence, writes
+`release-manifest.json` and `SHA256SUMS`, creates and verifies GitHub provenance, then
+pauses at the protected `desktop-release-publication` environment before creating a
+draft release. Promotion to a non-draft release is a separate explicit approval and
+is not performed by this workflow.
+
 Mount the DMG, copy the app to a temporary location or `/Applications`, launch it,
 and observe all of the following:
 

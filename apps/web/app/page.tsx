@@ -1,5 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 import { resolveHandoff } from "@/lib/handoff-policy.mjs";
+import { PRODUCTION_HANDOFF_TRUSTED_PUBLIC_KEY } from "@/lib/signed-handoff.mjs";
 
 const engines = ["Codex", "Claude Code", "Grok", "Hermes"];
 
@@ -7,36 +8,45 @@ function ActionLink({
   available,
   href,
   label,
+  testId,
+  download = false,
 }: {
   available: boolean;
   href: string | null;
   label: string;
+  testId: string;
+  download?: boolean;
 }) {
   const className = `action${available ? "" : " action--disabled"}`;
 
   if (!available || !href) {
     return (
-      <span className={className} aria-disabled="true">
+      <span className={className} aria-disabled="true" data-testid={testId}>
         {label}
       </span>
     );
   }
 
   return (
-    <a className={className} href={href} rel="noreferrer">
+    <a
+      className={className}
+      href={href}
+      rel="noreferrer"
+      data-testid={testId}
+      download={download}
+    >
       {label}
       <span aria-hidden="true">↗</span>
     </a>
   );
 }
 
-export default function Home() {
-  const handoff = resolveHandoff({
-    signupUrl: process.env.NEXT_PUBLIC_SIGNUP_URL,
-    downloadUrl: process.env.NEXT_PUBLIC_DESKTOP_DOWNLOAD_URL,
-    downloadVersion: process.env.NEXT_PUBLIC_DESKTOP_VERSION,
-    downloadSha256: process.env.NEXT_PUBLIC_DESKTOP_SHA256,
-    downloadVerified: process.env.NEXT_PUBLIC_DESKTOP_VERIFIED,
+export default async function Home() {
+  const handoff = await resolveHandoff({
+    receipt: process.env.WEB_HANDOFF_RELEASE_RECEIPT,
+    signature: process.env.WEB_HANDOFF_RELEASE_SIGNATURE,
+    trustedPublicKey: PRODUCTION_HANDOFF_TRUSTED_PUBLIC_KEY,
+    localQa: false,
   });
 
   return (
@@ -76,7 +86,11 @@ export default function Home() {
                 available={handoff.signup.available}
                 href={handoff.signup.href}
                 label={handoff.signup.label}
+                testId="signup-control"
               />
+              {handoff.marker ? (
+                <p data-testid="local-qa-marker">{handoff.marker}</p>
+              ) : null}
             </div>
           </div>
           <figure className="hero-product">
@@ -204,6 +218,8 @@ export default function Home() {
               available={handoff.download.available}
               href={handoff.download.href}
               label={handoff.download.label}
+              testId="download-control"
+              download
             />
             <p>
               공개 다운로드 전 서명과 체크섬을 검증합니다. 검증되지 않은 빌드 링크는
@@ -226,7 +242,7 @@ export default function Home() {
         <nav aria-label="정책과 지원">
           <a href="/privacy">개인정보</a>
           <a href="/terms">이용정책</a>
-          <a href="/support">지원</a>
+          <a href="/support" data-testid="support-link">지원</a>
         </nav>
         <p>© 2026 Agent Calendar</p>
       </footer>

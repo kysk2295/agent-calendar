@@ -430,9 +430,9 @@ test('fake engine emits plan progress artifact result', async () => {
   assert.ok(phases.includes('result'));
 });
 
-test('fake engine forbidden outside allow flag', () => {
-  const prev = process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE;
-  delete process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE;
-  assert.throws(() => getEngineAdapter('fake', { allowFake: false }), /fake engine not allowed/);
-  if (prev !== undefined) process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE = prev;
+test('fake engine forbidden outside exact test policy', () => {
+  assert.throws(
+    () => getEngineAdapter('fake', { env: { NODE_ENV: 'production', AGENT_CALENDAR_ALLOW_FAKE_ENGINE: '1' } }),
+    /fake engine not allowed/,
+  );
 });

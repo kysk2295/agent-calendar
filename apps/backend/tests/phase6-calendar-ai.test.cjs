@@ -7,6 +7,7 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { withEphemeralPostgres } = require('./support/ephemeral-postgres.cjs');
 
 const { runMigrations } = require('../app/db/migrate');
 const { createPhase1Runtime } = require('../app/lib/phase1-auth-routes');
@@ -29,74 +30,12 @@ const LOCAL_ROLE = 'phase6calai';
 const DATABASE = 'phase6_calai';
 const NOW = Date.parse('2026-07-24T03:00:00.000Z');
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : 0;
-      server.close((error) => (error ? reject(error) : resolve(port)));
-    });
-    server.on('error', reject);
-  });
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
-  });
-}
-
-async function waitForReady(binDir, socketDir, port) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    try {
-      runBin(binDir, 'pg_isready', [
-        '-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE,
-      ], { timeout: 2_000 });
-      return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-  throw new Error('Postgres did not become ready');
-}
-
-function stopCluster(binDir, dataDir) {
-  try {
-    runBin(binDir, 'pg_ctl', ['-D', dataDir, '-m', 'fast', 'stop'], { timeout: 30_000 });
-  } catch {
-    // Isolated test cluster cleanup.
-  }
-}
-
 async function withPostgres(fn) {
-  const binDir = resolvePostgresBinDir(process.env);
-  if (!binDir) throw new Error('Postgres binaries missing');
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase6-calai-'));
-  const dataDir = path.join(workDir, 'pgdata');
-  const socketDir = path.join(workDir, 'socket');
-  fs.mkdirSync(socketDir, { recursive: true });
-  const port = await freePort();
-  let pool = null;
-  try {
-    runBin(binDir, 'initdb', [
-      '-D', dataDir, '-A', 'trust', '-U', LOCAL_ROLE, '--locale=C', '--encoding=UTF8',
-    ], { timeout: 60_000 });
-    runBin(binDir, 'pg_ctl', [
-      '-D', dataDir,
-      '-l', path.join(workDir, 'postgres.log'),
-      '-o', `-p ${port} -k ${socketDir} -c listen_addresses=localhost -c unix_socket_directories=${socketDir}`,
-      'start',
-    ], { timeout: 30_000 });
-    await waitForReady(binDir, socketDir, port);
-    runBin(binDir, 'createdb', [
-      '-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE, DATABASE,
-    ], { timeout: 15_000 });
-    const connectionString = `postgresql://${encodeURIComponent(LOCAL_ROLE)}@/${DATABASE}?host=${encodeURIComponent(socketDir)}&port=${port}`;
-    const { Pool } = require('pg');
-    pool = new Pool({ connectionString, ssl: false, connectionTimeoutMillis: 10_000 });
+  return withEphemeralPostgres({
+    prefix: 'phase6-calendar-ai-',
+    role: LOCAL_ROLE,
+    database: DATABASE,
+  }, async ({ pool }) => {
     await runMigrations({ pool });
     await pool.query(`insert into users (id, display_name, status) values
       ('user-a', 'Alex', 'active'), ('user-b', 'Blair', 'active')`);
@@ -105,12 +44,8 @@ async function withPostgres(fn) {
     await pool.query(`insert into workspace_memberships (id, user_id, workspace_id, role, status) values
       ('m-a', 'user-a', 'ws-a', 'owner', 'active'),
       ('m-b', 'user-b', 'ws-b', 'owner', 'active')`);
-    await fn({ pool });
-  } finally {
-    if (pool) await pool.end().catch(() => {});
-    stopCluster(binDir, dataDir);
-    fs.rmSync(workDir, { recursive: true, force: true });
-  }
+    return fn({ pool });
+  });
 }
 
 function env() {

@@ -105,10 +105,19 @@ export type ReleaseArtifact = {
   version?: string | null;
   platform?: string;
   downloadUrl?: string | null;
+  manifestUrl?: string | null;
   sha256?: string | null;
   signature?: string | null;
   publicKeyId?: string | null;
   notes?: string;
+  verification?: {
+    status?: string;
+    source?: string;
+    algorithm?: string;
+    manifestSha256?: string;
+    artifactSha256?: string;
+    publicKeyId?: string;
+  } | null;
 };
 
 export type EnrollmentSnapshot = {
@@ -132,6 +141,92 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function safeHttpsUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeReleaseArtifact(value: unknown): ReleaseArtifact {
+  const record = asRecord(value);
+  const platform = typeof record.platform === 'string' ? record.platform : 'darwin-arm64';
+  const unavailable: ReleaseArtifact = {
+    status: 'unavailable',
+    version: null,
+    platform,
+    downloadUrl: null,
+    manifestUrl: null,
+    sha256: null,
+    signature: null,
+    publicKeyId: null,
+    notes: 'Runner release metadata could not be verified.',
+    verification: null,
+  };
+  if (record.status === 'local_development') {
+    return {
+      ...unavailable,
+      status: 'local_development',
+      version: typeof record.version === 'string' ? record.version : null,
+      notes: typeof record.notes === 'string' ? record.notes.slice(0, 240) : '',
+    };
+  }
+  if (record.status !== 'verified_signed') return unavailable;
+  const version = typeof record.version === 'string' ? record.version : '';
+  const sha256 = typeof record.sha256 === 'string' ? record.sha256 : '';
+  const signature = typeof record.signature === 'string' ? record.signature : '';
+  const publicKeyId = typeof record.publicKeyId === 'string' ? record.publicKeyId : '';
+  const downloadUrl = safeHttpsUrl(record.downloadUrl);
+  const manifestUrl = safeHttpsUrl(record.manifestUrl);
+  const notes = typeof record.notes === 'string' ? record.notes : '';
+  const verification = asRecord(record.verification);
+  let signatureBytes = 0;
+  try {
+    signatureBytes = Uint8Array.from(atob(signature), (character) => character.charCodeAt(0)).length;
+  } catch {
+    signatureBytes = 0;
+  }
+  if (
+    !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)
+    || platform !== 'darwin-arm64'
+    || !/^[a-f0-9]{64}$/.test(sha256)
+    || !/^runner-ed25519-[a-f0-9]{16}$/.test(publicKeyId)
+    || signatureBytes !== 64
+    || !downloadUrl
+    || !manifestUrl
+    || verification.status !== 'verified'
+    || verification.source !== 'backend_ed25519'
+    || verification.algorithm !== 'ed25519'
+    || typeof verification.manifestSha256 !== 'string'
+    || !/^[a-f0-9]{64}$/.test(verification.manifestSha256)
+    || verification.artifactSha256 !== sha256
+    || verification.publicKeyId !== publicKeyId
+    || /ignore previous|system prompt|verified_signed/i.test(notes)
+  ) return unavailable;
+  return {
+    status: 'verified_signed',
+    version,
+    platform,
+    downloadUrl,
+    manifestUrl,
+    sha256,
+    signature,
+    publicKeyId,
+    notes: notes.slice(0, 240),
+    verification: {
+      status: 'verified',
+      source: 'backend_ed25519',
+      algorithm: 'ed25519',
+      manifestSha256: verification.manifestSha256,
+      artifactSha256: sha256,
+      publicKeyId,
+    },
+  };
+}
+
 export async function listRunners(): Promise<PublicRunner[]> {
   const payload = await hermesApi.listRunners();
   const runners = Array.isArray(payload.runners) ? payload.runners : [];
@@ -140,7 +235,7 @@ export async function listRunners(): Promise<PublicRunner[]> {
 
 export async function getReleaseManifest(): Promise<ReleaseArtifact> {
   const payload = await hermesApi.getRunnerReleaseManifest();
-  return asRecord(payload.artifact) as ReleaseArtifact;
+  return normalizeReleaseArtifact(payload.artifact);
 }
 
 export async function startEnrollment(controlPlaneBaseUrl?: string): Promise<RunnerEnrollment> {

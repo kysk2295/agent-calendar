@@ -179,6 +179,14 @@ function publicSessionEventRecord(event = {}) {
   const createdAt = publicTimestamp(event.createdAt);
   if (createdAt) projected.createdAt = createdAt;
   const metadata = publicMetadata(event.metadata);
+  if (metadata) {
+    if (!PUBLIC_EXECUTION_ENGINES.has(String(metadata.executionEngine || '').trim())) {
+      delete metadata.executionEngine;
+    }
+    if (!PUBLIC_RESOLVED_EXECUTION_ENGINES.has(String(metadata.resolvedExecutionEngine || '').trim())) {
+      delete metadata.resolvedExecutionEngine;
+    }
+  }
   const actualEventEngine = ['agent_message', 'completion'].includes(event.kind)
     ? String(event.metadata?.resolvedExecutionEngine || event.metadata?.executionEngine || '').trim()
     : '';

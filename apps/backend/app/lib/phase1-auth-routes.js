@@ -21,7 +21,10 @@ const {
 } = require('./workos-authkit-adapter');
 const { dispatchProductionApi } = require('./production-gateway-dispatch');
 const { WorkspaceIdempotencyStore } = require('./workspace-idempotency');
-const { RunnerControl } = require('./runner-control');
+const {
+  RunnerControl,
+  runnerReleaseConfigurationFromEnv,
+} = require('./runner-control');
 const { DurableExecution } = require('./durable-execution');
 const { UnifiedCalendar } = require('./unified-calendar');
 const { KnowledgeService } = require('./knowledge-service');
@@ -30,6 +33,7 @@ const { createCalendarAiModelAdapter } = require('./calendar-ai-model-adapter');
 const { createRunnerWorkspaceInferenceCompletion } = require('./calendar-ai-runner-adapter');
 const { WorkspaceInferenceBroker } = require('./workspace-inference-broker');
 const { ProviderAgentBridge } = require('./provider-agent-session-bridge');
+const { WorkspaceAgentBuilderService } = require('./workspace-agent-builder-service');
 const { WorkConversationChannelService } = require('./work-conversation-channel-service');
 const { AutomationFederation } = require('./automation-federation');
 const { RunnerAutomationSourceAdapter } = require('./runner-automation-source-adapter');
@@ -160,8 +164,9 @@ function createPhase1Runtime({
   ))) {
     unifiedCalendar.startBackgroundWorkers();
   }
-  const product = new WorkspaceScopedProductService({ pool, useAppRole: true });
+  const product = new WorkspaceScopedProductService({ pool, useAppRole: true, env });
   const providerAgentBridge = new ProviderAgentBridge({ pool, env });
+  const agentBuilder = new WorkspaceAgentBuilderService({ pool });
   const workConversationChannels = new WorkConversationChannelService({ pool });
   const cloudModelAdapter = createCalendarAiModelAdapter({ env });
   const inferenceBroker = workspaceInferenceBroker || new WorkspaceInferenceBroker({
@@ -201,15 +206,23 @@ function createPhase1Runtime({
     env,
     ...(calendarAiClock ? { clock: calendarAiClock } : {}),
   });
+  const runnerReleaseConfiguration = runnerReleaseConfigurationFromEnv(env);
   return {
     pool,
     env,
     product,
     sseHub: hub,
     idempotency: new WorkspaceIdempotencyStore({ pool }),
-    runnerControl: new RunnerControl({ pool }),
+    runnerControl: new RunnerControl({
+      pool,
+      env,
+      releaseManifest: runnerReleaseConfiguration.releaseManifest,
+      releaseTrustedPublicKeys: runnerReleaseConfiguration.trustedPublicKeys,
+      releaseMinimumVersion: runnerReleaseConfiguration.minimumVersion,
+    }),
     durableExecution,
     providerAgentBridge,
+    agentBuilder,
     workConversationChannels,
     inferenceBroker,
     unifiedCalendar,

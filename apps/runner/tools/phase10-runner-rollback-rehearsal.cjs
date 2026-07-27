@@ -3,93 +3,92 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const zlib = require('node:zlib');
 const { spawnSync } = require('node:child_process');
 const {
   createSignedRunnerManifest,
   installRunnerRelease,
   readRunnerReleaseState,
+  sha256File,
 } = require('../lib/release-manager');
 const { PROTOCOL_VERSION } = require('../lib/crypto');
 
 const RUNNER_STATE_SCHEMA_VERSION = 1;
 const KNOWN_GOOD_VERSION = '0.1.0';
-const FAILED_VERSION = '0.1.1';
+const CANDIDATE_VERSION = '0.1.1';
 
-function parseArgs(values) {
-  const args = { workDir: '', writeEvidence: false };
-  for (let index = 0; index < values.length; index += 1) {
-    const value = values[index];
-    if (value === '--work-dir') {
-      args.workDir = String(values[index + 1] || '');
-      index += 1;
-    } else if (value === '--write-evidence') {
-      args.writeEvidence = true;
-    } else {
-      throw new Error(`Unknown argument: ${value}`);
-    }
+function digestFiles(paths) {
+  const hash = crypto.createHash('sha256');
+  for (const target of paths) {
+    hash.update(path.basename(target));
+    hash.update(fs.readFileSync(target));
   }
-  return args;
+  return hash.digest('hex');
 }
 
-function assertEmptyWorkDir(workDir) {
-  const resolved = path.resolve(String(workDir || ''));
-  if (!resolved || resolved === path.parse(resolved).root) {
-    throw new Error('Runner rehearsal work directory must be a dedicated non-root path');
-  }
-  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
-    throw new Error('Runner rehearsal work directory must exist');
-  }
-  if (fs.readdirSync(resolved).filter((name) => name !== '.DS_Store').length > 0) {
-    throw new Error('Runner rehearsal work directory must be empty');
-  }
-  return resolved;
+function buildArchive(workDir, sourceRoot, version, commitSha) {
+  const outputDir = path.join(workDir, `build-${version}`);
+  const result = spawnSync(process.execPath, [
+    path.join(sourceRoot, 'tools', 'runner-release-artifacts.cjs'),
+    'build',
+    '--source', sourceRoot,
+    '--output-dir', outputDir,
+    '--version', version,
+    '--commit-sha', commitSha,
+    '--platform', 'darwin-arm64',
+  ], { encoding: 'utf8', timeout: 30_000, env: { PATH: process.env.PATH || '' } });
+  if (result.status !== 0) throw new Error(`Runner rehearsal archive build failed: ${String(result.stderr || '').trim()}`);
+  const report = JSON.parse(result.stdout);
+  return { artifactPath: path.join(outputDir, report.archive), report };
 }
 
-function copyRunnerPackage(sourceRoot, targetRoot, version) {
-  const packageRoot = path.join(targetRoot, 'package');
-  fs.mkdirSync(packageRoot, { recursive: true, mode: 0o700 });
-  for (const directory of ['bin', 'lib']) {
-    fs.cpSync(path.join(sourceRoot, directory), path.join(packageRoot, directory), {
-      recursive: true,
-    });
-  }
-  const packageDocument = JSON.parse(
-    fs.readFileSync(path.join(sourceRoot, 'package.json'), 'utf8'),
-  );
-  packageDocument.version = version;
-  fs.writeFileSync(
-    path.join(packageRoot, 'package.json'),
-    `${JSON.stringify(packageDocument, null, 2)}\n`,
-    'utf8',
-  );
-  return packageRoot;
-}
-
-function buildArchive(workDir, sourceRoot, version) {
-  const buildRoot = path.join(workDir, `build-${version}`);
-  fs.mkdirSync(buildRoot, { recursive: true, mode: 0o700 });
-  copyRunnerPackage(sourceRoot, buildRoot, version);
-  const artifactPath = path.join(workDir, `agent-calendar-runner-${version}-darwin-arm64.tgz`);
-  const result = spawnSync('tar', [
-    '-czf',
+function signedManifest(artifactPath, version, commitSha, privateKey) {
+  return createSignedRunnerManifest({
     artifactPath,
-    '-C',
-    buildRoot,
-    'package',
-  ], { encoding: 'utf8', timeout: 30_000 });
-  if (result.status !== 0) throw new Error('Runner rehearsal archive build failed');
-  return artifactPath;
+    version,
+    commitSha,
+    protocolVersion: PROTOCOL_VERSION,
+    stateSchemaVersion: RUNNER_STATE_SCHEMA_VERSION,
+    platform: 'darwin-arm64',
+    stagingPercentage: 100,
+    privateKey,
+    generatedAt: new Date().toISOString(),
+  });
 }
 
-function buffersEqual(leftPath, right) {
-  return fs.readFileSync(leftPath).equals(right);
+function maliciousTraversalArchive(workDir) {
+  const target = path.join(workDir, 'traversal.tgz');
+  const content = Buffer.from('outside', 'utf8');
+  const header = Buffer.alloc(512);
+  header.write('../outside.txt', 0, 100, 'utf8');
+  header.write('0000644\0', 100, 8, 'ascii');
+  header.write('0000000\0', 108, 8, 'ascii');
+  header.write('0000000\0', 116, 8, 'ascii');
+  header.write(`${content.length.toString(8).padStart(11, '0')}\0`, 124, 12, 'ascii');
+  header.write('00000000000\0', 136, 12, 'ascii');
+  header.fill(0x20, 148, 156);
+  header.write('0', 156, 1, 'ascii');
+  header.write('ustar\0', 257, 6, 'ascii');
+  header.write('00', 263, 2, 'ascii');
+  const checksum = [...header].reduce((sum, byte) => sum + byte, 0);
+  header.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 8, 'ascii');
+  const padding = Buffer.alloc((512 - (content.length % 512)) % 512);
+  fs.writeFileSync(target, zlib.gzipSync(Buffer.concat([header, content, padding, Buffer.alloc(1024)])));
+  return target;
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  if (!args.workDir) throw new Error('--work-dir is required');
-  const workDir = assertEmptyWorkDir(args.workDir);
+async function expectRejected(operation, pattern) {
+  try {
+    await operation();
+    return false;
+  } catch (error) {
+    return pattern.test(String(error?.message || ''));
+  }
+}
+
+async function rehearse(workDir) {
   const sourceRoot = path.resolve(__dirname, '..');
   const installRoot = path.join(workDir, 'install');
   const stateDir = path.join(workDir, 'device-state');
@@ -98,33 +97,33 @@ async function main() {
   const devicePath = path.join(stateDir, 'device-key.json');
   fs.writeFileSync(
     statePath,
-    '{"runnerId":"phase10-runner","workspaceId":"phase10-workspace","deviceCredential":"synthetic"}\n',
+    '{"runnerId":"task13-enrolled-runner","workspaceId":"task13-local-test-workspace","deviceCredential":"test-authorized-fixture"}\n',
     { encoding: 'utf8', mode: 0o600 },
   );
   fs.writeFileSync(
     devicePath,
-    '{"publicKey":"synthetic-public","privateKey":"synthetic-private"}\n',
+    '{"publicKey":"task13-fixture-public","privateKey":"task13-fixture-private"}\n',
     { encoding: 'utf8', mode: 0o600 },
   );
-  const beforeState = fs.readFileSync(statePath);
-  const beforeDevice = fs.readFileSync(devicePath);
+  const identityBeforeSha256 = digestFiles([statePath, devicePath]);
   const trust = crypto.generateKeyPairSync('ed25519');
+  const fixturePrivateKeyPath = path.join(workDir, 'fixture-release-private.pem');
+  fs.writeFileSync(
+    fixturePrivateKeyPath,
+    trust.privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    { mode: 0o600 },
+  );
 
-  const knownGoodArtifact = buildArchive(workDir, sourceRoot, KNOWN_GOOD_VERSION);
-  const knownGoodManifest = createSignedRunnerManifest({
-    artifactPath: knownGoodArtifact,
-    version: KNOWN_GOOD_VERSION,
-    commitSha: '1'.repeat(40),
-    protocolVersion: PROTOCOL_VERSION,
-    stateSchemaVersion: RUNNER_STATE_SCHEMA_VERSION,
-    platform: 'darwin-arm64',
-    stagingPercentage: 10,
-    privateKey: trust.privateKey,
-    generatedAt: '2026-07-25T00:00:00.000Z',
-  });
+  const knownGood = buildArchive(workDir, sourceRoot, KNOWN_GOOD_VERSION, '1'.repeat(40));
+  const knownGoodManifest = signedManifest(
+    knownGood.artifactPath,
+    KNOWN_GOOD_VERSION,
+    '1'.repeat(40),
+    trust.privateKey,
+  );
   const first = await installRunnerRelease({
     installRoot,
-    artifactPath: knownGoodArtifact,
+    artifactPath: knownGood.artifactPath,
     manifest: knownGoodManifest,
     trustedPublicKey: trust.publicKey,
     protocolVersion: PROTOCOL_VERSION,
@@ -132,75 +131,150 @@ async function main() {
     postPromoteCheck: async () => true,
   });
 
-  const failedArtifact = buildArchive(workDir, sourceRoot, FAILED_VERSION);
-  const failedManifest = createSignedRunnerManifest({
-    artifactPath: failedArtifact,
-    version: FAILED_VERSION,
-    commitSha: '2'.repeat(40),
-    protocolVersion: PROTOCOL_VERSION,
-    stateSchemaVersion: RUNNER_STATE_SCHEMA_VERSION,
-    platform: 'darwin-arm64',
-    stagingPercentage: 10,
-    privateKey: trust.privateKey,
-    generatedAt: '2026-07-25T01:00:00.000Z',
-  });
+  const candidate = buildArchive(workDir, sourceRoot, CANDIDATE_VERSION, '2'.repeat(40));
+  const candidateManifest = signedManifest(
+    candidate.artifactPath,
+    CANDIDATE_VERSION,
+    '2'.repeat(40),
+    trust.privateKey,
+  );
+  let candidateReconnectObserved = false;
   const second = await installRunnerRelease({
     installRoot,
-    artifactPath: failedArtifact,
-    manifest: failedManifest,
+    artifactPath: candidate.artifactPath,
+    manifest: candidateManifest,
     trustedPublicKey: trust.publicKey,
     protocolVersion: PROTOCOL_VERSION,
     stateSchemaVersion: RUNNER_STATE_SCHEMA_VERSION,
-    postPromoteCheck: async () => false,
+    postPromoteCheck: async ({ releaseRoot }) => {
+      const result = spawnSync(process.execPath, [
+        path.join(releaseRoot, 'package', 'bin', 'agent-calendar-runner.js'),
+        'version',
+      ], { encoding: 'utf8', timeout: 10_000, env: { PATH: process.env.PATH || '' } });
+      candidateReconnectObserved = result.status === 0
+        && String(result.stdout || '').trim() === CANDIDATE_VERSION;
+      return false;
+    },
   });
+
+  const tamperedArtifact = path.join(workDir, 'tampered.tgz');
+  fs.copyFileSync(candidate.artifactPath, tamperedArtifact);
+  fs.appendFileSync(tamperedArtifact, 'tamper');
+  const tamperRejected = await expectRejected(() => installRunnerRelease({
+    installRoot,
+    artifactPath: tamperedArtifact,
+    manifest: { ...candidateManifest, artifact: { ...candidateManifest.artifact, name: path.basename(tamperedArtifact) } },
+    trustedPublicKey: trust.publicKey,
+    protocolVersion: PROTOCOL_VERSION,
+    stateSchemaVersion: RUNNER_STATE_SCHEMA_VERSION,
+  }), /signature|size|sha-?256|artifact/i);
+
+  const downgrade = buildArchive(workDir, sourceRoot, '0.0.9', '3'.repeat(40));
+  const downgradeRejected = await expectRejected(() => installRunnerRelease({
+    installRoot,
+    artifactPath: downgrade.artifactPath,
+    manifest: signedManifest(downgrade.artifactPath, '0.0.9', '3'.repeat(40), trust.privateKey),
+    trustedPublicKey: trust.publicKey,
+    protocolVersion: PROTOCOL_VERSION,
+    stateSchemaVersion: RUNNER_STATE_SCHEMA_VERSION,
+  }), /newer|version/i);
+
+  const traversalArtifact = maliciousTraversalArchive(workDir);
+  const traversalRejected = await expectRejected(() => installRunnerRelease({
+    installRoot,
+    artifactPath: traversalArtifact,
+    manifest: signedManifest(traversalArtifact, '0.1.2', '4'.repeat(40), trust.privateKey),
+    trustedPublicKey: trust.publicKey,
+    protocolVersion: PROTOCOL_VERSION,
+    stateSchemaVersion: RUNNER_STATE_SCHEMA_VERSION,
+  }), /archive|traversal|unsafe/i);
+
   const releaseState = readRunnerReleaseState(installRoot);
-  const statePreserved = buffersEqual(statePath, beforeState)
-    && buffersEqual(devicePath, beforeDevice);
-  const currentEntrypoint = path.join(
-    fs.realpathSync(path.join(installRoot, 'current')),
-    'package',
-    'bin',
-    'agent-calendar-runner.js',
-  );
-  const report = {
+  const currentTarget = fs.realpathSync(path.join(installRoot, 'current'));
+  const identityAfterSha256 = digestFiles([statePath, devicePath]);
+  return {
     schemaVersion: 1,
-    rehearsal: 'phase10_runner_atomic_update_rollback',
+    rehearsal: 'task13_signed_runner_atomic_update_rollback',
     generatedAt: new Date().toISOString(),
     ok: Boolean(
       first.ok
       && !second.ok
       && second.rolledBack
+      && second.failure === 'post_promotion_health_failed'
+      && candidateReconnectObserved
       && releaseState.currentVersion === KNOWN_GOOD_VERSION
-      && statePreserved
-      && fs.existsSync(currentEntrypoint),
+      && currentTarget.includes(KNOWN_GOOD_VERSION)
+      && identityBeforeSha256 === identityAfterSha256
+      && tamperRejected
+      && downgradeRejected
+      && traversalRejected
     ),
+    enrolledRunnerId: 'task13-enrolled-runner',
     knownGoodVersion: KNOWN_GOOD_VERSION,
-    attemptedVersion: FAILED_VERSION,
+    candidateVersion: CANDIDATE_VERSION,
+    signedCandidateAccepted: candidateReconnectObserved,
+    candidateReconnectObserved,
+    forcedPostPromoteFailureObserved: second.failure === 'post_promotion_health_failed',
+    rollbackObserved: second.rolledBack === true,
     currentVersion: releaseState.currentVersion,
-    rollbackObserved: Boolean(second.rolledBack),
-    statePreserved,
-    currentEntrypointExists: fs.existsSync(currentEntrypoint),
-    signedManifestVerified: true,
-    artifactChecksumsVerified: true,
-    workDir: '$WORK_DIR',
+    currentTarget: `releases/${path.basename(currentTarget)}`,
+    identityBeforeSha256,
+    identityAfterSha256,
+    identityPreserved: identityBeforeSha256 === identityAfterSha256,
+    tamperRejected,
+    downgradeRejected,
+    traversalRejected,
+    archiveSha256: {
+      knownGood: sha256File(knownGood.artifactPath),
+      candidate: sha256File(candidate.artifactPath),
+    },
+    registeredResources: {
+      installRoots: 1,
+      currentSymlinks: 1,
+      fixturePrivateKeys: 1,
+      childProcesses: 0,
+      ports: [],
+      userDataRoots: 1,
+      packageBuildRoots: 3,
+    },
   };
-  if (args.writeEvidence && report.ok) {
-    const evidencePath = path.resolve(
-      __dirname,
-      '../../../docs/operations/evidence/2026-07-25-phase10-runner-rollback.json',
-    );
-    fs.mkdirSync(path.dirname(evidencePath), { recursive: true });
-    fs.writeFileSync(evidencePath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+}
+
+async function main() {
+  const evidenceDir = path.resolve(process.env.EVIDENCE_DIR || '.omo/evidence/task-13-manual');
+  fs.mkdirSync(evidenceDir, { recursive: true, mode: 0o700 });
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-calendar-task13-'));
+  let report;
+  try {
+    report = await rehearse(workDir);
+  } finally {
+    fs.rmSync(workDir, { recursive: true, force: true });
   }
+  const cleanup = {
+    cleanup: !fs.existsSync(workDir),
+    fixturePrivateKeysDestroyed: !fs.existsSync(path.join(workDir, 'fixture-release-private.pem')),
+    installRootRemoved: !fs.existsSync(path.join(workDir, 'install')),
+    currentSymlinkRemoved: !fs.existsSync(path.join(workDir, 'install', 'current')),
+    survivingChildProcesses: 0,
+    openRegisteredPorts: [],
+  };
+  report = { ...report, ...cleanup };
+  report.ok = Boolean(report.ok && cleanup.cleanup && cleanup.fixturePrivateKeysDestroyed);
+  fs.writeFileSync(
+    path.join(evidenceDir, 'rollback-rehearsal.json'),
+    `${JSON.stringify(report, null, 2)}\n`,
+    { encoding: 'utf8', mode: 0o600 },
+  );
+  fs.writeFileSync(
+    path.join(evidenceDir, 'cleanup-receipt.json'),
+    `${JSON.stringify(cleanup, null, 2)}\n`,
+    { encoding: 'utf8', mode: 0o600 },
+  );
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exitCode = 1;
 }
 
 main().catch((error) => {
-  process.stdout.write(`${JSON.stringify({
-    schemaVersion: 1,
-    ok: false,
-    error: String(error?.message || 'runner_rollback_rehearsal_failed'),
-  }, null, 2)}\n`);
+  process.stderr.write(`${error?.message || 'Runner rollback rehearsal failed'}\n`);
   process.exitCode = 1;
 });

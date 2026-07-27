@@ -1,7 +1,8 @@
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 
-const target = process.env.HERMES_UI_URL || 'http://127.0.0.1:5173/';
+const target = process.env.HERMES_UI_URL;
+if (!target) throw new Error('HERMES_UI_URL is required; run this scenario through run-playwright-with-vite.cjs');
 
 async function installDesktopFixture(page) {
   await page.addInitScript(() => {
@@ -21,12 +22,20 @@ async function installDesktopFixture(page) {
       }),
       saveSettings: async (settings) => settings,
       getHermesConnection: async () => ({ baseUrl: '', credential: '' }),
+      getSessionStatus: async () => ({ signedIn: true, sessionId: 'desktop-shell-session' }),
+      getDesktopReleaseStatus: async () => ({ supported: false, phase: 'unsupported', currentVersion: '', availableVersion: null, progressPercent: null, checkedAt: null, message: '' }),
+      consumeDesktopRecoveryStatus: async () => ({ phase: 'none', crashCount: 0, reason: null, occurredAt: null, message: '' }),
+      onDesktopReleaseStatus: () => () => {},
     };
   });
   await page.route('**/*', async (route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (!pathname.startsWith('/api/')) {
       await route.continue();
+      return;
+    }
+    if (pathname === '/api/settings') {
+      await route.fulfill({ json: { ok: true, onboarding: { status: 'completed' } } });
       return;
     }
     await route.fulfill({

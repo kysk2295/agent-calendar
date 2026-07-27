@@ -152,7 +152,7 @@ Commands:
     };
   }
 
-  const client = new RunnerClient({ baseUrl, stateDir, probeRunner });
+  const client = new RunnerClient({ baseUrl, stateDir, probeRunner, env: process.env });
 
   if (command === 'enroll') {
     const result = await client.enroll({
@@ -233,26 +233,8 @@ Commands:
   if (command === 'work-once' || command === 'execute-once') {
     const { runOnce, ensureDeviceRequest } = require('../lib/execution-loop');
     ensureDeviceRequest(client);
-    // Include fake engine in capability report for test harnesses.
-    if (process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE === '1') {
-      const caps = await client.reportCapabilities().catch(() => null);
-      if (caps) {
-        await client.deviceRequest('POST', '/api/runner/device/capabilities', {
-          engines: {
-            ...(caps.capabilities?.engines || {}),
-            fake: {
-              available: true,
-              status: 'available',
-              version: 'fake-1',
-              authStatus: 'ok',
-              message: 'injected fake engine',
-            },
-          },
-        }).catch(() => {});
-      }
-    }
     const result = await runOnce(client, {
-      allowFake: process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE === '1',
+      env: process.env,
       forceCrash: Boolean(args['force-crash']),
       forceFail: Boolean(args['force-fail']),
     });
@@ -351,7 +333,7 @@ Commands:
       if (workRunning) return;
       workRunning = true;
       runConnectorOnce(client).then(() => runTelegramChannelOnce(client)).then(() => runOnce(client, {
-        allowFake: process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE === '1',
+        env: process.env,
       })).catch((error) => {
         process.stderr.write(`${JSON.stringify({ ok: false, error: error.code || error.message })}\n`);
       }).finally(() => {

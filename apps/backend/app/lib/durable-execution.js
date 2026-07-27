@@ -14,11 +14,15 @@ const {
   engineCapabilityReady,
   engineReportsAvailability,
 } = require('./engine-capability-auth');
+const { isFakeEngineAllowed } = require('./execution-engine-policy');
 const { providerSessionFailureStatus } = require('./provider-agent-session-bridge');
 const {
   agentExecutionProfile,
   applyAgentExecutionProfile,
+  normalizeRunnerCapabilityCatalog,
+  resolveEffectiveAgentConfiguration,
 } = require('./workspace-agent-directory');
+const { createLeaseAuthorization } = require('./lease-authorization');
 
 const OFFER_TTL_MS = 30_000;
 const LEASE_TTL_MS = 120_000;
@@ -85,7 +89,7 @@ function assertNoProviderSecrets(payload) {
 }
 
 function isPublicResolvedEngine(value) {
-  return ['hermes', 'codex', 'claude', 'grok', 'fake'].includes(String(value || '').toLowerCase());
+  return ['hermes', 'codex', 'claude', 'grok'].includes(String(value || '').toLowerCase());
 }
 
 function normalizeExecutionModel(value) {
@@ -105,6 +109,53 @@ function runnerSupportsModel(capabilities, engine, model) {
     ? engineCapability.models.filter((item) => typeof item === 'string')
     : [];
   return !models.length || models.includes(model);
+}
+
+function effectiveConfigurationEligibility(payloadValue, runnerRow) {
+  const payload = payloadValue && typeof payloadValue === 'object' && !Array.isArray(payloadValue)
+    ? payloadValue
+    : {};
+  const effective = payload.effectiveConfiguration;
+  const legacyRequired = Array.isArray(payload.requiredCapabilities)
+    ? payload.requiredCapabilities
+    : (Array.isArray(payload.input?.requiredCapabilities) ? payload.input.requiredCapabilities : []);
+  if (!effective || typeof effective !== 'object' || Array.isArray(effective)) {
+    return legacyRequired.length
+      ? { ok: false, reason: 'effective_configuration_required' }
+      : { ok: true, effectiveConfiguration: null };
+  }
+  const grants = effective.grants && typeof effective.grants === 'object' ? effective.grants : {};
+  if (effective.executable !== true
+    || (Array.isArray(grants.denied) && grants.denied.length)
+    || (Array.isArray(grants.approvalRequired) && grants.approvalRequired.length)) {
+    return { ok: false, reason: 'capability_denied' };
+  }
+  const required = Array.isArray(effective.requiredCapabilities)
+    ? effective.requiredCapabilities.map(String)
+    : [];
+  const allowed = new Set(
+    Array.isArray(grants.allowed) ? grants.allowed.map((entry) => String(entry?.id || '')) : [],
+  );
+  if (required.some((id) => !allowed.has(id))) {
+    return { ok: false, reason: 'capability_denied' };
+  }
+  let catalog;
+  try {
+    catalog = normalizeRunnerCapabilityCatalog(runnerRow?.capabilities?.catalog);
+  } catch {
+    return { ok: false, reason: 'runner_catalog_invalid' };
+  }
+  const runnerRef = `runner_${crypto.createHash('sha256').update(JSON.stringify({
+    workspaceId: String(runnerRow?.workspace_id || ''),
+    runnerId: String(runnerRow?.id || ''),
+  })).digest('hex').slice(0, 16)}`;
+  if (effective.runner?.ref !== runnerRef
+    || effective.runner?.catalogId !== catalog.catalogId
+    || effective.runner?.catalogVersion !== catalog.version
+    || effective.runner?.catalogRevision !== catalog.revision) {
+    return { ok: false, reason: 'effective_configuration_stale' };
+  }
+  return { ok: true, effectiveConfiguration: effective };
 }
 
 function shouldProjectJobToCalendar(payload) {
@@ -253,7 +304,7 @@ async function withServiceTransaction(pool, fn) {
   }
 }
 
-function resolveEngine(requested, capabilities = {}) {
+function resolveEngine(requested, capabilities = {}, env = {}) {
   const req = String(requested || 'auto').toLowerCase() || 'auto';
   const engines = (capabilities && capabilities.engines) || capabilities || {};
   const order = ['codex', 'claude', 'grok', 'hermes'];
@@ -275,7 +326,7 @@ function resolveEngine(requested, capabilities = {}) {
         return { requested: 'auto', resolved: name, reason: `auto_selected_first_authenticated:${name}` };
       }
     }
-    if (available('fake')) {
+    if (isFakeEngineAllowed(env) && available('fake')) {
       return { requested: 'auto', resolved: 'fake', reason: 'auto_selected_fake' };
     }
     return { requested: 'auto', resolved: '', reason: 'no_eligible_engine' };
@@ -283,6 +334,9 @@ function resolveEngine(requested, capabilities = {}) {
 
   if (!order.includes(req) && req !== 'fake') {
     return { requested: req, resolved: '', reason: 'unknown_engine' };
+  }
+  if (req === 'fake' && !isFakeEngineAllowed(env)) {
+    return { requested: req, resolved: '', reason: 'fake_engine_forbidden' };
   }
   if (!available(req)) {
     if (engineReportsAvailability(engines[req])) {
@@ -299,7 +353,7 @@ class DurableExecution {
     clock = () => Date.now(),
     offerTtlMs = OFFER_TTL_MS,
     leaseTtlMs = LEASE_TTL_MS,
-    env = process.env,
+    env = {},
     sseHub = null,
     outboxHandler = null,
   } = {}) {
@@ -376,6 +430,9 @@ class DurableExecution {
     const goal = String(input.goal || input.title || input.text || 'Delegated work').slice(0, 4000);
     const agentId = String(input.agentId || input.agent || 'default').slice(0, 120);
     const requestedEngineInput = String(input.executionEngine || input.engine || 'auto').toLowerCase() || 'auto';
+    if (requestedEngineInput === 'fake' && !isFakeEngineAllowed(this.env)) {
+      reject('FAKE_ENGINE_FORBIDDEN', 'Fake Engine is allowed only in explicit tests', 422);
+    }
     const requestedModel = normalizeExecutionModel(input.requestedModel);
     const clientRequestId = input.clientRequestId ? String(input.clientRequestId) : null;
     const missionId = String(input.missionId || input.id || newId('mission'));
@@ -393,6 +450,9 @@ class DurableExecution {
       : {};
     const hiddenSystemWork = ['calendar_ai_conversation', 'workspace_inference']
       .includes(inputPayload.kind);
+    const requiredCapabilities = Array.isArray(input.requiredCapabilities)
+      ? input.requiredCapabilities
+      : inputPayload.requiredCapabilities;
 
     return withAppRoleWorkspaceTransaction(this.pool, scope, async (client, valid) => {
       let directoryAgent = null;
@@ -411,6 +471,9 @@ class DurableExecution {
       const requestedEngine = requestedEngineInput === 'auto' && agentDefaultEngine !== 'auto'
         ? agentDefaultEngine
         : requestedEngineInput;
+      if (requestedEngine === 'fake' && !isFakeEngineAllowed(this.env)) {
+        reject('FAKE_ENGINE_FORBIDDEN', 'Fake Engine is allowed only in explicit tests', 422);
+      }
       const profileSnapshot = directoryAgent
         ? agentExecutionProfile({
           id: agentId,
@@ -418,9 +481,6 @@ class DurableExecution {
           workspaceId: valid.workspaceId,
         })
         : null;
-      const effectiveGoal = profileSnapshot
-        ? applyAgentExecutionProfile(goal, profileSnapshot)
-        : goal;
 
       // preferredRunnerId: only same-Workspace active runners; ignore foreign/stale ids (never stall).
       let preferredRunnerId = input.preferredRunnerId || input.runnerId
@@ -454,7 +514,7 @@ class DurableExecution {
         const pick = preferredConnected || connected[0];
         selectedRunner = pick;
         const caps = pick.capabilities || {};
-        resolved = resolveEngine(requestedEngine, caps);
+        resolved = resolveEngine(requestedEngine, caps, this.env);
         if (resolved.resolved && runnerSupportsModel(caps, resolved.resolved, requestedModel)) status = 'accepted';
         else if (resolved.resolved) {
           resolved = { ...resolved, reason: 'model_unavailable' };
@@ -464,6 +524,36 @@ class DurableExecution {
       if (!selectedRunner && preferredRunnerId) {
         selectedRunner = runners.rows.find((runner) => runner.id === preferredRunnerId) || null;
       }
+      const effectiveConfiguration = resolveEffectiveAgentConfiguration({
+        workspaceId: valid.workspaceId,
+        agent: directoryAgent
+          ? { id: agentId, ...directoryAgent, workspaceId: valid.workspaceId }
+          : { id: agentId, displayName: 'Default agent', workspaceId: valid.workspaceId },
+        runner: selectedRunner || { id: '', capabilities: {} },
+        requestedEngine,
+        resolvedEngine: resolved.resolved,
+        requestedModel,
+        reason: resolved.reason,
+        requiredCapabilities,
+        expectedSnapshotId: String(
+          input.effectiveConfigurationSnapshotId
+          || inputPayload.effectiveConfigurationSnapshotId
+          || '',
+        ),
+      });
+      if (!effectiveConfiguration.executable) {
+        if (effectiveConfiguration.grants.approvalRequired.length) {
+          reject(
+            'CAPABILITY_APPROVAL_REQUIRED',
+            'External delivery requires an Approval Gate',
+            409,
+          );
+        }
+        reject('CAPABILITY_DENIED', 'A required tool or skill is not granted', 403);
+      }
+      const effectiveGoal = profileSnapshot
+        ? applyAgentExecutionProfile(goal, profileSnapshot)
+        : goal;
       const providerEngine = ['codex', 'claude', 'grok', 'hermes'].includes(resolved.resolved)
         ? resolved.resolved
         : (['codex', 'claude', 'grok', 'hermes'].includes(requestedEngine) ? requestedEngine : '');
@@ -496,6 +586,7 @@ class DurableExecution {
         workConversationId: sessionId,
         ...(providerSessionId ? { providerSessionId } : {}),
         ...(profileSnapshot ? { profileSnapshot } : {}),
+        effectiveConfiguration,
         ...(hiddenSystemWork
           ? { hiddenFromAgentWork: true, systemKind: inputPayload.kind }
           : {}),
@@ -601,6 +692,7 @@ class DurableExecution {
             requestedModel,
             ...(providerSessionId ? { providerSessionId } : {}),
             ...(profileSnapshot ? { profileSnapshot } : {}),
+            effectiveConfiguration,
             // Spread system payload kinds (e.g. knowledge_search) at top level for protocol adapters.
             ...(input.payload && typeof input.payload === 'object' ? redactSecrets(input.payload) : {}),
             input: redactSecrets(input.payload || {}),
@@ -686,6 +778,7 @@ class DurableExecution {
         requestedEngine,
         resolvedEngine: resolved.resolved || null,
         engineReason: resolved.reason,
+        effectiveConfiguration,
         workspaceId: valid.workspaceId,
         mission: {
           id: missionId,
@@ -859,7 +952,22 @@ class DurableExecution {
       }
 
       const caps = runnerRow.capabilities || {};
-      const resolved = resolveEngine(job.requested_engine, caps);
+      const effectiveEligibility = effectiveConfigurationEligibility(job.payload, runnerRow);
+      if (!effectiveEligibility.ok) {
+        await client.query(
+          `update execution_jobs
+           set status = 'failed',
+               engine_reason = $1,
+               last_error_code = $1,
+               last_error_message = 'Effective configuration denied before offer',
+               terminal_at = now(),
+               updated_at = now()
+           where id = $2 and workspace_id = $3`,
+          [effectiveEligibility.reason, job.id, job.workspace_id],
+        );
+        return { ok: true, offer: null, reason: effectiveEligibility.reason };
+      }
+      const resolved = resolveEngine(job.requested_engine, caps, this.env);
       if (!resolved.resolved) {
         await client.query(
           `update execution_jobs
@@ -919,6 +1027,9 @@ class DurableExecution {
           workspaceId: job.workspace_id,
           // Redacted job payload (knowledge_search kind, query metadata — never provider secrets).
           payload: job.payload && typeof job.payload === 'object' ? job.payload : {},
+          ...(effectiveEligibility.effectiveConfiguration
+            ? { effectiveConfiguration: effectiveEligibility.effectiveConfiguration }
+            : {}),
           ...(providerSession ? { providerSession } : {}),
         },
       };
@@ -967,7 +1078,11 @@ class DurableExecution {
       if (offer.cancellation_requested) reject('JOB_CANCELLED', 'job cancelled', 409);
 
       const caps = runnerRow.capabilities || {};
-      const resolved = resolveEngine(offer.requested_engine, caps);
+      const effectiveEligibility = effectiveConfigurationEligibility(offer.payload, runnerRow);
+      if (!effectiveEligibility.ok) {
+        reject('EFFECTIVE_CONFIGURATION_INELIGIBLE', effectiveEligibility.reason, 409);
+      }
+      const resolved = resolveEngine(offer.requested_engine, caps, this.env);
       if (!resolved.resolved) reject('ENGINE_INELIGIBLE', resolved.reason, 409);
       if (!runnerSupportsModel(caps, resolved.resolved, offer.requested_model)) {
         reject('MODEL_INELIGIBLE', 'requested model is unavailable on this Runner', 409);
@@ -1074,24 +1189,34 @@ class DurableExecution {
         });
       }
 
+      const lease = {
+        offerId: id,
+        attemptId,
+        jobId: offer.job_id,
+        missionId: offer.mission_id,
+        sessionId: offer.session_id,
+        attemptNumber,
+        leaseEpoch,
+        leaseExpiresAt: leaseExpires,
+        engine: resolved.resolved,
+        requestedModel: String(offer.requested_model || ''),
+        goal: offer.goal,
+        turnIndex: Number(offer.turn_index || 1),
+        turnTargetIndex: Number(offer.turn_target_index || 0),
+        turnMode: String(offer.turn_mode || 'single'),
+        workspaceId: runnerRow.workspace_id,
+        ...(effectiveEligibility.effectiveConfiguration
+          ? { effectiveConfiguration: effectiveEligibility.effectiveConfiguration }
+          : {}),
+        ...(providerSession ? { providerSession } : {}),
+      };
       return {
         ok: true,
         lease: {
-          attemptId,
-          jobId: offer.job_id,
-          missionId: offer.mission_id,
-          sessionId: offer.session_id,
-          attemptNumber,
-          leaseEpoch,
-          leaseExpiresAt: leaseExpires,
-          engine: resolved.resolved,
-          requestedModel: String(offer.requested_model || ''),
-          goal: offer.goal,
-          turnIndex: Number(offer.turn_index || 1),
-          turnTargetIndex: Number(offer.turn_target_index || 0),
-          turnMode: String(offer.turn_mode || 'single'),
-          workspaceId: runnerRow.workspace_id,
-          ...(providerSession ? { providerSession } : {}),
+          ...lease,
+          ...(effectiveEligibility.effectiveConfiguration ? {
+            authorization: createLeaseAuthorization(lease, runnerRow, now),
+          } : {}),
         },
       };
     });
@@ -1420,6 +1545,28 @@ class DurableExecution {
           att.workspace_id,
         ],
       );
+      const completedHandoffId = String(
+        att.payload && typeof att.payload === 'object'
+          ? att.payload.handoffId || ''
+          : '',
+      );
+      if (completedHandoffId) {
+        await client.query(
+          `update agent_work_handoffs
+           set result_projection = result_projection || $4::jsonb,
+               updated_at = now()
+           where workspace_id = $1 and root_mission_id = $2 and id = $3`,
+          [
+            att.workspace_id,
+            att.mission_id,
+            completedHandoffId,
+            JSON.stringify({
+              reportId,
+              summary: resultSummary,
+            }),
+          ],
+        );
+      }
 
       await this.#appendSessionCheckpoint(client, {
         workspaceId: att.workspace_id,
@@ -1927,6 +2074,53 @@ class DurableExecution {
   }
 
   async #syncMissionAfterJobTerminal(client, att, terminal) {
+    const handoffId = String(
+      att.payload && typeof att.payload === 'object'
+        ? att.payload.handoffId || ''
+        : '',
+    );
+    if (handoffId) {
+      const handoffStatus = ['completed', 'failed', 'cancelled'].includes(
+        terminal.status,
+      )
+        ? terminal.status
+        : 'failed';
+      await client.query(
+        `update agent_work_handoffs
+         set status = $4,
+             result_projection = result_projection || $5::jsonb,
+             terminal_at = coalesce(terminal_at, now()),
+             updated_at = now()
+         where workspace_id = $1 and root_mission_id = $2
+           and id = $3 and execution_job_id = $6`,
+        [
+          att.workspace_id,
+          att.mission_id,
+          handoffId,
+          handoffStatus,
+          JSON.stringify({
+            status: handoffStatus,
+            jobId: att.job_id,
+            ...terminal.payload,
+          }),
+          att.job_id,
+        ],
+      );
+      const root = await client.query(
+        `select status
+         from agent_missions
+         where workspace_id = $1 and id = $2
+         limit 1`,
+        [att.workspace_id, att.mission_id],
+      );
+      return {
+        status: root.rows[0]?.status || 'active',
+        latestTurnIndex: Number(att.turn_index || 1),
+        pending: false,
+        comparison: false,
+        childHandoff: true,
+      };
+    }
     const latest = await client.query(
       `select coalesce(max(turn_index), 0)::int as turn_index
        from execution_jobs

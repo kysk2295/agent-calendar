@@ -6,7 +6,9 @@
  */
 
 const { getEngineAdapter } = require('./engines');
+const { assertAuthorizedLease, assertEffectiveConfiguration } = require('./capability-grants');
 const { listKnowledgeSources } = require('./store');
+const { isFakeEngineAllowed } = require('./runtime-policy');
 
 const HEARTBEAT_INTERVAL_MS = Number(process.env.AGENT_CALENDAR_ATTEMPT_HEARTBEAT_MS || 15_000);
 
@@ -28,7 +30,7 @@ async function restoreCapturedProviderSession(client) {
 }
 
 async function runOnce(client, {
-  allowFake = false,
+  env = {},
   forceCrash = false,
   forceFail = false,
   longRunMs = 0,
@@ -46,7 +48,20 @@ async function runOnce(client, {
     offerId: offer.offerId,
   });
   const lease = leaseRes.lease;
+  if (String(lease.engine || '').toLowerCase() === 'fake' && !isFakeEngineAllowed(env)) {
+    const error = new Error('fake engine not allowed outside explicit tests');
+    error.code = 'FAKE_ENGINE_FORBIDDEN';
+    throw error;
+  }
+  assertEffectiveConfiguration(lease.effectiveConfiguration);
+  const consumedLeaseAuthorization = assertAuthorizedLease(lease, client.state);
   client.persist({
+    consumedLeaseAuthorizations: [
+      ...(Array.isArray(client.state?.consumedLeaseAuthorizations)
+        ? client.state.consumedLeaseAuthorizations
+        : []),
+      consumedLeaseAuthorization,
+    ].slice(-128),
     activeAttempt: {
       attemptId: lease.attemptId,
       jobId: lease.jobId,
@@ -64,7 +79,7 @@ async function runOnce(client, {
     },
   });
 
-  const adapter = adapterResolver(lease.engine, { allowFake: allowFake || lease.engine === 'fake' });
+  const adapter = adapterResolver(lease.engine, { env });
   const controller = new AbortController();
   let heartbeatTimer = null;
   let heartbeatChain = Promise.resolve();

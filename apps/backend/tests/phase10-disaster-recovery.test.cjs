@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const {
   CURRENT_PERSISTED_TABLES,
@@ -19,6 +19,7 @@ const {
   extractCurrentTableNamesFromMigrations,
   resolvePhase10PostgresBinDir,
 } = require('../app/lib/phase10-disaster-recovery');
+const { probeProcessLiveness } = require('../app/lib/phase0-snapshot-restore');
 
 const CLI_PATH = path.join(__dirname, '../tools/phase10-disaster-recovery-rehearsal.cjs');
 const MIGRATIONS_DIR = path.join(__dirname, '../app/db/migrations');
@@ -31,9 +32,16 @@ function makeEmptyWorkDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'phase10-recovery-test-'));
 }
 
-test('current table inventory is derived from every migration through 0024', () => {
+test('current table inventory is derived through the dynamically discovered latest migration', () => {
   const fromDisk = extractCurrentTableNamesFromMigrations(MIGRATIONS_DIR);
+  const migrationNames = fs.readdirSync(MIGRATIONS_DIR)
+    .filter((name) => /^\d{4}_.*\.sql$/i.test(name))
+    .sort();
   assert.deepEqual(CURRENT_PERSISTED_TABLES, fromDisk);
+  assert.equal(migrationNames.at(-1), fs.readdirSync(MIGRATIONS_DIR)
+    .filter((name) => /^\d{4}_.*\.sql$/i.test(name))
+    .sort()
+    .at(-1));
   for (const table of [
     'users',
     'workspaces',
@@ -225,6 +233,60 @@ test('full current-schema logical restore and WAL PITR rehearsal succeeds', () =
       : null;
     assert.equal(afterEvidence, beforeEvidence);
   } finally {
+    fs.rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test('PITR verification failure stops the exact source postmaster', async (t) => {
+  const binDir = resolvePhase10PostgresBinDir(process.env);
+  if (!binDir) {
+    t.skip('PostgreSQL disaster recovery binaries missing');
+    return;
+  }
+
+  const workDir = makeEmptyWorkDir();
+  const pidPath = path.join(workDir, 'source-pgdata', 'postmaster.pid');
+  const child = spawn(process.execPath, [CLI_PATH, '--work-dir', workDir], {
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      PHASE10_PG_BIN: binDir,
+      PHASE10_TEST_FAIL_AFTER_SOURCE_READY: '1',
+      DATABASE_URL: '',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => { stdout += chunk; });
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  const exitPromise = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', resolve);
+  });
+
+  let sourcePid = 0;
+  for (let attempt = 0; attempt < 120 && sourcePid <= 0; attempt += 1) {
+    try {
+      sourcePid = Number(fs.readFileSync(pidPath, 'utf8').split(/\r?\n/)[0]) || 0;
+    } catch {}
+    if (sourcePid <= 0) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  const exitCode = await exitPromise;
+
+  try {
+    assert.ok(sourcePid > 0, `source PID was not observed\n${stdout}\n${stderr}`);
+    assert.notEqual(exitCode, 0);
+    const report = JSON.parse(stdout);
+    assert.equal(report.ok, false);
+    assert.equal(report.clustersStopped, true);
+    assert.equal(probeProcessLiveness(sourcePid).gone, true);
+  } finally {
+    if (sourcePid > 0 && !probeProcessLiveness(sourcePid).gone) {
+      process.kill(sourcePid, 'SIGKILL');
+    }
     fs.rmSync(workDir, { recursive: true, force: true });
   }
 });

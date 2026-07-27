@@ -239,6 +239,7 @@ async function dispatchProductionApi(req, res, requestUrl, {
       || action === 'runner_device_telegram_status'
       || action === 'runner_device_telegram_inbound'
       || action === 'runner_device_telegram_next'
+      || action === 'runner_device_telegram_begin'
       || action === 'runner_device_telegram_ack') {
       await handleExecutionDeviceRouteWithPath({
         res,

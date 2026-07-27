@@ -11,6 +11,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { isFakeEngineAllowed } = require('./runtime-policy');
 
 const BANNED_ARGS = Object.freeze([
   '--yolo',
@@ -279,7 +280,7 @@ async function probeAllEngines(options = {}) {
     /* adapters optional during partial loads */
   }
 
-  if (process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE === '1') {
+  if (isFakeEngineAllowed(options.env)) {
     engines.fake = {
       available: true,
       status: 'available',
@@ -292,6 +293,7 @@ async function probeAllEngines(options = {}) {
   }
   return {
     engines,
+    catalog: require('./capability-grants').runnerCapabilityCatalog(),
     reportedAt: new Date().toISOString(),
   };
 }

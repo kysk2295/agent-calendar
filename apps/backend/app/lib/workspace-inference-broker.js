@@ -151,7 +151,7 @@ class WorkspaceInferenceBroker {
       .filter((runner) => runner.connection_state === 'connected')
       .map((runner) => ({
         runner,
-        resolved: resolveEngine(policy.defaultEngine, runner.capabilities || {}),
+        resolved: resolveEngine(policy.defaultEngine, runner.capabilities || {}, this.env),
       }))
       .find((candidate) => candidate.resolved.resolved);
     if (!eligible) {

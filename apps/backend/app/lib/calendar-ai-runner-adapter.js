@@ -57,7 +57,7 @@ function createRunnerWorkspaceInferenceCompletion({
            order by last_seen_at desc nulls last`,
           [valid.workspaceId],
         );
-        return rows.rows.find((row) => resolveEngine(requested, row.capabilities).resolved) || null;
+        return rows.rows.find((row) => resolveEngine(requested, row.capabilities, env).resolved) || null;
       },
     );
     if (!runner) {

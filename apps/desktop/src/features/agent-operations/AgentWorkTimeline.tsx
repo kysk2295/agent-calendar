@@ -273,7 +273,7 @@ export function AgentWorkTimeline(props: AgentWorkTimelineProps) {
       ? deliveryCopy(checkpoint.metadata.deliveryStatus, checkpoint.metadata.applicationMode).split('. ', 2)
       : null;
     const presentation = checkpointPresentation(checkpoint.kind);
-    return <article className="agent-checkpoint" data-kind={checkpoint.kind} data-presentation={presentation} key={checkpoint.id}>
+    return <article className="agent-checkpoint" data-kind={checkpoint.kind} data-origin={checkpoint.origin} data-sequence={checkpoint.sequence} data-presentation={presentation} key={checkpoint.id}>
       {showHeader && <header><span>{checkpointOrigin(checkpoint, props.responsibleAgentName)}</span><time dateTime={checkpoint.createdAt}>{timeLabel(checkpoint.createdAt)}</time></header>}
       <p>{preserveWorkClosingPhrase(displayedText)}</p>
       {delivery && <small className="agent-checkpoint-delivery"><span>{delivery[0]}</span>{delivery[1] && <span className="agent-checkpoint-delivery-outcome">{delivery[1]}</span>}</small>}

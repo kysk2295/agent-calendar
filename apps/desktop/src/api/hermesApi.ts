@@ -227,6 +227,26 @@ export const hermesApi = {
     method: 'POST',
     body: JSON.stringify(body),
   }, AGENT_OPERATIONS_TIMEOUT_MS).then(parseAgentWorkMessageResponse),
+  createAgentWorkHandoff: (missionId: string, body: Record<string, unknown>) => jsonPost(
+    `/api/agent-operations/work/${encodeURIComponent(missionId)}/handoffs`,
+    body,
+    AGENT_OPERATIONS_TIMEOUT_MS,
+  ),
+  cancelAgentWorkHandoff: (missionId: string, handoffId: string, body: Record<string, unknown>) => jsonPost(
+    `/api/agent-operations/work/${encodeURIComponent(missionId)}/handoffs/${encodeURIComponent(handoffId)}/cancel`,
+    body,
+    AGENT_OPERATIONS_TIMEOUT_MS,
+  ),
+  transitionAgentWorkProviderSession: (missionId: string, body: Record<string, unknown>) => jsonPost(
+    `/api/agent-operations/work/${encodeURIComponent(missionId)}/provider-session-transitions`,
+    body,
+    AGENT_OPERATIONS_TIMEOUT_MS,
+  ),
+  adoptAgentWorkComparisonResult: (missionId: string, body: Record<string, unknown>) => jsonPost(
+    `/api/agent-operations/work/${encodeURIComponent(missionId)}/comparison/adopt`,
+    body,
+    AGENT_OPERATIONS_TIMEOUT_MS,
+  ),
   streamAgentWorkTurn: async (missionId: string, body: AgentWorkLiveTurnRequest, signal?: AbortSignal): Promise<Response> => {
     const response = await proxyFetch(`/api/agent-operations/work/${encodeURIComponent(missionId)}/live`, {
       method: 'POST',
@@ -260,6 +280,32 @@ export const hermesApi = {
     body: JSON.stringify({ index, decision }),
   }),
   createAgent: (body: Record<string, unknown>) => jsonPost('/api/agents', body),
+  createAgentBuilderDraft: (body: Record<string, unknown>) => jsonPost('/api/agents/builder', body),
+  reviewAgentBuilderDraft: (agentId: string, body: Record<string, unknown>) => jsonPost(
+    `/api/agents/${encodeURIComponent(agentId)}/review`,
+    body,
+  ),
+  startAgentBuilderTest: (agentId: string, body: Record<string, unknown>) => jsonPost(
+    `/api/agents/${encodeURIComponent(agentId)}/tests`,
+    body,
+    AGENT_OPERATIONS_TIMEOUT_MS,
+  ),
+  getAgentBuilderTest: (agentId: string, requestId: string) => hermesJson<ApiEnvelope>(
+    `/api/agents/${encodeURIComponent(agentId)}/tests/${encodeURIComponent(requestId)}`,
+    undefined,
+    AGENT_OPERATIONS_TIMEOUT_MS,
+  ),
+  cancelAgentBuilderTest: (agentId: string, requestId: string) => jsonPost(
+    `/api/agents/${encodeURIComponent(agentId)}/tests/${encodeURIComponent(requestId)}/cancel`,
+    {},
+  ),
+  activateAgentBuilderProfile: (agentId: string, body: Record<string, unknown>) => jsonPost(
+    `/api/agents/${encodeURIComponent(agentId)}/activate`,
+    body,
+  ),
+  listAgentProfileVersions: (agentId: string) => hermesJson<ApiEnvelope>(
+    `/api/agents/${encodeURIComponent(agentId)}/profile-versions`,
+  ),
   updateAgent: (id: string, body: Record<string, unknown>) => hermesJson<ApiEnvelope>(`/api/agents/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(body),

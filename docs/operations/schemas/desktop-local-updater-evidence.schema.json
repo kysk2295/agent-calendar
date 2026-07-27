@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-calendar.local/schemas/desktop-local-updater-evidence.schema.json",
+  "title": "Agent Calendar local unsigned updater mechanics evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "ok",
+    "localUnsigned",
+    "publicationEligible",
+    "sourceSha",
+    "tag",
+    "previousVersion",
+    "candidateVersion",
+    "candidateSha256",
+    "controlledFeed",
+    "sha512Verified",
+    "failureMode",
+    "update",
+    "rollback",
+    "cleanup",
+    "screenshots"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "ok": { "type": "boolean" },
+    "localUnsigned": { "const": true },
+    "publicationEligible": { "const": false },
+    "sourceSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "tag": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "previousVersion": { "type": "string" },
+    "candidateVersion": { "type": "string" },
+    "candidateSha256": { "$ref": "#/$defs/sha256" },
+    "controlledFeed": { "const": true },
+    "sha512Verified": { "const": true },
+    "failureMode": { "type": ["string", "null"] },
+    "update": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startedVersion",
+        "offeredVersion",
+        "installedVersion",
+        "candidateIntegrityVerified",
+        "signedCandidateVerified",
+        "userDataPreserved"
+      ],
+      "properties": {
+        "startedVersion": { "type": "string" },
+        "offeredVersion": { "type": "string" },
+        "installedVersion": { "type": ["string", "null"] },
+        "candidateIntegrityVerified": { "const": true },
+        "signedCandidateVerified": { "const": false },
+        "userDataPreserved": { "const": true }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manualOnly",
+        "automaticDowngradeAttempted",
+        "retainedPreviousArtifactVerified",
+        "rollbackRehearsed",
+        "restoredVersion"
+      ],
+      "properties": {
+        "manualOnly": { "const": true },
+        "automaticDowngradeAttempted": { "const": false },
+        "retainedPreviousArtifactVerified": { "const": true },
+        "rollbackRehearsed": { "const": true },
+        "restoredVersion": { "type": "string" }
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["qaApplicationRemoved", "qaUserDataRemoved", "stagingRemoved"],
+      "properties": {
+        "qaApplicationRemoved": { "const": true },
+        "qaUserDataRemoved": { "const": true },
+        "stagingRemoved": { "const": true }
+      }
+    },
+    "screenshots": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "sha256"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "sha256": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

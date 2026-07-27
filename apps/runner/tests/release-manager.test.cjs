@@ -30,7 +30,7 @@ test.afterEach(() => {
   }
 });
 
-function makeArchive({ version, maliciousPath = '' }) {
+function makeArchive({ version, maliciousPath = '', includeSymlink = false }) {
   const root = makeTempDir('runner-release-fixture-');
   const archivePath = path.join(root, `agent-calendar-runner-${version}.tgz`);
   if (maliciousPath) {
@@ -69,6 +69,10 @@ function makeArchive({ version, maliciousPath = '' }) {
     `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(`${version}\n`)});\n`,
     { encoding: 'utf8', mode: 0o755 },
   );
+  if (includeSymlink) {
+    fs.mkdirSync(path.join(packageDir, 'lib'), { recursive: true });
+    fs.symlinkSync('../bin/agent-calendar-runner.js', path.join(packageDir, 'lib', 'linked-runner.js'));
+  }
   const args = ['-czf', archivePath, '-C', root, 'package'];
   const tar = spawnSync('tar', args, { encoding: 'utf8' });
   assert.equal(tar.status, 0, tar.stderr);
@@ -90,6 +94,60 @@ function signedFixture({ version = '1.0.0', archivePath = makeArchive({ version 
   });
   return { archivePath, manifest, publicKey, privateKey };
 }
+
+test('manifest trust is selected by signed public key id and unknown signer fails closed', () => {
+  const fixture = signedFixture();
+  assert.match(fixture.manifest.publicKeyId, /^runner-ed25519-[a-f0-9]{16}$/);
+  const validated = validateRunnerReleaseManifest({
+    manifest: fixture.manifest,
+    artifactPath: fixture.archivePath,
+    trustedPublicKeys: { [fixture.manifest.publicKeyId]: fixture.publicKey },
+    installedVersion: '0.9.0',
+    protocolVersion: 1,
+    stateSchemaVersion: 1,
+    now: () => Date.parse('2026-07-25T00:01:00.000Z'),
+  });
+  assert.equal(validated.publicKeyId, fixture.manifest.publicKeyId);
+  assert.throws(
+    () => validateRunnerReleaseManifest({
+      manifest: fixture.manifest,
+      artifactPath: fixture.archivePath,
+      trustedPublicKeys: { 'runner-ed25519-0000000000000000': fixture.publicKey },
+      installedVersion: '0.9.0',
+      protocolVersion: 1,
+      stateSchemaVersion: 1,
+      now: () => Date.parse('2026-07-25T00:01:00.000Z'),
+    }),
+    /unknown|trust|key/i,
+  );
+});
+
+test('manifest rejects stale and future release metadata', () => {
+  const fixture = signedFixture();
+  const common = {
+    manifest: fixture.manifest,
+    artifactPath: fixture.archivePath,
+    trustedPublicKey: fixture.publicKey,
+    installedVersion: '0.9.0',
+    protocolVersion: 1,
+    stateSchemaVersion: 1,
+    maxManifestAgeMs: 60_000,
+  };
+  assert.throws(
+    () => validateRunnerReleaseManifest({
+      ...common,
+      now: () => Date.parse('2026-07-25T00:02:00.001Z'),
+    }),
+    /stale|generated/i,
+  );
+  assert.throws(
+    () => validateRunnerReleaseManifest({
+      ...common,
+      now: () => Date.parse('2026-07-24T23:50:00.000Z'),
+    }),
+    /future|generated/i,
+  );
+});
 
 test('signed manifest fixes stable version, checksum, protocol, state, and pinned trust', () => {
   const fixture = signedFixture();
@@ -184,6 +242,24 @@ test('archive traversal is rejected before extraction', async () => {
   assert.equal(fs.existsSync(path.join(installRoot, 'current')), false);
 });
 
+test('archive links are rejected before extraction', async () => {
+  const archivePath = makeArchive({ version: '1.0.0', includeSymlink: true });
+  const fixture = signedFixture({ version: '1.0.0', archivePath });
+  const installRoot = makeTempDir('runner-install-');
+  await assert.rejects(
+    () => installRunnerRelease({
+      installRoot,
+      artifactPath: archivePath,
+      manifest: fixture.manifest,
+      trustedPublicKey: fixture.publicKey,
+      protocolVersion: 1,
+      stateSchemaVersion: 1,
+    }),
+    /archive|link|special/i,
+  );
+  assert.equal(fs.existsSync(path.join(installRoot, 'current')), false);
+});
+
 test('failed promoted release restores known-good pointer and preserves Runner device state', async () => {
   const installRoot = makeTempDir('runner-install-');
   const stateDir = makeTempDir('runner-state-');
@@ -260,4 +336,96 @@ test('failed promoted release restores known-good pointer and preserves Runner d
     fs.existsSync(path.join(currentPath, 'package/bin/agent-calendar-runner.js')),
     true,
   );
+});
+
+test('interruption after pointer promotion rolls back visibly and leaves no staging pointer', async () => {
+  const installRoot = makeTempDir('runner-install-');
+  const trust = crypto.generateKeyPairSync('ed25519');
+  const installVersion = async (version, commit, onStage) => {
+    const artifactPath = makeArchive({ version });
+    const manifest = createSignedRunnerManifest({
+      artifactPath,
+      version,
+      commitSha: commit.repeat(40),
+      protocolVersion: 1,
+      stateSchemaVersion: 1,
+      platform: 'darwin-arm64',
+      stagingPercentage: 10,
+      privateKey: trust.privateKey,
+      generatedAt: '2026-07-25T00:00:00.000Z',
+    });
+    return installRunnerRelease({
+      installRoot,
+      artifactPath,
+      manifest,
+      trustedPublicKey: trust.publicKey,
+      protocolVersion: 1,
+      stateSchemaVersion: 1,
+      postPromoteCheck: async () => true,
+      onStage,
+    });
+  };
+  assert.equal((await installVersion('1.0.0', '1')).ok, true);
+  const interrupted = await installVersion('1.1.0', '2', (stage) => {
+    if (stage === 'promoted') throw new Error('fixture interruption');
+  });
+  assert.equal(interrupted.ok, false);
+  assert.equal(interrupted.rolledBack, true);
+  assert.equal(interrupted.failure, 'update_interrupted');
+  assert.equal(readRunnerReleaseState(installRoot).currentVersion, '1.0.0');
+  assert.match(fs.realpathSync(path.join(installRoot, 'current')), /1\.0\.0/);
+  assert.deepEqual(
+    fs.readdirSync(installRoot).filter((name) => name.startsWith('.current-')),
+    [],
+  );
+  assert.deepEqual(
+    fs.readdirSync(path.join(installRoot, 'releases')).filter((name) => name.startsWith('.staging-')),
+    [],
+  );
+});
+
+test('interruption at verify, extract, prepare, and health boundaries leaves one whole current release', async () => {
+  for (const stage of ['verified', 'extracted', 'prepared', 'health_checked']) {
+    const installRoot = makeTempDir(`runner-interruption-${stage}-`);
+    const trust = crypto.generateKeyPairSync('ed25519');
+    const install = async (version, commit, onStage = () => {}) => {
+      const artifactPath = makeArchive({ version });
+      return installRunnerRelease({
+        installRoot,
+        artifactPath,
+        manifest: createSignedRunnerManifest({
+          artifactPath,
+          version,
+          commitSha: commit.repeat(40),
+          protocolVersion: 1,
+          stateSchemaVersion: 1,
+          platform: 'darwin-arm64',
+          stagingPercentage: 10,
+          privateKey: trust.privateKey,
+        }),
+        trustedPublicKey: trust.publicKey,
+        protocolVersion: 1,
+        stateSchemaVersion: 1,
+        postPromoteCheck: async () => true,
+        onStage,
+      });
+    };
+    assert.equal((await install('1.0.0', '1')).ok, true);
+    const operation = install('1.1.0', '2', (current) => {
+      if (current === stage) throw new Error(`fixture ${stage} interruption`);
+    });
+    if (['verified', 'extracted', 'prepared'].includes(stage)) {
+      await assert.rejects(operation, /fixture/);
+    } else {
+      const result = await operation;
+      assert.equal(result.ok, false);
+      assert.equal(result.rolledBack, true);
+    }
+    assert.equal(readRunnerReleaseState(installRoot).currentVersion, '1.0.0');
+    assert.match(fs.realpathSync(path.join(installRoot, 'current')), /1\.0\.0/);
+    assert.equal(
+      fs.readdirSync(path.join(installRoot, 'releases')).some((name) => name.startsWith('.staging-')),
+      false,
+    );
+  }
 });
