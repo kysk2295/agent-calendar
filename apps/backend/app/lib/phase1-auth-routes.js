@@ -19,6 +19,10 @@ const {
   createWorkosAuthKitAdapter,
   resolveWorkosConfig,
 } = require('./workos-authkit-adapter');
+const {
+  createGoogleOAuthAdapter,
+  resolveGoogleOAuthConfig,
+} = require('./google-oauth-adapter');
 const { dispatchProductionApi } = require('./production-gateway-dispatch');
 const { WorkspaceIdempotencyStore } = require('./workspace-idempotency');
 const {
@@ -131,7 +135,10 @@ function createPhase1Runtime({
   let resolvedAuthKit = authKit;
   let resolvedWorkosConfig = workosConfig;
   if (resolvedAuthKit === undefined || resolvedWorkosConfig === undefined) {
-    const fromEnv = resolveWorkosConfig(env);
+    // Google is the product identity provider (ADR 0010). WorkOS stays selectable so an
+    // existing deployment keeps working until its configuration is removed.
+    const googleFromEnv = resolveGoogleOAuthConfig(env);
+    const fromEnv = googleFromEnv || resolveWorkosConfig(env);
     if (resolvedWorkosConfig === undefined) {
       resolvedWorkosConfig = fromEnv
         ? { clientId: fromEnv.clientId, apiKeyConfigured: true }
@@ -139,7 +146,9 @@ function createPhase1Runtime({
     }
     if (resolvedAuthKit === undefined) {
       try {
-        resolvedAuthKit = createWorkosAuthKitAdapter(env);
+        resolvedAuthKit = googleFromEnv
+          ? createGoogleOAuthAdapter(env)
+          : createWorkosAuthKitAdapter(env);
       } catch {
         resolvedAuthKit = null;
       }

@@ -6,7 +6,14 @@ const {
   bootstrapUserWorkspaceForVerifiedSubject,
 } = require('./workspace-auth-session');
 
+// WorkOS accepts this custom scheme. Google does not — it rejects custom schemes outright —
+// so a Google adapter carries its own gateway-hosted redirect and that value wins.
 const DESKTOP_LOGIN_REDIRECT_URI = 'agent-calendar://auth/callback';
+
+function desktopLoginRedirectUri(runtime) {
+  const configured = String(runtime?.authKit?.redirectUri || '').trim();
+  return configured || DESKTOP_LOGIN_REDIRECT_URI;
+}
 const LOGIN_TTL_MS = 10 * 60 * 1000;
 const SELECTION_TTL_MS = 10 * 60 * 1000;
 const PROVIDER = 'workos';
@@ -76,10 +83,11 @@ function assertAuthKitReady(runtime) {
  */
 async function startDesktopLogin(runtime, { screenHint } = {}) {
   const { authKit, clientId } = assertAuthKitReady(runtime);
+  const redirectUri = desktopLoginRedirectUri(runtime);
   const state = newOpaqueToken();
   const { url, codeVerifier } = await authKit.getAuthorizationUrlWithPKCE({
     clientId,
-    redirectUri: DESKTOP_LOGIN_REDIRECT_URI,
+    redirectUri,
     provider: 'authkit',
     state,
     screenHint: screenHint || undefined,
@@ -98,7 +106,7 @@ async function startDesktopLogin(runtime, { screenHint } = {}) {
       transactionId,
       hashDesktopLoginSecret(state),
       hashDesktopLoginSecret(codeVerifier),
-      DESKTOP_LOGIN_REDIRECT_URI,
+      redirectUri,
       expiresAt,
     ],
   );
@@ -109,12 +117,12 @@ async function startDesktopLogin(runtime, { screenHint } = {}) {
     authorizationUrl: url,
     state,
     codeVerifier,
-    redirectUri: DESKTOP_LOGIN_REDIRECT_URI,
+    redirectUri,
     expiresAt,
   };
 }
 
-async function claimPendingLoginTransaction(client, { state, codeVerifier }) {
+async function claimPendingLoginTransaction(client, { state, codeVerifier, redirectUri }) {
   const stateHash = hashDesktopLoginSecret(state);
   const verifierHash = hashDesktopLoginSecret(codeVerifier);
   if (!String(state || '').trim() || !String(codeVerifier || '').trim()) {
@@ -133,7 +141,7 @@ async function claimPendingLoginTransaction(client, { state, codeVerifier }) {
        and status = 'pending'
        and expires_at > now()
      returning *`,
-    [stateHash, verifierHash, DESKTOP_LOGIN_REDIRECT_URI],
+    [stateHash, verifierHash, redirectUri || DESKTOP_LOGIN_REDIRECT_URI],
   );
 
   if (claimed.rowCount) {
@@ -221,7 +229,11 @@ async function completeDesktopLogin(runtime, body = {}) {
   let claimedTx = null;
   try {
     claimedTx = await withTransaction(runtime.pool, async (client) => (
-      claimPendingLoginTransaction(client, { state, codeVerifier })
+      claimPendingLoginTransaction(client, {
+        state,
+        codeVerifier,
+        redirectUri: desktopLoginRedirectUri(runtime),
+      })
     ));
   } catch (error) {
     throw error;
@@ -406,6 +418,7 @@ module.exports = {
   LOGIN_TTL_MS,
   SELECTION_TTL_MS,
   completeDesktopLogin,
+  desktopLoginRedirectUri,
   hashDesktopLoginSecret,
   selectDesktopWorkspace,
   startDesktopLogin,
