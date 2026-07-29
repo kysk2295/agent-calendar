@@ -98,6 +98,24 @@ function matchingCalendarEvent(events, message) {
     .sort((left, right) => String(right.title).length - String(left.title).length)[0] || null;
 }
 
+// The system prompt forbids claiming executed actions, but a model can still ignore it and a
+// free-conversation turn changes nothing by construction. Treat any completion claim on that
+// path as untrustworthy rather than forwarding it to the user.
+const COMPLETED_ACTION_CLAIM = new RegExp([
+  '(?:추가|등록|생성|삭제|제거|수정|변경|취소|예약|저장|전송|발송|공유|완료|처리|설정|반영)',
+  '\\s*(?:해\\s*)?(?:뒀|놨|했|됐|되었|하였)',
+].join(''));
+
+function withoutFalseCompletionClaim(answerValue) {
+  const answer = String(answerValue || '');
+  if (!COMPLETED_ACTION_CLAIM.test(answer)) return answer;
+  return [
+    '요청하신 내용을 아직 실행하지 않았습니다.',
+    '이 대화에서는 일정이나 작업이 변경되지 않습니다.',
+    '실제로 반영하려면 캘린더 화면에서 직접 추가하거나, 일정을 명확히 지정해 다시 요청해 주세요.',
+  ].join(' ');
+}
+
 function matchingAutomation(automations, targetName, message) {
   const normalized = `${targetName || ''} ${message || ''}`.replace(/\s+/g, ' ').trim();
   return [...automations]
@@ -652,7 +670,7 @@ class CalendarAiService {
       conversationId: started.conversationId,
       userTurnId: started.userTurnId,
       requestId: normalizedRequestId,
-      answer: completion.text,
+      answer: withoutFalseCompletionClaim(completion.text),
       mode: intent.kind === 'knowledge' ? 'knowledge_conversation' : 'conversation',
       sources: knowledgeResults,
       memoryIds: memories.map((memory) => memory.id),

@@ -17,6 +17,11 @@ const {
 } = require('./google-calendar-adapter');
 const { createDbCredentialVault, requireVaultKey } = require('./credential-vault');
 
+// Internal events are created with an offset inside `startsAt` and no separate timezone
+// field, so they need the product default rather than UTC — otherwise a 15:00+09:00 event
+// renders as its UTC value everywhere the entry timezone is used for display.
+const DEFAULT_DISPLAY_TIMEZONE = 'Asia/Seoul';
+
 function newId(prefix) {
   return `${prefix}_${crypto.randomBytes(10).toString('hex')}`;
 }
@@ -739,7 +744,7 @@ class UnifiedCalendar {
           allDay: Boolean(p.allDay || p.all_day),
           startsAt: toIso(s),
           endsAt: toIso(e),
-          timezone: p.timezone || p.timeZone || 'UTC',
+          timezone: p.timezone || p.timeZone || DEFAULT_DISPLAY_TIMEZONE,
           recurrenceId: p.recurrenceId || '',
           writable: sourceKind !== 'agent_work',
           etag: p.etag || '',

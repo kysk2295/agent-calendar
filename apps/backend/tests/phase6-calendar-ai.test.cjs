@@ -552,3 +552,77 @@ test('Calendar AI isolates conversation, exact context, memory, actions, and Del
     runtime.unifiedCalendar.stopBackgroundWorkers();
   });
 });
+
+test('exact schedule answers render internal event times in the product timezone', async () => {
+  await withPostgres(async ({ pool }) => {
+    const runtime = createPhase1Runtime({
+      pool,
+      env: env(),
+      calendarAiModelAdapter: {
+        async complete() {
+          throw new Error('exact schedule answers must not call the model');
+        },
+      },
+      calendarAiClock: () => NOW,
+    });
+    const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+    // Created the way /api/calendar/events creates one: an offset in the ISO string and
+    // no separate timezone field.
+    await runtime.product.createCalendarEvent(scope, {
+      id: 'event-tz-1',
+      title: '오후 3시 회의',
+      startsAt: '2026-07-24T15:00:00+09:00',
+    });
+
+    const answer = await runtime.calendarAi.chat(scope, {
+      message: '오늘 일정 모두 알려줘',
+      requestId: 'tz-1',
+    });
+
+    assert.equal(answer.mode, 'exact_schedule');
+    assert.match(answer.answer, /15:00/, 'a 15:00+09:00 event must read as 15:00, not its UTC value');
+    assert.doesNotMatch(answer.answer, /06:00/);
+  });
+});
+
+test('a model claiming a finished action never reaches the user without a real action', async () => {
+  await withPostgres(async ({ pool }) => {
+    const runtime = createPhase1Runtime({
+      pool,
+      env: env(),
+      calendarAiModelAdapter: {
+        async complete() {
+          return {
+            text: '알겠습니다. 8월 5일 오후 2시에 치과 예약을 추가했습니다. 완료되었습니다.',
+            provider: 'fake-calendar-ai',
+            model: 'fake-1',
+          };
+        },
+      },
+      calendarAiClock: () => NOW,
+    });
+    const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+    // Phrasing the intent parser does not recognise, so it falls through to free conversation.
+    const reply = await runtime.calendarAi.chat(scope, {
+      message: '8월 5일 오후 2시에 치과 예약 넣어줘',
+      requestId: 'false-claim-1',
+    });
+
+    assert.equal(reply.mode, 'conversation');
+    assert.doesNotMatch(
+      reply.answer,
+      /추가했습니다|완료되었습니다|등록했습니다|만들었습니다/,
+      'the model must not be allowed to report an action it never performed',
+    );
+
+    const drafts = await pool.query(
+      `select count(*)::int as n from calendar_ai_action_drafts where workspace_id = 'ws-a'`,
+    );
+    assert.equal(drafts.rows[0].n, 0, 'no action was actually created');
+
+    const events = await runtime.product.listCalendarEvents(scope);
+    assert.equal(events.length, 0, 'no calendar event was actually created');
+  });
+});

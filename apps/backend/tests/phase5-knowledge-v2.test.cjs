@@ -870,3 +870,67 @@ test('cloud ingestion is atomic when encrypted blob persistence fails', async ()
     stopRuntime(runtime);
   });
 });
+
+test('answer synthesis receives a bounded number of citations', async () => {
+  await withEphemeralPostgres(async ({ pool }) => {
+    await seedUsers(pool);
+    Object.assign(process.env, envBase());
+    const calls = [];
+    const runtime = createPhase1Runtime({
+      pool,
+      env: process.env,
+      workspaceInferenceBroker: {
+        async complete(input) {
+          calls.push(input);
+          return { text: '정리된 답변', provider: 'test', model: 'test-1' };
+        },
+      },
+    });
+    const server = createRailwayGatewayServer({
+      env: process.env,
+      phase1Runtime: runtime,
+      phase1Pool: pool,
+      gatewayStore: { getState: () => ({}), ready: Promise.resolve() },
+      fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({}) }),
+    });
+    const baseUrl = await listen(server);
+    try {
+      const token = await issueToken(pool, 'subject-a', 'ws-a');
+      const source = await httpJson(baseUrl, 'POST', '/api/knowledge/sources', {
+        token,
+        body: { sourceKind: 'cloud_indexed', path: 'handbook.md', label: '규정', cloudOptIn: true },
+      });
+      assert.equal(source.status, 200, JSON.stringify(source.json));
+
+      // Many passages that all match, so retrieval depth is what bounds the prompt.
+      for (let index = 0; index < 24; index += 1) {
+        const ingest = await httpJson(baseUrl, 'POST', '/api/knowledge/ingest', {
+          token,
+          body: {
+            sourceId: source.json.source.id,
+            title: `규정 조항 ${index + 1}`,
+            path: `handbook-${index + 1}.md`,
+            content: `연차 규정 조항 ${index + 1}: 연차 관련 세부 내용 ${index + 1}.`,
+          },
+        });
+        assert.equal(ingest.status, 200, JSON.stringify(ingest.json));
+      }
+
+      const ask = await httpJson(baseUrl, 'POST', '/api/knowledge/ask', {
+        token,
+        body: { question: '연차 규정 알려줘', requestId: 'bounded-citations-1' },
+      });
+      assert.equal(ask.status, 200, JSON.stringify(ask.json));
+      assert.equal(calls.length, 1, 'synthesis ran exactly once');
+
+      const citations = calls[0].context.citations || [];
+      assert.ok(citations.length > 0, 'grounded answers still need evidence');
+      assert.ok(
+        citations.length <= 8,
+        `answer synthesis must stay bounded, received ${citations.length} citations`,
+      );
+    } finally {
+      await close(server);
+    }
+  });
+});
