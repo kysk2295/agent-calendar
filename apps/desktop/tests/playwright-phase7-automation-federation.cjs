@@ -10,6 +10,7 @@ const path = require('node:path');
 const { _electron: electron } = require('playwright');
 
 const { runMigrations } = require('../../backend/app/db/migrate');
+const { defaultRunBin: runBin } = require('../../backend/app/lib/local-postgres-lifecycle');
 const { createRailwayGatewayServer } = require('../../backend/app/railway-gateway-server');
 const { createPhase1Runtime } = require('../../backend/app/lib/phase1-auth-routes');
 const { resolvePostgresBinDir } = require('../../backend/app/lib/phase0-snapshot-restore');
@@ -51,14 +52,6 @@ function freePort() {
       server.close((error) => (error ? reject(error) : resolve(port)));
     });
     server.on('error', reject);
-  });
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
   });
 }
 

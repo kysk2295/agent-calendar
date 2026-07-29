@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -9,6 +8,7 @@ const { runMigrations } = require('../app/db/migrate');
 const {
   DEFAULT_LOCAL_POSTGRES_PORT,
   createLocalPostgresCluster,
+  defaultRunBin: runBin,
 } = require('../app/lib/local-postgres-lifecycle');
 const {
   buildLocalConnectionString,
@@ -63,14 +63,6 @@ function parseArgs(argv) {
     }
   }
   return args;
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
-  });
 }
 
 async function waitForReady(binDir, socketDir, port, attempts = 120) {

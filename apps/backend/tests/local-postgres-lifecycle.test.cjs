@@ -8,6 +8,8 @@ const test = require('node:test');
 
 const {
   createLocalPostgresCluster,
+  defaultRunBin,
+  postgresCommandEnv,
   runWithCleanup,
 } = require('../app/lib/local-postgres-lifecycle');
 const {
@@ -27,6 +29,64 @@ function fakeClusterPaths(prefix) {
     logFile: path.join(workDir, 'postgres.log'),
   };
 }
+
+test('postgres commands run under a deterministic C locale', () => {
+  const inherited = {
+    PATH: '/usr/bin',
+    LANG: 'ko_KR.UTF-8',
+    LC_ALL: 'ko_KR.UTF-8',
+    LC_CTYPE: 'ko_KR.UTF-8',
+    LC_MESSAGES: 'ko_KR.UTF-8',
+  };
+  const resolved = postgresCommandEnv(inherited);
+
+  assert.equal(resolved.PATH, '/usr/bin');
+  assert.equal(resolved.LC_ALL, 'C');
+  assert.equal(resolved.LC_CTYPE, 'C');
+  assert.equal(resolved.LC_MESSAGES, 'C');
+  assert.equal(resolved.LANG, 'C');
+  assert.equal(inherited.LC_ALL, 'ko_KR.UTF-8');
+});
+
+test('defaultRunBin spawns postgres binaries with the C locale env', () => {
+  const calls = [];
+  const output = defaultRunBin(
+    '/postgres/bin',
+    'pg_ctl',
+    ['-D', '/data', 'start'],
+    { timeout: 1_000 },
+    (file, args, options) => {
+      calls.push({ file, args, options });
+      return 'server started\n';
+    },
+  );
+
+  assert.equal(output, 'server started\n');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].file, path.join('/postgres/bin', 'pg_ctl'));
+  assert.deepEqual(calls[0].args, ['-D', '/data', 'start']);
+  assert.equal(calls[0].options.timeout, 1_000);
+  assert.equal(calls[0].options.encoding, 'utf8');
+  assert.equal(calls[0].options.env.LC_ALL, 'C');
+  assert.equal(calls[0].options.env.LANG, 'C');
+});
+
+test('explicit caller env is preserved but never overrides the C locale', () => {
+  const calls = [];
+  defaultRunBin(
+    '/postgres/bin',
+    'psql',
+    ['-c', 'select 1'],
+    { env: { PGPASSWORD: 'secret', LC_ALL: 'ko_KR.UTF-8' } },
+    (file, args, options) => {
+      calls.push({ file, args, options });
+      return '';
+    },
+  );
+
+  assert.equal(calls[0].options.env.PGPASSWORD, 'secret');
+  assert.equal(calls[0].options.env.LC_ALL, 'C');
+});
 
 test('partial pg_ctl start failure still attempts verified cleanup', async () => {
   const paths = fakeClusterPaths('local-pg-partial-');

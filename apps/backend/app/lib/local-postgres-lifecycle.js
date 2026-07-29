@@ -12,11 +12,28 @@ const {
 
 const DEFAULT_LOCAL_POSTGRES_PORT = 55432;
 
-function defaultRunBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
+// PostgreSQL 17 refuses to start when the postmaster becomes multithreaded, which macOS
+// libc triggers while resolving a non-C locale. Every ephemeral cluster is created with
+// `initdb --locale=C`, so pin the command environment to the same locale. This also keeps
+// pg_ctl diagnostics in English for the status parsing below.
+const POSTGRES_LOCALE_ENV = Object.freeze({
+  LANG: 'C',
+  LC_ALL: 'C',
+  LC_CTYPE: 'C',
+  LC_MESSAGES: 'C',
+});
+
+function postgresCommandEnv(baseEnv = process.env) {
+  return { ...baseEnv, ...POSTGRES_LOCALE_ENV };
+}
+
+function defaultRunBin(binDir, name, args, options = {}, execFileSyncImpl = execFileSync) {
+  const { env: callerEnv, ...rest } = options;
+  return execFileSyncImpl(path.join(binDir, name), args, {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
+    ...rest,
+    env: postgresCommandEnv(callerEnv || process.env),
   });
 }
 
@@ -285,5 +302,6 @@ module.exports = {
   appendPostgresConfig,
   createLocalPostgresCluster,
   defaultRunBin,
+  postgresCommandEnv,
   runWithCleanup,
 };

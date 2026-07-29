@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 
-const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { runMigrations } = require('../app/db/migrate');
+const { defaultRunBin: runBin } = require('../app/lib/local-postgres-lifecycle');
 const { resolvePostgresBinDir, EXPECTED_PERSISTED_TABLES } = require('../app/lib/phase0-snapshot-restore');
 const { issueSessionForVerifiedSubject, refreshSession } = require('../app/lib/workspace-auth-session');
 const { WorkspaceScopedProductService } = require('../app/lib/workspace-scoped-product-service');
@@ -28,12 +28,6 @@ function freePort() {
       server.close((error) => (error ? reject(error) : resolve(port)));
     });
     server.on('error', reject);
-  });
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options,
   });
 }
 

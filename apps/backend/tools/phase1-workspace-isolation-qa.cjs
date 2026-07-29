@@ -6,13 +6,13 @@
  * Writes redaction-safe evidence only. Never accepts external DATABASE_URL.
  */
 
-const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 
 const { runMigrations } = require('../app/db/migrate');
+const { defaultRunBin: runBin } = require('../app/lib/local-postgres-lifecycle');
 const {
   LEGACY_OWNER_USER_ID,
   LEGACY_PERSONAL_WORKSPACE_ID,
@@ -36,14 +36,6 @@ function freePort() {
       server.close((error) => (error ? reject(error) : resolve(port)));
     });
     server.on('error', reject);
-  });
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
   });
 }
 
