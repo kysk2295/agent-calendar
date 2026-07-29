@@ -190,6 +190,82 @@ async function enrollActiveRunner(baseUrl, token, keys, hostName = 'host') {
   };
 }
 
+// A manually created agent is an inactive builder draft. Walk the approved lifecycle
+// (review -> disposable Runner test -> activate) so the agent can execute.
+async function activateBuilderAgent(baseUrl, token, agentId, runner, expectedRevision = 1) {
+  const review = await httpJson(baseUrl, 'POST', `/api/agents/${encodeURIComponent(agentId)}/review`, {
+    token,
+    body: { expectedRevision },
+  });
+  assert.equal(review.status, 200, JSON.stringify(review.json));
+
+  const started = await httpJson(baseUrl, 'POST', `/api/agents/${encodeURIComponent(agentId)}/tests`, {
+    token,
+    body: { expectedRevision, timeoutMs: 30_000 },
+  });
+  assert.equal(started.status, 202, JSON.stringify(started.json));
+  const requestId = started.json.request.id;
+
+  const nextBody = { runnerId: runner.runnerId };
+  const next = await httpJson(baseUrl, 'POST', '/api/runner/device/connectors/next', {
+    body: nextBody,
+    headers: deviceAuthHeaders({
+      keys: runner.keys,
+      runnerId: runner.runnerId,
+      credential: runner.credential,
+      method: 'POST',
+      path: '/api/runner/device/connectors/next',
+      body: nextBody,
+      sessionId: runner.sessionId,
+      cursor: runner.cursor,
+    }),
+  });
+  assert.equal(next.status, 200, JSON.stringify(next.json));
+  assert.equal(next.json.request.id, requestId);
+
+  const completeBody = {
+    runnerId: runner.runnerId,
+    requestId,
+    result: {
+      passed: true,
+      summary: 'Bounded sample response satisfied the draft responsibility.',
+      durationMs: 120,
+      sideEffects: { calendar: 0, externalDelivery: 0, schedulerJobs: 0 },
+    },
+  };
+  const completed = await httpJson(baseUrl, 'POST', '/api/runner/device/connectors/complete', {
+    body: completeBody,
+    headers: deviceAuthHeaders({
+      keys: runner.keys,
+      runnerId: runner.runnerId,
+      credential: runner.credential,
+      method: 'POST',
+      path: '/api/runner/device/connectors/complete',
+      body: completeBody,
+      sessionId: runner.sessionId,
+      cursor: runner.cursor,
+    }),
+  });
+  assert.equal(completed.status, 200, JSON.stringify(completed.json));
+
+  const testResult = await httpJson(
+    baseUrl,
+    'GET',
+    `/api/agents/${encodeURIComponent(agentId)}/tests/${encodeURIComponent(requestId)}`,
+    { token },
+  );
+  assert.equal(testResult.status, 200, JSON.stringify(testResult.json));
+  assert.equal(testResult.json.request.status, 'passed', JSON.stringify(testResult.json));
+
+  const activated = await httpJson(baseUrl, 'POST', `/api/agents/${encodeURIComponent(agentId)}/activate`, {
+    token,
+    body: { expectedRevision, requestId },
+  });
+  assert.equal(activated.status, 200, JSON.stringify(activated.json));
+  assert.equal(activated.json.agent.lifecycle.state, 'active');
+  return activated.json.agent;
+}
+
 test('phase3 execution routes registered', () => {
   assert.ok(matchProductionRoute('POST', '/api/runner/device/next-offer'));
   assert.ok(matchProductionRoute('POST', '/api/runner/device/lease'));
@@ -1657,6 +1733,7 @@ test('Work Conversation follow-up leases the same provider session and restores 
       });
       assert.equal(createdAgent.status, 200, JSON.stringify(createdAgent.json));
       const agentId = createdAgent.json.agent.id;
+      await activateBuilderAgent(baseUrl, tokenA, agentId, runnerA);
       const grantExpansion = await httpJson(
         baseUrl,
         'PATCH',
@@ -2031,6 +2108,8 @@ test('Work Conversation follow-up leases the same provider session and restores 
       );
       assert.equal(revisedAgent.status, 200, JSON.stringify(revisedAgent.json));
       assert.equal(revisedAgent.json.agent.profileVersion, 2);
+      // A meaning-changing edit reopens the builder draft; re-activate v2 before execution.
+      await activateBuilderAgent(baseUrl, tokenA, agentId, runnerA, 2);
       const stalePreview = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
         token: tokenA,
         body: {
@@ -2330,6 +2409,7 @@ test('one Work Conversation switches Codex and Claude endpoints without forking 
         },
       });
       assert.equal(createdAgent.status, 200, JSON.stringify(createdAgent.json));
+      await activateBuilderAgent(baseUrl, tokenA, createdAgent.json.agent.id, runnerA);
 
       const createdWork = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
         token: tokenA,
@@ -3175,6 +3255,7 @@ test('Runner-local Telegram endpoint appends and replays one canonical Work Conv
           defaultRunnerId: runnerA.runnerId,
         },
       });
+      await activateBuilderAgent(baseUrl, tokenA, agent.json.agent.id, runnerA);
       const work = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
         token: tokenA,
         body: {

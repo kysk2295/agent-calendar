@@ -311,3 +311,52 @@ test('one-line request and builder transitions reject empty, oversized, and stal
     (error) => error?.code === 'agent_test_stale' && error?.statusHint === 409,
   );
 });
+
+test('grant changes stay governed by the Approval Gate and never deactivate an active profile', () => {
+  const draft = normalizeWorkspaceAgent({
+    displayName: 'Granted builder agent',
+    role: 'Researcher',
+    responsibility: 'Summarize a bounded topic.',
+  }, { id: 'agent-grants', workspaceId: 'ws-a', now: NOW });
+  const tested = passedDraft(draft, 'builder-test-grants');
+  const active = transition(tested, {
+    action: 'activate',
+    expectedRevision: 1,
+    requestId: 'builder-test-grants',
+  });
+  assert.equal(active.lifecycle.state, 'active');
+  assert.equal(active.profileVersion, 1);
+
+  const expansion = normalizeWorkspaceAgent({
+    grants: { allow: ['tool:workspace.read', 'tool:external.delivery'], deny: [] },
+  }, {
+    id: active.id,
+    workspaceId: active.workspaceId,
+    existing: active,
+    now: NOW,
+  });
+
+  // Todo10 owns grant governance: the expansion is held by the Approval Gate,
+  // it does not rewrite the builder profile version or send the agent to draft.
+  assert.deepEqual(expansion.grants.allow, []);
+  assert.equal(expansion.approvalGate.status, 'pending');
+  assert.equal(expansion.approvalGate.reason, 'grant_expansion');
+  assert.equal(expansion.approvalGate.externalDelivery, true);
+  assert.equal(expansion.profileVersion, 1);
+  assert.equal(expansion.lifecycle.state, 'active');
+  assert.equal(expansion.enabled, true);
+  assert.equal(agentExecutionProfile(expansion).profileVersion, 1);
+
+  const reduction = normalizeWorkspaceAgent({
+    grants: { allow: [], deny: ['tool:workspace.read'] },
+  }, {
+    id: active.id,
+    workspaceId: active.workspaceId,
+    existing: active,
+    now: NOW,
+  });
+  assert.deepEqual(reduction.grants, { allow: [], deny: ['tool:workspace.read'] });
+  assert.equal(reduction.profileVersion, 1);
+  assert.equal(reduction.lifecycle.state, 'active');
+  assert.equal(reduction.enabled, true);
+});
