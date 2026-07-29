@@ -3,15 +3,20 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { generateDesktopSbom } from '../tools/desktop-sbom.mjs';
+
+// Resolve against this file, not the caller's cwd: the suite runs from apps/desktop.
+const desktopRoot = fileURLToPath(new URL('../', import.meta.url));
+const repoRoot = path.resolve(desktopRoot, '../..');
 
 test('desktop SBOM is deterministic, source-bound, transitive, and omits dev-only packages', () => {
   const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-calendar-desktop-sbom-'));
   try {
     const options = {
-      packagePath: path.resolve('apps/desktop/package.json'),
-      lockPath: path.resolve('package-lock.json'),
+      packagePath: path.join(desktopRoot, 'package.json'),
+      lockPath: path.join(repoRoot, 'package-lock.json'),
       sourceSha: 'a'.repeat(40),
       generatedAt: '2026-07-26T00:00:00.000Z',
     };
