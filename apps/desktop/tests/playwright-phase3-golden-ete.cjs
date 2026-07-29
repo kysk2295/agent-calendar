@@ -17,6 +17,7 @@ const path = require('node:path');
 const { _electron: electron } = require('playwright');
 
 const { runMigrations } = require('../../backend/app/db/migrate');
+const { defaultRunBin: runBin } = require('../../backend/app/lib/local-postgres-lifecycle');
 const { createRailwayGatewayServer } = require('../../backend/app/railway-gateway-server');
 const {
   createCleanAccountEteEvidence,
@@ -224,12 +225,6 @@ function freePort() {
   });
 }
 
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options,
-  });
-}
-
 async function waitForReady(binDir, socketDir, port) {
   for (let i = 0; i < 50; i += 1) {
     try {
@@ -345,6 +340,9 @@ async function startHttpServer({ pool, authKit, fixedPort = null }) {
     ...process.env,
     WORKSPACE_AUTH_MODE: 'production',
     DURABLE_EXECUTION_CLAIMS_ENABLED: 'true',
+    // The Fake Engine is gated on NODE_ENV=test as well as the explicit allow flag, so a
+    // production deployment can never resolve to it. This harness is a test.
+    ...(useFakeEngine ? { NODE_ENV: 'test' } : {}),
     AGENT_CALENDAR_ALLOW_FAKE_ENGINE: useFakeEngine ? '1' : '0',
     KNOWLEDGE_V2_ENABLED: '1',
     KNOWLEDGE_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString('base64'),
@@ -427,6 +425,8 @@ function runRunner(args, { stateDir, env = {} } = {}) {
     ...env,
   };
   if (useFakeEngine) {
+    // The Runner reports and executes the Fake Engine only under the same test gate.
+    runnerEnv.NODE_ENV = 'test';
     runnerEnv.AGENT_CALENDAR_ALLOW_FAKE_ENGINE = '1';
     runnerEnv.AGENT_CALENDAR_FAKE_ENGINE_STEP_MS = '2000';
     runnerEnv.AGENT_CALENDAR_RUNNER_PROBE_JSON = JSON.stringify({
@@ -586,9 +586,11 @@ async function runAccountWork({
     if (await engineSelect.count()) await engineSelect.selectOption(selectedEngine);
   }
   await page.getByRole('button', { name: '위임' }).click();
+  // Successful creation auto-opens the created work. The delegation itself is the first
+  // instruction; the timeline stays empty until the Runner produces the first checkpoint.
   await page.waitForFunction((expectedGoal) => {
     const text = document.body ? document.body.innerText : '';
-    return text.includes(expectedGoal) && /Work accepted|accepted|waiting_runner/i.test(text);
+    return text.includes(expectedGoal);
   }, goal, { timeout: 45_000 });
 
   const workOut = await runRunner([
@@ -599,14 +601,23 @@ async function runAccountWork({
     const text = document.querySelector('.agent-work-timeline')?.textContent || '';
     return text.includes(String(resultMarker));
   }, expectedResultMarker, { timeout: 90_000 });
-  await page.waitForFunction((engineLabel) => {
-    const text = document.querySelector('.agent-work-session-engine')?.textContent || '';
-    return text.toLowerCase().includes(String(engineLabel).toLowerCase());
-  }, expectedEngineLabel, { timeout: 15_000 });
-  assert.match(
-    (await page.textContent('.agent-work-session-engine') || '').trim(),
-    new RegExp(expectedEngineLabel, 'i'),
-  );
+  if (useFakeEngine) {
+    // Fake is deliberately absent from the public resolved-engine allowlist, so the surface
+    // must keep showing the requested value instead of naming an actual engine.
+    assert.doesNotMatch(
+      (await page.textContent('.agent-work-session-engine') || '').trim(),
+      /fake/i,
+    );
+  } else {
+    await page.waitForFunction((engineLabel) => {
+      const text = document.querySelector('.agent-work-session-engine')?.textContent || '';
+      return text.toLowerCase().includes(String(engineLabel).toLowerCase());
+    }, expectedEngineLabel, { timeout: 15_000 });
+    assert.match(
+      (await page.textContent('.agent-work-session-engine') || '').trim(),
+      new RegExp(expectedEngineLabel, 'i'),
+    );
+  }
   const completedBody = await page.locator('body').innerText();
   assert.ok(completedBody.includes(goal));
   assert.ok(!completedBody.includes(forbiddenGoal));
