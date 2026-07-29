@@ -21,6 +21,7 @@ const {
   applyAgentExecutionProfile,
   normalizeRunnerCapabilityCatalog,
   resolveEffectiveAgentConfiguration,
+  workspaceRunnerRef,
 } = require('./workspace-agent-directory');
 const { createLeaseAuthorization } = require('./lease-authorization');
 
@@ -145,10 +146,7 @@ function effectiveConfigurationEligibility(payloadValue, runnerRow) {
   } catch {
     return { ok: false, reason: 'runner_catalog_invalid' };
   }
-  const runnerRef = `runner_${crypto.createHash('sha256').update(JSON.stringify({
-    workspaceId: String(runnerRow?.workspace_id || ''),
-    runnerId: String(runnerRow?.id || ''),
-  })).digest('hex').slice(0, 16)}`;
+  const runnerRef = workspaceRunnerRef(runnerRow?.workspace_id, runnerRow?.id);
   if (effective.runner?.ref !== runnerRef
     || effective.runner?.catalogId !== catalog.catalogId
     || effective.runner?.catalogVersion !== catalog.version

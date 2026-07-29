@@ -49,7 +49,7 @@ function backendAuthorizedLease(lease, state) {
     ...configuration,
     snapshotId: `ecfg_${crypto
       .createHash('sha256')
-      .update(JSON.stringify(configuration))
+      .update(stableJson(configuration))
       .digest('hex')
       .slice(0, 32)}`,
     executable: true,

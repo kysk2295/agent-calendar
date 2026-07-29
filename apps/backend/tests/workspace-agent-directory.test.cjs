@@ -399,3 +399,43 @@ test('legacy direct-enabled manual agent rows remain active profile v1 projectio
     grants: { allow: [], deny: [] },
   });
 });
+
+test('effective configuration identity survives a jsonb round trip and the Runner recomputes it', () => {
+  // The Runner independently recomputes ecfg_ from the delivered payload, and that payload
+  // round-trips through jsonb, which does not preserve key insertion order.
+  const {
+    assertEffectiveConfiguration,
+    runnerCapabilityCatalog,
+  } = require('../../runner/lib/capability-grants');
+
+  const localCatalog = runnerCapabilityCatalog();
+  const agent = normalizeWorkspaceAgent({
+    displayName: 'Runner-verified agent',
+    grants: { allow: [], deny: [] },
+  }, { id: 'agent-runner-verified', workspaceId: 'ws-a' });
+
+  const effective = resolveEffectiveAgentConfiguration({
+    workspaceId: 'ws-a',
+    agent,
+    runner: { id: 'runner-a', capabilities: { catalog: localCatalog } },
+    requestedEngine: 'codex',
+    resolvedEngine: 'codex',
+    requestedModel: 'gpt-5.6-codex',
+    reason: 'explicit',
+    requiredCapabilities: [],
+  });
+  assert.equal(effective.executable, true);
+
+  function scrambleKeys(value) {
+    if (Array.isArray(value)) return value.map(scrambleKeys);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.keys(value).sort().reverse().map((key) => [key, scrambleKeys(value[key])]),
+      );
+    }
+    return value;
+  }
+
+  const delivered = scrambleKeys(JSON.parse(JSON.stringify(effective)));
+  assert.doesNotThrow(() => assertEffectiveConfiguration(delivered));
+});

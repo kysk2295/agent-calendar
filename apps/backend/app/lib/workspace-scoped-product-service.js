@@ -1917,7 +1917,7 @@ class WorkspaceScopedProductService {
            provider, engine, external_agent_id, status, title, public_metadata,
            context_sync_mode, last_activity_at
          ) values ($1,$2,$3,$4,$5,$6,$7,$7,$8,'pending',$9,$10::jsonb,'context_only',now())
-         on conflict (workspace_id, work_conversation_id, engine, runner_id)
+         on conflict (workspace_id, work_conversation_id, engine, runner_id, session_generation)
          do update set updated_at = now()
          returning *`,
         [
@@ -2405,7 +2405,7 @@ class WorkspaceScopedProductService {
              provider, engine, external_agent_id, status, title, public_metadata,
              context_sync_mode, last_activity_at
            ) values ($1,$2,$3,$4,$5,$6,$7,$7,$8,'pending',$9,$10::jsonb,'context_only',now())
-           on conflict (workspace_id, work_conversation_id, engine, runner_id)
+           on conflict (workspace_id, work_conversation_id, engine, runner_id, session_generation)
            do update set updated_at = now()
            returning *`,
           [

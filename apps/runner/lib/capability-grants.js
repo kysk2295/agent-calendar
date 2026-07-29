@@ -10,8 +10,11 @@ const CATALOG_ENTRIES = Object.freeze([
   Object.freeze({ id: 'tool:workspace.read', version: 1, kind: 'tool', externalDelivery: false }),
 ]);
 
+// Key-sorted so the digest matches the Gateway's `stableHash` regardless of key order. The
+// effective configuration reaches this host through jsonb, which does not preserve insertion
+// order, so an order-dependent digest would reject every real lease.
 function hash(value, length) {
-  return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, length);
+  return crypto.createHash('sha256').update(stableJson(value)).digest('hex').slice(0, length);
 }
 
 function runnerCapabilityCatalog() {

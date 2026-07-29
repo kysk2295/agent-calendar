@@ -63,9 +63,10 @@ function validEffectiveConfiguration() {
 }
 
 function configurationWithSnapshot(configuration, executable) {
+  // Mirrors the Gateway's canonical key-sorted identity.
   const snapshotId = `ecfg_${crypto
     .createHash('sha256')
-    .update(JSON.stringify(configuration))
+    .update(stableJson(configuration))
     .digest('hex')
     .slice(0, 32)}`;
   return { ...configuration, snapshotId, executable };

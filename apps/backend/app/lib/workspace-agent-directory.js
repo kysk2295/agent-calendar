@@ -39,8 +39,31 @@ function stringList(value, maximumItems = 12, maximumLength = 80) {
     .slice(0, maximumItems);
 }
 
+// Canonical, key-sorted serialization. These identities are recomputed independently by the
+// Runner from a payload that has round-tripped through jsonb, which does not preserve key
+// insertion order, so the digest must not depend on it. Must stay identical to the Runner's
+// `stableJson` in apps/runner/lib/capability-grants.js.
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => (
+      `${JSON.stringify(key)}:${stableJson(value[key])}`
+    )).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function stableHash(value, length = 32) {
-  return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, length);
+  return crypto.createHash('sha256').update(stableJson(value)).digest('hex').slice(0, length);
+}
+
+// The redacted Runner identity inside an effective configuration. Lease eligibility recomputes
+// it later, so both sides must derive it here rather than repeating the digest.
+function workspaceRunnerRef(workspaceId, runnerId) {
+  return `runner_${stableHash({
+    workspaceId: String(workspaceId || ''),
+    runnerId: String(runnerId || ''),
+  }, 16)}`;
 }
 
 function capabilityIds(value, { maximumItems = 100, strict = false } = {}) {
@@ -151,6 +174,10 @@ function profileVersion(value) {
     : 1;
 }
 
+// Behavioral meaning of a profile version. Grants are deliberately excluded: capability
+// changes are governed by the Approval Gate and the default-deny effective-configuration
+// resolver, so folding them in here would send an active agent back to draft and make the
+// grant_expansion approval path unreachable.
 function profileMeaning(value) {
   const input = objectValue(value);
   return JSON.stringify({
@@ -166,7 +193,6 @@ function profileMeaning(value) {
     externalAgentId: input.externalAgentId || '',
     defaultExecutionEngine: input.defaultExecutionEngine || 'auto',
     defaultRunnerId: input.defaultRunnerId || '',
-    grants: normalizeGrants(input.grants),
   });
 }
 
@@ -644,10 +670,7 @@ function resolveEffectiveAgentConfiguration({
   const approvalRequired = required.filter(
     (id) => allowedIds.has(id) && catalogById.get(id)?.externalDelivery === true,
   );
-  const runnerRef = `runner_${stableHash({
-    workspaceId: String(workspaceId || ''),
-    runnerId: String(runner.id || ''),
-  }, 16)}`;
+  const runnerRef = workspaceRunnerRef(workspaceId, runner.id);
   const configuration = {
     schemaVersion: 1,
     engine: {
@@ -758,5 +781,6 @@ module.exports = {
   normalizeWorkspaceAgent,
   projectWorkspaceAgent,
   resolveEffectiveAgentConfiguration,
+  workspaceRunnerRef,
   WorkspaceAgentDirectoryError,
 };
