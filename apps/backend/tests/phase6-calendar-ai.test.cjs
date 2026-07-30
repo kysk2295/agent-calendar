@@ -724,3 +724,55 @@ test('an unavailable host with no Runner fails honestly instead of inventing an 
     );
   });
 });
+
+test('answers that report or quote a completed action are delivered unchanged', async () => {
+  // The guard exists to stop the model claiming it did something. Reporting a fact and
+  // quoting the user are neither, and losing them costs the user a real answer.
+  const cases = [
+    {
+      name: 'reported speech about a past fact',
+      text: '그 회의는 어제 완료됐다고 기록돼 있어요. 후속 일정은 아직 없습니다.',
+      keep: /기록돼 있어요/,
+    },
+    {
+      name: 'quoting what the user said',
+      text: '"등록했어"라고 하셨는데, 어떤 일정을 말씀하시는 걸까요?',
+      keep: /어떤 일정을 말씀하시는/,
+    },
+    {
+      name: 'the system safety instruction echoed back inside the answer',
+      // A Runner engine that returns its prompt makes the guard read its own instruction.
+      text: 'CALENDAR-MARKER-1 안녕하세요. (지시: 일정 변경을 완료했다고 주장하지 마세요.)',
+      keep: /CALENDAR-MARKER-1/,
+    },
+  ];
+
+  await withPostgres(async ({ pool }) => {
+    for (const [index, testCase] of cases.entries()) {
+      const runtime = createPhase1Runtime({
+        pool,
+        env: env(),
+        calendarAiModelAdapter: {
+          async complete() {
+            return { text: testCase.text, provider: 'fake-calendar-ai', model: 'fake-1' };
+          },
+        },
+        calendarAiClock: () => NOW,
+      });
+      const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+      const reply = await runtime.calendarAi.chat(scope, {
+        message: '오늘 기분이 어때?',
+        requestId: `guard-keep-${index}`,
+      });
+
+      assert.equal(reply.mode, 'conversation');
+      assert.match(reply.answer, testCase.keep, `${testCase.name}: the answer must survive`);
+      assert.doesNotMatch(
+        reply.answer,
+        /요청하신 내용을 아직 실행하지 않았습니다/,
+        `${testCase.name}: the guard must not replace an answer that claims nothing`,
+      );
+    }
+  });
+});
