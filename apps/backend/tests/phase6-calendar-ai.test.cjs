@@ -206,6 +206,14 @@ test('WorkspaceInferenceBroker fails closed and uses platform inference only for
     const scopeA = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
     const scopeB = await resolveWorkspaceScope(pool, { userId: 'user-b', workspaceId: 'ws-b' });
 
+    // A Workspace that explicitly chose Runner-only execution must stay Runner-only: a global
+    // platform key is not consent to send its conversations off the customer host.
+    await pool.query(
+      `insert into state_meta (workspace_id, key, payload)
+       values ('ws-a', 'workspace_settings', '{"inferencePolicy":{"mode":"runner","defaultEngine":"codex"}}'::jsonb)
+       on conflict (workspace_id, key) do update set payload = excluded.payload`,
+    );
+
     await assert.rejects(
       () => broker.complete({
         scope: scopeA,
@@ -624,5 +632,95 @@ test('a model claiming a finished action never reaches the user without a real a
 
     const events = await runtime.product.listCalendarEvents(scope);
     assert.equal(events.length, 0, 'no calendar event was actually created');
+  });
+});
+
+test('Calendar AI and Wiki AI default to platform inference instead of requiring a Runner', async () => {
+  await withPostgres(async ({ pool }) => {
+    const cloudCalls = [];
+    const broker = new WorkspaceInferenceBroker({
+      pool,
+      env: {},
+      runnerComplete: async () => {
+        throw new Error('a Workspace without a Runner must still answer');
+      },
+      cloudComplete: async (input) => {
+        cloudCalls.push(input);
+        return { text: '기본 경로 응답', provider: 'agent-calendar-cloud', model: 'local-llm' };
+      },
+    });
+    const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+    // No Runner is enrolled and no policy has been saved.
+    const answer = await broker.complete({
+      scope,
+      purpose: 'calendar_ai',
+      messages: [{ role: 'user', content: '이번 주 일정 정리해줘' }],
+    });
+
+    assert.equal(answer.text, '기본 경로 응답');
+    assert.equal(cloudCalls.length, 1);
+  });
+});
+
+test('platform inference falls back to a Runner when the host is unavailable', async () => {
+  await withPostgres(async ({ pool }) => {
+    const attempts = [];
+    const broker = new WorkspaceInferenceBroker({
+      pool,
+      env: {},
+      cloudComplete: async () => {
+        attempts.push('cloud');
+        throw Object.assign(new Error('llm host down'), { code: 'AGENT_CALENDAR_CLOUD_AI_FAILED' });
+      },
+      runnerComplete: async () => {
+        attempts.push('runner');
+        return { text: 'Runner 응답', engine: 'codex' };
+      },
+    });
+    const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+    await pool.query(
+      `insert into runners (
+         id, workspace_id, status, connection_state, capabilities, last_seen_at
+       ) values (
+         'runner-fallback', 'ws-a', 'active', 'connected',
+         '{"engines":{"codex":{"available":true,"status":"available","authStatus":"authenticated"}}}'::jsonb,
+         now()
+       )`,
+    );
+
+    const answer = await broker.complete({
+      scope,
+      purpose: 'wiki_ai',
+      messages: [{ role: 'user', content: '휴가 규정 알려줘' }],
+    });
+
+    assert.deepEqual(attempts, ['cloud', 'runner'], 'the Runner is a fallback, not the default');
+    assert.equal(answer.text, 'Runner 응답');
+  });
+});
+
+test('an unavailable host with no Runner fails honestly instead of inventing an answer', async () => {
+  await withPostgres(async ({ pool }) => {
+    const broker = new WorkspaceInferenceBroker({
+      pool,
+      env: {},
+      cloudComplete: async () => {
+        throw Object.assign(new Error('llm host down'), { code: 'AGENT_CALENDAR_CLOUD_AI_FAILED' });
+      },
+      runnerComplete: async () => {
+        throw new Error('no runner');
+      },
+    });
+    const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+    await assert.rejects(
+      () => broker.complete({
+        scope,
+        purpose: 'calendar_ai',
+        messages: [{ role: 'user', content: 'hello' }],
+      }),
+    );
   });
 });
