@@ -63,9 +63,12 @@ export function OnboardingGuide({
       <header className="onboarding-head">
         <div>
           <strong>작업공간 준비</strong>
-          <span>캘린더, Runner, Wiki를 연결하면 바로 시작할 수 있습니다.</span>
+          <span>캘린더와 Wiki를 연결하면 바로 시작할 수 있습니다. Runner는 에이전트 작업을 맡길 때 연결하세요.</span>
         </div>
-        <span>{readiness.completedCount}/{readiness.steps.length} 준비</span>
+        <span>
+          {readiness.steps.filter((step) => step.ready && step.optional !== true).length}
+          /{readiness.steps.filter((step) => step.optional !== true).length} 준비
+        </span>
       </header>
 
       <div className="onboarding-layout">
@@ -77,6 +80,7 @@ export function OnboardingGuide({
               key={step.id}
               data-active={activeStep.id === step.id}
               data-ready={step.ready}
+              data-optional={step.optional === true}
               aria-current={activeStep.id === step.id ? 'step' : undefined}
               onClick={() => setActiveStepId(step.id)}
             >
@@ -86,7 +90,7 @@ export function OnboardingGuide({
               <span className="onboarding-step-copy">
                 <strong>{step.title}</strong>
                 <small className="onboarding-step-state">
-                  {step.ready ? '준비됨' : step.statusLabel}
+                  {step.ready ? '준비됨' : step.optional ? `선택 · ${step.statusLabel}` : step.statusLabel}
                 </small>
               </span>
             </button>

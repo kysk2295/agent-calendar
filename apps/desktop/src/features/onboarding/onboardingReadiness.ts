@@ -12,6 +12,8 @@ export type OnboardingStep = Readonly<{
   statusLabel: string;
   actionLabel: string;
   actionKind: OnboardingActionKind;
+  /** Offered during setup but never blocks completion. */
+  optional?: boolean;
 }>;
 
 export type OnboardingReadiness = Readonly<{
@@ -71,9 +73,10 @@ export function buildOnboardingReadiness(input: ReadinessInput = {}): Onboarding
   const wikiReady = knowledgeSources.some((source) => (
     ['active', 'ready'].includes(value(source, 'status').toLowerCase())
   ));
+  // Calendar AI and Wiki AI answer through platform inference, so a Runner is no longer
+  // part of their readiness.
   const calendarAiReady = input.calendarAiAvailable === true
-    || Boolean(String(input.calendarAiConversationId || '').trim())
-    || runnerReady;
+    || Boolean(String(input.calendarAiConversationId || '').trim());
 
   const steps: OnboardingStep[] = [
     {
@@ -88,8 +91,9 @@ export function buildOnboardingReadiness(input: ReadinessInput = {}): Onboarding
     {
       id: 'runner',
       title: 'Runner와 실행 엔진',
-      description: '사용자 소유 Runner 호스트에서 Codex, Claude, Grok, Hermes를 설치하고 로그인합니다.',
+      description: '에이전트 작업을 내 컴퓨터에서 실행하려면 연결합니다. 일정과 AI 대화는 없어도 됩니다.',
       ready: runnerReady,
+      optional: true,
       statusLabel: runnerReady
         ? '실행 준비 완료'
         : connectedRunners.length === 0
@@ -120,7 +124,7 @@ export function buildOnboardingReadiness(input: ReadinessInput = {}): Onboarding
       title: 'Calendar AI 확인',
       description: '일정을 묻고 작업을 맡길 수 있습니다.',
       ready: calendarAiReady,
-      statusLabel: calendarAiReady ? '대화 준비 완료' : '실행 엔진 확인 필요',
+      statusLabel: calendarAiReady ? '대화 준비 완료' : '확인 필요',
       actionLabel: 'Calendar AI 열기',
       actionKind: 'calendar_ai_open',
     },
@@ -130,7 +134,8 @@ export function buildOnboardingReadiness(input: ReadinessInput = {}): Onboarding
   return {
     steps,
     completedCount,
-    allReady: completedCount === steps.length,
+    // An optional step is offered but never withholds 설정 완료.
+    allReady: steps.every((step) => step.ready || step.optional === true),
     nextStepId: next.id,
   };
 }
