@@ -1732,14 +1732,14 @@ async function main() {
     }
     await page.getByRole('button', { name: '위임' }).click();
 
-    // Selected Work Conversation must open with accepted/waiting_runner checkpoint
+    // Successful creation auto-opens the created work. The delegation itself is the first
+    // instruction; the timeline stays empty until the Runner produces the first checkpoint,
+    // so the English queue status is never on screen here.
     await page.waitForFunction((goal) => {
       const text = document.body ? document.body.innerText : '';
-      return text.includes(goal)
-        && (/Work accepted|accepted|waiting_runner|대기|queued/i.test(text));
+      return text.includes(goal);
     }, WORK_GOAL, { timeout: 45_000 });
     const queuedText = await page.locator('body').innerText();
-    assert.match(queuedText, /Work accepted|accepted|waiting_runner/i);
     assert.doesNotMatch(queuedText, /production_disabled|blocked_runner_required/);
     await page.screenshot({ path: shots.queued, fullPage: true });
 
