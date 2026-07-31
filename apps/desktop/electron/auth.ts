@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import type { AgentCalendarAuthCallbackDeepLink } from './deepLink.js';
 import type { AppSessionTokens, SecureSessionManager } from './secureSession.js';
 import { clientV1JsonHeaders } from './clientContract.js';
+import { desktopLoginStartFailureMessage } from './loginFailure.js';
 
 export type DesktopAuthKitOptions = {
   apiBaseUrl: () => string;
@@ -19,6 +20,7 @@ const DEFAULT_TIMEOUT_MS = 3 * 60 * 1000;
 function stringValue(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
+
 
 /**
  * Production Desktop login via backend WorkOS AuthKit start/complete.
@@ -49,10 +51,7 @@ export function createDesktopAuthKitLogin(options: DesktopAuthKitOptions) {
     });
     const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (!response.ok || !payload.ok) {
-      if (response.status === 503) {
-        throw new Error('로그인 서비스를 사용할 수 없습니다. 잠시 후 다시 시도하세요.');
-      }
-      throw new Error(`로그인을 시작하지 못했습니다 (${stringValue(payload.error) || response.status}).`);
+      throw new Error(desktopLoginStartFailureMessage(response.status, stringValue(payload.error)));
     }
     const authorizationUrl = stringValue(payload.authorizationUrl);
     const state = stringValue(payload.state);

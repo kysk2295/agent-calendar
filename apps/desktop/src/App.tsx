@@ -25,6 +25,7 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import { hermesApi, setApiBaseUrl, setApiProxyConnection, type ApiEnvelope } from './api/hermesApi';
+import { desktopBridgeErrorMessage } from './api/desktopBridgeError';
 import { createAgentWork } from './api/agentWorkApiClient';
 import {
   agentDisplayName,
@@ -1406,7 +1407,7 @@ export function App() {
       }
     } catch (error) {
       setAuthPhase('error');
-      setLoginStatus(error instanceof Error ? error.message : 'AuthKit 로그인을 완료하지 못했습니다.');
+      setLoginStatus(desktopBridgeErrorMessage(error, 'AuthKit 로그인을 완료하지 못했습니다.'));
     } finally {
       setAuthBusy(false);
     }
