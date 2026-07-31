@@ -65,7 +65,12 @@ Result: `ok: true`, `completeCount: 1`, `googleCalendarOAuth: true`, restart res
 
 ### Next product work (empty workspace)
 
-- [ ] Google Calendar connect on empty guide
-- [ ] Runner enrollment on empty guide
-- [ ] Wiki source bind
-- [ ] Soften false “Railway API 확인 필요” when local gateway is intentionally fallback-only
+- [x] Google Calendar connect on empty guide — `docs/plans/2026-07-31-empty-guide-google-calendar.md`
+- [x] Runner enrollment on empty guide — `docs/plans/2026-07-31-empty-workspace-runner-agent-ux.md`
+- [x] Wiki source bind — `docs/plans/2026-07-31-empty-workspace-wiki-onboarding.md` (merged readiness truth)
+- [x] Soften false “Railway API 확인 필요” — `docs/plans/2026-07-31-local-gateway-banner.md`
+- [x] Calendar AI guide truth — `docs/plans/2026-07-31-empty-guide-calendar-ai.md`
+
+### Orchestration note (2026-07-31)
+
+Run `run_caca919e3de0` supervised five Codex tasks (banner, calendar, runner/agents, wiki, calendar AI). All reported `worker_done` succeeded. Residual: live Google Cloud OAuth consent, physical Runner QR enrollment, and manual Electron first-run on a quiet host.

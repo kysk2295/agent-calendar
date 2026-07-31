@@ -147,7 +147,11 @@ import {
 } from './features/settings/uiPreferences';
 import { WorkspaceInferencePolicyPanel } from './features/settings/WorkspaceInferencePolicyPanel';
 import { OnboardingGuide } from './features/onboarding/OnboardingGuide';
-import { buildOnboardingReadiness } from './features/onboarding/onboardingReadiness';
+import {
+  buildOnboardingReadiness,
+  mergeCalendarSourceTruth,
+  type OnboardingActionKind,
+} from './features/onboarding/onboardingReadiness';
 import {
   INITIAL_DESKTOP_CONNECTIVITY,
   beginConnectivityRetry,
@@ -157,6 +161,7 @@ import {
   offlineRetryDelayMs,
   settleRecoveredConnectivity,
 } from './features/connectivity/desktopConnectivity';
+import { shouldShowGlobalApiBanner } from './features/connectivity/globalApiBanner';
 import {
   createWorkspaceHydrationCoordinator,
   type WorkspaceHydrationCoordinator,
@@ -641,6 +646,7 @@ export function App() {
   const [calendarAiActionBusyId, setCalendarAiActionBusyId] = useState('');
   const [onboardingBusy, setOnboardingBusy] = useState(false);
   const [onboardingMessage, setOnboardingMessage] = useState('');
+  const [onboardingPendingAction, setOnboardingPendingAction] = useState<OnboardingActionKind | null>(null);
   const [completionNotice, setCompletionNotice] = useState<CompletionNotice>(null);
   const widgetActionDrainRef = useRef(false);
   const optimisticRunsRef = useRef<Item[]>([]);
@@ -670,6 +676,9 @@ export function App() {
     setChatMessages([]);
     setCalendarAiConversationId('');
     setCalendarAiMemories([]);
+    setOnboardingBusy(false);
+    setOnboardingMessage('');
+    setOnboardingPendingAction(null);
     setWikiAnswer('');
     setWikiAnswerSources([]);
     setWikiAnswerMeta({});
@@ -776,9 +785,11 @@ export function App() {
     calendarSources,
     runners: automationRunners,
     knowledgeSources: arr(state.wiki, 'sources'),
+    wiki: state.wiki && typeof state.wiki === 'object' && !Array.isArray(state.wiki)
+      ? state.wiki as Record<string, unknown>
+      : undefined,
     calendarAiConversationId,
-    calendarAiAvailable: state.settings.calendarAiAvailable === true
-      || text(state.settings.calendarAiMode) === 'cloud_model',
+    calendarAiAvailable: state.settings.calendarAiAvailable === true,
   }), [
     automationRunners,
     calendarAiConversationId,
@@ -813,11 +824,12 @@ export function App() {
     'reconnecting',
     'recovered',
   ].includes(desktopConnectivity.status);
-  const showGlobalApiBanner = Boolean(
-    apiError
-    && screen !== 'agents'
-    && !['offline', 'reconnecting'].includes(desktopConnectivity.status),
-  );
+  const showGlobalApiBanner = shouldShowGlobalApiBanner({
+    apiError,
+    screen,
+    connectivityStatus: desktopConnectivity.status,
+    gatewayStatus: state.gatewayStatus,
+  });
   const taxonomy = useMemo(() => {
     const byId = new Map<string, TaxonomyItem>();
     const metadata = state.taxonomy.map(parseTaxonomyRecord).filter(Boolean) as TaxonomyItem[];
@@ -2580,6 +2592,9 @@ export function App() {
   }
 
   async function syncCalendarSources() {
+    if (onboardingBusy) return;
+    setOnboardingBusy(true);
+    setOnboardingPendingAction('calendar_sync');
     setOnboardingMessage('');
     try {
       const list = await hermesApi.getCalendarSources();
@@ -2602,18 +2617,23 @@ export function App() {
       const message = error instanceof Error ? error.message : '캘린더 동기화 실패';
       setApiError(message);
       setOnboardingMessage(message);
+    } finally {
+      setOnboardingBusy(false);
+      setOnboardingPendingAction(null);
     }
   }
 
   async function connectGoogleCalendar() {
     if (onboardingBusy) return;
     setOnboardingBusy(true);
-    setOnboardingMessage('Google 로그인 창을 여는 중입니다.');
+    setOnboardingPendingAction('calendar_connect');
+    setOnboardingMessage('브라우저에서 Google 계정을 선택해 Calendar 일정 권한을 승인하세요.');
     try {
       if (!window.hermesDesktop?.connectGoogleCalendar) {
         throw new Error('Google Calendar 연결은 데스크톱 앱에서 사용할 수 있습니다.');
       }
       const result = await window.hermesDesktop.connectGoogleCalendar();
+      setCalendarSources((current) => mergeCalendarSourceTruth(current, result.source as Item));
       await hydrate({ blocking: false });
       setOnboardingMessage(
         result.sync.ok
@@ -2629,6 +2649,7 @@ export function App() {
       );
     } finally {
       setOnboardingBusy(false);
+      setOnboardingPendingAction(null);
     }
   }
 
@@ -3425,6 +3446,7 @@ export function App() {
                 readiness={onboardingReadiness}
                 busy={onboardingBusy || wikiSourceBusy}
                 message={onboardingMessage || wikiSourceMessage}
+                pendingAction={onboardingPendingAction}
                 onConnectCalendar={connectGoogleCalendar}
                 onSyncCalendar={syncCalendarSources}
                 onOpenRunner={() => openScreen('runner')}
@@ -3443,6 +3465,7 @@ export function App() {
               <RunnerSetupPanel
                 workspaceLabel={settings.authProfile?.email || settings.authProfile?.name || accountName || 'Workspace'}
                 controlPlaneBaseUrl={settings.apiBaseUrl}
+                onRunnersChange={setAutomationRunners}
                 onReadyCalendar={() => openScreen('calendar')}
               />
             )}

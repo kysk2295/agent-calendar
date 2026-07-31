@@ -30,7 +30,8 @@ if [[ -f "$OUT_FILE" ]]; then
     echo "  취소했습니다. 기존 파일을 유지합니다."
     echo ""
     echo "  백엔드에 적용하려면:"
-    echo "    set -a && source .env.workos.local && set +a && npm run backend:start"
+    echo "    export DATABASE_URL=\"postgres://USER@127.0.0.1:5432/agent_calendar_local\""
+    echo "    npm run backend:start:workos"
     exit 0
   fi
 fi
@@ -78,6 +79,7 @@ cat > "$OUT_FILE" <<EOF
 # $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 export WORKOS_CLIENT_ID=$(printf '%q' "$CLIENT_ID")
 export WORKOS_API_KEY=$(printf '%q' "$API_KEY")
+export WORKSPACE_AUTH_MODE=production
 EOF
 chmod 600 "$OUT_FILE"
 
@@ -85,11 +87,13 @@ echo ""
 echo "  저장 완료: $OUT_FILE (mode 600)"
 echo ""
 echo "  ── 백엔드에 적용 ──"
-echo "  set -a && source .env.workos.local && set +a"
 echo "  export DATABASE_URL=\"\${DATABASE_URL:-postgres://koyunseo@127.0.0.1:5432/agent_calendar_local}\""
 echo "  export PGSSLMODE=disable"
 echo "  export PORT=3000"
-echo "  npm run backend:start"
+echo "  npm run backend:start:workos"
+echo ""
+echo "  이 경로는 WORKSPACE_AUTH_MODE=production으로 시작하며 Workspace 세션 없이"
+echo "  /api/agents, /api/state 같은 제품 API를 읽을 수 없습니다."
 echo ""
 echo "  ── 로그인 API 확인 ──"
 echo "  curl -sS -X POST http://127.0.0.1:3000/api/phase1/auth/desktop/start \\"
@@ -114,7 +118,7 @@ if [[ "${START_NOW:-}" =~ ^[Yy]$ ]]; then
   export PORT=3000
   echo "  백엔드 시작 중 (이 창에서 로그가 이어집니다)…"
   echo ""
-  exec npm run backend:start
+  exec npm run backend:start:workos
 fi
 
 echo "  준비됐습니다. 키 입력 창을 닫아도 됩니다."

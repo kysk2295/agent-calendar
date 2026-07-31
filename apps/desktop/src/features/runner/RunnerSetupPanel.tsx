@@ -40,12 +40,14 @@ type Props = {
   workspaceLabel?: string;
   controlPlaneBaseUrl?: string;
   onReadyCalendar?: () => void;
+  onRunnersChange?: (runners: readonly PublicRunner[]) => void;
 };
 
 export function RunnerSetupPanel({
   workspaceLabel = '현재 작업공간',
   controlPlaneBaseUrl = '',
   onReadyCalendar,
+  onRunnersChange,
 }: Props) {
   const [step, setStep] = useState<SetupStep>('workspace');
   const [busy, setBusy] = useState(false);
@@ -63,8 +65,9 @@ export function RunnerSetupPanel({
   const refreshRunners = useCallback(async () => {
     const list = await listRunners();
     setRunners(list);
+    onRunnersChange?.(list);
     return list;
-  }, []);
+  }, [onRunnersChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -298,7 +301,7 @@ export function RunnerSetupPanel({
       {step === 'workspace' && (
         <section className="runner-card" data-testid="runner-step-workspace">
           <h3>1. 작업공간 확인</h3>
-          <p>이 작업공간에서 사용할 Runner를 확인하고 추가합니다.</p>
+          <p>등록된 Runner가 없으면 아래 Runner 추가를 누르세요. 설치/열기와 일회용 코드 발급 순서로 안내합니다.</p>
           {runners.length > 0 && (
             <ul className="runner-list" data-testid="runner-list">
               {runners.map((r) => (

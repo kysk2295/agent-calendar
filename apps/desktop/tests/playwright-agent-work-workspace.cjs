@@ -234,7 +234,10 @@ async function main() {
     const body = request.postDataJSON?.() || {};
     calls.push({ method, path: apiPath, body });
     if (method === 'GET' && apiPath === '/api/agent-operations') { await route.fulfill({ json: operationState }); return; }
-    if (method === 'GET' && apiPath === '/api/agents') { await route.fulfill({ json: { ok: true, agents } }); return; }
+    if (method === 'GET' && apiPath === '/api/agents') {
+      await route.fulfill({ json: { ok: true, agents: process.env.AGENT_CALENDAR_E2E_EMPTY_AGENTS === '1' ? [] : agents } });
+      return;
+    }
     if (method === 'GET' && apiPath === '/api/scheduler/jobs') { await route.fulfill({ json: { ok: true, jobs } }); return; }
     if (method === 'GET' && apiPath === '/api/runners') { await route.fulfill({ json: { ok: true, runners: [fixtureRunner] } }); return; }
     const conversationMatch = apiPath.match(/^\/api\/agent-operations\/work\/([^/]+)\/conversation$/);
@@ -355,6 +358,18 @@ async function main() {
     await page.waitForSelector('.agent-control-room');
     assert.equal(await page.locator('.agent-work-conversation').count(), 0);
     assert.equal(await page.locator('.agent-scheduler-card button').count(), 0);
+    if (process.env.AGENT_CALENDAR_E2E_EMPTY_AGENTS === '1') {
+      await page.getByText('이 Workspace에는 미리 연결된 에이전트가 없습니다.').first().waitFor();
+      await capture(page, 'desktop-control-home-empty-agent-roster');
+      await page.getByRole('button', { name: '첫 에이전트 만들기' }).click();
+      await page.getByRole('heading', { name: '에이전트 만들기' }).waitFor();
+      await page.getByRole('button', { name: '닫기' }).click();
+      await page.getByRole('button', { name: 'Runner에서 가져오기' }).click();
+      await page.getByRole('heading', { name: 'Runner에서 에이전트 가져오기' }).waitFor();
+      await capture(page, 'desktop-empty-agent-import-path');
+      console.log(JSON.stringify({ ok: true, emptyRoster: true, createPath: true, importPath: true }, null, 2));
+      return;
+    }
     if (!fixtureRunnerReady) {
       const delegate = page.getByLabel('에이전트에게 작업 지시');
       const createButton = page.getByRole('button', { name: '위임' });

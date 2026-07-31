@@ -20,12 +20,20 @@
     "typecheck": "npm --workspace apps/desktop run typecheck",
     "test": "npm --workspace apps/backend run test && npm --workspace apps/desktop run test && npm --workspace apps/runner run test",
     "test:backend": "npm --workspace apps/backend run test",
+    "test:backend:critical": "node --test apps/backend/tests/phase1-workspace-isolation.test.cjs apps/backend/tests/phase1-backend-security-boundary.test.cjs apps/backend/tests/workos-authkit-adapter.test.cjs apps/backend/tests/phase1-workos-desktop-login.test.cjs",
+    "test:production-auth-mode-cutover": "node --test apps/backend/tests/production-auth-mode-cutover.test.cjs",
+    "test:production-readiness": "node --test scripts/production-readiness.test.cjs",
     "test:runner": "npm --workspace apps/runner run test",
     "runner:check": "npm --workspace apps/runner run check",
+    "setup:workos": "bash scripts/setup-workos-env.sh",
     "backend:start": "npm --workspace apps/backend run start",
+    "backend:start:workos": "bash scripts/start-workos-backend.sh",
     "backend:check": "npm --workspace apps/backend run check",
     "backend:migrate": "npm --workspace apps/backend run db:migrate",
     "verify:multi-user-ete": "AGENT_CALENDAR_E2E_TWO_ACCOUNT=1 node apps/desktop/tests/playwright-phase3-golden-ete.cjs",
+    "verify:production-workspace-isolation": "WORKSPACE_AUTH_MODE=production node --test apps/backend/tests/phase1-full-gateway-workspace-cutover.test.cjs",
+    "verify:first-user-journey:injected": "AGENT_CALENDAR_E2E_TIMEOUT_MS=120000 node apps/desktop/tests/playwright-first-user-journey.cjs",
+    "verify:production-readiness": "scripts/production-readiness.sh",
     "verify:beta": "npm run backend:check && npm run typecheck && npm test && npm run build:desktop"
   }
 }

@@ -22,6 +22,72 @@ Railway의 old/new overlap은 새 deployment가 active가 된 뒤 이전 deploym
 유지한다. 이것이 staging 검증을 대체하지는 않는다. staging은 production과 별도
 PostgreSQL, 별도 secret을 사용해야 한다.
 
+### Staging preflight dry run (Railway 변경 없음)
+
+`dry-run`은 이미 수집된 status/deployment/evidence JSON의 argument와 schema, candidate
+binding, freshness, database isolation, rollback 가능 대상을 로컬에서만 검증한다. Railway
+API나 CLI를 호출하지 않고 deploy/rollback도 실행하지 않으므로 token이 없는 개발 환경에서도
+안전하게 release package의 계약을 확인할 수 있다.
+
+증거 파일은 source tree 밖의 owner-only 임시 디렉터리에 두고, secret manager의 값을 파일,
+명령 인자, shell history에 붙여 넣지 않는다.
+
+```sh
+umask 077
+RAILWAY_PREFLIGHT_WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agent-calendar-preflight.XXXXXX")"
+
+node scripts/railway-release-gate.cjs dry-run \
+  --status-json "$RAILWAY_STATUS_JSON" \
+  --deployments-json "$RAILWAY_PRODUCTION_DEPLOYMENTS_JSON" \
+  --expected-commit "$RELEASE_COMMIT" \
+  --readiness-evidence-json "$STAGING_READINESS_EVIDENCE_JSON" \
+  --smoke-evidence-json "$CLEAN_ACCOUNT_ETE_EVIDENCE_JSON" \
+  --staging-isolation-evidence-json "$STAGING_ISOLATION_EVIDENCE_JSON" \
+  > "$RAILWAY_PREFLIGHT_WORK_DIR/dry-run.json"
+```
+
+exit code가 0이고 결과가 `schemaVersion=3`, `ok=true`,
+`action=promote_candidate`일 때만 evidence package의 로컬 계약이 유효하다. 이 결과는
+Railway 연결, token 권한, 현재 retained deployment, 또는 staging의 최신 상태를 증명하지
+않으며 production 승격 권한도 아니다. 누락된 입력, 알 수 없는 flag, invalid/stale/mismatched
+evidence는 non-zero로 종료한다.
+
+### Credential이 준비된 staging preflight
+
+1. operator가 승인된 secret manager에서 현재 shell process에
+   `RAILWAY_API_TOKEN` 또는 `RAILWAY_PROJECT_TOKEN` 중 정확히 하나만 주입한다. token 값을
+   `export ...=<value>` 형태로 문서, ticket, chat, shell history에 입력하지 않는다.
+2. Railway CLI가 같은 project의 staging을 가리키는지 확인한 뒤, 아래 `승격 순서`대로
+   status, deployment snapshot, readiness, clean-account ETE, database isolation 증거를
+   owner-only 임시 디렉터리에 수집한다. `snapshot-deployments`,
+   `snapshot-staging-isolation`, `rollback`은 두 token이 모두 없거나 모두 있으면 Railway
+   API/CLI를 호출하기 전에 실패한다. isolation snapshot은 Project Token을 Railway CLI의
+   process-local `RAILWAY_TOKEN`으로 전달하며 값을 출력하거나 보존하지 않는다.
+3. 수집 직후 위 `dry-run`을 실행한다. 실패하면 새 evidence를 수집하거나 binding 문제를
+   해결하고, 기존 JSON을 수동 수정해 통과시키지 않는다.
+4. dry-run 결과와 실제 `preflight` 결과의 candidate commit/deployment,
+   last-known-good deployment, `expiresAt`을 두 번째 operator가 검토한다. 30분 만료 전에
+   완료하지 못하면 모든 live evidence를 다시 수집한다.
+5. 검토가 끝나기 전에는 `scripts/deploy-railway-main.sh` 또는 `rollback` 명령을 실행하지
+   않는다. 작업이 끝나면 임시 evidence를 조직의 보존 정책에 따라 파기한다.
+
+### Rollback rehearsal (실제 Railway rollback 없음)
+
+실제 Railway mutation 대신 local blue/green fixture로 readiness 실패와 known-good 복원을
+연습한다. `--write-evidence`를 주지 않으면 source tree의 evidence 파일도 변경하지 않는다.
+
+```sh
+node apps/backend/tools/phase10-gateway-rollback-rehearsal.cjs \
+  > "$RAILWAY_PREFLIGHT_WORK_DIR/local-rollback-rehearsal.json"
+```
+
+exit code가 0이고 `ok=true`, `candidateFailedAfterPromotion=true`,
+`knownGoodReadyAfterRollback=true`, `activeDeploymentAfterRollback=local-known-good`인지 확인한다.
+그 다음 dry-run 결과의 `lastKnownGoodDeploymentId`가 deployment snapshot의 exact ID이고 해당
+항목의 `canRollback=true`인지 검토한다. 여기까지가 rehearsal의 끝이다. production 장애가
+실제로 발생해 승인된 rollback이 필요한 경우에만 아래 `Gateway rollback` 절의 exact
+confirmation 명령을 별도로 실행한다.
+
 ### 승격 순서
 
 1. reviewed commit을 `main`에 push하고 local `main`, `origin/main`, release commit이 같은지

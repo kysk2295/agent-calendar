@@ -789,9 +789,11 @@ async function runScenario(backend) {
       await page.waitForSelector('[data-testid="onboarding-guide"]', { timeout: 20_000 });
       const guideText = await page.locator('[data-testid="onboarding-guide"]').innerText();
       assert.match(guideText, /캘린더 동기화/);
-      assert.match(guideText, /Runner와 실행 엔진/);
+      assert.match(guideText, /Runner \/ 실행 컴퓨터/);
       assert.match(guideText, /Wiki 지식 소스/);
       assert.match(guideText, /Calendar AI 확인/);
+      assert.match(guideText, /작업공간 로그인과 별도/);
+      assert.match(guideText, /브라우저에서 일정 권한/);
       await page.screenshot({ path: screenshotGuidePath, fullPage: true });
       assert.ok(fs.statSync(screenshotGuidePath).size > 10_000, 'first-run guide screenshot missing/small');
       const guideSurface = await page.locator('[data-testid="onboarding-guide"]').evaluate((element) => {
@@ -844,6 +846,14 @@ async function runScenario(backend) {
 
         await connect.click();
         await page.waitForTimeout(200);
+        await page.getByRole('button', { name: '브라우저 승인 대기 중…', exact: true }).waitFor({
+          state: 'visible',
+          timeout: 10_000,
+        });
+        await page.getByRole('button', { name: /캘린더 동기화 연결 진행 중/ }).waitFor({
+          state: 'visible',
+          timeout: 10_000,
+        });
         const googleState = backend.getGoogleState();
         assert.ok(googleState, 'retry must issue a Google OAuth state');
         try {
@@ -866,6 +876,10 @@ async function runScenario(backend) {
           state: 'visible',
           timeout: 20_000,
         });
+        await page.getByText(firstUserJourney ? '4/4 준비' : '2/4 준비', { exact: true }).waitFor({
+          state: 'visible',
+          timeout: 20_000,
+        });
         assert.equal(backend.getCalendarFinalizeCount(), 1);
         assert.equal(backend.getCalendarSyncCount(), 1);
         assert.ok(backend.getGoogleSource()?.lastSyncedAt, 'Google source must persist synchronized truth');
@@ -876,7 +890,7 @@ async function runScenario(backend) {
       if (firstUserJourney) {
         // Ready steps show "준비됨" in the rail (not the long statusLabel).
         const guide = page.locator('[data-testid="onboarding-guide"]');
-        await page.getByRole('button', { name: /Runner와 실행 엔진/ }).click();
+        await page.getByRole('button', { name: /Runner \/ 실행 컴퓨터/ }).click();
         await guide.locator('.onboarding-progress-step[data-ready="true"]').filter({ hasText: 'Runner' }).waitFor({
           state: 'visible',
           timeout: 15_000,
@@ -891,6 +905,11 @@ async function runScenario(backend) {
           state: 'visible',
           timeout: 15_000,
         });
+        await page.getByTestId('onboarding-action-calendar_ai').click();
+        await page.waitForSelector('[data-testid="unified-calendar"]', { timeout: 20_000 });
+        await page.locator('aside.chat').waitFor({ state: 'visible', timeout: 10_000 });
+        await page.getByTestId('onboarding-return').click();
+        await guide.waitFor({ state: 'visible', timeout: 10_000 });
         const completeSetup = page.getByRole('button', { name: '설정 완료' });
         await completeSetup.waitFor({ state: 'visible', timeout: 10_000 });
         assert.equal(await completeSetup.isDisabled(), false, '설정 완료 must enable when all steps ready');

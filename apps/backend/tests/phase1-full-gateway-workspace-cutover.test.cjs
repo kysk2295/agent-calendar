@@ -147,21 +147,25 @@ async function seedTwoWorkspaces(pool) {
   await pool.query(`insert into users (id, display_name, status) values
     ('user-a', 'Alex', 'active'),
     ('user-b', 'Blair', 'active'),
-    ('user-member-a', 'MemberA', 'active')
+    ('user-member-a', 'MemberA', 'active'),
+    ('user-empty', 'Empty Workspace Owner', 'active')
     on conflict (id) do nothing`);
   await pool.query(`insert into workspaces (id, name, status) values
     ('ws-a', 'Workspace A', 'active'),
-    ('ws-b', 'Workspace B', 'active')
+    ('ws-b', 'Workspace B', 'active'),
+    ('ws-empty', 'Empty Workspace', 'active')
     on conflict (id) do nothing`);
   await pool.query(`insert into workspace_memberships (id, user_id, workspace_id, role, status) values
     ('mem-a', 'user-a', 'ws-a', 'owner', 'active'),
     ('mem-b', 'user-b', 'ws-b', 'owner', 'active'),
-    ('mem-member-a', 'user-member-a', 'ws-a', 'member', 'active')
+    ('mem-member-a', 'user-member-a', 'ws-a', 'member', 'active'),
+    ('mem-empty', 'user-empty', 'ws-empty', 'owner', 'active')
     on conflict (id) do nothing`);
   await pool.query(`insert into auth_identities (id, user_id, provider, provider_subject) values
     ('id-a', 'user-a', 'test', 'subject-a'),
     ('id-b', 'user-b', 'test', 'subject-b'),
-    ('id-member-a', 'user-member-a', 'test', 'subject-member-a')
+    ('id-member-a', 'user-member-a', 'test', 'subject-member-a'),
+    ('id-empty', 'user-empty', 'test', 'subject-empty')
     on conflict (id) do nothing`);
 
   await pool.query(`insert into tasks (id, title, status, owner, due_at, mission_id, session_id, payload, workspace_id) values
@@ -217,7 +221,7 @@ test('route registry covers Desktop inventory and never allows legacy product fa
   assert.ok(summary.disabled.length > 0);
 });
 
-test('production cutover: hostile two-Workspace matrix on real Postgres', async () => {
+test('production cutover: hostile multi-Workspace matrix on real Postgres', async () => {
   await withEphemeralPostgres(async ({ pool }) => {
     await seedTwoWorkspaces(pool);
 
@@ -229,6 +233,9 @@ test('production cutover: hostile two-Workspace matrix on real Postgres', async 
     });
     const issuedMember = await issueSessionForVerifiedSubject(pool, {
       provider: 'test', providerSubject: 'subject-member-a', workspaceId: 'ws-a',
+    });
+    const issuedEmpty = await issueSessionForVerifiedSubject(pool, {
+      provider: 'test', providerSubject: 'subject-empty', workspaceId: 'ws-empty',
     });
 
     // Track whether global store is touched (must stay null / unused for product).
@@ -278,10 +285,16 @@ test('production cutover: hostile two-Workspace matrix on real Postgres', async 
     const baseUrl = await listen(server);
 
     try {
-      // 1) Anonymous product request
-      const anon = await httpJson(baseUrl, 'GET', '/api/tasks');
-      assert.equal(anon.status, 401);
-      assert.equal(anon.json.error, 'workspace_auth_required');
+      // 1) Anonymous representative product reads always fail closed instead of
+      // hydrating the legacy gatewayFallback state or synthetic Hermes roster.
+      for (const productPath of ['/api/tasks', '/api/agents', '/api/state']) {
+        const anon = await httpJson(baseUrl, 'GET', productPath, {
+          headers: { accept: 'application/vnd.agent-calendar.client-v1+json' },
+        });
+        assert.equal(anon.status, 401, productPath);
+        assert.equal(anon.json.error, 'workspace_auth_required', productPath);
+        assert.equal(anon.json.gatewayFallback, undefined, productPath);
+      }
 
       // 2) Legacy global Bearer must not work in production
       const legacy = await httpJson(baseUrl, 'GET', '/api/tasks', { token: 'legacy-global-token' });
@@ -316,6 +329,27 @@ test('production cutover: hostile two-Workspace matrix on real Postgres', async 
       assert.equal(listB.json.tasks.some((t) => t.id === 'task-b'), true);
       assert.equal(listB.json.tasks.some((t) => t.id === 'task-a'), false);
 
+      // The client-v1 Desktop hydration path succeeds for a newly-created Workspace
+      // that has no agents yet. Production must not invent a global Hermes roster.
+      const emptyAgents = await httpJson(baseUrl, 'GET', '/api/agents', {
+        token: issuedEmpty.accessToken,
+        headers: { accept: 'application/vnd.agent-calendar.client-v1+json' },
+      });
+      assert.equal(emptyAgents.status, 200, JSON.stringify(emptyAgents.json));
+      assert.equal(emptyAgents.headers.get('x-agent-calendar-contract'), 'client-v1');
+      assert.deepEqual(emptyAgents.json.agents, []);
+      assert.equal(emptyAgents.json.gatewayFallback, undefined);
+
+      const emptyState = await httpJson(baseUrl, 'GET', '/api/state', {
+        token: issuedEmpty.accessToken,
+        headers: { accept: 'application/vnd.agent-calendar.client-v1+json' },
+      });
+      assert.equal(emptyState.status, 200, JSON.stringify(emptyState.json));
+      assert.equal(emptyState.headers.get('x-agent-calendar-contract'), 'client-v1');
+      assert.equal(emptyState.json.workspaceId, 'ws-empty');
+      assert.deepEqual(emptyState.json.agents, []);
+      assert.equal(emptyState.json.gatewayFallback, undefined);
+
       // 6) Direct ID guess foreign → opaque 404
       const cross = await httpJson(baseUrl, 'GET', '/api/tasks/task-b', { token: issuedA.accessToken });
       // Desktop path is list/patch by id — patch foreign
@@ -325,17 +359,44 @@ test('production cutover: hostile two-Workspace matrix on real Postgres', async 
       });
       assert.equal(crossPatch.status, 404);
 
-      // Body workspaceId spoof ignored — still creates in token workspace
+      // Release gate: a production-auth HTTP write belongs only to the token's Workspace.
+      // The hostile body scope also proves that caller-provided Workspace IDs are not authority.
       const created = await httpJson(baseUrl, 'POST', '/api/tasks', {
         token: issuedA.accessToken,
-        body: { title: 'Spoof attempt', workspaceId: 'ws-b', id: 'task-spoof-a' },
+        body: {
+          title: 'Workspace A production isolation marker',
+          workspaceId: 'ws-b',
+          id: 'task-production-isolation-a',
+        },
       });
       assert.equal(created.status, 200, JSON.stringify(created.json));
       assert.equal(created.json.task.workspaceId, 'ws-a');
-      const inB = await pool.query(`select workspace_id from tasks where id = 'task-spoof-a'`);
-      assert.equal(inB.rows[0].workspace_id, 'ws-a');
-      const listB2 = await httpJson(baseUrl, 'GET', '/api/tasks', { token: issuedB.accessToken });
-      assert.equal(listB2.json.tasks.some((t) => t.id === 'task-spoof-a'), false);
+      const persistedMarker = await pool.query(
+        `select workspace_id from tasks where id = 'task-production-isolation-a'`,
+      );
+      assert.equal(persistedMarker.rows[0].workspace_id, 'ws-a');
+
+      const listAAfterWrite = await httpJson(baseUrl, 'GET', '/api/tasks', {
+        token: issuedA.accessToken,
+      });
+      assert.equal(listAAfterWrite.status, 200, JSON.stringify(listAAfterWrite.json));
+      assert.equal(
+        listAAfterWrite.json.tasks.some((task) => task.id === 'task-production-isolation-a'),
+        true,
+      );
+
+      const listBAfterAWrite = await httpJson(baseUrl, 'GET', '/api/tasks', {
+        token: issuedB.accessToken,
+      });
+      assert.equal(listBAfterAWrite.status, 200, JSON.stringify(listBAfterAWrite.json));
+      assert.equal(
+        listBAfterAWrite.json.tasks.some((task) => task.id === 'task-production-isolation-a'),
+        false,
+      );
+      assert.equal(
+        JSON.stringify(listBAfterAWrite.json).includes('Workspace A production isolation marker'),
+        false,
+      );
 
       // Header spoof workspaceId must not rebind
       const headerSpoof = await httpJson(baseUrl, 'GET', '/api/calendar/events', {
