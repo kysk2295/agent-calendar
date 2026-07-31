@@ -16,9 +16,11 @@ function rule(selector) {
   return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] || '';
 }
 
-test('Work Conversation is presented as one provider-style session instead of a checkpoint card wall', () => {
+test('Work Conversation is presented as one accountable work surface instead of a checkpoint card wall', () => {
   assert.match(conversationSource, /className="agent-work-session-bar"/);
-  assert.match(conversationSource, /className="agent-work-session-engine"/);
+  assert.match(conversationSource, /className="agent-work-next-action"/);
+  assert.match(conversationSource, /className="agent-work-execution-details"/);
+  assert.doesNotMatch(conversationSource, /className="agent-work-session-engine"/);
   assert.doesNotMatch(conversationSource, /className="agent-work-kicker"/);
   assert.match(timelineSource, /function checkpointPresentation/);
   assert.match(timelineSource, /data-presentation=\{presentation\}/);
@@ -28,8 +30,9 @@ test('Work Conversation is presented as one provider-style session instead of a 
   assert.match(rule('.agent-checkpoint[data-presentation="activity"]'), /border:\s*0/);
 });
 
-test('the session composer uses one frame and explains that follow-ups stay in the same work conversation', () => {
-  assert.match(composerSource, /같은 작업 대화에 이어서 보냅니다/);
+test('the Work Conversation composer uses one frame and keeps execution controls secondary', () => {
+  assert.match(composerSource, /같은 위임 작업에 이어서 보냅니다/);
+  assert.match(composerSource, /className="agent-work-composer-advanced"/);
   assert.match(rule('.agent-work-composer'), /border:\s*1px\s+solid/);
   assert.match(rule('.agent-work-composer textarea'), /border:\s*0/);
   assert.match(rule('.agent-work-composer textarea'), /background:\s*transparent/);
@@ -40,11 +43,13 @@ test('the session header avoids an automatic focus ring while retaining keyboard
   assert.doesNotMatch(css, /\.agent-work-header h1:focus\s*\{/);
 });
 
-test('an empty Work Conversation starts from a message without a manual plan prerequisite', () => {
+test('an empty Work Conversation exposes the real plan lifecycle action', () => {
   assert.doesNotMatch(detailsSource, />계획 만들기</);
   assert.doesNotMatch(detailsSource, /<strong>실행 계획<\/strong>/);
   assert.match(detailsSource, /props\.tasks\.length > 0/);
-  assert.match(conversationSource, /첫 지시를 남기면 담당 에이전트가 바로 시작합니다/);
+  assert.match(conversationSource, /aria-label="위임 작업 계획 만들기"/);
+  assert.match(conversationSource, /props\.onPlanMission\(props\.mission\.id\)/);
+  assert.match(workspaceSource, /onPlanMission=\{props\.onPlanMission\}/);
 });
 
 test('a selected work uses a focused session rail and one dominant conversation canvas', () => {

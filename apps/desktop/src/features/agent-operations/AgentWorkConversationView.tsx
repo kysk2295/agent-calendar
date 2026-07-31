@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { missionStatusLabel } from './AgentOperationViews';
 import { AgentWorkComposer } from './AgentWorkComposer';
 import { AgentWorkTimeline } from './AgentWorkTimeline';
+import { AgentWorkerStrip, projectAgentWorkerRows } from './AgentWorkerStrip';
 import { executionEngineLabel, resolvedExecutionEngineLabel } from './executionContracts';
 import {
   engineAuthenticationPresentation,
@@ -43,7 +44,11 @@ type AgentWorkConversationViewProps = {
     requestedModel: string,
     comparisonTargets?: readonly AgentWorkComparisonTarget[],
   ) => Promise<AgentWorkDelivery>;
+  readonly onPlanMission: (missionId: string) => Promise<void>;
+  readonly onApprovePlan: (missionId: string) => Promise<void>;
+  readonly onMissionWorkAction: (missionId: string, action: 'activate' | 'pause' | 'cancel') => Promise<void>;
   readonly onTaskAction: (taskId: string, action: AgentTaskAction) => Promise<boolean>;
+  readonly onRunTaskNow: (taskId: string) => Promise<void>;
   readonly onOpenSession: (sessionId: string) => void;
   readonly onReportFeedback: (reportId: string, useful: boolean) => Promise<void>;
   readonly onFollowUpDecision: (reportId: string, index: number, decision: 'approved' | 'rejected') => Promise<void>;
@@ -61,9 +66,7 @@ function attentionSummary(props: AgentWorkConversationViewProps): string {
   if (props.tasks.some((task) => task.status === 'failed')) return '재시도 필요 · 실패 원인을 확인한 뒤 다시 시도해 주세요.';
   if (props.tasks.some((task) => task.status === 'running')) return '진행 중 · 현재 실행을 지켜보거나 새 지시를 남길 수 있습니다.';
   switch (props.mission.status) {
-    case 'draft': return props.conversation?.checkpoints.length
-      ? '대화 진행 · 다음 지시를 남기면 같은 작업에서 이어서 처리합니다.'
-      : '준비됨 · 첫 지시를 남기면 담당 에이전트가 바로 시작합니다.';
+    case 'draft': return '계획 필요 · 요청을 작업 단계로 정리한 뒤 검토하고 시작하세요.';
     case 'active': return '진행 준비 · 다음 실행을 시작하거나 지시를 남길 수 있습니다.';
     case 'paused': return '일시정지 · 재개 전에 변경할 방향을 남겨 주세요.';
     case 'completed': return '결과 검토 · 현재 결과를 확인하거나 같은 목표로 수정을 요청하세요.';
@@ -72,10 +75,32 @@ function attentionSummary(props: AgentWorkConversationViewProps): string {
   }
 }
 
+function nextActionLabel(props: AgentWorkConversationViewProps): string {
+  if (props.aggregateStale) return '최신 상태 확인';
+  if (props.error) return '작업 대화 다시 불러오기';
+  if (props.loading || props.provisional) return '위임 작업 상태 확인';
+  if (props.tasks.some((task) => task.status === 'proposed')) return '계획 검토 후 승인';
+  if (props.tasks.some((task) => task.status === 'blocked')) return '막힌 이유 확인';
+  if (props.tasks.some((task) => task.status === 'failed')) return '실패 원인 확인 후 재시도';
+  if (props.tasks.some((task) => task.status === 'scheduled')) return '다음 단계 실행';
+  if (props.tasks.some((task) => task.status === 'running')) return '진행 확인 또는 추가 지시';
+  if (props.mission.status === 'draft' && props.tasks.length === 0) return '계획 만들기';
+  switch (props.mission.status) {
+    case 'active': return '추가 지시 남기기';
+    case 'paused': return '방향 확인 후 재개';
+    case 'completed': return '결과 검토 또는 수정 요청';
+    case 'failed': return '실패 원인 확인 후 재시도';
+    case 'cancelled': return '기록 검토';
+    case 'draft': return '계획 검토';
+  }
+}
+
 export function AgentWorkConversationView(props: AgentWorkConversationViewProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [actionReceipt, setActionReceipt] = useState('');
+  const [nextActionError, setNextActionError] = useState('');
   const [telegramCopyState, setTelegramCopyState] = useState('');
+  const [openWorkerId, setOpenWorkerId] = useState<string | null>(null);
   const assignmentCopy = props.conversation
     ? responsibleAgentAssignmentCopy(props.conversation.work.assignment)
     : '배정 이유 확인 중 · 작업 정보를 불러오고 있습니다.';
@@ -109,11 +134,27 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
       return engineAuthenticationPresentation(capabilities?.engines?.[engine]).ready;
     })
   ));
-  const runnerDefaultModel = modelCapabilities[activeEngine]?.defaultModel || '';
-  const visibleEngine = resolvedEngine
-    ? resolvedExecutionEngineLabel(resolvedEngine)
-    : executionEngineLabel(activeEngine);
-  const engineLabel = `${visibleEngine} · ${resolvedModel || activeModel || runnerDefaultModel || 'Runner 기본 모델'}`;
+  const requestedEngine = props.conversation?.work.executionEngine || props.mission.executionEngine;
+  const requestedEngineLabel = requestedEngine === 'auto'
+    ? '자동 선택'
+    : `직접 지정 · ${executionEngineLabel(requestedEngine)}`;
+  const actualEngineLabel = resolvedEngine
+    ? `${resolvedExecutionEngineLabel(resolvedEngine)}${resolvedModel ? ` · ${resolvedModel}` : ''}`
+    : '확인 불가';
+  const nextAction = nextActionLabel(props);
+  const workerRows = projectAgentWorkerRows({
+    mission: props.mission,
+    tasks: props.tasks,
+    checkpoints: props.conversation?.checkpoints || [],
+    responsibleAgentName: props.responsibleAgentName,
+    resolvedExecutionEngine: resolvedEngine || null,
+    resolvedExecutionModel: resolvedModel,
+  });
+  const proposedCount = props.tasks.filter((task) => task.status === 'proposed').length;
+  const blockedTask = props.tasks.find((task) => task.status === 'blocked');
+  const failedTask = props.tasks.find((task) => task.status === 'failed');
+  const scheduledTask = props.tasks.find((task) => task.status === 'scheduled');
+  const nextActionDisabled = Boolean(props.busy) || props.loading || props.aggregateStale || Boolean(props.error) || props.liveTurn.active;
   const telegramEndpoint = props.conversation?.channels?.find((endpoint) => endpoint.channel === 'telegram');
   const telegramRunner = telegramEndpoint
     ? props.runners.find((runner) => runner.id === telegramEndpoint.runnerId)
@@ -143,7 +184,10 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
     '--bot-token-env AGENT_CALENDAR_TELEGRAM_BOT_TOKEN',
     `--engine ${activeEngine === 'local_llm' ? 'auto' : activeEngine}`,
   ].join(' ');
-  useEffect(() => { headingRef.current?.focus(); }, [props.mission.id]);
+  useEffect(() => {
+    headingRef.current?.focus();
+    setOpenWorkerId(null);
+  }, [props.mission.id]);
   const taskAction = async (taskId: string, action: AgentTaskAction) => {
     const label = action === 'approve' ? '승인' : action === 'cancel' ? '거절' : action === 'pause' ? '일시정지' : action === 'resume' ? '재개' : '재시도';
     setActionReceipt(`${label} 요청을 처리하고 있습니다.`);
@@ -155,6 +199,18 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
       if (!(error instanceof Error)) throw error;
       setActionReceipt(`${label} 요청을 완료하지 못했습니다. 다시 시도해 주세요.`);
       return false;
+    }
+  };
+  const runNextAction = async (operation: () => Promise<void>) => {
+    setNextActionError('');
+    try {
+      await operation();
+      if (!(await props.onRefresh())) {
+        setNextActionError('요청 후 최신 작업 대화를 불러오지 못했습니다. 다시 시도해 주세요.');
+      }
+    } catch (error: unknown) {
+      if (!(error instanceof Error)) throw error;
+      setNextActionError(error.message || '다음 행동을 처리하지 못했습니다. 다시 시도해 주세요.');
     }
   };
   const retryConversation = async () => {
@@ -181,13 +237,48 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
             <div className="agent-work-status-line">
               <b className="agent-work-status-badge" data-status={statusTone}>{statusLabel}</b>
               <span className="agent-work-assignment"><span>담당</span><strong>{props.responsibleAgentName}</strong></span>
-              <span className="agent-work-session-engine"><span>실행</span><strong>{engineLabel}</strong></span>
+              <span className="agent-work-next-action"><span>다음 행동</span><strong>{nextAction}</strong></span>
               <span className="agent-work-assignment agent-work-assignment-reason"><span>배정</span><strong>{assignmentCopy}</strong></span>
             </div>
           </div>
           <p className="agent-work-attention">{attention}</p>
+          <div className="agent-work-next-action-controls">
+            {props.mission.status === 'draft' && props.tasks.length === 0 && !props.loading && !props.error && (
+              <button type="button" aria-label="위임 작업 계획 만들기" disabled={nextActionDisabled} onClick={() => void runNextAction(() => props.onPlanMission(props.mission.id))}>계획 만들기</button>
+            )}
+            {proposedCount > 0 && (
+              <button type="button" aria-label="위임 작업 계획 승인" disabled={nextActionDisabled} onClick={() => void runNextAction(() => props.onApprovePlan(props.mission.id))}>계획 승인하고 시작</button>
+            )}
+            {props.mission.status === 'paused' && (
+              <button type="button" aria-label="위임 작업 재개" disabled={nextActionDisabled} onClick={() => void runNextAction(() => props.onMissionWorkAction(props.mission.id, 'activate'))}>위임 작업 재개</button>
+            )}
+            {blockedTask && (
+              <button type="button" aria-label="막힌 작업 단계 재개" disabled={nextActionDisabled || props.busy === blockedTask.id} onClick={() => void runNextAction(async () => { await props.onTaskAction(blockedTask.id, 'resume'); })}>막힌 단계 재개</button>
+            )}
+            {failedTask && (
+              <button type="button" aria-label="실패한 작업 단계 재시도" disabled={nextActionDisabled || props.busy === failedTask.id} onClick={() => void runNextAction(async () => { await props.onTaskAction(failedTask.id, 'retry'); })}>실패한 단계 재시도</button>
+            )}
+            {scheduledTask && (
+              <button type="button" aria-label="다음 작업 단계 지금 실행" disabled={nextActionDisabled || props.busy === scheduledTask.id} onClick={() => void runNextAction(() => props.onRunTaskNow(scheduledTask.id))}>다음 단계 지금 실행</button>
+            )}
+          </div>
+          {nextActionError && <p className="agent-work-next-action-error" role="alert">{nextActionError}</p>}
+          <details className="agent-work-execution-details">
+            <summary>실행 정보</summary>
+            <div>
+              <span><small>요청</small><strong>{requestedEngineLabel}</strong></span>
+              <span><small>실제 실행</small><strong>{actualEngineLabel}</strong></span>
+            </div>
+          </details>
         </div>
       </header>
+      <AgentWorkerStrip
+        rows={workerRows}
+        openWorkerId={openWorkerId}
+        onOpen={setOpenWorkerId}
+        onClose={() => setOpenWorkerId(null)}
+        onOpenSession={props.onOpenSession}
+      />
       {actionReceipt && <p className="agent-work-action-status" role="status" aria-live="polite">{actionReceipt}</p>}
       <details className="agent-work-telegram" data-testid="agent-work-telegram">
         <summary>

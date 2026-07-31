@@ -75,7 +75,7 @@ test('stored deliverable values and Korean closing phrases have readable present
   assert.match(presentationModule.preserveWorkClosingPhrase('이 작업의 목적을 한 문장으로 확인해 주세요.'), /이\u00a0작업의\u00a0목적을/);
 });
 
-test('the Work Conversation composer exposes one active response engine without forking the conversation', () => {
+test('the Work Conversation composer keeps execution choices out of the primary message path', () => {
   const html = renderToStaticMarkup(React.createElement(composerModule.AgentWorkComposer, {
     onSend: async () => ({ status: 'accepted', applicationMode: 'mission_context', acceptedAt: '2026-07-26T00:00:00.000Z' }),
     streaming: false,
@@ -92,18 +92,100 @@ test('the Work Conversation composer exposes one active response engine without 
     availableEngines: ['codex', 'claude'],
   }));
 
-  assert.match(html, /aria-label="이 메시지의 실행 엔진"/);
-  assert.match(html, /aria-label="이 메시지의 실행 모델"/);
-  assert.match(html, /Runner 기본 모델/);
-  assert.match(html, /claude-sonnet-4-6/);
-  assert.match(html, /<option value="codex">Codex<\/option>/);
-  assert.match(html, /<option value="claude" selected="">Claude<\/option>/);
-  assert.match(html, /같은 작업 대화 · 한 엔진만 응답/);
-  assert.match(html, /aria-label="여러 실행 엔진 비교"/);
+  const advanced = html.match(/<details class="agent-work-composer-advanced">[\s\S]*?<\/details>/)?.[0] || '';
+  assert.ok(advanced, 'execution controls must be nested under an advanced disclosure');
+  const primary = html.replace(advanced, '');
+  assert.match(primary, /aria-label="작업 대화 메시지"/);
+  assert.match(primary, /aria-label="작업 대화에 보내기"/);
+  assert.doesNotMatch(primary, /aria-label="이 메시지의 실행 엔진"/);
+  assert.doesNotMatch(primary, /aria-label="이 메시지의 실행 모델"/);
+  assert.doesNotMatch(primary, /aria-label="여러 실행 엔진 비교"/);
+  assert.doesNotMatch(advanced, /<details[^>]*\sopen(?:=|>)/);
+  assert.match(advanced, /aria-label="이 메시지의 실행 엔진"/);
+  assert.match(advanced, /aria-label="이 메시지의 실행 모델"/);
+  assert.match(advanced, /Runner 기본 모델/);
+  assert.match(advanced, /claude-sonnet-4-6/);
+  assert.match(advanced, /<option value="codex">Codex<\/option>/);
+  assert.match(advanced, /<option value="claude" selected="">Claude<\/option>/);
+  assert.match(advanced, /aria-label="여러 실행 엔진 비교"/);
   assert.deepEqual(
     composerModule.comparisonTargetsForEngines(['codex', 'claude', 'codex']),
     [{ executionEngine: 'codex' }, { executionEngine: 'claude' }],
   );
+});
+
+test('a newly opened delegated work shows a real plan next action with engine details secondary', () => {
+  const mission = {
+    id: 'draft-work',
+    templateId: 'general-agent-work',
+    title: '시장 근거 정리',
+    objective: '시장 근거를 정리해 주세요.',
+    status: 'draft',
+    agentId: 'default',
+    executionEngine: 'auto',
+    deliverable: { kind: 'file', format: 'auto' },
+    missionThreadId: 'thread-draft',
+    createdAt: '2026-07-31T00:00:00.000Z',
+    updatedAt: '2026-07-31T00:00:00.000Z',
+  };
+  const html = renderToStaticMarkup(React.createElement(conversationModule.AgentWorkConversationView, {
+    mission,
+    tasks: [],
+    reports: [],
+    responsibleAgentName: '기본 에이전트',
+    provisional: false,
+    conversation: {
+      work: {
+        ...mission,
+        assignment: { kind: 'default', agentId: 'default' },
+        resolvedExecutionEngine: null,
+        workConversationId: 'conversation-draft',
+        revision: { revisionCounter: 0, pendingRevisionId: '', currentResultReportId: '' },
+      },
+      conversation: {
+        id: 'conversation-draft',
+        missionId: mission.id,
+        taskId: '',
+        type: 'mission-thread',
+        title: mission.title,
+        status: 'planning',
+        pendingInstructions: [],
+        executionEngine: 'auto',
+        deliverable: mission.deliverable,
+        createdAt: mission.createdAt,
+        updatedAt: mission.updatedAt,
+      },
+      checkpoints: [],
+      nextCursor: null,
+    },
+    loading: false,
+    error: '',
+    aggregateStale: false,
+    busy: '',
+    onBack: () => {},
+    onRefresh: async () => true,
+    onSendMessage: async () => ({ status: 'accepted', applicationMode: 'mission_context', acceptedAt: mission.createdAt }),
+    onPlanMission: async () => {},
+    onApprovePlan: async () => {},
+    onMissionWorkAction: async () => {},
+    onTaskAction: async () => false,
+    onRunTaskNow: async () => {},
+    onOpenSession: () => {},
+    onReportFeedback: async () => {},
+    onFollowUpDecision: async () => {},
+    liveTurn: { active: false, text: '', error: '' },
+    runners: [],
+    controlPlaneBaseUrl: '',
+  }));
+
+  assert.match(html, /class="agent-work-next-action"/);
+  assert.match(html, /다음 행동/);
+  assert.match(html, /aria-label="위임 작업 계획 만들기"/);
+  assert.match(html, /계획 만들기/);
+  assert.doesNotMatch(html, /class="agent-work-session-engine"/);
+  assert.match(html, /<details class="agent-work-execution-details">[\s\S]*?실행 정보[\s\S]*?<\/details>/);
+  assert.match(html, /요청<\/small><strong>자동 선택<\/strong>/);
+  assert.match(html, /실제 실행<\/small><strong>확인 불가<\/strong>/);
 });
 
 test('a partial live response keeps its transport error visible instead of presenting it as an agent answer', () => {
@@ -218,6 +300,7 @@ test('a blocked task overrides the active mission badge with an attention state'
   }));
 
   assert.match(html, /data-status="blocked">확인 필요/);
+  assert.match(html, /aria-label="막힌 작업 단계 재개"/);
   assert.doesNotMatch(html, />운영 중</);
 });
 

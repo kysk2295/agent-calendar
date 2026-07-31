@@ -1,0 +1,863 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent Orchestration Control · Prototype</title>
+<style>
+  :root {
+    --canvas:#FFFFFF; --main:#FFFFFF; --bar:#FAFAFA; --sidebar:#F5F5F5;
+    --panel:#FFFFFF; --input:#FFFFFF;
+    --line:#E5E5E5; --line-strong:#D4D4D4; --line-soft:#EDEDED;
+    --text:#171717; --muted:#737373; --muted-dark:#525252;
+    --action:#171717; --action-text:#FAFAFA;
+    --accent:#C9573A; --accent-dark:#A8422A; --accent-soft:#F9ECE8; --accent-line:#E7B9AD;
+    --green:#2F7D4F; --blue:#4F6F9F; --lavender:#71638F;
+    --amber:#8A641F; --amber-soft:#F8F2E3;
+    --red:#B5453A; --red-soft:#FBECEA;
+    --font-sans: Pretendard, "Pretendard Variable", "Apple SD Gothic Neo", -apple-system, system-ui, sans-serif;
+    --radius-control:6px; --radius-panel:10px;
+    --shell-sidebar:220px; --shell-topbar:40px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:var(--canvas); color:var(--text); font-family:var(--font-sans); font-size:13px; line-height:1.45; -webkit-font-smoothing:antialiased; }
+  a { color:inherit; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  /* Prototype chrome (not part of product UI) */
+  .proto-bar { position:sticky; top:0; z-index:20; background:#111; color:#fafafa; padding:6px 12px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; font-size:11.5px; }
+  .proto-bar b { font-weight:700; margin-right:8px; letter-spacing:.02em; }
+  .proto-tab { border:1px solid #333; background:#1b1b1b; color:#d4d4d4; padding:4px 10px; border-radius:999px; }
+  .proto-tab.active { background:var(--accent); color:#fff; border-color:var(--accent-dark); }
+  .proto-note { color:#a3a3a3; margin-left:auto; }
+
+  section.screen { display:none; }
+  section.screen.active { display:block; }
+
+  /* App shell */
+  .app { display:grid; grid-template-columns: var(--shell-sidebar) 1fr; min-height: calc(100vh - 32px); background:var(--canvas); }
+  .side { background:var(--sidebar); border-right:1px solid var(--line); padding:10px 8px; display:flex; flex-direction:column; gap:2px; }
+  .side .brand { padding:8px 10px 12px; font-size:12.5px; font-weight:800; letter-spacing:.02em; color:var(--muted-dark); text-transform:uppercase; }
+  .nav { display:flex; flex-direction:column; gap:1px; }
+  .nav a { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:6px; text-decoration:none; color:var(--muted-dark); font-size:12.5px; font-weight:600; }
+  .nav a .glyph { width:14px; height:14px; border:1.5px solid currentColor; border-radius:3px; opacity:.85; }
+  .nav a.active { background:#EAEAEA; color:var(--text); }
+  .side .group { margin-top:10px; padding:0 10px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
+  .side .disclosure a { padding-left:22px; font-weight:500; }
+
+  .main { display:flex; flex-direction:column; min-width:0; }
+  .topbar { height:var(--shell-topbar); background:var(--bar); border-bottom:1px solid var(--line); display:flex; align-items:center; padding:0 14px; gap:10px; }
+  .topbar .title { font-size:13px; font-weight:700; }
+  .topbar .crumb { color:var(--muted); font-weight:500; }
+  .topbar .spacer { flex:1; }
+  .topbar .ctrl { height:30px; padding:0 10px; border:1px solid var(--line); background:var(--input); border-radius:var(--radius-control); font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:6px; color:var(--text); }
+  .topbar .ctrl.primary { background:var(--action); color:var(--action-text); border-color:var(--action); }
+
+  .content { padding:18px 22px 40px; overflow:auto; }
+
+  /* Generic panel */
+  .panel { background:var(--panel); border:1px solid var(--line-soft); border-radius:var(--radius-panel); padding:14px 16px; }
+  .panel h3 { margin:0 0 10px; font-size:13px; font-weight:700; letter-spacing:.01em; }
+  .panel h4 { margin:0 0 6px; font-size:12px; font-weight:700; color:var(--muted-dark); }
+  .muted { color:var(--muted); }
+  .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11px; background:#F5F5F5; border:1px solid var(--line); padding:1px 5px; border-radius:4px; color:var(--muted-dark); }
+
+  /* ========== CONTROL HOME ========== */
+  .home-grid { display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:16px; }
+  .home-main { display:flex; flex-direction:column; gap:14px; min-width:0; }
+  .status-strip { display:flex; gap:8px; flex-wrap:wrap; font-size:12px; }
+  .chip { border:1px solid var(--line); border-radius:999px; padding:3px 10px; background:var(--panel); color:var(--muted-dark); font-weight:600; }
+  .chip .dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:6px; background:var(--muted); vertical-align:middle; }
+  .chip.running .dot { background:var(--green); }
+  .chip.wait .dot { background:var(--amber); }
+  .chip.block .dot { background:var(--red); }
+
+  .delegate { border:1px solid var(--line); border-radius:var(--radius-panel); padding:12px 14px; background:var(--panel); display:flex; flex-direction:column; gap:8px; }
+  .delegate label { font-size:12px; font-weight:700; color:var(--muted-dark); }
+  .delegate textarea { border:0; outline:0; resize:none; min-height:56px; width:100%; font: inherit; color:var(--text); background:transparent; }
+  .delegate .row { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .delegate .hint { font-size:11.5px; color:var(--muted); }
+  .btn { height:30px; padding:0 12px; border-radius:var(--radius-control); border:1px solid var(--line); background:var(--input); font-weight:700; font-size:12px; display:inline-flex; align-items:center; gap:6px; }
+  .btn.primary { background:var(--action); color:var(--action-text); border-color:var(--action); }
+  .btn.accent { border-color:var(--accent-line); color:var(--accent-dark); background:var(--accent-soft); }
+  .btn.ghost { background:transparent; }
+  details.advanced { border-top:1px dashed var(--line-soft); padding-top:8px; }
+  details.advanced summary { cursor:pointer; font-size:11.5px; color:var(--muted-dark); font-weight:600; list-style:none; }
+  details.advanced summary::-webkit-details-marker { display:none; }
+  details.advanced summary::before { content:"▸ "; color:var(--muted); }
+  details.advanced[open] summary::before { content:"▾ "; }
+  .adv-grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:8px; margin-top:8px; font-size:12px; }
+  .adv-grid .field { display:flex; flex-direction:column; gap:3px; }
+  .adv-grid select, .adv-grid input { height:28px; border:1px solid var(--line); border-radius:6px; padding:0 8px; background:var(--input); font: inherit; color:var(--text); }
+  .adv-grid label { font-size:11px; color:var(--muted-dark); font-weight:600; }
+
+  .attention-list, .recent-list { display:flex; flex-direction:column; gap:1px; }
+  .work-card { display:grid; grid-template-columns: 8px 1fr auto; gap:10px; align-items:center; padding:10px 12px; border:1px solid var(--line-soft); border-radius:8px; background:var(--panel); text-decoration:none; color:inherit; }
+  .work-card + .work-card { margin-top:6px; }
+  .work-card .bar { width:3px; align-self:stretch; border-radius:2px; background:var(--muted); }
+  .work-card.attn .bar { background:var(--accent); }
+  .work-card.blocked .bar { background:var(--red); }
+  .work-card.done .bar { background:var(--green); }
+  .work-card .body { min-width:0; }
+  .work-card .title { font-size:13px; font-weight:700; }
+  .work-card .meta { font-size:11.5px; color:var(--muted); display:flex; gap:8px; flex-wrap:wrap; margin-top:2px; }
+  .work-card .next { font-size:12px; color:var(--muted-dark); margin-top:4px; }
+  .work-card .cta { font-size:11.5px; font-weight:700; color:var(--accent-dark); }
+
+  .side-card { display:flex; flex-direction:column; gap:8px; }
+  .side-card .row { display:flex; justify-content:space-between; font-size:12px; padding:6px 0; border-bottom:1px solid var(--line-soft); }
+  .side-card .row:last-child { border-bottom:0; }
+  .side-card .row b { font-weight:700; }
+
+  /* Agent roster (Control Home) */
+  .roster { display:flex; flex-direction:column; gap:1px; }
+  .agent-row { display:grid; grid-template-columns: 28px minmax(0,1fr) auto; gap:10px; align-items:center; padding:8px 10px; border:1px solid var(--line-soft); border-radius:8px; background:var(--panel); text-decoration:none; color:inherit; }
+  .agent-row + .agent-row { margin-top:6px; }
+  .avatar { width:28px; height:28px; border-radius:50%; background:#EAEAEA; color:var(--muted-dark); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; border:1px solid var(--line); }
+  .avatar.edit { background:var(--accent-soft); color:var(--accent-dark); border-color:var(--accent-line); }
+  .avatar.anal { background:#EEF2F8; color:var(--blue); border-color:#CFDAE8; }
+  .avatar.mgr  { background:#EEF6F0; color:var(--green); border-color:#C9E0D2; }
+  .avatar.res  { background:#F1EEF7; color:var(--lavender); border-color:#D6CFE4; }
+  .agent-row .body { min-width:0; }
+  .agent-row .name { font-size:12.5px; font-weight:700; display:flex; gap:8px; align-items:center; }
+  .agent-row .name .mode { font-size:10.5px; font-weight:700; color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:0 4px; }
+  .agent-row .now { font-size:11.5px; color:var(--muted-dark); margin-top:2px; }
+  .agent-row .stat { text-align:right; font-size:11.5px; color:var(--muted); }
+  .agent-row .stat b { color:var(--text); font-weight:700; }
+  .agent-row.idle .avatar { opacity:.75; }
+  .agent-row.busy .name::after { content:"실행 중"; font-size:10.5px; font-weight:700; color:var(--green); border:1px solid #C9E0D2; background:#EEF6F0; border-radius:999px; padding:1px 6px; }
+  .agent-row.wait .name::after { content:"승인 대기"; font-size:10.5px; font-weight:700; color:var(--amber); border:1px solid #E7DAB8; background:var(--amber-soft); border-radius:999px; padding:1px 6px; }
+  .agent-row.block .name::after { content:"차단됨"; font-size:10.5px; font-weight:700; color:var(--red); border:1px solid #E9C6C1; background:var(--red-soft); border-radius:999px; padding:1px 6px; }
+  .agent-row.idle .name::after { content:"대기"; font-size:10.5px; font-weight:700; color:var(--muted); border:1px solid var(--line); background:#FAFAFA; border-radius:999px; padding:1px 6px; }
+  .panel .panel-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
+  .panel .panel-head h3 { margin:0; }
+  .panel .panel-head a { font-size:11.5px; color:var(--muted-dark); text-decoration:none; font-weight:600; }
+
+  /* ========== WORK CONVERSATION ========== */
+  .work-shell { display:grid; grid-template-columns: minmax(0,1fr) 300px; gap:16px; }
+  .work-shell.narrow { grid-template-columns: 1fr; }
+  .work-head { display:flex; gap:12px; align-items:flex-start; padding:2px 0 12px; border-bottom:1px solid var(--line-soft); }
+  .work-head .back { height:28px; padding:0 10px; border:1px solid var(--line); border-radius:6px; background:var(--input); font-weight:700; }
+  .work-head .titleblock { flex:1; min-width:0; }
+  .work-head h2 { margin:0; font-size:15.5px; font-weight:700; line-height:1.25; }
+  .work-head .sub { margin-top:4px; font-size:12px; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap; }
+  .work-head .sub .status { color:var(--amber); font-weight:700; }
+  .work-head .next-action { margin-top:6px; font-size:12.5px; color:var(--text); background:var(--amber-soft); border:1px solid #E7DAB8; padding:6px 8px; border-radius:6px; }
+
+  .workers { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:8px; margin:14px 0 6px; }
+  .worker { border:1px solid var(--line); border-radius:8px; padding:10px 12px; background:var(--panel); display:flex; flex-direction:column; gap:4px; }
+  .worker .who { display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:700; }
+  .worker .who .role { color:var(--muted-dark); font-weight:600; font-size:11.5px; }
+  .worker .state { font-size:12px; color:var(--muted-dark); }
+  .worker .state .label { font-weight:700; color:var(--text); }
+  .worker .progress { height:3px; background:var(--line-soft); border-radius:2px; overflow:hidden; }
+  .worker .progress > i { display:block; height:100%; background:var(--muted); }
+  .worker.state-run .progress > i { background:var(--green); width:62%; }
+  .worker.state-verify .progress > i { background:var(--blue); width:80%; }
+  .worker.state-draft .progress > i { background:var(--lavender); width:35%; }
+  .worker .meta { font-size:11.5px; color:var(--muted); display:flex; justify-content:space-between; }
+  .worker .open { align-self:flex-start; margin-top:6px; font-size:11.5px; font-weight:700; color:var(--accent-dark); background:none; border:0; padding:0; }
+
+  .timeline { display:flex; flex-direction:column; gap:10px; padding:14px 0 8px; }
+  .msg { display:grid; grid-template-columns: 88px 1fr; gap:12px; }
+  .msg .when { font-size:11.5px; color:var(--muted); padding-top:6px; }
+  .msg .bubble { border:1px solid var(--line-soft); border-radius:10px; padding:10px 12px; background:var(--panel); }
+  .msg.user .bubble { background:#F7F7F7; }
+  .msg .who { font-size:11.5px; font-weight:700; color:var(--muted-dark); margin-bottom:4px; letter-spacing:.02em; }
+  .msg .body { font-size:13px; }
+  .msg .body ul { margin:6px 0 2px 18px; padding:0; }
+
+  .checkpoint { border-left:3px solid var(--accent); padding:8px 12px; background:var(--accent-soft); border-radius:0 8px 8px 0; }
+  .checkpoint h5 { margin:0 0 4px; font-size:12.5px; font-weight:800; color:var(--accent-dark); letter-spacing:.02em; text-transform:uppercase; }
+  .checkpoint .actions { display:flex; gap:6px; margin-top:8px; }
+  .checkpoint.done { border-color:var(--green); background:#EEF6F0; }
+  .checkpoint.done h5 { color:var(--green); }
+  .checkpoint.block { border-color:var(--red); background:var(--red-soft); }
+  .checkpoint.block h5 { color:var(--red); }
+  .checkpoint.rev { border-color:var(--lavender); background:#F1EEF7; }
+  .checkpoint.rev h5 { color:var(--lavender); }
+
+  .delivery { font-size:11.5px; color:var(--muted-dark); margin-top:4px; }
+  .delivery.accepted { color:var(--muted-dark); }
+  .delivery.queued { color:var(--amber); }
+  .delivery.rejected { color:var(--red); }
+  .delivery b { font-weight:700; }
+
+  .composer { position:sticky; bottom:0; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-panel); padding:10px 12px; margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+  .composer textarea { border:0; outline:0; resize:none; min-height:44px; width:100%; font: inherit; background:transparent; color:var(--text); }
+  .composer .row { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .composer .hint { font-size:11.5px; color:var(--muted); }
+  .composer .actions { display:flex; gap:6px; }
+
+  /* Details rail */
+  .rail { display:flex; flex-direction:column; gap:10px; }
+  .rail .panel { padding:12px 14px; }
+  .rail dl { margin:0; display:grid; grid-template-columns: 90px 1fr; gap:4px 10px; font-size:12px; }
+  .rail dt { color:var(--muted); font-weight:600; }
+  .rail dd { margin:0; color:var(--text); font-weight:600; }
+  .rail .unknown { color:var(--muted); font-weight:500; }
+  .rail ul.plan { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:4px; font-size:12px; }
+  .rail ul.plan li { padding:4px 6px; border-radius:4px; border:1px solid var(--line-soft); background:#FCFCFC; }
+  .rail ul.plan li.done { color:var(--muted-dark); text-decoration:line-through; }
+  .rail ul.plan li.active { border-color:var(--accent-line); background:var(--accent-soft); font-weight:700; }
+
+  /* ========== EXECUTION DETAIL DRAWER ========== */
+  .drawer-wrap { position:relative; }
+  .drawer { border:1px solid var(--line); border-radius:var(--radius-panel); background:var(--panel); padding:0; overflow:hidden; }
+  .drawer .dh { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line-soft); background:var(--bar); }
+  .drawer .dh h3 { margin:0; font-size:13px; font-weight:700; }
+  .drawer .dh .close { margin-left:auto; }
+  .transcript { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px; background:#0f0f0f; color:#e5e5e5; padding:12px 14px; max-height:340px; overflow:auto; }
+  .transcript .line { white-space:pre-wrap; }
+  .transcript .t { color:#7d7d7d; }
+  .transcript .ok { color:#7fbf8e; }
+  .transcript .warn { color:#d9b76a; }
+  .transcript .err { color:#e08a7d; }
+  .transcript .cmd { color:#c9c9c9; }
+  .transcript .info { color:#9fb3d1; }
+  .drawer-meta { display:flex; gap:14px; padding:10px 14px; border-top:1px solid var(--line-soft); font-size:11.5px; color:var(--muted-dark); }
+
+  /* Intervention examples list */
+  .interv { display:flex; flex-direction:column; gap:8px; }
+  .interv .item { border:1px solid var(--line-soft); border-radius:8px; padding:10px 12px; background:var(--panel); }
+  .interv .item h5 { margin:0 0 4px; font-size:12.5px; font-weight:700; }
+  .interv .item p { margin:0; font-size:12px; color:var(--muted-dark); }
+
+  /* Responsive preview toggle */
+  .viewport { border:1px dashed var(--line-strong); border-radius:10px; padding:6px; background:#fafafa; }
+  .viewport .frame { background:var(--canvas); margin:0 auto; transition:width .12s ease; }
+  .viewport[data-w="1280"] .frame { width:1280px; max-width:100%; }
+  .viewport[data-w="768"] .frame { width:768px; }
+  .viewport[data-w="375"] .frame { width:375px; }
+  .viewport[data-w="768"] .work-shell,
+  .viewport[data-w="375"] .work-shell { grid-template-columns: 1fr; }
+  .viewport[data-w="768"] .home-grid,
+  .viewport[data-w="375"] .home-grid { grid-template-columns: 1fr; }
+  .viewport[data-w="375"] .workers { grid-template-columns: 1fr; }
+  .viewport[data-w="375"] .app { grid-template-columns: 1fr; }
+  .viewport[data-w="375"] .side { display:none; }
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <b>Prototype</b>
+  <button class="proto-tab active" data-tab="home">1. Control Home</button>
+  <button class="proto-tab" data-tab="work">2. Work Conversation</button>
+  <button class="proto-tab" data-tab="drawer">3. Execution Detail</button>
+  <button class="proto-tab" data-tab="interv">4. Intervention</button>
+  <button class="proto-tab" data-tab="states">5. States</button>
+  <span class="proto-note">
+    Width:
+    <button class="proto-tab active" data-w="1280">1280</button>
+    <button class="proto-tab" data-w="768">768</button>
+    <button class="proto-tab" data-w="375">375</button>
+  </span>
+</div>
+
+<div class="viewport" data-w="1280">
+<div class="frame">
+
+<!-- ============ SCREEN 1: CONTROL HOME ============ -->
+<section id="screen-home" class="screen active">
+<div class="app">
+  <aside class="side">
+    <div class="brand">Agent Calendar</div>
+    <nav class="nav">
+      <a><span class="glyph"></span> 캘린더</a>
+      <a class="active"><span class="glyph"></span> 에이전트</a>
+      <a><span class="glyph"></span> Hermes 자동화</a>
+    </nav>
+    <div class="group">작업공간</div>
+    <div class="nav disclosure">
+      <a>지식</a><a>러너</a><a>위젯</a><a>사용자</a><a>태그</a>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <span class="title">에이전트</span>
+      <span class="crumb muted">· 관제 홈</span>
+      <span class="spacer"></span>
+      <button class="ctrl">필터</button>
+      <button class="ctrl">최근 결과</button>
+    </div>
+    <div class="content">
+
+      <div class="status-strip" style="margin-bottom:14px;">
+        <span class="chip running"><span class="dot"></span>실행 중 3</span>
+        <span class="chip wait"><span class="dot"></span>승인 대기 1</span>
+        <span class="chip block"><span class="dot"></span>차단됨 1</span>
+        <span class="chip"><span class="dot"></span>오늘 완료 5</span>
+        <span class="chip"><span class="dot"></span>수정 차수 대기 2</span>
+      </div>
+
+      <div class="home-grid">
+        <div class="home-main">
+
+          <div class="delegate" role="group" aria-label="자연어 위임">
+            <label for="del-goal">무엇을 맡길까요?</label>
+            <textarea id="del-goal" placeholder="예: 다음 주 화요일까지 지난 분기 뉴스레터 성과를 요약하고, 상승률 상위 5개 주제로 8월 편집 캘린더 초안을 만들어 주세요."></textarea>
+            <div class="row">
+              <div class="hint"><span class="kbd">Enter</span> 위임 · <span class="kbd">Shift+Enter</span> 줄바꿈</div>
+              <div>
+                <button class="btn ghost">임시 저장</button>
+                <button class="btn primary">위임 보내기</button>
+              </div>
+            </div>
+            <details class="advanced">
+              <summary>고급 옵션 · 담당 에이전트 / 실행 엔진 / 참고 문서</summary>
+              <div class="adv-grid">
+                <div class="field"><label>담당 에이전트</label>
+                  <select><option>자동 결정</option><option>편집장 (Mode B)</option><option>애널리스트 (Mode B)</option></select>
+                </div>
+                <div class="field"><label>실행 엔진</label>
+                  <select><option>자동 (Claude·Codex·Grok 병행)</option><option>Claude Opus 4.7</option><option>Codex</option><option>Grok</option></select>
+                </div>
+                <div class="field"><label>비교 실행</label>
+                  <select><option>사용 안 함</option><option>2개 엔진 병행</option><option>3개 엔진 병행</option></select>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h3>에이전트 현황 <span class="muted" style="font-weight:500;">· 4명 · 실행 2 / 승인 대기 1 / 차단 1 / 대기 0</span></h3>
+              <a href="#">에이전트 관리 →</a>
+            </div>
+            <div class="roster">
+              <a class="agent-row busy" href="#" onclick="showScreen('work');return false;">
+                <span class="avatar edit">편집</span>
+                <div class="body">
+                  <div class="name">편집장 <span class="mode">Mode B</span></div>
+                  <div class="now">뉴스레터 8월 편집 캘린더 초안 · 수집 62% (Claude · Codex · Grok 병행)</div>
+                </div>
+                <div class="stat">이번 주 <b>12</b> · 성공률 <b>92%</b></div>
+              </a>
+              <a class="agent-row wait" href="#">
+                <span class="avatar anal">애널</span>
+                <div class="body">
+                  <div class="name">애널리스트 <span class="mode">Mode B</span></div>
+                  <div class="now">Q3 목표 검토용 지표 수집 · 승인 대기 (대체 소스 사용)</div>
+                </div>
+                <div class="stat">이번 주 <b>8</b> · 성공률 <b>88%</b></div>
+              </a>
+              <a class="agent-row block" href="#">
+                <span class="avatar res">리서</span>
+                <div class="body">
+                  <div class="name">리서처 <span class="mode">Mode B</span></div>
+                  <div class="now">경쟁사 가격 변동 리포트 · 자격증명 만료로 차단됨</div>
+                </div>
+                <div class="stat">이번 주 <b>5</b> · 성공률 <b>80%</b></div>
+              </a>
+              <a class="agent-row busy" href="#">
+                <span class="avatar mgr">관리</span>
+                <div class="body">
+                  <div class="name">관리자 <span class="mode">Mode A</span></div>
+                  <div class="now">화요일 팀 미팅 어젠다 준비 · 초안 작성 (Claude)</div>
+                </div>
+                <div class="stat">이번 주 <b>21</b> · 성공률 <b>95%</b></div>
+              </a>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h3>주목이 필요한 위임 작업 <span class="muted" style="font-weight:500;">· 2</span></h3>
+            <div class="attention-list">
+              <a class="work-card attn" href="#" onclick="showScreen('work');return false;">
+                <span class="bar"></span>
+                <div class="body">
+                  <div class="title">뉴스레터 8월 편집 캘린더 초안</div>
+                  <div class="meta"><span>담당: 편집장</span><span>진행 62%</span><span>2분 전 업데이트</span></div>
+                  <div class="next">다음 액션 — 데이터 소스 3개 중 1개 접근 실패, 대체 소스 승인 필요</div>
+                </div>
+                <span class="cta">승인 →</span>
+              </a>
+              <a class="work-card blocked" href="#">
+                <span class="bar"></span>
+                <div class="body">
+                  <div class="title">경쟁사 가격 변동 리포트</div>
+                  <div class="meta"><span>담당: 애널리스트</span><span>차단됨</span><span>14분 전</span></div>
+                  <div class="next">다음 액션 — 로그인 자격증명 만료, 자격증명 갱신 필요</div>
+                </div>
+                <span class="cta">해결 →</span>
+              </a>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h3>최근 위임 작업</h3>
+            <div class="recent-list">
+              <a class="work-card" href="#"><span class="bar"></span>
+                <div class="body">
+                  <div class="title">화요일 팀 미팅 어젠다 준비</div>
+                  <div class="meta"><span>담당: 관리자</span><span>실행 중 · 초안 작성</span><span>방금</span></div>
+                </div><span class="cta">보기 →</span></a>
+              <a class="work-card done" href="#"><span class="bar"></span>
+                <div class="body">
+                  <div class="title">경영진 주간 보고 요약</div>
+                  <div class="meta"><span>담당: 편집장</span><span>완료 · 결과 3</span><span>오전 10:12</span></div>
+                  <div class="next">다음 액션 — 수정 차수 열기 또는 위키 아카이브</div>
+                </div><span class="cta">결과 →</span></a>
+              <a class="work-card" href="#"><span class="bar"></span>
+                <div class="body">
+                  <div class="title">Q3 목표 검토용 지표 수집</div>
+                  <div class="meta"><span>담당: 애널리스트</span><span>실행 중 · 검증</span><span>어제</span></div>
+                </div><span class="cta">보기 →</span></a>
+            </div>
+          </div>
+
+        </div>
+
+        <aside class="rail">
+          <div class="panel side-card">
+            <h3>오늘 요약</h3>
+            <div class="row"><span>진행 중</span><b>3</b></div>
+            <div class="row"><span>승인 대기</span><b>1</b></div>
+            <div class="row"><span>차단됨</span><b>1</b></div>
+            <div class="row"><span>완료</span><b>5</b></div>
+            <div class="row"><span>수정 차수 대기</span><b>2</b></div>
+          </div>
+          <div class="panel side-card">
+            <h3>루틴 · 자동화</h3>
+            <div class="row"><span>매주 월 09:00 · 주간 보고</span><b class="muted">활성</b></div>
+            <div class="row"><span>매일 08:00 · 뉴스 스캔</span><b class="muted">활성</b></div>
+            <div class="row"><span>매월 1일 · 청구서 정리</span><b class="muted">일시중지</b></div>
+            <div class="row"><a href="#" class="muted">Hermes 자동화 열기 →</a><span></span></div>
+          </div>
+          <div class="panel side-card">
+            <h3>메모</h3>
+            <p class="muted" style="margin:0;font-size:12px;">엔진/모델은 결과에 대한 책임 주체가 아닙니다. 담당 에이전트가 책임을 가지며, 실제 사용된 엔진은 결과에 근거로 표시됩니다.</p>
+          </div>
+        </aside>
+      </div>
+
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============ SCREEN 2: WORK CONVERSATION ============ -->
+<section id="screen-work" class="screen">
+<div class="app">
+  <aside class="side">
+    <div class="brand">Agent Calendar</div>
+    <nav class="nav">
+      <a><span class="glyph"></span> 캘린더</a>
+      <a class="active"><span class="glyph"></span> 에이전트</a>
+      <a><span class="glyph"></span> Hermes 자동화</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="ctrl" onclick="showScreen('home')">← 관제 홈</button>
+      <span class="title">위임 작업</span>
+      <span class="crumb muted">· 뉴스레터 8월 편집 캘린더 초안</span>
+      <span class="spacer"></span>
+      <button class="ctrl">공유</button>
+      <button class="ctrl">일시중지</button>
+    </div>
+    <div class="content">
+
+      <div class="work-shell">
+        <div>
+          <header class="work-head">
+            <button class="back">← 뒤로</button>
+            <div class="titleblock">
+              <h2>뉴스레터 8월 편집 캘린더 초안</h2>
+              <div class="sub">
+                <span>담당 · <b style="color:var(--text)">편집장</b></span>
+                <span class="status">실행 중 · 승인 대기</span>
+                <span>시작 09:14 · 최근 09:38</span>
+              </div>
+              <div class="next-action">
+                다음 액션 · 데이터 소스 3개 중 1개(Meltwater)에 접근 실패. 대체 소스로 <b>공개 RSS + Google News</b> 사용 승인이 필요합니다.
+              </div>
+            </div>
+          </header>
+
+          <div class="workers" role="list" aria-label="하위 병행 작업자">
+            <div class="worker state-run" role="listitem">
+              <div class="who"><span>Claude Opus 4.7</span><span class="role">수집</span></div>
+              <div class="state"><span class="label">실행 중</span> · 뉴스 원문 42/68 수집</div>
+              <div class="progress"><i></i></div>
+              <div class="meta"><span>2분 12초 경과</span><span>비용 $0.14</span></div>
+              <button class="open" onclick="showScreen('drawer')">실행 상세 열기 →</button>
+            </div>
+            <div class="worker state-verify" role="listitem">
+              <div class="who"><span>Codex</span><span class="role">검증</span></div>
+              <div class="state"><span class="label">검증 중</span> · 상승률 지표 교차 확인</div>
+              <div class="progress"><i></i></div>
+              <div class="meta"><span>4분 08초 경과</span><span>비용 $0.22</span></div>
+              <button class="open" onclick="showScreen('drawer')">실행 상세 열기 →</button>
+            </div>
+            <div class="worker state-draft" role="listitem">
+              <div class="who"><span>Grok</span><span class="role">초안</span></div>
+              <div class="state"><span class="label">대기</span> · 검증 완료 후 시작</div>
+              <div class="progress"><i></i></div>
+              <div class="meta"><span>—</span><span>—</span></div>
+              <button class="open" onclick="showScreen('drawer')">실행 상세 열기 →</button>
+            </div>
+          </div>
+
+          <div class="timeline" aria-label="작업 대화 타임라인">
+            <div class="msg user">
+              <div class="when">09:14</div>
+              <div class="bubble">
+                <div class="who">나</div>
+                <div class="body">다음 주 화요일까지 지난 분기 뉴스레터 성과를 요약하고, 상승률 상위 5개 주제로 8월 편집 캘린더 초안을 만들어 주세요.</div>
+                <div class="delivery accepted"><b>접수됨</b> · 위임 등록됨 — 편집장에게 배정되었습니다.</div>
+              </div>
+            </div>
+
+            <div class="msg">
+              <div class="when">09:15</div>
+              <div class="bubble">
+                <div class="who">편집장</div>
+                <div class="checkpoint">
+                  <h5>계획 체크포인트</h5>
+                  <div class="body">
+                    다음 순서로 진행합니다.
+                    <ul>
+                      <li>지난 분기 뉴스레터 오픈률·클릭률 수집 (Q2 데이터)</li>
+                      <li>상승률 상위 주제 5개 도출 · 상호 검증</li>
+                      <li>8월 4주 · 주제별 편집 캘린더 초안 작성</li>
+                      <li>결과 리포트 1개 · 초안 문서 1개 산출</li>
+                    </ul>
+                  </div>
+                  <div class="actions">
+                    <button class="btn primary">계획 승인</button>
+                    <button class="btn">수정 요청</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="msg user">
+              <div class="when">09:17</div>
+              <div class="bubble">
+                <div class="who">나</div>
+                <div class="body">좋아요. 진행해 주세요.</div>
+                <div class="delivery"><b>적용됨 · 계획 승인</b> — 편집장이 하위 작업을 시작했습니다.</div>
+              </div>
+            </div>
+
+            <div class="msg">
+              <div class="when">09:22</div>
+              <div class="bubble">
+                <div class="who">편집장 · 진행 상황</div>
+                <div class="body">Q2 지표 수집을 3개 소스에 분산해 시작했습니다. Meltwater 접근에 실패했습니다.</div>
+              </div>
+            </div>
+
+            <div class="msg">
+              <div class="when">09:38</div>
+              <div class="bubble">
+                <div class="who">편집장</div>
+                <div class="checkpoint">
+                  <h5>승인 필요 · 대체 데이터 소스</h5>
+                  <div class="body">
+                    Meltwater 자격증명이 만료되어 접근에 실패했습니다. 결과 정확도 유지를 위해 대체 소스로 <b>공개 RSS + Google News</b>를 사용할 수 있습니다.
+                    범위: 지난 분기(2026-04-01 ~ 06-30), 카테고리 5개. 담당: 편집장.
+                  </div>
+                  <div class="actions">
+                    <button class="btn primary">승인</button>
+                    <button class="btn">거절</button>
+                    <button class="btn ghost">Meltwater 자격증명 갱신</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="msg user">
+              <div class="when">09:40</div>
+              <div class="bubble">
+                <div class="who">나 · 초안 톤은 좀 더 캐주얼하게 해주세요.</div>
+                <div class="delivery queued"><b>다음 시도에 반영 예정</b> — 현재 실행은 중단하지 않습니다.</div>
+              </div>
+            </div>
+
+          </div>
+
+          <form class="composer" onsubmit="event.preventDefault();">
+            <textarea placeholder="답장을 쓰거나 새 지시를 남기세요. 즉시 반영이 필요하면 우측 ‘지금 반영’을 사용하세요."></textarea>
+            <div class="row">
+              <div class="hint">Enter 보내기 · Shift+Enter 줄바꿈 · 승인 대기가 있어도 메시지를 남길 수 있습니다.</div>
+              <div class="actions">
+                <button type="button" class="btn">지금 반영 (인터럽트)</button>
+                <button type="submit" class="btn primary">보내기</button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <aside class="rail">
+          <div class="panel">
+            <h4>담당 · 엔진</h4>
+            <dl>
+              <dt>담당 에이전트</dt><dd>편집장</dd>
+              <dt>요청 엔진</dt><dd>자동 (3개 병행)</dd>
+              <dt>실제 엔진</dt><dd>Claude Opus 4.7 · Codex · Grok</dd>
+              <dt>비교 모드</dt><dd>수집/검증/초안 역할 분리</dd>
+            </dl>
+          </div>
+          <div class="panel">
+            <h4>계획</h4>
+            <ul class="plan">
+              <li class="done">Q2 지표 수집</li>
+              <li class="active">상승률 상위 주제 5개 도출 · 교차 검증</li>
+              <li>8월 편집 캘린더 초안 작성</li>
+              <li>결과 리포트 산출</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h4>산출물</h4>
+            <dl>
+              <dt>현재 결과</dt><dd class="unknown">아직 없음</dd>
+              <dt>수정 차수</dt><dd>—</dd>
+              <dt>일정</dt><dd>~ 2026-08-04 화</dd>
+              <dt>예산</dt><dd>$5.00 중 $0.36</dd>
+              <dt>정책</dt><dd>외부 발송 금지 · 요약만</dd>
+            </dl>
+          </div>
+          <div class="panel">
+            <h4>Task Session</h4>
+            <p class="muted" style="margin:0;font-size:12px;">고급 실행 세부 정보. 필요할 때만 여세요.</p>
+            <button class="btn" style="margin-top:6px;" onclick="showScreen('drawer')">세션 전송 로그 열기</button>
+          </div>
+        </aside>
+      </div>
+
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============ SCREEN 3: EXECUTION DETAIL DRAWER ============ -->
+<section id="screen-drawer" class="screen">
+<div class="app">
+  <aside class="side">
+    <div class="brand">Agent Calendar</div>
+    <nav class="nav">
+      <a><span class="glyph"></span> 캘린더</a>
+      <a class="active"><span class="glyph"></span> 에이전트</a>
+      <a><span class="glyph"></span> Hermes 자동화</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="ctrl" onclick="showScreen('work')">← 작업 대화로</button>
+      <span class="title">실행 상세</span>
+      <span class="crumb muted">· 뉴스레터 8월 편집 캘린더 초안 · Claude Opus 4.7 · 수집</span>
+      <span class="spacer"></span>
+      <button class="ctrl">복사</button>
+      <button class="ctrl">중지</button>
+    </div>
+    <div class="content">
+
+      <div class="drawer">
+        <div class="dh">
+          <h3>세션 전송 로그</h3>
+          <span class="muted">2급 상세 · 문제 진단용. 결과 판단은 대화 타임라인에서 하세요.</span>
+          <button class="ctrl close" onclick="showScreen('work')">닫기</button>
+        </div>
+        <div class="transcript" role="log" aria-live="off">
+<div class="line"><span class="t">09:17:02</span> <span class="info">dispatch</span> collector.claude-opus-4-7 role=수집 task=q2-metrics</div>
+<div class="line"><span class="t">09:17:03</span> <span class="cmd">$ fetch source=meltwater range=2026-04-01..06-30</span></div>
+<div class="line"><span class="t">09:17:05</span> <span class="err">! auth failed · 401 credential_expired</span></div>
+<div class="line"><span class="t">09:17:06</span> <span class="warn">fallback proposal → rss+google-news (awaiting approval)</span></div>
+<div class="line"><span class="t">09:17:10</span> <span class="cmd">$ fetch source=hubspot range=2026-04-01..06-30</span></div>
+<div class="line"><span class="t">09:17:14</span> <span class="ok">✓ 24 issues · open_rate, ctr, url</span></div>
+<div class="line"><span class="t">09:17:15</span> <span class="cmd">$ fetch source=beehiiv range=2026-04-01..06-30</span></div>
+<div class="line"><span class="t">09:17:19</span> <span class="ok">✓ 18 issues</span></div>
+<div class="line"><span class="t">09:22:44</span> <span class="info">progress</span> 42/68 collected → handoff.verify pending</div>
+<div class="line"><span class="t">09:38:01</span> <span class="warn">blocked on approval · surfacing 승인 필요 checkpoint</span></div>
+        </div>
+        <div class="drawer-meta">
+          <span>PID 88214</span><span>호스트 collector-a</span><span>토큰 12,304 in / 3,981 out</span><span>비용 $0.14</span><span>재시도 0</span>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:12px;">
+        <h4>이 실행이 만든 대화 이벤트</h4>
+        <p class="muted" style="font-size:12px;margin:0;">
+          09:22 진행 상황 · 09:38 승인 필요 · (다음) 산출물 초안. 이 로그의 원자적 이벤트는 대화 타임라인에 요약되어 노출됩니다.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============ SCREEN 4: INTERVENTION ============ -->
+<section id="screen-interv" class="screen">
+<div class="app">
+  <aside class="side">
+    <div class="brand">Agent Calendar</div>
+    <nav class="nav">
+      <a><span class="glyph"></span> 캘린더</a>
+      <a class="active"><span class="glyph"></span> 에이전트</a>
+      <a><span class="glyph"></span> Hermes 자동화</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="ctrl" onclick="showScreen('work')">← 작업 대화로</button>
+      <span class="title">개입 · 인터럽트/큐</span>
+      <span class="spacer"></span>
+    </div>
+    <div class="content">
+      <div class="panel" style="margin-bottom:12px;">
+        <h3>개입 두 가지 경로</h3>
+        <p style="margin:0 0 8px;font-size:12.5px;">사용자는 언제나 메시지를 남길 수 있고, 시스템은 그 메시지가 어떻게 반영됐는지 <b>정직한 전달 라벨</b>로 응답합니다. 색상만으로 상태를 전달하지 않습니다.</p>
+        <ul style="margin:0 0 0 18px; font-size:12.5px;">
+          <li><b>즉시 반영 (인터럽트)</b> — 현재 실행을 중단하고 남긴 메시지를 다음 지시로 처리합니다. 진행 중 산출물은 임시 보관 후 다음 시도에 재사용될 수 있습니다.</li>
+          <li><b>다음 시도에 반영 (큐)</b> — 현재 실행은 계속되고, 남긴 메시지는 다음 체크포인트에 반영됩니다.</li>
+        </ul>
+      </div>
+
+      <div class="interv">
+        <div class="item">
+          <h5>“초안 톤은 좀 더 캐주얼하게 해주세요.” — 큐 반영</h5>
+          <p class="delivery queued"><b>다음 시도에 반영 예정</b> — 현재 실행은 중단하지 않습니다.</p>
+          <p class="muted" style="font-size:11.5px;margin:4px 0 0;">일반 지시는 기본적으로 큐로 처리해 진행 중 작업을 낭비하지 않습니다.</p>
+        </div>
+        <div class="item">
+          <h5>“Meltwater 대신 그냥 RSS만 써도 돼요.” — 지금 반영</h5>
+          <p class="delivery accepted"><b>접수됨 · 작업 대화에 저장</b> — 작업 대화에 저장되었으며, 승인 체크포인트에 반영됩니다.</p>
+          <p class="muted" style="font-size:11.5px;margin:4px 0 0;">승인이 필요한 결정은 저장 후 승인 체크포인트로 라우팅됩니다. 승인 전에는 실행되지 않습니다.</p>
+        </div>
+        <div class="item">
+          <h5>“전체 뉴스 소스 자료를 트위터에 올려주세요.” — 거절</h5>
+          <p class="delivery rejected"><b>실행할 수 없음</b> — 이 위임에는 외부 발송/게시 권한이 없습니다.</p>
+          <p class="muted" style="font-size:11.5px;margin:4px 0 0;">지원되지 않는 외부 전송/게시/구매/삭제 요청은 오해를 유발하는 승인 버튼 없이 명확히 거절합니다.</p>
+        </div>
+        <div class="item">
+          <h5>“지금 초안을 다시 써주세요.” — 즉시 반영</h5>
+          <p class="delivery accepted"><b>적용됨 · 다음 체크포인트 적용 요청됨</b> — 현재 실행을 중단하고 새 초안 지시로 재시작합니다.</p>
+          <p class="muted" style="font-size:11.5px;margin:4px 0 0;">사용자가 명시적으로 “지금 반영”을 눌렀을 때만 인터럽트가 발생합니다.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============ SCREEN 5: STATES ============ -->
+<section id="screen-states" class="screen">
+<div class="app">
+  <aside class="side">
+    <div class="brand">Agent Calendar</div>
+    <nav class="nav">
+      <a><span class="glyph"></span> 캘린더</a>
+      <a class="active"><span class="glyph"></span> 에이전트</a>
+      <a><span class="glyph"></span> Hermes 자동화</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <span class="title">상태 카탈로그</span>
+      <span class="crumb muted">· 로딩 / 빈 / 차단 / 승인 / 완료 / 수정 차수</span>
+    </div>
+    <div class="content" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+
+      <div class="panel">
+        <h3>로딩</h3>
+        <p class="muted" style="font-size:12px;margin:0 0 8px;">헤더·뒤로가기·컴포저는 유지. 타임라인만 busy.</p>
+        <div class="msg"><div class="when">—</div><div class="bubble">
+          <div class="who">편집장</div><div class="body muted">대화를 불러오는 중…</div>
+        </div></div>
+      </div>
+
+      <div class="panel">
+        <h3>빈 상태 (계획 전)</h3>
+        <div class="msg user"><div class="when">방금</div><div class="bubble">
+          <div class="who">나</div><div class="body">경영진 주간 보고 요약을 준비해 주세요.</div>
+          <div class="delivery accepted"><b>접수됨</b></div>
+        </div></div>
+        <p class="muted" style="font-size:12px;margin:8px 0 0;">아직 체크포인트가 없습니다. 담당 에이전트가 계획을 세우는 중입니다.</p>
+      </div>
+
+      <div class="panel">
+        <h3>승인 필요</h3>
+        <div class="msg"><div class="when">지금</div><div class="bubble">
+          <div class="who">편집장</div>
+          <div class="checkpoint">
+            <h5>승인 필요 · 대체 데이터 소스</h5>
+            <div class="body">Meltwater 접근 실패. RSS + Google News 사용 승인이 필요합니다.</div>
+            <div class="actions"><button class="btn primary">승인</button><button class="btn">거절</button></div>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="panel">
+        <h3>차단됨</h3>
+        <div class="msg"><div class="when">지금</div><div class="bubble">
+          <div class="who">애널리스트</div>
+          <div class="checkpoint block">
+            <h5>차단됨 · 자격증명 만료</h5>
+            <div class="body">지정된 소스 접근이 불가합니다. 안전한 다음 조치: 자격증명 갱신 후 재시도.</div>
+            <div class="actions"><button class="btn primary">자격증명 갱신</button><button class="btn">위임 취소</button></div>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="panel">
+        <h3>복구 가능 오류</h3>
+        <div class="msg"><div class="when">지금</div><div class="bubble">
+          <div class="who">시스템</div>
+          <div class="checkpoint block">
+            <h5>일시적 오류</h5>
+            <div class="body">Codex 응답 지연으로 검증 단계가 실패했습니다. 위임과 초안은 그대로 보존되어 있습니다.</div>
+            <div class="actions"><button class="btn primary">재시도</button><button class="btn">다른 엔진으로 재시도</button></div>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="panel">
+        <h3>완료</h3>
+        <div class="msg"><div class="when">10:12</div><div class="bubble">
+          <div class="who">편집장</div>
+          <div class="checkpoint done">
+            <h5>완료 · 현재 결과</h5>
+            <div class="body">경영진 주간 보고 요약 1건. 근거: HubSpot·Beehiiv 지표, 검증 3회, 실제 엔진 Claude+Codex.</div>
+            <div class="actions"><button class="btn primary">수정 차수 열기</button><button class="btn">위키 아카이브</button></div>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="panel">
+        <h3>수정 차수 N</h3>
+        <div class="msg"><div class="when">10:20</div><div class="bubble">
+          <div class="who">시스템</div>
+          <div class="checkpoint rev">
+            <h5>수정 차수 2 시작</h5>
+            <div class="body">이전 결과 2건은 그대로 보존됩니다. 이번 차수는 “요약을 절반 길이로 축약”을 목표로 진행합니다.</div>
+          </div>
+        </div></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</section>
+
+</div><!-- /frame -->
+</div><!-- /viewport -->
+
+<script>
+  function showScreen(id) {
+    document.querySelectorAll('section.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen-' + id).classList.add('active');
+    document.querySelectorAll('.proto-tab[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
+    window.scrollTo({top:0, behavior:'instant'});
+  }
+  document.querySelectorAll('.proto-tab[data-tab]').forEach(b => b.addEventListener('click', () => showScreen(b.dataset.tab)));
+  document.querySelectorAll('.proto-tab[data-w]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.proto-tab[data-w]').forEach(x => x.classList.toggle('active', x === b));
+    document.querySelector('.viewport').dataset.w = b.dataset.w;
+  }));
+</script>
+</body>
+</html>

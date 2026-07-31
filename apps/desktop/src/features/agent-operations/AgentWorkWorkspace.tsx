@@ -329,7 +329,11 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
             onBack={closeMission}
             onRefresh={refreshConversation}
             onSendMessage={(text, executionEngine, requestedModel, comparisonTargets): Promise<AgentWorkDelivery> => sendLiveTurn(text, executionEngine, requestedModel, comparisonTargets)}
+            onPlanMission={props.onPlanMission}
+            onApprovePlan={props.onApprovePlan}
+            onMissionWorkAction={props.onMissionWorkAction}
             onTaskAction={props.onTaskAction}
+            onRunTaskNow={props.onRunTaskNow}
             onOpenSession={props.onOpenSession}
             onReportFeedback={props.onReportFeedback}
             onFollowUpDecision={props.onFollowUpDecision}
