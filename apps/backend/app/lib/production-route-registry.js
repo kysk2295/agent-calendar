@@ -45,6 +45,11 @@ const PRODUCTION_ROUTES = [
     notes: 'Infra-only; must not leak tenant/global product rows',
   },
   {
+    method: 'GET', pathPattern: '/api/auth/google/callback', class: 'public_infra',
+    persistence: 'none', action: 'google_auth_callback_bridge', idempotent: true, role: 'anonymous',
+    notes: 'Browser redirect from Google forwarded to the Desktop deep link; carries no session',
+  },
+  {
     method: 'GET', pathPattern: '/api/contracts/client-v1', class: 'public_infra',
     persistence: 'none', action: 'client_v1_contract', idempotent: true, role: 'anonymous',
     notes: 'Tenant-free Desktop/Mobile contract discovery',

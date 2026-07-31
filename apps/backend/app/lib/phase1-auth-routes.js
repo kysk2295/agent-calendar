@@ -23,6 +23,7 @@ const {
   createGoogleOAuthAdapter,
   resolveGoogleOAuthConfig,
 } = require('./google-oauth-adapter');
+const { handleGoogleAuthCallback } = require('./google-auth-callback-bridge');
 const { dispatchProductionApi } = require('./production-gateway-dispatch');
 const { WorkspaceIdempotencyStore } = require('./workspace-idempotency');
 const {
@@ -532,6 +533,10 @@ async function maybeHandlePhase1OrBlockLegacy(req, res, requestUrl, {
   requestSafety = null,
 } = {}) {
   const pathname = requestUrl.pathname || '';
+  // Google returns the browser here after consent. It carries no session and must reach the
+  // Desktop deep link in both legacy and production mode, so it is answered before the
+  // caller-bearer gate and before the production registry dispatch.
+  if (handleGoogleAuthCallback(req, res, requestUrl)) return true;
   if (isPhase1Path(pathname)) {
     if (!runtime || !runtime.pool) {
       sendJson(res, 503, { ok: false, error: 'phase1_pool_unavailable', message: 'request_failed' });
