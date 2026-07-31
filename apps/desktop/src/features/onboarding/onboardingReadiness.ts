@@ -11,6 +11,8 @@ export type OnboardingStep = Readonly<{
   statusLabel: string;
   actionLabel: string;
   actionKind: OnboardingActionKind;
+  /** Offered during setup but never blocks completion. */
+  optional?: boolean;
 }>;
 
 export type OnboardingReadiness = Readonly<{
@@ -86,11 +88,12 @@ export function buildOnboardingReadiness(input: ReadinessInput = {}): Onboarding
   ));
   const activeRunners = runners.filter((runner) => String(runner.status || '').toLowerCase() === 'active');
   const activeRunnerConnected = activeRunners.some((runner) => String(runner.connectionState || '').toLowerCase() === 'connected');
+  // Registration counts as setup progress; online/offline is reflected in status copy.
   const runnerReady = activeRunners.length > 0;
   const runnerEnrollmentPending = runners.some((runner) => String(runner.status || '').toLowerCase() === 'pending');
   const localWikiReady = localWikiVaultIsReady(input.wiki || {});
   const wikiReady = localWikiReady || knowledgeSources.some(knowledgeSourceIsReady);
-  // Conversation id alone must never fake Calendar AI readiness.
+  // Conversation id alone must never fake Calendar AI readiness. Runner is not required.
   const calendarAiExplicitlyAvailable = input.calendarAiAvailable === true;
   const calendarAiReady = calendarAiExplicitlyAvailable || calendarReady;
 
@@ -108,9 +111,10 @@ export function buildOnboardingReadiness(input: ReadinessInput = {}): Onboarding
       id: 'runner',
       title: 'Runner / 실행 컴퓨터',
       description: runnerReady && !activeRunnerConnected
-        ? '실행 컴퓨터의 Runner 등록은 완료되었지만 현재 오프라인입니다. 작업 실행 전 연결 상태를 확인하세요.'
-        : '실행 컴퓨터에 Runner를 열고 일회용 코드로 이 Workspace에 등록합니다. 활성 Runner가 확인되면 준비됩니다.',
+        ? '실행 컴퓨터의 Runner 등록은 완료되었지만 현재 오프라인입니다. 에이전트 작업 전 연결 상태를 확인하세요. 일정과 AI 대화는 Runner 없이도 됩니다.'
+        : '에이전트 작업을 내 컴퓨터에서 실행하려면 Runner를 열고 일회용 코드로 이 Workspace에 등록합니다. 일정과 AI 대화는 없어도 됩니다.',
       ready: runnerReady,
+      optional: true,
       statusLabel: runnerReady
         ? activeRunnerConnected
           ? 'Runner 등록 완료'
@@ -159,7 +163,8 @@ export function buildOnboardingReadiness(input: ReadinessInput = {}): Onboarding
   return {
     steps,
     completedCount,
-    allReady: completedCount === steps.length,
+    // An optional step is offered but never withholds 설정 완료.
+    allReady: steps.every((step) => step.ready || step.optional === true),
     nextStepId: next.id,
   };
 }

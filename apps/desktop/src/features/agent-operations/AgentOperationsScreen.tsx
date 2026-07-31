@@ -4,12 +4,14 @@ import { AgentWorkWorkspace } from './AgentWorkWorkspace';
 import type { PublicRunner } from '../runner/runnerApi';
 import type {
   AgentCatalogRequest,
+  AgentBuilderTestRequest,
   AgentCreatedWork,
   AgentDirectoryMutationInput,
   AgentExecutionEngine,
   AgentMissionCreateInput,
   AgentOperationsState,
   AgentRosterEntry,
+  AgentProfileVersion,
   AgentTaskAction,
   HermesAutomationJob,
   ProviderAgentSession,
@@ -29,6 +31,13 @@ type AgentOperationsScreenProps = {
   readonly onRefreshAgentOperations: () => Promise<boolean>;
   readonly onCreateAgent: (input: AgentDirectoryMutationInput) => Promise<boolean>;
   readonly onUpdateAgent: (agentId: string, input: AgentDirectoryMutationInput) => Promise<boolean>;
+  readonly onCreateBuilderDraft: (request: string) => Promise<boolean>;
+  readonly onReviewBuilderDraft: (agentId: string, expectedRevision: number) => Promise<boolean>;
+  readonly onTestBuilderDraft: (agentId: string, expectedRevision: number) => Promise<AgentBuilderTestRequest | null>;
+  readonly onRefreshBuilderTest: (agentId: string, requestId: string) => Promise<AgentBuilderTestRequest | null>;
+  readonly onCancelBuilderTest: (agentId: string, requestId: string) => Promise<boolean>;
+  readonly onActivateBuilderProfile: (agentId: string, expectedRevision: number, requestId: string) => Promise<boolean>;
+  readonly onListAgentProfileVersions: (agentId: string) => Promise<readonly AgentProfileVersion[]>;
   readonly onRequestAgentCatalog: (input: Readonly<{ runnerId: string; provider: string; consent: true }>) => Promise<AgentCatalogRequest | null>;
   readonly onGetAgentCatalogRequest: (requestId: string) => Promise<AgentCatalogRequest | null>;
   readonly onImportAgentCatalogEntry: (requestId: string, input: Readonly<{ externalAgentId: string; defaultExecutionEngine: AgentExecutionEngine }>) => Promise<boolean>;
@@ -72,6 +81,13 @@ export function AgentOperationsScreen(props: AgentOperationsScreenProps) {
         busy={props.busy}
         onCreateAgent={props.onCreateAgent}
         onUpdateAgent={props.onUpdateAgent}
+        onCreateBuilderDraft={props.onCreateBuilderDraft}
+        onReviewBuilderDraft={props.onReviewBuilderDraft}
+        onTestBuilderDraft={props.onTestBuilderDraft}
+        onRefreshBuilderTest={props.onRefreshBuilderTest}
+        onCancelBuilderTest={props.onCancelBuilderTest}
+        onActivateBuilderProfile={props.onActivateBuilderProfile}
+        onListAgentProfileVersions={props.onListAgentProfileVersions}
         onRequestAgentCatalog={props.onRequestAgentCatalog}
         onGetAgentCatalogRequest={props.onGetAgentCatalogRequest}
         onImportAgentCatalogEntry={props.onImportAgentCatalogEntry}

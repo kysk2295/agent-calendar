@@ -1,8 +1,16 @@
-name: Draft signed macOS desktop release
+name: Verified macOS Desktop and widget candidate
 
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: Build a retained candidate, or promote an exact prior candidate after clean-host QA
+        required: true
+        default: build
+        type: choice
+        options:
+          - build
+          - promote
       version:
         description: Stable Desktop package version, without the v prefix
         required: true
@@ -11,6 +19,14 @@ on:
         description: Percentage of eligible installs offered this release
         required: true
         default: '10'
+        type: string
+      candidateRunId:
+        description: Build-phase workflow run ID; required only for promote
+        required: false
+        type: string
+      updaterEvidenceRunId:
+        description: Clean-host updater-evidence workflow run ID; required only for promote
+        required: false
         type: string
 
 permissions:
@@ -24,21 +40,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Sign, notarize, attest, and create draft
+  candidate:
+    name: Build and verify signed candidate
+    if: ${{ inputs.operation == 'build' }}
     runs-on: macos-14
     environment: desktop-release
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       RELEASE_VERSION: ${{ inputs.version }}
       STAGING_PERCENTAGE: ${{ inputs.stagingPercentage }}
       CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
       CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      CSC_NAME: ${{ secrets.MAC_CERTIFICATE_IDENTITY }}
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Check out the requested release ref
@@ -63,22 +80,35 @@ jobs:
           release_tag="v${RELEASE_VERSION}"
           tag_commit="$(git rev-parse "refs/tags/${release_tag}^{commit}")"
           test "$tag_commit" = "$GITHUB_SHA"
+          git verify-tag "$release_tag"
 
       - name: Require signing and notarization credentials
+        run: node apps/desktop/tools/desktop-release-artifacts.mjs credentials
+
+      - name: Import the temporary Developer ID identity
         shell: bash
         run: |
           set -euo pipefail
-          required_values=(
-            "$CSC_LINK"
-            "$CSC_KEY_PASSWORD"
-            "$APPLE_API_KEY_P8"
-            "$APPLE_API_KEY_ID"
-            "$APPLE_API_ISSUER"
-            "$APPLE_TEAM_ID"
-          )
-          for value in "${required_values[@]}"; do
-            test -n "$value"
-          done
+          release_keychain="$RUNNER_TEMP/agent-calendar-release.keychain-db"
+          release_keychain_password="$(openssl rand -hex 24)"
+          certificate_path="$RUNNER_TEMP/agent-calendar-release.p12"
+          printf '%s' "$CSC_LINK" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$release_keychain_password" "$release_keychain"
+          security set-keychain-settings -lut 7200 "$release_keychain"
+          security unlock-keychain -p "$release_keychain_password" "$release_keychain"
+          security import "$certificate_path" \
+            -k "$release_keychain" \
+            -P "$CSC_KEY_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$release_keychain_password" \
+            "$release_keychain"
+          security list-keychains -d user -s "$release_keychain"
+          security find-identity -v -p codesigning "$release_keychain" | grep -F "$CSC_NAME"
+          echo "RELEASE_KEYCHAIN=$release_keychain" >> "$GITHUB_ENV"
 
       - name: Materialize the temporary Apple API key
         shell: bash
@@ -98,39 +128,263 @@ jobs:
       - name: Verify two-account Runner isolation
         run: npm run verify:multi-user-ete
 
-      - name: Build signed and notarized macOS artifacts
-        run: npm --workspace apps/desktop run dist:mac -- --publish never
-
-      - name: Finalize staged update metadata
+      - name: Archive and separately sign the widget companion
         shell: bash
         run: |
           set -euo pipefail
+          archive_path="$RUNNER_TEMP/HermesWidgetHost.xcarchive"
+          export_path="$RUNNER_TEMP/HermesWidgetHost-export"
+          export_options="$RUNNER_TEMP/HermesWidgetHost-ExportOptions.plist"
+          plutil -create xml1 "$export_options"
+          plutil -insert method -string developer-id "$export_options"
+          plutil -insert signingStyle -string automatic "$export_options"
+          plutil -insert teamID -string "$APPLE_TEAM_ID" "$export_options"
+          xcodebuild archive \
+            -project apps/widget/macos/HermesWidgetHost/HermesWidgetHost.xcodeproj \
+            -scheme HermesWidgetHost \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$archive_path" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$APPLE_API_KEY" \
+            -authenticationKeyID "$APPLE_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APPLE_API_ISSUER" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            MARKETING_VERSION="$RELEASE_VERSION"
+          xcodebuild -exportArchive \
+            -archivePath "$archive_path" \
+            -exportPath "$export_path" \
+            -exportOptionsPlist "$export_options" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$APPLE_API_KEY" \
+            -authenticationKeyID "$APPLE_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APPLE_API_ISSUER"
+          widget_app="$export_path/Agents Calendar Widgets.app"
+          widget_extension="$widget_app/Contents/PlugIns/HermesWidgets.appex"
+          test -d "$widget_app"
+          test -d "$widget_extension"
+          codesign --verify --deep --strict --verbose=2 "$widget_app"
+          codesign -d --verbose=4 "$widget_app"
+          codesign -d --entitlements :- "$widget_app"
+          codesign --verify --deep --strict --verbose=2 "$widget_extension"
+          codesign -d --verbose=4 "$widget_extension"
+          codesign -d --entitlements :- "$widget_extension"
+          submission_zip="$RUNNER_TEMP/Agent-Calendar-Widgets-notary.zip"
+          ditto -c -k --keepParent "$widget_app" "$submission_zip"
+          xcrun notarytool submit "$submission_zip" \
+            --key "$APPLE_API_KEY" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$widget_app"
+          xcrun stapler validate "$widget_app"
+          spctl --assess --type execute --verbose=4 "$widget_app"
+          mkdir -p apps/desktop/build/widget-companion apps/desktop/release
+          ditto "$widget_app" "apps/desktop/build/widget-companion/Agents Calendar Widgets.app"
+          ditto -c -k --keepParent \
+            "apps/desktop/build/widget-companion/Agents Calendar Widgets.app" \
+            "apps/desktop/release/Agent-Calendar-Widgets-${RELEASE_VERSION}-arm64.zip"
+
+      - name: Build signed and notarized macOS artifacts
+        run: npm --workspace apps/desktop run dist:mac -- --publish never
+
+      - name: Verify ordinary production secure storage without QA substitution
+        shell: bash
+        run: |
+          set -euo pipefail
+          AGENT_CALENDAR_LIVE_KEYCHAIN_EVIDENCE="apps/desktop/release/ordinary-secure-storage" \
+            node apps/desktop/tests/live-keychain-source-smoke.cjs
+
+      - name: Verify signed apps, authorities, entitlements, Gatekeeper, and staples
+        shell: bash
+        run: |
+          set -euo pipefail
+          desktop_app="apps/desktop/release/mac-arm64/Agent Calendar.app"
+          widget_app="apps/desktop/build/widget-companion/Agents Calendar Widgets.app"
+          widget_extension="$widget_app/Contents/PlugIns/HermesWidgets.appex"
+          dmg="apps/desktop/release/Agent-Calendar-${RELEASE_VERSION}-arm64.dmg"
+          for signed_bundle in "$desktop_app" "$widget_app" "$widget_extension"; do
+            codesign --verify --deep --strict --verbose=2 "$signed_bundle"
+            codesign -d --verbose=4 "$signed_bundle"
+            codesign -d --entitlements :- "$signed_bundle"
+            spctl --assess --type execute --verbose=4 "$signed_bundle"
+          done
+          xcrun stapler validate "$desktop_app"
+          xcrun stapler validate "$widget_app"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
+
+      - name: Mount the DMG and run the actual packaged deep-link and widget smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg="apps/desktop/release/Agent-Calendar-${RELEASE_VERSION}-arm64.dmg"
+          mount_path="$RUNNER_TEMP/agent-calendar-candidate-mount"
+          mkdir -p "$mount_path"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount_path" "$dmg"
+          cleanup_mount() {
+            hdiutil detach "$mount_path" >/dev/null 2>&1 || true
+          }
+          trap cleanup_mount EXIT
+          mounted_desktop="$mount_path/Agent Calendar.app"
+          mounted_widget="$mount_path/Agents Calendar Widgets.app"
+          test -d "$mounted_desktop"
+          test -d "$mounted_widget"
+          codesign --verify --deep --strict --verbose=2 "$mounted_desktop"
+          codesign --verify --deep --strict --verbose=2 "$mounted_widget"
+          AGENT_CALENDAR_PACKAGED_APP_PATH="$mounted_desktop" \
+          AGENT_CALENDAR_PACKAGED_SMOKE_EVIDENCE="apps/desktop/release/packaged-deep-link-smoke.json" \
+            npm --workspace apps/desktop run test:packaged:deep-link
+          node apps/desktop/tools/record-macos-candidate-verification.mjs \
+            --version "$RELEASE_VERSION" \
+            --source-sha "$GITHUB_SHA" \
+            --desktop-app "apps/desktop/release/mac-arm64/Agent Calendar.app" \
+            --widget-app "apps/desktop/build/widget-companion/Agents Calendar Widgets.app" \
+            --mounted-desktop-app "$mounted_desktop" \
+            --mounted-widget-app "$mounted_widget" \
+            --dmg "$dmg" \
+            --zip "apps/desktop/release/Agent-Calendar-${RELEASE_VERSION}-arm64.zip" \
+            --widget-archive "apps/desktop/release/Agent-Calendar-Widgets-${RELEASE_VERSION}-arm64.zip" \
+            --smoke-evidence "apps/desktop/release/packaged-deep-link-smoke.json" \
+            --ordinary-storage-evidence "apps/desktop/release/ordinary-secure-storage/ordinary-source-result.json" \
+            --output "apps/desktop/release/desktop-candidate-verification.json"
+          cleanup_mount
+          trap - EXIT
+
+      - name: Generate CycloneDX SBOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          node apps/desktop/tools/desktop-sbom.mjs \
+            --package apps/desktop/package.json \
+            --lock package-lock.json \
+            --source-sha "$GITHUB_SHA" \
+            --output apps/desktop/release/agent-calendar-sbom.cdx.json
+
+      - name: Retain the exact candidate for clean-host updater QA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: desktop-candidate-${{ inputs.version }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest-mac.yml
+            apps/desktop/release/agent-calendar-sbom.cdx.json
+            apps/desktop/release/desktop-candidate-verification.json
+            apps/desktop/release/packaged-deep-link-smoke.json
+            apps/desktop/release/ordinary-secure-storage/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove temporary Apple credentials
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${RELEASE_KEYCHAIN:-}" && -e "$RELEASE_KEYCHAIN" ]]; then
+            security delete-keychain "$RELEASE_KEYCHAIN"
+          fi
+          rm -f \
+            "$RUNNER_TEMP/agent-calendar-release.p12" \
+            "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+
+  publish_draft:
+    name: Attest and create an approved draft
+    if: ${{ inputs.operation == 'promote' }}
+    runs-on: macos-14
+    environment: desktop-release-publication
+    timeout-minutes: 20
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      STAGING_PERCENTAGE: ${{ inputs.stagingPercentage }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out the exact release source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+
+      - name: Validate promotion inputs and signed tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${{ inputs.candidateRunId }}" =~ ^[0-9]+$ ]]
+          [[ "${{ inputs.updaterEvidenceRunId }}" =~ ^[0-9]+$ ]]
+          node apps/desktop/tools/desktop-release-artifacts.mjs validate \
+            --package apps/desktop/package.json \
+            --version "$RELEASE_VERSION" \
+            --staging-percentage "$STAGING_PERCENTAGE"
+          release_tag="v${RELEASE_VERSION}"
+          tag_commit="$(git rev-parse "refs/tags/${release_tag}^{commit}")"
+          test "$tag_commit" = "$GITHUB_SHA"
+          git verify-tag "$release_tag"
+
+      - name: Download the exact verified candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: desktop-candidate-${{ inputs.version }}
+          path: candidate
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidateRunId }}
+
+      - name: Download clean-host N-1 to N update and rollback evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: desktop-updater-evidence-${{ inputs.version }}
+          path: updater-evidence
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.updaterEvidenceRunId }}
+
+      - name: Finalize and verify immutable candidate bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s updater-evidence/desktop-updater-evidence.json
+          cp updater-evidence/desktop-updater-evidence.json candidate/desktop-updater-evidence.json
           node apps/desktop/tools/desktop-release-artifacts.mjs finalize \
             --package apps/desktop/package.json \
             --version "$RELEASE_VERSION" \
             --staging-percentage "$STAGING_PERCENTAGE" \
-            --release-directory apps/desktop/release \
-            --commit-sha "$GITHUB_SHA"
-
-      - name: Generate CycloneDX SBOM
-        shell: bash
-        run: npm sbom --omit=dev --sbom-format cyclonedx > apps/desktop/release/agent-calendar-sbom.cdx.json
-
-      - name: Verify SHA-256 artifact checksums
-        working-directory: apps/desktop/release
-        run: shasum -a 256 -c SHA256SUMS
+            --release-directory candidate \
+            --commit-sha "$GITHUB_SHA" \
+            --verification-evidence candidate/desktop-candidate-verification.json \
+            --updater-evidence candidate/desktop-updater-evidence.json
+          (
+            cd candidate
+            shasum -a 256 -c SHA256SUMS
+          )
+          node -e '
+            const fs = require("node:fs");
+            const manifest = JSON.parse(fs.readFileSync("candidate/release-manifest.json", "utf8"));
+            if (manifest.candidateStatus !== "verified") process.exit(1);
+            if (manifest.version !== process.env.RELEASE_VERSION) process.exit(1);
+            if (manifest.tag !== `v${process.env.RELEASE_VERSION}`) process.exit(1);
+            if (manifest.commitSha !== process.env.GITHUB_SHA) process.exit(1);
+            if (manifest.provenance?.attestationRequired !== true) process.exit(1);
+          '
 
       - name: Attest release provenance
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
         with:
           subject-path: |
-            apps/desktop/release/*.dmg
-            apps/desktop/release/*.zip
-            apps/desktop/release/*.blockmap
-            apps/desktop/release/latest-mac.yml
-            apps/desktop/release/SHA256SUMS
-            apps/desktop/release/release-manifest.json
-            apps/desktop/release/agent-calendar-sbom.cdx.json
+            candidate/*.dmg
+            candidate/*.zip
+            candidate/*.blockmap
+            candidate/latest-mac.yml
+            candidate/SHA256SUMS
+            candidate/release-manifest.json
+            candidate/agent-calendar-sbom.cdx.json
+
+      - name: Verify GitHub provenance against the exact repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          for artifact in candidate/*.dmg candidate/*.zip; do
+            gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY"
+          done
 
       - name: Create draft GitHub Release
         shell: bash
@@ -138,15 +392,18 @@ jobs:
           set -euo pipefail
           release_tag="v${RELEASE_VERSION}"
           gh release create "$release_tag" \
-            apps/desktop/release/*.dmg \
-            apps/desktop/release/*.zip \
-            apps/desktop/release/*.blockmap \
-            apps/desktop/release/latest-mac.yml \
-            apps/desktop/release/SHA256SUMS \
-            apps/desktop/release/release-manifest.json \
-            apps/desktop/release/agent-calendar-sbom.cdx.json \
+            candidate/*.dmg \
+            candidate/*.zip \
+            candidate/*.blockmap \
+            candidate/latest-mac.yml \
+            candidate/SHA256SUMS \
+            candidate/release-manifest.json \
+            candidate/agent-calendar-sbom.cdx.json \
+            candidate/desktop-candidate-verification.json \
+            candidate/desktop-updater-evidence.json \
+            candidate/packaged-deep-link-smoke.json \
             --draft \
             --verify-tag \
             --target "$GITHUB_SHA" \
             --title "Agent Calendar ${RELEASE_VERSION}" \
-            --notes "Staged macOS arm64 release. Initial offer: ${STAGING_PERCENTAGE}%."
+            --notes "Verified staged macOS arm64 Desktop + widget candidate. Initial offer: ${STAGING_PERCENTAGE}%. Draft publication still requires explicit promotion approval."

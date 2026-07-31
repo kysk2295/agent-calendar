@@ -25,6 +25,7 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import { hermesApi, setApiBaseUrl, setApiProxyConnection, type ApiEnvelope } from './api/hermesApi';
+import { desktopBridgeErrorMessage } from './api/desktopBridgeError';
 import { createAgentWork } from './api/agentWorkApiClient';
 import {
   agentDisplayName,
@@ -70,11 +71,14 @@ import {
 import { TaskSessionPanel } from './features/agent-operations/TaskSessionPanel';
 import type {
   AgentCatalogRequest,
+  AgentBuilderLifecycle,
+  AgentBuilderTestRequest,
   AgentDirectoryMutationInput,
   AgentExecutionEngine,
   AgentOperationsState,
   AgentMissionCreateInput,
   AgentRosterEntry,
+  AgentProfileVersion,
   ConnectedAutomationSource,
   AgentSessionDetail,
   AgentTaskAction,
@@ -424,6 +428,55 @@ function createdAgentFrom(payload: ApiEnvelope): Item {
   return agentIdentity(payload) ? payload : {};
 }
 
+function agentBuilderLifecycleFrom(item: Item): AgentBuilderLifecycle | undefined {
+  const source = obj(item, 'lifecycle');
+  const state = text(source.state);
+  const origin = text(source.origin);
+  if (!['draft', 'tested', 'active'].includes(state)
+    || !['legacy', 'manual', 'one_line'].includes(origin)) return undefined;
+  const lastTestSource = obj(source, 'lastTest');
+  const lastTest = text(lastTestSource.id)
+    ? {
+      id: text(lastTestSource.id),
+      revision: Math.max(0, Number(lastTestSource.revision) || 0),
+      status: text(lastTestSource.status),
+      summary: text(lastTestSource.summary),
+      durationMs: Math.max(0, Number(lastTestSource.durationMs) || 0),
+    }
+    : null;
+  return {
+    origin: origin as AgentBuilderLifecycle['origin'],
+    state: state as AgentBuilderLifecycle['state'],
+    revision: Math.max(1, Number(source.revision) || 1),
+    reviewedRevision: Math.max(0, Number(source.reviewedRevision) || 0),
+    testedRevision: Math.max(0, Number(source.testedRevision) || 0),
+    activeVersion: Math.max(0, Number(source.activeVersion) || 0),
+    request: text(source.request),
+    lastTest,
+    reviewedAt: text(source.reviewedAt) || null,
+    activatedAt: text(source.activatedAt) || null,
+  };
+}
+
+function agentBuilderTestFrom(payload: ApiEnvelope): AgentBuilderTestRequest | null {
+  const source = obj(payload, 'request');
+  if (!text(source.id)) return null;
+  return {
+    id: text(source.id),
+    agentId: text(source.agentId),
+    revision: Math.max(1, Number(source.revision) || 1),
+    runnerId: text(source.runnerId),
+    provider: text(source.provider),
+    status: text(source.status),
+    passed: source.passed === true,
+    summary: text(source.summary),
+    durationMs: Math.max(0, Number(source.durationMs) || 0),
+    errorCode: text(source.errorCode),
+    createdAt: text(source.createdAt) || null,
+    terminalAt: text(source.terminalAt) || null,
+  };
+}
+
 function runIdentity(item: Item, fallback = '') {
   return text(item.id || item._id || item.key || item.runId || item.title || item.goal, fallback);
 }
@@ -771,6 +824,7 @@ export function App() {
       : stringList(agent, 'allowedTaskClasses'),
     memories: stringList(agent, 'memories'),
     profileVersion: Math.max(1, Number(agent.profileVersion) || 1),
+    lifecycle: agentBuilderLifecycleFrom(agent),
     sourceKind: agentSourceKind(agent),
     externalAgentId: text(agent.externalAgentId || agent.profileId || agent.profileName),
     connectionStatus: text(agent.connectionStatus || agent.hermesProfileStatus || agent.status),
@@ -1370,7 +1424,7 @@ export function App() {
     } catch (error) {
       if (authLoginAttemptRef.current !== attempt) return;
       setAuthPhase('error');
-      setLoginStatus(error instanceof Error ? error.message : 'AuthKit 로그인을 완료하지 못했습니다.');
+      setLoginStatus(desktopBridgeErrorMessage(error, 'AuthKit 로그인을 완료하지 못했습니다.'));
     } finally {
       if (authLoginAttemptRef.current === attempt) setAuthBusy(false);
     }
@@ -2173,6 +2227,124 @@ export function App() {
     } catch (error) {
       setApiError(error instanceof Error ? error.message : '에이전트 수정 실패');
       return false;
+    }
+  }
+
+  function applyWorkspaceAgentPayload(payload: ApiEnvelope): Item | null {
+    const agent = createdAgentFrom(payload);
+    const id = agentIdentity(agent);
+    if (!id) return null;
+    setState((current) => ({
+      ...current,
+      agents: [agent, ...current.agents.filter((entry) => agentIdentity(entry) !== id)],
+    }));
+    return agent;
+  }
+
+  async function createWorkspaceAgentBuilderDraft(request: string): Promise<boolean> {
+    try {
+      const payload = await hermesApi.createAgentBuilderDraft({ request });
+      if (!applyWorkspaceAgentPayload(payload)) throw new Error('에이전트 초안 응답이 비어 있습니다.');
+      await hydrate({ blocking: false });
+      return true;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 초안 생성 실패');
+      return false;
+    }
+  }
+
+  async function reviewWorkspaceAgentBuilderDraft(agentId: string, expectedRevision: number): Promise<boolean> {
+    try {
+      const payload = await hermesApi.reviewAgentBuilderDraft(agentId, { expectedRevision });
+      if (!applyWorkspaceAgentPayload(payload)) throw new Error('에이전트 검토 응답이 비어 있습니다.');
+      return true;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 검토 실패');
+      return false;
+    }
+  }
+
+  async function testWorkspaceAgentBuilderDraft(
+    agentId: string,
+    expectedRevision: number,
+  ): Promise<AgentBuilderTestRequest | null> {
+    try {
+      const payload = await hermesApi.startAgentBuilderTest(agentId, {
+        expectedRevision,
+        timeoutMs: 30_000,
+      });
+      applyWorkspaceAgentPayload(payload);
+      const request = agentBuilderTestFrom(payload);
+      if (!request) throw new Error('에이전트 테스트 응답이 비어 있습니다.');
+      return request;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 테스트 실패');
+      return null;
+    }
+  }
+
+  async function refreshWorkspaceAgentBuilderTest(
+    agentId: string,
+    requestId: string,
+  ): Promise<AgentBuilderTestRequest | null> {
+    try {
+      const payload = await hermesApi.getAgentBuilderTest(agentId, requestId);
+      applyWorkspaceAgentPayload(payload);
+      return agentBuilderTestFrom(payload);
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 테스트 상태 조회 실패');
+      return null;
+    }
+  }
+
+  async function cancelWorkspaceAgentBuilderTest(agentId: string, requestId: string): Promise<boolean> {
+    try {
+      const payload = await hermesApi.cancelAgentBuilderTest(agentId, requestId);
+      applyWorkspaceAgentPayload(payload);
+      return true;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 테스트 취소 실패');
+      return false;
+    }
+  }
+
+  async function activateWorkspaceAgentBuilderProfile(
+    agentId: string,
+    expectedRevision: number,
+    requestId: string,
+  ): Promise<boolean> {
+    try {
+      const payload = await hermesApi.activateAgentBuilderProfile(agentId, {
+        expectedRevision,
+        requestId,
+      });
+      if (!applyWorkspaceAgentPayload(payload)) throw new Error('에이전트 활성화 응답이 비어 있습니다.');
+      await hydrate({ blocking: false });
+      return true;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '에이전트 활성화 실패');
+      return false;
+    }
+  }
+
+  async function loadWorkspaceAgentProfileVersions(agentId: string): Promise<readonly AgentProfileVersion[]> {
+    try {
+      const payload = await hermesApi.listAgentProfileVersions(agentId);
+      return arr(payload, 'versions').map((version) => ({
+        agentId: text(version.agentId, agentId),
+        profileVersion: Math.max(1, Number(version.profileVersion) || 1),
+        profileSnapshot: obj(version, 'profileSnapshot'),
+        testEvidence: obj(version, 'testEvidence'),
+        activatedAt: text(version.activatedAt),
+        historicalJobs: arr(version, 'historicalJobs').map((job) => ({
+          id: text(job.id),
+          name: text(job.name),
+          profileVersion: Math.max(1, Number(job.profileVersion) || 1),
+        })),
+      }));
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : '프로필 버전 기록 조회 실패');
+      return [];
     }
   }
 
@@ -3423,7 +3595,7 @@ export function App() {
             {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} loadDocument={loadKnowledgeDocument} knowledgeV2={state.wiki.knowledgeV2 === true} knowledgeSources={arr(state.wiki, 'sources')} sourceBusy={wikiSourceBusy} sourceMessage={wikiSourceMessage} addCloudFile={addCloudKnowledgeFile} revokeSource={revokeKnowledgeSource} resolveEvidence={resolveKnowledgeEvidence} />}
             {screen === 'diary' && <DiaryScreen docs={diaryDocs} diaryText={diaryText} setDiaryText={setDiaryText} diaryMood={diaryMood} setDiaryMood={setDiaryMood} saveDiary={saveDiary} loadDocument={loadKnowledgeDocument} />}
             {screen === 'search' && <SearchScreen query={query} setQuery={setQuery} tasks={tasks} docs={docs} openTask={openTask} openDoc={openDoc} />}
-            {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} runners={automationRunners} automationJobs={hermesAutomationJobs} controlPlaneBaseUrl={settings.apiBaseUrl} error={agentOperationsError} busy={agentOperationsBusy} onRetry={retryAgentOperations} onRefreshAgentOperations={retryAgentOperations} onCreateAgent={createWorkspaceAgent} onUpdateAgent={updateWorkspaceAgent} onRequestAgentCatalog={requestAgentCatalog} onGetAgentCatalogRequest={getAgentCatalogRequest} onImportAgentCatalogEntry={importAgentCatalogEntry} onListProviderAgentSessions={listProviderAgentSessions} onRequestProviderSessionCatalog={requestProviderSessionCatalog} onImportProviderSessionCatalogEntry={importProviderSessionCatalogEntry} onUpdateProviderAgentSession={updateProviderAgentSession} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onContinueSession={continueAgentSession} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
+            {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} runners={automationRunners} automationJobs={hermesAutomationJobs} controlPlaneBaseUrl={settings.apiBaseUrl} error={agentOperationsError} busy={agentOperationsBusy} onRetry={retryAgentOperations} onRefreshAgentOperations={retryAgentOperations} onCreateAgent={createWorkspaceAgent} onUpdateAgent={updateWorkspaceAgent} onCreateBuilderDraft={createWorkspaceAgentBuilderDraft} onReviewBuilderDraft={reviewWorkspaceAgentBuilderDraft} onTestBuilderDraft={testWorkspaceAgentBuilderDraft} onRefreshBuilderTest={refreshWorkspaceAgentBuilderTest} onCancelBuilderTest={cancelWorkspaceAgentBuilderTest} onActivateBuilderProfile={activateWorkspaceAgentBuilderProfile} onListAgentProfileVersions={loadWorkspaceAgentProfileVersions} onRequestAgentCatalog={requestAgentCatalog} onGetAgentCatalogRequest={getAgentCatalogRequest} onImportAgentCatalogEntry={importAgentCatalogEntry} onListProviderAgentSessions={listProviderAgentSessions} onRequestProviderSessionCatalog={requestProviderSessionCatalog} onImportProviderSessionCatalogEntry={importProviderSessionCatalogEntry} onUpdateProviderAgentSession={updateProviderAgentSession} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onContinueSession={continueAgentSession} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}
             {screen === 'automation' && (
               <HermesAutomationDashboard
                 sources={connectedAutomationSources}

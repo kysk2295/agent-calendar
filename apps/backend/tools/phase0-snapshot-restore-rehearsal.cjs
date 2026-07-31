@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 'use strict';
 
-const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
 const { runMigrations } = require('../app/db/migrate');
+const { defaultRunBin: runBin } = require('../app/lib/local-postgres-lifecycle');
 const {
   EXPECTED_PERSISTED_TABLES,
   LOCAL_ROLE,
@@ -62,15 +62,6 @@ function parseArgs(argv) {
     }
   }
   return args;
-}
-
-function runBin(binDir, name, args, options = {}) {
-  const bin = path.join(binDir, name);
-  return execFileSync(bin, args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
-  });
 }
 
 function freePort() {

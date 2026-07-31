@@ -17,7 +17,8 @@ test('Agent Work translates the Argo roster into an accountable agent directory'
   assert.match(directorySource, /말투와 성격/);
   assert.match(directorySource, /계속 기억할 내용/);
   assert.match(directorySource, /프로필 v/);
-  assert.match(directorySource, /실시간 작업/);
+  // Profile history lists jobs already recorded against a profile version; it is not a live feed.
+  assert.match(directorySource, /기록된 작업/);
   assert.match(directorySource, /출처/);
   assert.match(directorySource, /Runner/);
   assert.doesNotMatch(directorySource, /크루 영입|회사 기억|사장님/);

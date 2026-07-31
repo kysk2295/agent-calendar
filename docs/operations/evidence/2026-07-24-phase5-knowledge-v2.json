@@ -3,17 +3,17 @@
   "slice": "phase5-knowledge-v2",
   "date": "2026-07-24",
   "status": "verified",
-  "durationMs": 42050,
+  "durationMs": 43043,
   "workspaces": {
-    "a": "ws_c35d69bc0d29d855078bdb03c23ccd52",
-    "b": "ws_3cb0f98ff4444223dc6a88358f7b1a7f"
+    "a": "ws_e34f9be9752d4e22f82f9db7145823d5",
+    "b": "ws_f179ede00c1a13566fa1a49c0797553b"
   },
   "crossEvidenceStatus": 404,
   "screenshotHashes": {
-    "workspaceA": "db4222374ab7675a45b6ed9323f976b9ee7ccc58f9c9f50361631da2e37c2ba4",
-    "workspaceB": "a09c88246f2e255f667fe885868bb0a319606ac1ef1187f72d884a6c4f719810",
-    "revoked": "a748b674fd669a914eabb5c450f391d372ea84812495c3c7ccd47b1389ecb2e3",
-    "restarted": "4970dc6af4b4465b127e1886a72684953af8980de703be937d771951a60e5e97"
+    "workspaceA": "df9a9c01ea3de18abd2ab2b05a45289d7341ff754788b91bce9761372efb3ece",
+    "workspaceB": "cdd30104517d3a1d0af650b34ff360892a8bfb59074076e9844830ca66fe0ed8",
+    "revoked": "354e7d6df76932a3a143ca319e3b4137a3fe9c4e6c4f7dbd0cbedc87c258fcc3",
+    "restarted": "63d7df08c50ff3292e39b00631def9e730ca0725379acab5bb959afb14dae247"
   },
   "restart": "revoked source remained visible and inactive"
 }

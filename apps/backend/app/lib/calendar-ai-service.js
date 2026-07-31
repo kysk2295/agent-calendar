@@ -98,6 +98,43 @@ function matchingCalendarEvent(events, message) {
     .sort((left, right) => String(right.title).length - String(left.title).length)[0] || null;
 }
 
+// The system prompt forbids claiming executed actions, but a model can still ignore it and a
+// free-conversation turn changes nothing by construction. Treat a completion claim on that
+// path as untrustworthy rather than forwarding it to the user.
+//
+// Only the assistant's own claim counts. Reporting a fact ('완료됐다고 기록돼 있어요'),
+// quoting the user, and echoing the prompt's own safety instruction back
+// ('완료했다고 주장하지 마세요') all say that something finished without claiming this turn
+// finished it, and replacing those costs the user a real answer.
+const COMPLETED_ACTION_CLAIM = new RegExp([
+  '(?:추가|등록|생성|삭제|제거|수정|변경|취소|예약|저장|전송|발송|공유|완료|처리|설정|반영)',
+  '\\s*(?:해\\s*)?(?:뒀|놨|했|됐|되었|하였)',
+].join(''));
+
+/** Reported speech: the sentence attributes the statement to someone else. */
+const REPORTED_SPEECH = /(?:다고|라고|이라고|다는|라는|다며|라며|대요|데요|답니다|라네)/;
+
+const QUOTED_SPAN = /"[^"]*"|'[^']*'|“[^”]*”|‘[^’]*’|「[^」]*」|『[^』]*』/g;
+
+function claimsCompletedAction(answer) {
+  return String(answer)
+    .replace(QUOTED_SPAN, ' ')
+    .split(/(?<=[.!?…\n])/)
+    .some((sentence) => (
+      COMPLETED_ACTION_CLAIM.test(sentence) && !REPORTED_SPEECH.test(sentence)
+    ));
+}
+
+function withoutFalseCompletionClaim(answerValue) {
+  const answer = String(answerValue || '');
+  if (!claimsCompletedAction(answer)) return answer;
+  return [
+    '요청하신 내용을 아직 실행하지 않았습니다.',
+    '이 대화에서는 일정이나 작업이 변경되지 않습니다.',
+    '실제로 반영하려면 캘린더 화면에서 직접 추가하거나, 일정을 명확히 지정해 다시 요청해 주세요.',
+  ].join(' ');
+}
+
 function matchingAutomation(automations, targetName, message) {
   const normalized = `${targetName || ''} ${message || ''}`.replace(/\s+/g, ' ').trim();
   return [...automations]
@@ -652,7 +689,7 @@ class CalendarAiService {
       conversationId: started.conversationId,
       userTurnId: started.userTurnId,
       requestId: normalizedRequestId,
-      answer: completion.text,
+      answer: withoutFalseCompletionClaim(completion.text),
       mode: intent.kind === 'knowledge' ? 'knowledge_conversation' : 'conversation',
       sources: knowledgeResults,
       memoryIds: memories.map((memory) => memory.id),

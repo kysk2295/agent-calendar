@@ -152,3 +152,30 @@ prove recovery.
 The Gateway in-memory window resets with the process. The single-run collector preserves alert
 streaks and transitions outside the Gateway, while long-term metric retention, dashboard
 visualization, on-call routing, and actual alert delivery remain deployment gates.
+
+## Repository-local current-schema operations gate
+
+The repository includes an additive, non-production composition gate for the matching surfaces
+that cannot be established by the Gateway collector alone:
+
+```sh
+node apps/backend/tools/local-current-schema-ops-dr-qa.cjs \
+  --evidence-dir .omo/evidence/production-readiness-completion/task-17/repository-ops-dr/manual-qa
+```
+
+The command starts only loopback fixture and owner-sink HTTP servers plus socket-only ephemeral
+PostgreSQL. It invokes real `curl -i` probes for Web availability, Web download, Runner heartbeat,
+and Runner update-failure visibility. It then feeds a synthetic unready window into the actual
+operations alert evaluator and requires ordered, durable receipts for `raised`,
+`local_owner_delivered`, `acknowledged`, and `resolved`. The owner sink is process-owned,
+loopback-only, and explicitly non-production. Untrusted probe/alert text is projected away.
+
+The final evaluator fails closed when the migration list or digest differs from the repository,
+the latest migration is absent, the source SHA or timestamps are stale, a probe stream is absent,
+any P1 receipt is missing or inferred only from logs, restored Workspace/domain evidence is
+incomplete, either rollback rehearsal fails to restore readiness, or cleanup is not proven.
+
+This gate does **not** establish production monitoring. Todo 17 remains incomplete until an
+authorized external one-minute collector and on-call destination record real delivery, 24-hour
+continuity is retained, and a staging P1 is injected and followed through the real incident
+lifecycle.

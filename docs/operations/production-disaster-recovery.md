@@ -66,10 +66,14 @@ node apps/backend/tools/phase10-disaster-recovery-rehearsal.cjs \
 예상 밖의 public table이 있으면 실패한다. 논리 복구는 각 table의 row count와
 row digest까지 source와 같아야 한다.
 
-PITR은 `phase10_before_accidental_delete` restore point를 사용한다. restore point 전에
-추가한 안전한 task는 살아 있어야 하고, 그 뒤 삭제한 task와 damage marker는 복구본에
-남아 있으면 안 된다. `agent_calendar_app` role로 조회했을 때 각 Workspace는 자기 task만
-볼 수 있어야 한다.
+PITR은 `phase10_before_accidental_delete`라는 경계 이름을 기록하고, 그 직후 확인한
+정확한 WAL LSN을 복구 target으로 사용한다. 누적 archive count가 아니라 해당 LSN을
+포함하는 정확한 WAL filename이 archive에 도착할 때까지 기다린다. PostgreSQL이
+`pg_isready`에 응답하는 것만으로 복구 완료를 추정하지 않으며,
+`pg_is_in_recovery() = false`로 promotion을 확인한 뒤에만 복구 row를 조회한다.
+restore boundary 전에 추가한 안전한 task는 살아 있어야 하고, 그 뒤 삭제한 task와
+damage marker는 복구본에 남아 있으면 안 된다. `agent_calendar_app` role로 조회했을 때
+각 Workspace는 자기 task만 볼 수 있어야 한다.
 
 ## 실패 시
 
@@ -98,3 +102,22 @@ PostgreSQL 로그에서만 확인한다.
 
 현재 로컬 증거는
 `docs/operations/evidence/2026-07-25-phase10-disaster-recovery.json`에 있다.
+
+## Current-schema repository completion evidence
+
+`local-current-schema-ops-dr-qa.cjs` composes this PostgreSQL rehearsal with the local Gateway and
+Runner rollback evaluators. Its expected migration inventory is read from disk on every run; the
+latest file is never pinned to a migration number. Each migration has a SHA-256 digest, and the
+result is bound to the exact Git source SHA and a bounded observation window.
+
+The current fixture restores two non-identifying Workspace sentinels and queries the recovery
+database for Calendar, Delegated Work, Connected Automation, and Runner rows. Evidence exposes
+only two distinct Workspace fingerprints and booleans for the critical domains, never the raw
+rows, identities, connection strings, socket paths, or credentials. Local RPO/RTO values are
+explicitly labeled `local_only`.
+
+This repository result is not managed-backup evidence. Full Todo 17 remains incomplete until an
+authorized Railway/managed snapshot and PITR restore is performed into an approved isolated
+target, external RPO/RTO is measured, restore access and data handling are reviewed, and temporary
+restore cleanup has an approved and observed receipt. The local script neither reads nor mutates a
+real database and must not be presented as Railway restore evidence.

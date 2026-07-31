@@ -40,6 +40,42 @@ function publicAgent(input, id) {
   };
 }
 
+function effectiveConfiguration({
+  snapshotId,
+  profileVersion,
+  executable,
+  allowed = [],
+  denied = [],
+}) {
+  return {
+    schemaVersion: 1,
+    snapshotId,
+    executable,
+    engine: { requested: 'claude', resolved: 'claude', model: '', reason: 'agent_default' },
+    runner: {
+      ref: 'runner_aaaaaaaaaaaaaaaa',
+      catalogId: 'agent-calendar-runner',
+      catalogVersion: 1,
+      catalogRevision: 'cat_aaaaaaaaaaaaaaaaaaaaaaaa',
+    },
+    profile: { agentId: 'agent-connected-new', displayName: 'Hermes 경쟁 분석가', version: profileVersion },
+    rules: { defaultDeny: true, denyOverAllow: true, profileInstructionsApplied: true },
+    grants: {
+      allowed: allowed.map((id) => ({
+        id,
+        version: 1,
+        kind: id.startsWith('skill:') ? 'skill' : 'tool',
+        externalDelivery: id === 'tool:external.delivery',
+      })),
+      denied,
+      approvalRequired: [],
+    },
+    memoryScopes: ['agent_profile'],
+    approvalPolicy: { grantExpansion: 'required', externalDelivery: 'required' },
+    requiredCapabilities: executable ? allowed : denied,
+  };
+}
+
 async function main() {
   const { server, url } = await startVite();
   const browser = await chromium.launch({ headless: true });
@@ -251,6 +287,25 @@ async function main() {
             metadata: { deliveryStatus: 'accepted', applicationMode: 'mission_context' },
             createdAt: createdMission.createdAt,
           }],
+          effectiveConfiguration: {
+            current: effectiveConfiguration({
+              snapshotId: 'ecfg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+              profileVersion: 2,
+              executable: false,
+              denied: ['tool:external.delivery'],
+            }),
+            history: [{
+              jobRef: 'job_aaaaaaaaaaaaaaaa',
+              turnIndex: 1,
+              createdAt: createdMission.createdAt,
+              configuration: effectiveConfiguration({
+                snapshotId: 'ecfg_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                profileVersion: 1,
+                executable: true,
+                allowed: ['tool:workspace.read'],
+              }),
+            }],
+          },
           nextCursor: null,
         },
       });
@@ -362,8 +417,13 @@ async function main() {
     assert.ok(workCall);
     assert.equal(workCall.body.agentId, 'agent-connected-new');
     await page.locator('.agent-work-conversation').waitFor();
+    await page.getByText('현재 유효 구성', { exact: true }).waitFor();
+    await page.getByText('tool:external.delivery', { exact: true }).waitFor();
+    await page.getByText('이 실행의 구성 기록 1개', { exact: true }).click();
+    await page.getByText('tool:workspace.read@1', { exact: true }).waitFor();
 
     await page.setViewportSize({ width: 1280, height: 900 });
+    await page.screenshot({ path: path.join(evidenceDir, `${theme}-effective-configuration.png`), animations: 'disabled' });
     await page.screenshot({ path: path.join(evidenceDir, `${theme}-work-conversation.png`), animations: 'disabled' });
     const desktopOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     assert.equal(desktopOverflow, false);

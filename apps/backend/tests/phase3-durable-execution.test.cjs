@@ -12,6 +12,7 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { withEphemeralPostgres: withSharedEphemeralPostgres } = require('./support/ephemeral-postgres.cjs');
 
 const { runMigrations } = require('../app/db/migrate');
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
@@ -26,80 +27,24 @@ const {
   PROTOCOL_VERSION,
 } = require('../app/lib/runner-control');
 const { matchProductionRoute } = require('../app/lib/production-route-registry');
+const { publicDisplayTuple } = require('../app/lib/public-work-conversation-event');
 const { BANNED_FLAGS, assertSafeArgv } = require('../../runner/lib/engines/contract');
+const { assertAuthorizedLease } = require('../../runner/lib/capability-grants');
 const { resolvePostgresBinDir } = require('../app/lib/phase0-snapshot-restore');
 
 const LOCAL_ROLE = 'phase3exec';
 const DATABASE = 'phase3_exec';
+const TEST_FAKE_ENGINE_ENV = Object.freeze({
+  NODE_ENV: 'test',
+  AGENT_CALENDAR_ALLOW_FAKE_ENGINE: '1',
+});
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = address && typeof address === 'object' ? address.port : 0;
-      server.close((error) => (error ? reject(error) : resolve(port)));
-    });
-    server.on('error', reject);
-  });
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
-  });
-}
-
-async function waitForReady(binDir, socketDir, port) {
-  for (let i = 0; i < 50; i += 1) {
-    try {
-      runBin(binDir, 'pg_isready', ['-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE], { timeout: 2000 });
-      return;
-    } catch {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  }
-  throw new Error('PG not ready');
-}
-
-function stopCluster(binDir, dataDir) {
-  try {
-    runBin(binDir, 'pg_ctl', ['-D', dataDir, '-m', 'fast', 'stop'], { timeout: 30_000 });
-  } catch { /* ignore */ }
-}
-
-async function withEphemeralPostgres(fn) {
-  const binDir = resolvePostgresBinDir(process.env);
-  if (!binDir) throw Object.assign(new Error('PG binaries missing'), { code: 'PG_BIN_MISSING' });
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase3-exec-'));
-  const dataDir = path.join(workDir, 'pgdata');
-  const socketDir = path.join(workDir, 'socket');
-  const logFile = path.join(workDir, 'postgres.log');
-  fs.mkdirSync(socketDir, { recursive: true });
-  const port = await freePort();
-  let started = false;
-  let pool = null;
-  try {
-    runBin(binDir, 'initdb', ['-D', dataDir, '-A', 'trust', '-U', LOCAL_ROLE, '--locale=C', '--encoding=UTF8'], { timeout: 60_000 });
-    started = true;
-    runBin(binDir, 'pg_ctl', [
-      '-D', dataDir, '-l', logFile,
-      '-o', `-p ${port} -k ${socketDir} -c listen_addresses=localhost -c unix_socket_directories=${socketDir}`,
-      'start',
-    ], { timeout: 30_000 });
-    await waitForReady(binDir, socketDir, port);
-    runBin(binDir, 'createdb', ['-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE, DATABASE], { timeout: 15_000 });
-    const connectionString = `postgresql://${encodeURIComponent(LOCAL_ROLE)}@/${encodeURIComponent(DATABASE)}?host=${encodeURIComponent(socketDir)}&port=${port}`;
-    const { Pool } = require('pg');
-    pool = new Pool({ connectionString, ssl: false, connectionTimeoutMillis: 10_000 });
-    return await fn({ pool, connectionString });
-  } finally {
-    if (pool) try { await pool.end(); } catch { /* ignore */ }
-    if (started) stopCluster(binDir, dataDir);
-    fs.rmSync(workDir, { recursive: true, force: true });
-  }
+function withEphemeralPostgres(fn) {
+  return withSharedEphemeralPostgres({
+    prefix: 'phase3-exec-',
+    role: LOCAL_ROLE,
+    database: DATABASE,
+  }, fn);
 }
 
 function listen(server) {
@@ -237,10 +182,88 @@ async function enrollActiveRunner(baseUrl, token, keys, hostName = 'host') {
   return {
     runnerId: enroll.json.runnerId,
     credential,
+    credentialVersion: claim.json.credentialVersion,
     keys,
     sessionId: connect.json.sessionId,
     cursor: connect.json.cursor,
+    workspaceId: claim.json.workspaceId,
   };
+}
+
+// A manually created agent is an inactive builder draft. Walk the approved lifecycle
+// (review -> disposable Runner test -> activate) so the agent can execute.
+async function activateBuilderAgent(baseUrl, token, agentId, runner, expectedRevision = 1) {
+  const review = await httpJson(baseUrl, 'POST', `/api/agents/${encodeURIComponent(agentId)}/review`, {
+    token,
+    body: { expectedRevision },
+  });
+  assert.equal(review.status, 200, JSON.stringify(review.json));
+
+  const started = await httpJson(baseUrl, 'POST', `/api/agents/${encodeURIComponent(agentId)}/tests`, {
+    token,
+    body: { expectedRevision, timeoutMs: 30_000 },
+  });
+  assert.equal(started.status, 202, JSON.stringify(started.json));
+  const requestId = started.json.request.id;
+
+  const nextBody = { runnerId: runner.runnerId };
+  const next = await httpJson(baseUrl, 'POST', '/api/runner/device/connectors/next', {
+    body: nextBody,
+    headers: deviceAuthHeaders({
+      keys: runner.keys,
+      runnerId: runner.runnerId,
+      credential: runner.credential,
+      method: 'POST',
+      path: '/api/runner/device/connectors/next',
+      body: nextBody,
+      sessionId: runner.sessionId,
+      cursor: runner.cursor,
+    }),
+  });
+  assert.equal(next.status, 200, JSON.stringify(next.json));
+  assert.equal(next.json.request.id, requestId);
+
+  const completeBody = {
+    runnerId: runner.runnerId,
+    requestId,
+    result: {
+      passed: true,
+      summary: 'Bounded sample response satisfied the draft responsibility.',
+      durationMs: 120,
+      sideEffects: { calendar: 0, externalDelivery: 0, schedulerJobs: 0 },
+    },
+  };
+  const completed = await httpJson(baseUrl, 'POST', '/api/runner/device/connectors/complete', {
+    body: completeBody,
+    headers: deviceAuthHeaders({
+      keys: runner.keys,
+      runnerId: runner.runnerId,
+      credential: runner.credential,
+      method: 'POST',
+      path: '/api/runner/device/connectors/complete',
+      body: completeBody,
+      sessionId: runner.sessionId,
+      cursor: runner.cursor,
+    }),
+  });
+  assert.equal(completed.status, 200, JSON.stringify(completed.json));
+
+  const testResult = await httpJson(
+    baseUrl,
+    'GET',
+    `/api/agents/${encodeURIComponent(agentId)}/tests/${encodeURIComponent(requestId)}`,
+    { token },
+  );
+  assert.equal(testResult.status, 200, JSON.stringify(testResult.json));
+  assert.equal(testResult.json.request.status, 'passed', JSON.stringify(testResult.json));
+
+  const activated = await httpJson(baseUrl, 'POST', `/api/agents/${encodeURIComponent(agentId)}/activate`, {
+    token,
+    body: { expectedRevision, requestId },
+  });
+  assert.equal(activated.status, 200, JSON.stringify(activated.json));
+  assert.equal(activated.json.agent.lifecycle.state, 'active');
+  return activated.json.agent;
 }
 
 test('phase3 execution routes registered', () => {
@@ -251,6 +274,7 @@ test('phase3 execution routes registered', () => {
   assert.ok(matchProductionRoute('POST', '/api/runner/device/complete'));
   assert.ok(matchProductionRoute('POST', '/api/runner/device/attempt-heartbeat'));
   assert.ok(matchProductionRoute('POST', '/api/runner/device/channels/telegram/status'));
+  assert.ok(matchProductionRoute('POST', '/api/runner/device/channels/telegram/begin'));
 });
 
 test('phase3 engine adapters reject banned flags', () => {
@@ -364,14 +388,16 @@ test('phase3 hostile durable execution matrix', async () => {
       identityVerifier: null,
       authKit: null,
       workosConfig: null,
-      env: { DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+      env: { ...TEST_FAKE_ENGINE_ENV, DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
     });
+    assert.equal(runtime.product.env.NODE_ENV, 'test');
+    assert.equal(runtime.product.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE, '1');
     assert.ok(runtime.durableExecution);
     process.env.WORKSPACE_AUTH_MODE = 'production';
-    process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE = '1';
 
     const server = createRailwayGatewayServer({
       env: {
+        ...TEST_FAKE_ENGINE_ENV,
         WORKSPACE_AUTH_MODE: 'production',
         DURABLE_EXECUTION_CLAIMS_ENABLED: 'true',
         DURABLE_EXECUTION_BACKGROUND_WORKERS: '0',
@@ -521,7 +547,7 @@ test('phase3 hostile durable execution matrix', async () => {
           turnIndex: 1,
           turnTargetIndex: 0,
           turnMode: 'single',
-          resolvedExecutionEngine: 'fake',
+          resolvedExecutionEngine: undefined,
         },
       );
       assert.equal(
@@ -836,12 +862,11 @@ test('phase3 preferred_runner delete nulls only preferred_runner_id', async () =
     process.env.DURABLE_EXECUTION_BACKGROUND_WORKERS = '0';
     const runtime = createPhase1Runtime({
       pool, identityVerifier: null, authKit: null, workosConfig: null,
-      env: { DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+      env: { ...TEST_FAKE_ENGINE_ENV, DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
     });
     process.env.WORKSPACE_AUTH_MODE = 'production';
-    process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE = '1';
     const server = createRailwayGatewayServer({
-      env: { WORKSPACE_AUTH_MODE: 'production', DURABLE_EXECUTION_CLAIMS_ENABLED: 'true', DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+      env: { ...TEST_FAKE_ENGINE_ENV, WORKSPACE_AUTH_MODE: 'production', DURABLE_EXECUTION_CLAIMS_ENABLED: 'true', DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
       phase1Runtime: runtime,
       phase1Pool: pool,
       gatewayStore: { getState: () => ({}), ready: Promise.resolve() },
@@ -886,12 +911,11 @@ test('phase3 offered cancel withdraws offers and terminals job', async () => {
     process.env.DURABLE_EXECUTION_BACKGROUND_WORKERS = '0';
     const runtime = createPhase1Runtime({
       pool, identityVerifier: null, authKit: null, workosConfig: null,
-      env: { DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+      env: { ...TEST_FAKE_ENGINE_ENV, DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
     });
     process.env.WORKSPACE_AUTH_MODE = 'production';
-    process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE = '1';
     const server = createRailwayGatewayServer({
-      env: { WORKSPACE_AUTH_MODE: 'production', DURABLE_EXECUTION_CLAIMS_ENABLED: 'true', DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+      env: { ...TEST_FAKE_ENGINE_ENV, WORKSPACE_AUTH_MODE: 'production', DURABLE_EXECUTION_CLAIMS_ENABLED: 'true', DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
       phase1Runtime: runtime,
       phase1Pool: pool,
       gatewayStore: { getState: () => ({}), ready: Promise.resolve() },
@@ -943,12 +967,11 @@ test('phase3 cancel-ack without request rejected; heartbeat returns cancellation
     process.env.DURABLE_EXECUTION_BACKGROUND_WORKERS = '0';
     const runtime = createPhase1Runtime({
       pool, identityVerifier: null, authKit: null, workosConfig: null,
-      env: { DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+      env: { ...TEST_FAKE_ENGINE_ENV, DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
     });
     process.env.WORKSPACE_AUTH_MODE = 'production';
-    process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE = '1';
     const server = createRailwayGatewayServer({
-      env: { WORKSPACE_AUTH_MODE: 'production', DURABLE_EXECUTION_CLAIMS_ENABLED: 'true', DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+      env: { ...TEST_FAKE_ENGINE_ENV, WORKSPACE_AUTH_MODE: 'production', DURABLE_EXECUTION_CLAIMS_ENABLED: 'true', DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
       phase1Runtime: runtime,
       phase1Pool: pool,
       gatewayStore: { getState: () => ({}), ready: Promise.resolve() },
@@ -1054,12 +1077,11 @@ test('phase3 dead_letter after max attempts and revoke-vs-event', async () => {
     process.env.DURABLE_EXECUTION_BACKGROUND_WORKERS = '0';
     const runtime = createPhase1Runtime({
       pool, identityVerifier: null, authKit: null, workosConfig: null,
-      env: { DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+      env: { ...TEST_FAKE_ENGINE_ENV, DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
     });
     process.env.WORKSPACE_AUTH_MODE = 'production';
-    process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE = '1';
     const server = createRailwayGatewayServer({
-      env: { WORKSPACE_AUTH_MODE: 'production', DURABLE_EXECUTION_CLAIMS_ENABLED: 'true', DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+      env: { ...TEST_FAKE_ENGINE_ENV, WORKSPACE_AUTH_MODE: 'production', DURABLE_EXECUTION_CLAIMS_ENABLED: 'true', DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
       phase1Runtime: runtime,
       phase1Pool: pool,
       gatewayStore: { getState: () => ({}), ready: Promise.resolve() },
@@ -1249,12 +1271,11 @@ test('phase3 cancel-vs-complete and lease-expiry fencing', async () => {
     process.env.DURABLE_EXECUTION_BACKGROUND_WORKERS = '0';
     const runtime = createPhase1Runtime({
       pool, identityVerifier: null, authKit: null, workosConfig: null,
-      env: { DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+      env: { ...TEST_FAKE_ENGINE_ENV, DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
     });
     process.env.WORKSPACE_AUTH_MODE = 'production';
-    process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE = '1';
     const server = createRailwayGatewayServer({
-      env: { WORKSPACE_AUTH_MODE: 'production', DURABLE_EXECUTION_CLAIMS_ENABLED: 'true', DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
+      env: { ...TEST_FAKE_ENGINE_ENV, WORKSPACE_AUTH_MODE: 'production', DURABLE_EXECUTION_CLAIMS_ENABLED: 'true', DURABLE_EXECUTION_BACKGROUND_WORKERS: '0' },
       phase1Runtime: runtime,
       phase1Pool: pool,
       gatewayStore: { getState: () => ({}), ready: Promise.resolve() },
@@ -1684,6 +1705,15 @@ test('Work Conversation follow-up leases the same provider session and restores 
               version: 'test',
             },
           },
+          catalog: {
+            catalogId: 'agent-calendar-runner',
+            version: 1,
+            entries: [
+              { id: 'skill:agent.profile', version: 1, kind: 'skill', externalDelivery: false },
+              { id: 'tool:external.delivery', version: 1, kind: 'tool', externalDelivery: true },
+              { id: 'tool:workspace.read', version: 1, kind: 'tool', externalDelivery: false },
+            ],
+          },
         })],
       );
 
@@ -1703,6 +1733,52 @@ test('Work Conversation follow-up leases the same provider session and restores 
       });
       assert.equal(createdAgent.status, 200, JSON.stringify(createdAgent.json));
       const agentId = createdAgent.json.agent.id;
+      await activateBuilderAgent(baseUrl, tokenA, agentId, runnerA);
+      const grantExpansion = await httpJson(
+        baseUrl,
+        'PATCH',
+        `/api/agents/${encodeURIComponent(agentId)}`,
+        {
+          token: tokenA,
+          body: {
+            grants: {
+              allow: ['tool:workspace.read', 'tool:external.delivery'],
+              deny: [],
+            },
+          },
+        },
+      );
+      assert.equal(grantExpansion.status, 200, JSON.stringify(grantExpansion.json));
+      assert.deepEqual(grantExpansion.json.agent.grants.allow, []);
+      assert.equal(grantExpansion.json.agent.approvalGate.status, 'pending');
+      assert.equal(grantExpansion.json.agent.approvalGate.reason, 'grant_expansion');
+      assert.equal(grantExpansion.json.agent.approvalGate.externalDelivery, true);
+      const foreignAgents = await httpJson(baseUrl, 'GET', '/api/agents', { token: tokenB });
+      assert.equal(foreignAgents.status, 200);
+      assert.equal(foreignAgents.json.agents.some((agent) => agent.id === agentId), false);
+      assert.equal(JSON.stringify(foreignAgents.json).includes(
+        grantExpansion.json.agent.approvalGate.id,
+      ), false);
+      const deniedWork = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
+        token: tokenA,
+        body: {
+          title: 'Denied capability must not lease',
+          goal: 'Read Workspace data',
+          agentId,
+          executionEngine: 'auto',
+          requiredCapabilities: ['tool:workspace.read'],
+        },
+      });
+      assert.equal(deniedWork.status, 403, JSON.stringify(deniedWork.json));
+      assert.equal(deniedWork.json.error, 'CAPABILITY_DENIED');
+      const deniedJobs = await pool.query(
+        `select count(*)::int as n
+         from execution_jobs
+         where workspace_id = 'ws-a'
+           and payload->'effectiveConfiguration'->'requiredCapabilities'
+             @> '["tool:workspace.read"]'::jsonb`,
+      );
+      assert.equal(deniedJobs.rows[0].n, 0);
 
       const createdWork = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
         token: tokenA,
@@ -1714,6 +1790,8 @@ test('Work Conversation follow-up leases the same provider session and restores 
         },
       });
       assert.equal(createdWork.status, 200, JSON.stringify(createdWork.json));
+      assert.match(createdWork.json.effectiveConfiguration.snapshotId, /^ecfg_[a-f0-9]{32}$/);
+      assert.equal(createdWork.json.effectiveConfiguration.executable, true);
 
       const nextBody = { runnerId: runnerA.runnerId };
       const next = await httpJson(baseUrl, 'POST', '/api/runner/device/next-offer', {
@@ -1733,6 +1811,14 @@ test('Work Conversation follow-up leases the same provider session and restores 
       assert.equal(next.json.offer.requestedEngine, 'codex');
       assert.equal(next.json.offer.providerSession.status, 'pending');
       assert.equal(next.json.offer.payload.profileSnapshot.profileVersion, 1);
+      assert.deepEqual(
+        next.json.offer.effectiveConfiguration,
+        createdWork.json.effectiveConfiguration,
+      );
+      assert.deepEqual(
+        next.json.offer.payload.effectiveConfiguration,
+        createdWork.json.effectiveConfiguration,
+      );
       assert.deepEqual(next.json.offer.payload.profileSnapshot.memories, ['사용자는 한국어를 선호한다.']);
       assert.match(next.json.offer.goal, /Responsible Agent Profile/);
       assert.match(next.json.offer.goal, /차분한 존댓말/);
@@ -1758,6 +1844,17 @@ test('Work Conversation follow-up leases the same provider session and restores 
       });
       assert.equal(lease.status, 200);
       assert.equal(lease.json.lease.providerSession.id, providerSessionId);
+      assert.deepEqual(
+        lease.json.lease.effectiveConfiguration,
+        createdWork.json.effectiveConfiguration,
+      );
+      assert.doesNotThrow(() => assertAuthorizedLease(lease.json.lease, {
+        runnerId: runnerA.runnerId,
+        workspaceId: runnerA.workspaceId,
+        credentialVersion: runnerA.credentialVersion,
+        deviceCredential: runnerA.credential,
+      }));
+      assert.equal(JSON.stringify(lease.json.lease.authorization).includes(runnerA.credential), false);
 
       const secretBindBody = {
         runnerId: runnerA.runnerId,
@@ -1960,8 +2057,16 @@ test('Work Conversation follow-up leases the same provider session and restores 
       );
       assert.equal(restored.status, 200, JSON.stringify(restored.json));
       assert.equal(restored.json.work.workConversationId, createdWork.json.sessionId);
-      assert.ok(restored.json.checkpoints.some((item) => item.text === 'Restart recovery checkpoint'));
-      assert.ok(restored.json.checkpoints.some((item) => item.text === 'Artifact ready: restart-proof.txt'));
+      assert.equal(
+        restored.json.effectiveConfiguration.history[0].configuration.snapshotId,
+        createdWork.json.effectiveConfiguration.snapshotId,
+      );
+      assert.equal(
+        restored.json.effectiveConfiguration.current.snapshotId,
+        createdWork.json.effectiveConfiguration.snapshotId,
+      );
+      assert.equal(restored.json.checkpoints.some((item) => item.text === 'Restart recovery checkpoint'), false);
+      assert.equal(restored.json.checkpoints.some((item) => item.text === 'Artifact ready: restart-proof.txt'), false);
       assert.ok(restored.json.checkpoints.some((item) => item.text === 'First result'));
 
       const foreignRestored = await httpJson(
@@ -2003,6 +2108,20 @@ test('Work Conversation follow-up leases the same provider session and restores 
       );
       assert.equal(revisedAgent.status, 200, JSON.stringify(revisedAgent.json));
       assert.equal(revisedAgent.json.agent.profileVersion, 2);
+      // A meaning-changing edit reopens the builder draft; re-activate v2 before execution.
+      await activateBuilderAgent(baseUrl, tokenA, agentId, runnerA, 2);
+      const stalePreview = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
+        token: tokenA,
+        body: {
+          title: 'Reject stale preview',
+          goal: 'This must not create a job',
+          agentId,
+          executionEngine: 'auto',
+          effectiveConfigurationSnapshotId: createdWork.json.effectiveConfiguration.snapshotId,
+        },
+      });
+      assert.equal(stalePreview.status, 409, JSON.stringify(stalePreview.json));
+      assert.equal(stalePreview.json.error, 'effective_configuration_stale');
 
       const followUp = await httpJson(
         baseUrl,
@@ -2140,6 +2259,84 @@ test('Work Conversation follow-up leases the same provider session and restores 
       );
       assert.equal(jobCount.rows[0].n, 2);
       assert.deepEqual(jobCount.rows[0].profile_versions, [1, 2]);
+
+      const approvedGrant = await httpJson(
+        baseUrl,
+        'PATCH',
+        `/api/agents/${encodeURIComponent(agentId)}`,
+        {
+          token: tokenA,
+          body: {
+            approveGrantRequestId: grantExpansion.json.agent.approvalGate.id,
+          },
+        },
+      );
+      assert.equal(approvedGrant.status, 200, JSON.stringify(approvedGrant.json));
+      assert.deepEqual(approvedGrant.json.agent.grants.allow, [
+        'tool:external.delivery',
+        'tool:workspace.read',
+      ]);
+      assert.equal(approvedGrant.json.agent.approvalGate, undefined);
+
+      const allowedWork = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
+        token: tokenA,
+        body: {
+          title: 'Harmless allowed capability',
+          goal: 'Read Workspace data without external delivery',
+          agentId,
+          executionEngine: 'codex',
+          requiredCapabilities: ['tool:workspace.read'],
+        },
+      });
+      assert.equal(allowedWork.status, 200, JSON.stringify(allowedWork.json));
+      assert.equal(allowedWork.json.effectiveConfiguration.executable, true);
+      assert.deepEqual(
+        allowedWork.json.effectiveConfiguration.requiredCapabilities,
+        ['tool:workspace.read'],
+      );
+      const nextAllowed = await httpJson(baseUrl, 'POST', '/api/runner/device/next-offer', {
+        body: nextBody,
+        headers: deviceAuthHeaders({
+          keys: keysA,
+          runnerId: runnerA.runnerId,
+          credential: runnerA.credential,
+          method: 'POST',
+          path: '/api/runner/device/next-offer',
+          body: nextBody,
+          sessionId: runnerA.sessionId,
+          cursor: runnerA.cursor,
+        }),
+      });
+      assert.equal(nextAllowed.status, 200);
+      assert.equal(nextAllowed.json.offer.jobId, allowedWork.json.jobId);
+      const allowedLeaseBody = {
+        runnerId: runnerA.runnerId,
+        offerId: nextAllowed.json.offer.offerId,
+      };
+      const allowedLease = await httpJson(baseUrl, 'POST', '/api/runner/device/lease', {
+        body: allowedLeaseBody,
+        headers: deviceAuthHeaders({
+          keys: keysA,
+          runnerId: runnerA.runnerId,
+          credential: runnerA.credential,
+          method: 'POST',
+          path: '/api/runner/device/lease',
+          body: allowedLeaseBody,
+          sessionId: runnerA.sessionId,
+          cursor: runnerA.cursor,
+        }),
+      });
+      assert.equal(allowedLease.status, 200, JSON.stringify(allowedLease.json));
+      assert.deepEqual(
+        allowedLease.json.lease.effectiveConfiguration,
+        allowedWork.json.effectiveConfiguration,
+      );
+      assert.doesNotThrow(() => assertAuthorizedLease(allowedLease.json.lease, {
+        runnerId: runnerA.runnerId,
+        workspaceId: runnerA.workspaceId,
+        credentialVersion: runnerA.credentialVersion,
+        deviceCredential: runnerA.credential,
+      }));
     } finally {
       runtime.durableExecution.stopBackgroundWorkers();
       if (runtime.unifiedCalendar?.stopBackgroundWorkers) runtime.unifiedCalendar.stopBackgroundWorkers();
@@ -2212,6 +2409,7 @@ test('one Work Conversation switches Codex and Claude endpoints without forking 
         },
       });
       assert.equal(createdAgent.status, 200, JSON.stringify(createdAgent.json));
+      await activateBuilderAgent(baseUrl, tokenA, createdAgent.json.agent.id, runnerA);
 
       const createdWork = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
         token: tokenA,
@@ -2394,6 +2592,325 @@ test('one Work Conversation switches Codex and Claude endpoints without forking 
       assert.ok(conversation.json.checkpoints.some((item) => item.text === 'Review the same investigation in Claude'));
       assert.ok(conversation.json.checkpoints.some((item) => item.text === 'Apply that review back in Codex'));
 
+      await pool.query(
+        `update provider_agent_sessions
+         set updated_at = now() + interval '1 hour'
+         where workspace_id = 'ws-a' and id = $1`,
+        [claudeEndpoint.id],
+      );
+      const autoAfterNewerInactive = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Auto must stay on the exact active Codex endpoint',
+            clientMessageId: 'exact-active-auto',
+            executionEngine: 'auto',
+          },
+        },
+      );
+      assert.equal(autoAfterNewerInactive.status, 200, JSON.stringify(autoAfterNewerInactive.json));
+      assert.equal(autoAfterNewerInactive.json.event.providerSessionId, initialEndpoint.rows[0].id);
+
+      const keysB = generateEd25519Keypair();
+      const runnerB = await enrollActiveRunner(baseUrl, tokenB, keysB, 'cross-engine-b');
+      const foreignWork = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
+        token: tokenB,
+        body: {
+          title: 'Foreign Workspace conversation',
+          goal: 'Own a foreign endpoint for scope rejection',
+        },
+      });
+      assert.equal(foreignWork.status, 200, JSON.stringify(foreignWork.json));
+      await pool.query(
+        `insert into provider_agent_sessions (
+           id, workspace_id, agent_id, official_profile, runner_id, work_conversation_id,
+           provider, engine, status, title
+         ) values (
+           'psess_foreign_scope_fixture', 'ws-b', null, 'default', $1, $2,
+           'codex', 'codex', 'active', 'Foreign scope fixture'
+         )`,
+        [runnerB.runnerId, foreignWork.json.sessionId],
+      );
+      const foreignEndpoint = await pool.query(
+        `select id from provider_agent_sessions
+         where workspace_id = 'ws-b' and work_conversation_id = $1`,
+        [foreignWork.json.sessionId],
+      );
+      assert.equal(foreignEndpoint.rowCount, 1);
+
+      const otherConversation = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
+        token: tokenA,
+        body: {
+          title: 'Other same-Workspace conversation',
+          goal: 'Own a mismatched endpoint for conversation-scope rejection',
+          agentId: createdAgent.json.agent.id,
+          executionEngine: 'codex',
+          requestedModel: 'gpt-5.6-codex',
+        },
+      });
+      assert.equal(otherConversation.status, 200, JSON.stringify(otherConversation.json));
+      const otherConversationEndpoint = await pool.query(
+        `select id from provider_agent_sessions
+         where workspace_id = 'ws-a' and work_conversation_id = $1`,
+        [otherConversation.json.sessionId],
+      );
+      assert.equal(otherConversationEndpoint.rowCount, 1);
+
+      const sideEffectsBeforeMissing = await pool.query(
+        `select
+           (select count(*)::int from execution_jobs
+            where workspace_id = 'ws-a' and mission_id = $1) as jobs,
+           (select count(*)::int from agent_session_events
+            where workspace_id = 'ws-a' and session_id = $2) as events`,
+        [createdWork.json.missionId, createdWork.json.sessionId],
+      );
+      await pool.query(
+        `update agent_missions
+         set payload = payload || '{"activeProviderSessionId":"psess_missing_scoped"}'::jsonb
+         where workspace_id = 'ws-a' and id = $1`,
+        [createdWork.json.missionId],
+      );
+      const missingActive = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Missing active endpoint must fail closed',
+            clientMessageId: 'missing-active-endpoint',
+            executionEngine: 'auto',
+          },
+        },
+      );
+      assert.equal(missingActive.status, 409, JSON.stringify(missingActive.json));
+      const sideEffectsAfterMissing = await pool.query(
+        `select
+           (select count(*)::int from execution_jobs
+            where workspace_id = 'ws-a' and mission_id = $1) as jobs,
+           (select count(*)::int from agent_session_events
+            where workspace_id = 'ws-a' and session_id = $2) as events`,
+        [createdWork.json.missionId, createdWork.json.sessionId],
+      );
+      assert.deepEqual(sideEffectsAfterMissing.rows[0], sideEffectsBeforeMissing.rows[0]);
+
+      for (const [activeProviderSessionId, clientMessageId] of [
+        [foreignEndpoint.rows[0].id, 'foreign-workspace-active-endpoint'],
+        [otherConversationEndpoint.rows[0].id, 'other-conversation-active-endpoint'],
+      ]) {
+        await pool.query(
+          `update agent_missions
+           set payload = payload || jsonb_build_object(
+             'activeProviderSessionId', $2::text,
+             'providerSessionId', $2::text
+           )
+           where workspace_id = 'ws-a' and id = $1`,
+          [createdWork.json.missionId, activeProviderSessionId],
+        );
+        const rejected = await httpJson(
+          baseUrl,
+          'POST',
+          `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+          {
+            token: tokenA,
+            body: {
+              text: 'Mismatched active endpoint must fail closed',
+              clientMessageId,
+              executionEngine: 'auto',
+            },
+          },
+        );
+        assert.equal(rejected.status, 409, JSON.stringify(rejected.json));
+        const sideEffectsAfterRejected = await pool.query(
+          `select
+             (select count(*)::int from execution_jobs
+              where workspace_id = 'ws-a' and mission_id = $1) as jobs,
+             (select count(*)::int from agent_session_events
+              where workspace_id = 'ws-a' and session_id = $2) as events`,
+          [createdWork.json.missionId, createdWork.json.sessionId],
+        );
+        assert.deepEqual(sideEffectsAfterRejected.rows[0], sideEffectsBeforeMissing.rows[0]);
+      }
+
+      await pool.query(
+        `update provider_agent_sessions
+         set status = 'archived'
+         where workspace_id = 'ws-a' and work_conversation_id = $1`,
+        [createdWork.json.sessionId],
+      );
+      await pool.query(
+        `update agent_missions
+         set payload = payload - 'activeProviderSessionId' - 'providerSessionId'
+         where workspace_id = 'ws-a' and id = $1`,
+        [createdWork.json.missionId],
+      );
+      const zeroEligibleLegacy = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Zero eligible legacy endpoints must fail closed',
+            clientMessageId: 'legacy-zero-eligible',
+            executionEngine: 'auto',
+          },
+        },
+      );
+      assert.equal(zeroEligibleLegacy.status, 409, JSON.stringify(zeroEligibleLegacy.json));
+      const sideEffectsAfterZeroEligible = await pool.query(
+        `select
+           (select count(*)::int from execution_jobs
+            where workspace_id = 'ws-a' and mission_id = $1) as jobs,
+           (select count(*)::int from agent_session_events
+            where workspace_id = 'ws-a' and session_id = $2) as events`,
+        [createdWork.json.missionId, createdWork.json.sessionId],
+      );
+      assert.deepEqual(sideEffectsAfterZeroEligible.rows[0], sideEffectsBeforeMissing.rows[0]);
+
+      await pool.query(
+        `update provider_agent_sessions
+         set status = case when id = $2 then 'active' else 'archived' end
+         where workspace_id = 'ws-a' and work_conversation_id = $1`,
+        [createdWork.json.sessionId, initialEndpoint.rows[0].id],
+      );
+      await pool.query(
+        `update agent_missions
+         set payload = (payload - 'activeProviderSessionId' - 'providerSessionId')
+         where workspace_id = 'ws-a' and id = $1`,
+        [createdWork.json.missionId],
+      );
+      const legacyBackfill = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Backfill the one eligible legacy endpoint',
+            clientMessageId: 'legacy-single-backfill',
+            executionEngine: 'auto',
+          },
+        },
+      );
+      assert.equal(legacyBackfill.status, 200, JSON.stringify(legacyBackfill.json));
+      assert.equal(legacyBackfill.json.event.providerSessionId, initialEndpoint.rows[0].id);
+      const backfilledMission = await pool.query(
+        `select payload->>'activeProviderSessionId' as active_provider_session_id
+         from agent_missions
+         where workspace_id = 'ws-a' and id = $1`,
+        [createdWork.json.missionId],
+      );
+      assert.equal(backfilledMission.rows[0].active_provider_session_id, initialEndpoint.rows[0].id);
+
+      await pool.query(
+        `update provider_agent_sessions
+         set status = 'archived'
+         where workspace_id = 'ws-a' and id = $1`,
+        [initialEndpoint.rows[0].id],
+      );
+      const archivedActive = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Archived active endpoint must fail closed',
+            clientMessageId: 'archived-active-endpoint',
+            executionEngine: 'auto',
+          },
+        },
+      );
+      assert.equal(archivedActive.status, 409, JSON.stringify(archivedActive.json));
+
+      await pool.query(
+        `update provider_agent_sessions
+         set status = 'active'
+         where workspace_id = 'ws-a' and work_conversation_id = $1`,
+        [createdWork.json.sessionId],
+      );
+      await pool.query(
+        `update agent_missions
+         set payload = (payload - 'activeProviderSessionId' - 'providerSessionId')
+         where workspace_id = 'ws-a' and id = $1`,
+        [createdWork.json.missionId],
+      );
+      const ambiguousLegacy = await httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Ambiguous legacy endpoints must fail closed',
+            clientMessageId: 'legacy-ambiguous',
+            executionEngine: 'auto',
+          },
+        },
+      );
+      assert.equal(ambiguousLegacy.status, 409, JSON.stringify(ambiguousLegacy.json));
+
+      await pool.query(
+        `update agent_missions
+         set payload = payload || jsonb_build_object(
+           'activeProviderSessionId', $2::text,
+           'providerSessionId', $2::text,
+           'activeExecutionEngine', 'codex'
+         )
+         where workspace_id = 'ws-a' and id = $1`,
+        [createdWork.json.missionId, initialEndpoint.rows[0].id],
+      );
+      const turnBlocker = await pool.connect();
+      await turnBlocker.query('begin');
+      await turnBlocker.query(
+        `select id from agent_sessions
+         where workspace_id = 'ws-a' and id = $1
+         for update`,
+        [createdWork.json.sessionId],
+      );
+      const switchPromise = httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Switch this turn to Claude',
+            clientMessageId: 'serialized-switch',
+            executionEngine: 'claude',
+          },
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const serializedAutoPromise = httpJson(
+        baseUrl,
+        'POST',
+        `/api/agent-operations/work/${encodeURIComponent(createdWork.json.missionId)}/messages`,
+        {
+          token: tokenA,
+          body: {
+            text: 'Follow whichever endpoint is active after the switch',
+            clientMessageId: 'serialized-auto',
+            executionEngine: 'auto',
+          },
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await turnBlocker.query('commit');
+      turnBlocker.release();
+      const [serializedSwitch, serializedAuto] = await Promise.all([
+        switchPromise,
+        serializedAutoPromise,
+      ]);
+      assert.equal(serializedSwitch.status, 200, JSON.stringify(serializedSwitch.json));
+      assert.equal(serializedAuto.status, 200, JSON.stringify(serializedAuto.json));
+      assert.equal(serializedSwitch.json.event.providerSessionId, claudeEndpoint.id);
+      assert.equal(serializedAuto.json.event.providerSessionId, claudeEndpoint.id);
+
       const foreignConversation = await httpJson(
         baseUrl,
         'GET',
@@ -2408,7 +2925,7 @@ test('one Work Conversation switches Codex and Claude endpoints without forking 
          where workspace_id = 'ws-a' and mission_id = $1`,
         [createdWork.json.missionId],
       );
-      assert.equal(jobs.rows[0].n, 3);
+      assert.equal(jobs.rows[0].n, 7);
     } finally {
       runtime.durableExecution.stopBackgroundWorkers();
       if (runtime.unifiedCalendar?.stopBackgroundWorkers) runtime.unifiedCalendar.stopBackgroundWorkers();
@@ -2738,6 +3255,7 @@ test('Runner-local Telegram endpoint appends and replays one canonical Work Conv
           defaultRunnerId: runnerA.runnerId,
         },
       });
+      await activateBuilderAgent(baseUrl, tokenA, agent.json.agent.id, runnerA);
       const work = await httpJson(baseUrl, 'POST', '/api/agent-operations/work', {
         token: tokenA,
         body: {
@@ -2934,7 +3452,7 @@ test('Runner-local Telegram endpoint appends and replays one canonical Work Conv
         endpointId,
         deliveryKey: 'update_100_message_200',
         text: 'Telegram에서도 같은 작업을 이어서 수정해줘',
-        executionEngine: 'codex',
+        executionEngine: 'auto',
         requestedModel: 'gpt-5.6-sol',
       };
       const first = await runnerPost(runnerA, keysA, inboundPath, inboundBody);
@@ -2954,6 +3472,25 @@ test('Runner-local Telegram endpoint appends and replays one canonical Work Conv
       assert.equal(canonical.rowCount, 1);
       assert.equal(canonical.rows[0].payload.origin, 'telegram');
       assert.equal(canonical.rows[0].payload.originEndpointId, endpointId);
+      const telegramJob = await pool.query(
+        `select provider_session_id
+         from execution_jobs
+         where workspace_id = 'ws-a' and mission_id = $1
+         order by turn_index desc
+         limit 1`,
+        [work.json.missionId],
+      );
+      const activeEndpoint = await pool.query(
+        `select payload->>'activeProviderSessionId' as active_provider_session_id
+         from agent_missions
+         where workspace_id = 'ws-a' and id = $1`,
+        [work.json.missionId],
+      );
+      assert.equal(
+        telegramJob.rows[0].provider_session_id,
+        activeEndpoint.rows[0].active_provider_session_id,
+        'Telegram auto follows the exact active provider endpoint',
+      );
 
       const nextPath = '/api/runner/device/channels/telegram/next';
       const beforeResult = await runnerPost(runnerA, keysA, nextPath, {
@@ -2997,6 +3534,128 @@ test('Runner-local Telegram endpoint appends and replays one canonical Work Conv
       assert.equal(delivery.json.delivery.text, 'Codex: Telegram round trip complete');
       assert.equal(typeof delivery.json.delivery.text, 'string');
       assert.equal(JSON.stringify(delivery.json).includes(bindingHandle), false);
+      const desktopProjection = await httpJson(
+        baseUrl,
+        'GET',
+        `/api/agent-operations/work/${encodeURIComponent(work.json.missionId)}/conversation`,
+        { token: tokenA },
+      );
+      const desktopResult = desktopProjection.json.checkpoints.find(
+        (checkpoint) => checkpoint.sequence === delivery.json.delivery.sequence,
+      );
+      assert.ok(desktopResult, JSON.stringify(desktopProjection.json));
+      assert.deepEqual(
+        publicDisplayTuple(desktopResult),
+        publicDisplayTuple(delivery.json.delivery),
+      );
+      assert.equal(desktopResult.origin, 'execution');
+      assert.equal(delivery.json.delivery.origin, 'execution');
+      assert.equal(
+        desktopProjection.json.checkpoints.some((checkpoint) => (
+          ['progress', 'tool', 'tool_activity', 'artifact'].includes(checkpoint.kind)
+        )),
+        false,
+      );
+      const beginPath = '/api/runner/device/channels/telegram/begin';
+      const begin = await runnerPost(runnerA, keysA, beginPath, {
+        runnerId: runnerA.runnerId,
+        endpointId,
+        receiptId: delivery.json.delivery.receiptId,
+        eventId: delivery.json.delivery.eventId,
+        sequence: delivery.json.delivery.sequence,
+      });
+      assert.equal(begin.status, 200, JSON.stringify(begin.json));
+      assert.equal(begin.json.status, 'sending');
+      const ackPath = '/api/runner/device/channels/telegram/ack';
+      const wrongEventAck = await runnerPost(runnerA, keysA, ackPath, {
+        runnerId: runnerA.runnerId,
+        endpointId,
+        receiptId: delivery.json.delivery.receiptId,
+        eventId: 'event_telegram_progress_test',
+        sequence: delivery.json.delivery.sequence,
+        outcome: 'delivered',
+      });
+      assert.equal(wrongEventAck.status, 404);
+      const wrongSequenceAck = await runnerPost(runnerA, keysA, ackPath, {
+        runnerId: runnerA.runnerId,
+        endpointId,
+        receiptId: delivery.json.delivery.receiptId,
+        eventId: delivery.json.delivery.eventId,
+        sequence: delivery.json.delivery.sequence - 1,
+        outcome: 'delivered',
+      });
+      assert.equal(wrongSequenceAck.status, 404);
+      const foreignAck = await runnerPost(runnerB, keysB, ackPath, {
+        runnerId: runnerB.runnerId,
+        endpointId,
+        receiptId: delivery.json.delivery.receiptId,
+        eventId: delivery.json.delivery.eventId,
+        sequence: delivery.json.delivery.sequence,
+        outcome: 'delivered',
+      });
+      assert.equal(foreignAck.status, 404);
+      const ackBody = {
+        runnerId: runnerA.runnerId,
+        endpointId,
+        receiptId: delivery.json.delivery.receiptId,
+        eventId: delivery.json.delivery.eventId,
+        sequence: delivery.json.delivery.sequence,
+        outcome: 'delivered',
+      };
+      const ack = await runnerPost(runnerA, keysA, ackPath, ackBody);
+      const duplicateAck = await runnerPost(runnerA, keysA, ackPath, ackBody);
+      assert.equal(ack.status, 200, JSON.stringify(ack.json));
+      assert.deepEqual(duplicateAck.json, ack.json);
+      assert.equal(ack.json.status, 'delivered');
+      assert.doesNotMatch(
+        JSON.stringify([wrongEventAck.json, wrongSequenceAck.json, foreignAck.json]),
+        /binding|cursor|payload|token|chat.?id|event_telegram/i,
+      );
+
+      const cursorBeforeHostile = await pool.query(
+        `select outbound_cursor::int as outbound_cursor
+         from work_conversation_channel_endpoints
+         where workspace_id = 'ws-a' and id = $1`,
+        [endpointId],
+      );
+      const malformedNext = await runnerPost(runnerA, keysA, nextPath, {
+        runnerId: runnerA.runnerId,
+        endpointId: 'malformed endpoint',
+      });
+      assert.equal(malformedNext.status, 400);
+      const foreignNext = await runnerPost(runnerB, keysB, nextPath, {
+        runnerId: runnerB.runnerId,
+        endpointId,
+      });
+      assert.equal(foreignNext.status, 404);
+      await pool.query(
+        `update work_conversation_channel_endpoints
+         set status = 'revoked'
+         where workspace_id = 'ws-a' and id = $1`,
+        [endpointId],
+      );
+      const staleNext = await runnerPost(runnerA, keysA, nextPath, {
+        runnerId: runnerA.runnerId,
+        endpointId,
+      });
+      assert.equal(staleNext.status, 404);
+      const cursorAfterHostile = await pool.query(
+        `select outbound_cursor::int as outbound_cursor
+         from work_conversation_channel_endpoints
+         where workspace_id = 'ws-a' and id = $1`,
+        [endpointId],
+      );
+      assert.deepEqual(cursorAfterHostile.rows[0], cursorBeforeHostile.rows[0]);
+      assert.doesNotMatch(
+        JSON.stringify([malformedNext.json, foreignNext.json, staleNext.json]),
+        /binding|cursor|payload|token|chat.?id/i,
+      );
+      await pool.query(
+        `update work_conversation_channel_endpoints
+         set status = 'active'
+         where workspace_id = 'ws-a' and id = $1`,
+        [endpointId],
+      );
 
       const stored = await pool.query(
         `select binding_handle, public_metadata

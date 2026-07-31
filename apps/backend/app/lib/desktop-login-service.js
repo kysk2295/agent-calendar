@@ -6,13 +6,14 @@ const {
   bootstrapUserWorkspaceForVerifiedSubject,
 } = require('./workspace-auth-session');
 
+// WorkOS accepts this custom scheme. Google does not — it rejects custom schemes outright —
+// so a Google adapter carries its own gateway-hosted redirect and that value wins.
 const DESKTOP_LOGIN_REDIRECT_URI = 'agent-calendar://auth/callback';
 
 function desktopLoginRedirectUri(runtime) {
-  const configured = String(runtime && runtime.authKit && runtime.authKit.redirectUri || '').trim();
+  const configured = String(runtime?.authKit?.redirectUri || '').trim();
   return configured || DESKTOP_LOGIN_REDIRECT_URI;
 }
-
 const LOGIN_TTL_MS = 10 * 60 * 1000;
 const SELECTION_TTL_MS = 10 * 60 * 1000;
 const PROVIDER = 'workos';

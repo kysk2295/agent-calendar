@@ -27,6 +27,11 @@ const {
   runnerHasLocalKnowledgeCapability,
 } = require('./knowledge-runner-adapter');
 
+// Retrieval depth for browsing differs from the evidence an answer should be built on.
+// A long prompt is slower and costlier without being better grounded, and the previous
+// character-level truncation could cut a passage mid-sentence.
+const ANSWER_CITATION_LIMIT = 6;
+
 function newId(prefix) {
   return `${prefix}_${crypto.randomBytes(10).toString('hex')}`;
 }
@@ -970,6 +975,7 @@ class KnowledgeService {
     const search = await this.search(scope, {
       query: q,
       mode: 'hybrid',
+      limit: ANSWER_CITATION_LIMIT,
       waitForRunnerMs,
       requestId,
     });

@@ -104,6 +104,9 @@ async function handleExecutionDeviceRouteWithPath({
       case 'runner_device_telegram_next':
         sendJson(res, 200, await runtime.workConversationChannels.nextOutbound(runner, body || {}));
         return true;
+      case 'runner_device_telegram_begin':
+        sendJson(res, 200, await runtime.workConversationChannels.beginOutbound(runner, body || {}));
+        return true;
       case 'runner_device_telegram_ack':
         sendJson(res, 200, await runtime.workConversationChannels.ackOutbound(runner, body || {}));
         return true;

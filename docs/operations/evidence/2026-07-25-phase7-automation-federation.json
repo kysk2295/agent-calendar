@@ -3,10 +3,10 @@
   "slice": "phase7-automation-federation",
   "date": "2026-07-25",
   "status": "verified",
-  "durationMs": 10499,
+  "durationMs": 10076,
   "workspaces": {
-    "a": "ws_b5df6013a7cd636db3f246ebf99f1346",
-    "b": "ws_a0ad9ab61e3336c5f8b6ce9fc167621d"
+    "a": "ws_89e1e41decbf8e0046a5c5ceab100f47",
+    "b": "ws_e1ce6aace33c5fd93e22a119f6945a74"
   },
   "counts": {
     "sources_a": 1,
@@ -26,12 +26,12 @@
     "run"
   ],
   "screenshotHashes": {
-    "setup": "dda8add323a2a3b4fbeade4503f617893153147295a999d066cbea3fe15d390a",
-    "connected": "b7f13527120d911b890f28f6231dbd6f8e40820c05fd78a738b05b5fe6273c59",
-    "created": "89e37d17039ae2cfead19b6038cf77a387a31146c44c047909556b9b0c2ed211",
-    "calendar": "00df43e975c50b9d8f01c9fa2adcba5a55f23f09ca461e02fead406bf766e14b",
-    "isolated": "0f8204be667132a0099c5702a655fb65ab36ddec5e915a7be05d1af383e63c94",
-    "restarted": "f26d74a6f73e06fdf64cddce64ff0e3a09e95ae3dca0ff467387a41a976d5657"
+    "setup": "3bdc320b11ff4182d5d71cea7a7799c9cf98e7cc4ee5325bea467af0a98601af",
+    "connected": "b8d1c574532cdb99ee6faf7f1cd86f2ddde4b04d39d6537c3be55a27b3fcbe15",
+    "created": "e9a2e6da6725854e1a95787f8de50759fe987f14882c251cafcb19748cc0f1ab",
+    "calendar": "96fbd2135f490070119118c7d83c69e15c5a978275ec6e132c081c7c15ab1bea",
+    "isolated": "d6ac08ba01ff72107a232755e7d63ed3acdb2455fb2b3ac939effd821258a40f",
+    "restarted": "83a4e1ad5410c635c44df88e0615e1dd8011fe1f9441e7c663553d967cdeec72"
   },
   "runnerDeviceNeutrality": {
     "defaultSourceNamePlaceholder": "예: 내 Hermes Runner",

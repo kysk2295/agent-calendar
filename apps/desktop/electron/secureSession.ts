@@ -140,10 +140,10 @@ export function createSecureSessionManager(options: SecureSessionOptions = {}) {
   let refreshInFlight: Promise<AppSessionTokens | null> | null = null;
 
   function readFromDisk(): AppSessionTokens | null {
-    if (!storage.isEncryptionAvailable()) return null;
     const file = sessionPath(getUserDataPath());
     try {
       if (!fs.existsSync(file)) return null;
+      if (!storage.isEncryptionAvailable()) return null;
       const encrypted = fs.readFileSync(file);
       const plain = storage.decryptString(encrypted);
       return normalizeSession(JSON.parse(plain));

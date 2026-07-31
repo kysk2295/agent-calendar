@@ -322,6 +322,46 @@ async function handleScopedProductRoute({
     sendJson(res, 200, { ok: true, agent, agents, workspaceId: scope.workspaceId });
     return true;
   }
+  if (action === 'agent_builder_create') {
+    const agent = await runtime.agentBuilder.createDraft(scope, body || {});
+    sendJson(res, 201, { ok: true, agent, workspaceId: scope.workspaceId });
+    return true;
+  }
+  if (action === 'agent_builder_review') {
+    const agent = await runtime.agentBuilder.reviewDraft(scope, params.id, body || {});
+    if (!agent) return notFound(res), true;
+    sendJson(res, 200, { ok: true, agent, workspaceId: scope.workspaceId });
+    return true;
+  }
+  if (action === 'agent_builder_test_start') {
+    const result = await runtime.agentBuilder.startTest(scope, params.id, body || {});
+    if (!result) return notFound(res), true;
+    sendJson(res, 202, { ok: true, ...result, workspaceId: scope.workspaceId });
+    return true;
+  }
+  if (action === 'agent_builder_test_get') {
+    const result = await runtime.agentBuilder.getTest(scope, params.id, params.requestId);
+    if (!result) return notFound(res), true;
+    sendJson(res, 200, { ok: true, ...result, workspaceId: scope.workspaceId });
+    return true;
+  }
+  if (action === 'agent_builder_test_cancel') {
+    const result = await runtime.agentBuilder.cancelTest(scope, params.id, params.requestId);
+    if (!result) return notFound(res), true;
+    sendJson(res, 200, { ok: true, ...result, workspaceId: scope.workspaceId });
+    return true;
+  }
+  if (action === 'agent_builder_activate') {
+    const agent = await runtime.agentBuilder.activate(scope, params.id, body || {});
+    if (!agent) return notFound(res), true;
+    sendJson(res, 200, { ok: true, agent, workspaceId: scope.workspaceId });
+    return true;
+  }
+  if (action === 'agent_builder_versions_list') {
+    const versions = await runtime.agentBuilder.listVersions(scope, params.id);
+    sendJson(res, 200, { ok: true, versions, workspaceId: scope.workspaceId });
+    return true;
+  }
   if (action === 'agent_catalog_request') {
     const request = await runtime.providerAgentBridge.requestCatalog(scope, body || {});
     sendJson(res, 202, { ok: true, request, workspaceId: scope.workspaceId });
@@ -859,6 +899,52 @@ async function handleScopedProductRoute({
   if (action === 'agent_work_message') {
     const result = await product.addAgentWorkMessage(scope, params.missionId, body || {});
     if (!result) return notFound(res), true;
+    sendJson(res, 200, result);
+    return true;
+  }
+  if (action === 'agent_work_handoffs_list') {
+    const result = await product.listAgentWorkHandoffs(scope, params.missionId);
+    sendJson(res, 200, {
+      ok: true,
+      ...result,
+      workspaceId: scope.workspaceId,
+    });
+    return true;
+  }
+  if (action === 'agent_work_handoff_create') {
+    const result = await product.createAgentWorkHandoff(
+      scope,
+      params.missionId,
+      body || {},
+    );
+    sendJson(res, result.idempotentReplay ? 200 : 201, result);
+    return true;
+  }
+  if (action === 'agent_work_handoff_cancel') {
+    const result = await product.cancelAgentWorkHandoff(
+      scope,
+      params.missionId,
+      params.handoffId,
+      body || {},
+    );
+    sendJson(res, 200, result);
+    return true;
+  }
+  if (action === 'agent_work_provider_session_transition') {
+    const result = await product.transitionAgentWorkProviderSession(
+      scope,
+      params.missionId,
+      body || {},
+    );
+    sendJson(res, result.idempotentReplay ? 200 : 201, result);
+    return true;
+  }
+  if (action === 'agent_work_comparison_adopt') {
+    const result = await product.adoptAgentWorkComparisonResult(
+      scope,
+      params.missionId,
+      body || {},
+    );
     sendJson(res, 200, result);
     return true;
   }

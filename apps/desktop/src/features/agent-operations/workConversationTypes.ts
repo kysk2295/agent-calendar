@@ -35,6 +35,14 @@ export type AgentWorkCheckpointApplicationMode = AgentWorkApplicationMode
   | 'checkpoint_result'
   | 'applied_at_checkpoint';
 
+export type AgentWorkCheckpointOrigin =
+  | 'agent'
+  | 'calendar'
+  | 'desktop'
+  | 'execution'
+  | 'telegram'
+  | 'user';
+
 export type AgentAssignment =
   | Readonly<{ kind: 'explicit'; agentId: string }>
   | Readonly<{ kind: 'keyword'; agentId: string }>
@@ -119,6 +127,7 @@ export type AgentWorkCheckpoint = {
   readonly sequence: number;
   readonly kind: AgentWorkCheckpointKind;
   readonly text: string;
+  readonly origin: AgentWorkCheckpointOrigin;
   readonly metadata: AgentWorkCheckpointMetadata;
   readonly createdAt: string;
 };
@@ -134,11 +143,170 @@ export type AgentWorkChannelEndpoint = {
   readonly lastActivityAt: string | null;
 };
 
+export type AgentEffectiveCapability = {
+  readonly id: string;
+  readonly version: number;
+  readonly kind: 'tool' | 'skill';
+  readonly externalDelivery: boolean;
+};
+
+export type AgentEffectiveConfiguration = {
+  readonly schemaVersion: 1;
+  readonly snapshotId: string;
+  readonly executable: boolean;
+  readonly engine: {
+    readonly requested: string;
+    readonly resolved: string;
+    readonly model: string;
+    readonly reason: string;
+  };
+  readonly runner: {
+    readonly ref: string;
+    readonly catalogId: string;
+    readonly catalogVersion: number;
+    readonly catalogRevision: string;
+  };
+  readonly profile: {
+    readonly agentId: string;
+    readonly displayName: string;
+    readonly version: number;
+  };
+  readonly rules: {
+    readonly defaultDeny: true;
+    readonly denyOverAllow: true;
+    readonly profileInstructionsApplied: boolean;
+  };
+  readonly grants: {
+    readonly allowed: readonly AgentEffectiveCapability[];
+    readonly denied: readonly string[];
+    readonly approvalRequired: readonly string[];
+  };
+  readonly memoryScopes: readonly string[];
+  readonly approvalPolicy: {
+    readonly grantExpansion: 'required';
+    readonly externalDelivery: 'required';
+  };
+  readonly requiredCapabilities: readonly string[];
+};
+
+export type AgentEffectiveConfigurationHistory = {
+  readonly jobRef: string;
+  readonly turnIndex: number;
+  readonly createdAt: string;
+  readonly configuration: AgentEffectiveConfiguration;
+};
+
+export type AgentWorkGrantSet = {
+  readonly allow: readonly string[];
+  readonly deny: readonly string[];
+};
+
+export type AgentWorkBudget = {
+  readonly maxRuns: number;
+  readonly maxMinutes: number;
+  readonly maxCostUsd: number;
+};
+
+export type AgentWorkHandoff = {
+  readonly id: string;
+  readonly clientRequestId: string;
+  readonly parentMissionId: string;
+  readonly parentHandoffId: string;
+  readonly parentTaskId: string;
+  readonly rootAgentId: string;
+  readonly delegatorAgentId: string;
+  readonly receiverAgentId: string;
+  readonly depth: number;
+  readonly lineage: readonly string[];
+  readonly effectiveGrants: AgentWorkGrantSet;
+  readonly effectiveBudget: AgentWorkBudget;
+  readonly status: string;
+  readonly resultProjection: Readonly<Record<string, unknown>>;
+  readonly cancellationRequested: boolean;
+  readonly cancellationReason: string;
+  readonly executionJobId: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly terminalAt: string | null;
+};
+
+export type AgentWorkHandoffGraph = {
+  readonly rootMissionId: string;
+  readonly rootAgentId: string;
+  readonly maxDepth: number;
+  readonly maxFanOut: number;
+  readonly handoffs: readonly AgentWorkHandoff[];
+};
+
+export type AgentWorkProviderSession = {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly agentId: string;
+  readonly runnerId: string;
+  readonly workConversationId: string;
+  readonly provider: string;
+  readonly engine: string;
+  readonly externalSessionId: string;
+  readonly status: string;
+  readonly title: string;
+  readonly parentProviderSessionId: string;
+  readonly generation: number;
+  readonly lineage: readonly string[];
+  readonly transitionAction: string;
+};
+
+export type AgentWorkProviderSessionTransition = {
+  readonly id: string;
+  readonly action: 'rebind' | 'new_session' | 'fork';
+  readonly sourceProviderSessionId: string;
+  readonly targetProviderSessionId: string;
+  readonly executionJobId: string;
+  readonly clientRequestId: string;
+  readonly createdAt: string;
+};
+
+export type AgentWorkComparisonOutcome = {
+  readonly reportId: string;
+  readonly jobId: string;
+  readonly executionEngine: string;
+  readonly requestedModel: string;
+  readonly summary: string;
+  readonly durationMs: number;
+  readonly costUsd: number;
+  readonly evidenceCount: number;
+  readonly turnIndex: number;
+  readonly turnTargetIndex: number;
+};
+
+export type AgentWorkComparisonAdoption = {
+  readonly id: string;
+  readonly reportId: string;
+  readonly previousReportId: string;
+  readonly selectionVersion: number;
+  readonly outcome: Readonly<Record<string, unknown>>;
+  readonly createdAt: string;
+};
+
+export type AgentWorkComparisonState = {
+  readonly currentResultReportId: string;
+  readonly outcomes: readonly AgentWorkComparisonOutcome[];
+  readonly adoptions: readonly AgentWorkComparisonAdoption[];
+};
+
 export type AgentWorkConversationPage = {
   readonly work: AgentWorkSummary;
   readonly conversation: AgentWorkConversation;
   readonly channels: readonly AgentWorkChannelEndpoint[];
   readonly checkpoints: readonly AgentWorkCheckpoint[];
+  readonly effectiveConfiguration: {
+    readonly current: AgentEffectiveConfiguration | null;
+    readonly history: readonly AgentEffectiveConfigurationHistory[];
+  };
+  readonly handoffGraph: AgentWorkHandoffGraph;
+  readonly activeProviderSessionId: string;
+  readonly providerSessions: readonly AgentWorkProviderSession[];
+  readonly providerSessionTransitions: readonly AgentWorkProviderSessionTransition[];
+  readonly comparison: AgentWorkComparisonState;
   readonly nextCursor: string | null;
 };
 

@@ -15,24 +15,36 @@ const path = require('node:path');
 
 const SECRET_RE = /sk-[a-zA-Z0-9]{10,}|Bearer\s+\S+|OPENAI_API_KEY\s*=\s*\S+/gi;
 
-function buildCodexArgv({ cwd, sessionId, model } = {}) {
+function buildCodexArgv({
+  cwd, sessionId, model, disposableNoTools = false,
+} = {}) {
   const requestedModel = normalizeModelId(model);
-  const args = sessionId
+  const disposableArgs = disposableNoTools
+    ? [
+      '--sandbox', 'read-only',
+      '--ephemeral',
+      '--ignore-user-config',
+      '--ignore-rules',
+      '--disable', 'web_search',
+    ]
+    : ['--sandbox', 'workspace-write'];
+  const resumableSessionId = disposableNoTools ? '' : sessionId;
+  const args = resumableSessionId
     ? [
       'exec',
       '-C', cwd || process.cwd(),
       '--skip-git-repo-check',
       '--json',
-      '--sandbox', 'workspace-write',
+      ...disposableArgs,
       ...(requestedModel ? ['--model', requestedModel] : []),
-      'resume', String(sessionId), '-',
+      'resume', String(resumableSessionId), '-',
     ]
     : [
       'exec',
       '-C', cwd || process.cwd(),
       '--skip-git-repo-check',
       '--json',
-      '--sandbox', 'workspace-write',
+      ...disposableArgs,
       ...(requestedModel ? ['--model', requestedModel] : []),
     ];
   assertSafeArgv(args);
@@ -160,10 +172,18 @@ function parseCodexJsonlLine(line) {
 async function runCodex(input = {}) {
   const {
     goal, cwd, model, onCheckpoint, signal, timeoutMs = 180_000, providerSession,
+    executionPolicy,
   } = input;
   const requestedModel = normalizeModelId(model);
   const boundSessionId = providerSession?.externalSessionId || '';
-  const args = buildCodexArgv({ cwd, sessionId: boundSessionId, model: requestedModel });
+  const disposableNoTools = executionPolicy?.disposable === true
+    && executionPolicy?.defaultDeny === true;
+  const args = buildCodexArgv({
+    cwd,
+    sessionId: boundSessionId,
+    model: requestedModel,
+    disposableNoTools,
+  });
   let resumeThreadId = boundSessionId || null;
   let planEmitted = false;
   let progressCount = 0;

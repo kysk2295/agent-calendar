@@ -96,7 +96,7 @@ test('active but disconnected Runner stays actionable and asks to reconnect', ()
   assert.equal(runner?.ready, true);
   assert.equal(runner?.statusLabel, 'Runner 등록 완료 · 현재 오프라인');
   assert.equal(runner?.actionLabel, 'Runner 연결 확인');
-  assert.match(runner?.description || '', /실행 컴퓨터/);
+  assert.match(runner?.description || '', /에이전트 작업|실행 컴퓨터|Runner/);
 });
 
 test('built-in Calendar source does not replace the required Google connection', () => {
@@ -237,4 +237,47 @@ test('Calendar AI guide CTA opens the calendar surface and conversation panel ex
     appSource,
     /onOpenCalendarAi=\{\(\) => \{\s*openScreen\('calendar'\);\s*setChatOpen\(true\);\s*\}\}/,
   );
+});
+
+test('Runner is optional setup because Calendar AI and Wiki AI no longer need one', () => {
+  const result = onboarding.buildOnboardingReadiness();
+  const runner = result.steps.find((step) => step.id === 'runner');
+  const others = result.steps.filter((step) => step.id !== 'runner');
+
+  assert.equal(runner.optional, true, 'Runner is for Agent Work, not a precondition for AI');
+  assert.match(runner.description, /에이전트 작업/);
+  for (const step of others) {
+    assert.notEqual(step.optional, true, `${step.id} stays required`);
+  }
+});
+
+test('setup completes without a Runner once the required steps are ready', () => {
+  const result = onboarding.buildOnboardingReadiness({
+    calendarSources: [{
+      provider: 'google',
+      status: 'connected',
+      lastSyncedAt: '2026-07-29T00:00:00.000Z',
+    }],
+    knowledgeSources: [{
+      id: 'wiki-ready',
+      status: 'ready',
+      path: '/Users/example/Notes',
+      sourceKind: 'private_local',
+    }],
+    calendarAiAvailable: true,
+  });
+
+  assert.equal(result.steps.find((step) => step.id === 'runner').ready, false);
+  assert.equal(result.allReady, true, 'an optional step must not block 설정 완료');
+  assert.equal(result.nextStepId, 'runner', 'the optional step is still offered');
+});
+
+test('Calendar AI readiness does not depend on a connected Runner', () => {
+  const withoutRunner = onboarding.buildOnboardingReadiness({ calendarAiAvailable: true });
+  assert.equal(withoutRunner.steps.find((step) => step.id === 'calendar_ai').ready, true);
+
+  const unconfigured = onboarding.buildOnboardingReadiness();
+  const step = unconfigured.steps.find((s) => s.id === 'calendar_ai');
+  assert.equal(step.ready, false);
+  assert.doesNotMatch(step.statusLabel, /실행 엔진/, 'the blocker is not a Runner engine anymore');
 });

@@ -14,8 +14,14 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "build": "npm run typecheck && npm run build:renderer && npm run build:electron",
     "test": "npm run build:electron && node --test tests/*.test.mjs",
-    "test:ui:calendar": "node tests/playwright-calendar-crud.cjs",
-    "test:ui:wiki": "node tests/playwright-wiki-graph-ask.cjs",
+    "test:ui:calendar": "node tests/run-playwright-with-vite.cjs tests/playwright-calendar-crud.cjs",
+    "test:ui:wiki": "node tests/run-playwright-with-vite.cjs tests/playwright-wiki-graph-ask.cjs",
+    "test:ui:smoke": "node tests/run-playwright-with-vite.cjs tests/playwright-app-root-smoke.cjs",
+    "test:ui:phase8-session-truth": "node tests/playwright-phase8-session-truth.cjs",
+    "test:ui:phase8-offline-reconnect": "node tests/playwright-phase8-offline-reconnect.cjs",
+    "test:ui:phase8-desktop-release": "node tests/playwright-phase8-desktop-release.cjs",
+    "test:release-smoke": "node tests/run-desktop-release-smoke.cjs",
+    "test:local-updater-qa": "node --test tests/local-desktop-updater-qa.test.mjs",
     "test:ui:wiki-session-turn": "node tests/playwright-wiki-session-turn-stream.cjs",
     "test:packaged:deep-link": "node tests/packaged-deep-link-smoke.cjs",
     "dist:mac": "npm run build && electron-builder --mac dmg zip --arm64"
@@ -98,6 +104,26 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "gatekeeperAssess": false
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 130,
+          "y": 390,
+          "type": "file",
+          "path": "build/widget-companion/Agents Calendar Widgets.app"
+        }
+      ]
     }
   }
 }

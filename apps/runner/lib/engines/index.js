@@ -7,6 +7,7 @@ const grok = require('./grok');
 const hermes = require('./hermes');
 const knowledge = require('./knowledge');
 const { BANNED_FLAGS, assertSafeArgv } = require('./contract');
+const { isFakeEngineAllowed } = require('../runtime-policy');
 
 const ADAPTERS = Object.freeze({
   fake,
@@ -17,9 +18,9 @@ const ADAPTERS = Object.freeze({
   knowledge,
 });
 
-function getEngineAdapter(name, { allowFake = false } = {}) {
+function getEngineAdapter(name, { env = {} } = {}) {
   const key = String(name || '').toLowerCase();
-  if (key === 'fake' && !allowFake && process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE !== '1') {
+  if (key === 'fake' && !isFakeEngineAllowed(env)) {
     const error = new Error('fake engine not allowed outside tests');
     error.code = 'FAKE_ENGINE_FORBIDDEN';
     throw error;

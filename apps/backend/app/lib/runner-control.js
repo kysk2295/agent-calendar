@@ -14,6 +14,12 @@ const {
   engineCapabilityReady,
   engineReportsAvailability,
 } = require('./engine-capability-auth');
+const { isFakeEngineAllowed } = require('./execution-engine-policy');
+const { normalizeRunnerCapabilityCatalog } = require('./workspace-agent-directory');
+const {
+  runnerReleaseConfigurationFromEnv,
+  verifyTrustedRunnerRelease,
+} = require('./runner-release-trust');
 
 const PROTOCOL_VERSION = 1;
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
@@ -36,6 +42,50 @@ function reject(code, message, statusHint = 401) {
   error.code = code;
   error.statusHint = statusHint;
   throw error;
+}
+
+function normalizeRunnerCapabilities(engines, env) {
+  if (engines.fake && !isFakeEngineAllowed(env)) {
+    reject('FAKE_ENGINE_FORBIDDEN', 'Fake Engine is allowed only in explicit tests', 422);
+  }
+  return {
+    codex: normalizeEngine(engines.codex),
+    claude: normalizeEngine(engines.claude),
+    grok: normalizeEngine(engines.grok),
+    hermes: normalizeEngine(engines.hermes),
+    ...(engines.fake ? { fake: normalizeEngine(engines.fake) } : {}),
+  };
+}
+
+function unavailableRunnerRelease(platform, notes = 'Signed Runner installer is unavailable.') {
+  return {
+    status: 'unavailable',
+    version: null,
+    platform,
+    downloadUrl: null,
+    manifestUrl: null,
+    sha256: null,
+    signature: null,
+    publicKeyId: null,
+    notes,
+    verification: null,
+  };
+}
+
+function normalizeRunnerReleaseManifest(value, requestedPlatform = 'darwin-arm64', options = {}) {
+  const platform = String(requestedPlatform || 'darwin-arm64');
+  try {
+    return verifyTrustedRunnerRelease({
+      release: value,
+      requestedPlatform: platform,
+      trustedPublicKeys: options.trustedPublicKeys,
+      minimumVersion: options.minimumVersion,
+      now: options.now,
+      maxManifestAgeMs: options.maxManifestAgeMs,
+    });
+  } catch {
+    return unavailableRunnerRelease(platform, 'Runner release metadata failed verification.');
+  }
 }
 
 function hashOpaque(value) {
@@ -282,6 +332,9 @@ class RunnerControl {
     clockSkewMs = CLOCK_SKEW_MS,
     protocolVersion = PROTOCOL_VERSION,
     releaseManifest = null,
+    releaseTrustedPublicKeys = {},
+    releaseMinimumVersion = '',
+    env = {},
   } = {}) {
     if (!pool) throw new Error('RunnerControl requires pool');
     this.pool = pool;
@@ -292,6 +345,9 @@ class RunnerControl {
     this.clockSkewMs = clockSkewMs;
     this.protocolVersion = protocolVersion;
     this.releaseManifest = releaseManifest;
+    this.releaseTrustedPublicKeys = releaseTrustedPublicKeys;
+    this.releaseMinimumVersion = releaseMinimumVersion;
+    this.env = env;
   }
 
   // ── User APIs ──────────────────────────────────────────────────────────
@@ -311,10 +367,11 @@ class RunnerControl {
     if (this.releaseManifest && typeof this.releaseManifest === 'object') {
       return {
         ok: true,
-        artifact: {
-          ...this.releaseManifest,
-          platform: this.releaseManifest.platform || platform,
-        },
+        artifact: normalizeRunnerReleaseManifest(this.releaseManifest, platform, {
+          trustedPublicKeys: this.releaseTrustedPublicKeys,
+          minimumVersion: this.releaseMinimumVersion,
+          now: this.clock,
+        }),
       };
     }
     // Default: local development / unavailable honesty.
@@ -327,9 +384,11 @@ class RunnerControl {
           version: null,
           platform,
           downloadUrl: null,
+          manifestUrl: null,
           sha256: null,
           signature: null,
           publicKeyId: null,
+          verification: null,
           notes: 'Signed Runner installer is not published yet. Use a local development build of apps/runner.',
         },
       };
@@ -341,9 +400,11 @@ class RunnerControl {
         version: process.env.RUNNER_DEV_VERSION || '0.1.0-dev',
         platform,
         downloadUrl: null,
+        manifestUrl: null,
         sha256: null,
         signature: null,
         publicKeyId: null,
+        verification: null,
         notes: 'Local development Runner. Verified signed download requires Phase 8 signing accounts. Open apps/runner on this machine.',
       },
     };
@@ -1152,14 +1213,8 @@ class RunnerControl {
     }
 
     const normalized = {
-      engines: {
-        codex: normalizeEngine(engines.codex),
-        claude: normalizeEngine(engines.claude),
-        grok: normalizeEngine(engines.grok),
-        hermes: normalizeEngine(engines.hermes),
-        // Test-only Fake Engine when reported by harness (never default production readiness).
-        ...(engines.fake ? { fake: normalizeEngine(engines.fake) } : {}),
-      },
+      engines: normalizeRunnerCapabilities(engines, this.env),
+      catalog: normalizeRunnerCapabilityCatalog(body.catalog),
       // Knowledge v2 private-local: Runner reports local search capability (content stays on host).
       localKnowledge: body.localKnowledge === true || body.knowledgeSearch === true || engines.localKnowledge === true,
       knowledgeSearch: body.knowledgeSearch === true || body.localKnowledge === true || engines.knowledgeSearch === true,
@@ -1330,6 +1385,12 @@ class RunnerControl {
     if (hashOpaque(credential) !== credSecret.rows[0].credential_hash) {
       reject('CREDENTIAL_INVALID', 'credential rejected', 401);
     }
+    Object.defineProperty(runner, 'lease_integrity_key', {
+      configurable: false,
+      enumerable: false,
+      value: credSecret.rows[0].credential_hash,
+      writable: false,
+    });
 
     const bodyHash = bodySha256(body);
     const transcript = canonicalDeviceTranscript({
@@ -1457,6 +1518,9 @@ module.exports = {
   generateEd25519Keypair,
   signEd25519,
   normalizeEngine,
+  normalizeRunnerCapabilities,
+  normalizeRunnerReleaseManifest,
+  runnerReleaseConfigurationFromEnv,
   generateHumanCode,
   publicRunnerRow,
 };

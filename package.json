@@ -30,10 +30,17 @@
     "backend:start:workos": "bash scripts/start-workos-backend.sh",
     "backend:check": "npm --workspace apps/backend run check",
     "backend:migrate": "npm --workspace apps/backend run db:migrate",
+    "lint:web": "npm --prefix apps/web run lint",
+    "build:web": "npm --prefix apps/web run build",
+    "test:web": "npm --prefix apps/web test",
+    "test:widget-contract": "node --test apps/desktop/tests/macos-widget-contract.test.mjs",
+    "build:widget:unsigned": "set -eu; derived_data_dir=\"$(mktemp -d \"${TMPDIR:-/tmp}/agent-calendar-widget-derived-data.XXXXXX\")\"; cleanup() { rm -rf \"$derived_data_dir\"; }; trap cleanup EXIT; xcodebuild clean build -project apps/widget/macos/HermesWidgetHost/HermesWidgetHost.xcodeproj -scheme HermesWidgetHost -configuration Release -derivedDataPath \"$derived_data_dir\" CODE_SIGNING_ALLOWED=NO; cleanup; trap - EXIT; test ! -e \"$derived_data_dir\"",
+    "test:desktop-release-smoke": "npm --workspace apps/desktop run test:release-smoke",
     "verify:multi-user-ete": "AGENT_CALENDAR_E2E_TWO_ACCOUNT=1 node apps/desktop/tests/playwright-phase3-golden-ete.cjs",
     "verify:production-workspace-isolation": "WORKSPACE_AUTH_MODE=production node --test apps/backend/tests/phase1-full-gateway-workspace-cutover.test.cjs",
     "verify:first-user-journey:injected": "AGENT_CALENDAR_E2E_TIMEOUT_MS=120000 node apps/desktop/tests/playwright-first-user-journey.cjs",
     "verify:production-readiness": "scripts/production-readiness.sh",
+    "verify:staging-clean-account": "node scripts/staging-workos-clean-account.cjs live-preflight",
     "verify:beta": "npm run backend:check && npm run typecheck && npm test && npm run build:desktop"
   }
 }

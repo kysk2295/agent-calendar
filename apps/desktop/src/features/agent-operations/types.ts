@@ -218,12 +218,72 @@ export type AgentRosterEntry = {
   readonly specialties?: readonly string[];
   readonly memories?: readonly string[];
   readonly profileVersion?: number;
+  readonly lifecycle?: AgentBuilderLifecycle;
   readonly sourceKind?: 'native' | 'connected';
   readonly externalAgentId?: string;
   readonly connectionStatus?: string;
   readonly defaultExecutionEngine?: AgentExecutionEngine;
   readonly defaultRunnerId?: string;
+  readonly grants?: Readonly<{
+    allow: readonly string[];
+    deny: readonly string[];
+  }>;
+  readonly approvalGate?: Readonly<{
+    id: string;
+    status: 'pending';
+    reason: string;
+    addedCapabilities: readonly string[];
+    externalDelivery: boolean;
+  }>;
+  readonly effectiveConfigurationPreview?: import('./workConversationTypes').AgentEffectiveConfiguration;
   readonly emoji?: string;
+};
+
+export type AgentBuilderTestRequest = {
+  readonly id: string;
+  readonly agentId: string;
+  readonly revision: number;
+  readonly runnerId: string;
+  readonly provider: string;
+  readonly status: 'pending' | 'running' | 'passed' | 'failed' | 'cancelled' | 'timed_out' | string;
+  readonly passed: boolean;
+  readonly summary: string;
+  readonly durationMs: number;
+  readonly errorCode: string;
+  readonly createdAt?: string | null;
+  readonly terminalAt?: string | null;
+};
+
+export type AgentBuilderLifecycle = {
+  readonly origin: 'legacy' | 'manual' | 'one_line';
+  readonly state: 'draft' | 'tested' | 'active';
+  readonly revision: number;
+  readonly reviewedRevision: number;
+  readonly testedRevision: number;
+  readonly activeVersion: number;
+  readonly request: string;
+  readonly lastTest: Readonly<{
+    readonly id: string;
+    readonly revision: number;
+    readonly status: 'running' | 'passed' | 'failed' | 'cancelled' | 'timed_out' | string;
+    readonly summary: string;
+    readonly durationMs: number;
+  }> | null;
+  readonly reviewedAt: string | null;
+  readonly activatedAt: string | null;
+};
+
+export type AgentProfileVersion = {
+  readonly agentId: string;
+  readonly profileVersion: number;
+  readonly profileSnapshot: Readonly<Record<string, unknown>>;
+  readonly testEvidence: Readonly<Record<string, unknown>>;
+  readonly activatedAt: string;
+  readonly historicalJobs: readonly Readonly<{
+    id: string;
+    name: string;
+    profileVersion: number;
+  }>[];
 };
 
 export type AgentDirectoryMutationInput = {
@@ -239,6 +299,10 @@ export type AgentDirectoryMutationInput = {
   readonly externalAgentId: string;
   readonly defaultExecutionEngine: AgentExecutionEngine;
   readonly defaultRunnerId: string;
+  readonly grants?: Readonly<{
+    allow: readonly string[];
+    deny: readonly string[];
+  }>;
 };
 
 export type AgentCatalogEntry = {

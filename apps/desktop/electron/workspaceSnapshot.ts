@@ -137,10 +137,11 @@ export function createWorkspaceSnapshotStore(options: WorkspaceSnapshotOptions =
   }
 
   function read(owner: WorkspaceSnapshotOwner): WorkspaceSnapshotRead | null {
-    if (!validOwner(owner) || !storage.isEncryptionAvailable()) return null;
+    if (!validOwner(owner)) return null;
     const target = snapshotPath();
     try {
       if (!fs.existsSync(target)) return null;
+      if (!storage.isEncryptionAvailable()) return null;
       if (fs.statSync(target).size > maxEncryptedBytes) {
         clear();
         return null;

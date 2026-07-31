@@ -17,9 +17,11 @@ function inferenceError(code, message, statusHint = 503) {
 
 function normalizeInferencePolicy(value) {
   const input = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  // Calendar AI and Wiki AI must answer from a phone, so they cannot require the user's
+  // computer to be awake. Agent Work keeps its own Runner-only path (durable-execution).
   const mode = POLICY_MODES.includes(String(input.mode || '').toLowerCase())
     ? String(input.mode).toLowerCase()
-    : 'runner';
+    : 'agent_calendar_cloud';
   const defaultEngine = POLICY_ENGINES.includes(String(input.defaultEngine || '').toLowerCase())
     ? String(input.defaultEngine).toLowerCase()
     : 'auto';
@@ -131,27 +133,42 @@ class WorkspaceInferenceBroker {
           'Agent Calendar Cloud AI is not configured',
         );
       }
-      const result = await this.cloudComplete({ ...input, policy });
-      const text = String(result?.text || '').trim();
-      if (!text) {
-        throw inferenceError(
-          'AGENT_CALENDAR_CLOUD_AI_EMPTY',
-          'Agent Calendar Cloud AI returned an empty answer',
-        );
+      try {
+        const result = await this.cloudComplete({ ...input, policy });
+        const text = String(result?.text || '').trim();
+        if (!text) {
+          throw inferenceError(
+            'AGENT_CALENDAR_CLOUD_AI_EMPTY',
+            'Agent Calendar Cloud AI returned an empty answer',
+          );
+        }
+        return {
+          text,
+          provider: 'agent-calendar-cloud',
+          model: String(result.model || 'platform'),
+        };
+      } catch (cloudError) {
+        // A single self-hosted inference host is a single point of failure. When it is down,
+        // a connected Runner can still answer; when neither can, the original failure is
+        // surfaced rather than a fabricated answer.
+        try {
+          return await this.#completeOnRunner(scope, input, policy);
+        } catch {
+          throw cloudError;
+        }
       }
-      return {
-        text,
-        provider: 'agent-calendar-cloud',
-        model: String(result.model || 'platform'),
-      };
     }
 
+    return this.#completeOnRunner(scope, input, policy);
+  }
+
+  async #completeOnRunner(scope, input, policy) {
     const runners = await this.#runnerCandidates(scope);
     const eligible = runners
       .filter((runner) => runner.connection_state === 'connected')
       .map((runner) => ({
         runner,
-        resolved: resolveEngine(policy.defaultEngine, runner.capabilities || {}),
+        resolved: resolveEngine(policy.defaultEngine, runner.capabilities || {}, this.env),
       }))
       .find((candidate) => candidate.resolved.resolved);
     if (!eligible) {

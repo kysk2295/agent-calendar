@@ -10,6 +10,7 @@ const path = require('node:path');
 const { _electron: electron } = require('playwright');
 
 const { runMigrations } = require('../../backend/app/db/migrate');
+const { defaultRunBin: runBin } = require('../../backend/app/lib/local-postgres-lifecycle');
 const { createRailwayGatewayServer } = require('../../backend/app/railway-gateway-server');
 const { createPhase1Runtime } = require('../../backend/app/lib/phase1-auth-routes');
 const { resolvePostgresBinDir } = require('../../backend/app/lib/phase0-snapshot-restore');
@@ -47,14 +48,6 @@ function freePort() {
       server.close((error) => (error ? reject(error) : resolve(port)));
     });
     server.on('error', reject);
-  });
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
   });
 }
 
@@ -158,6 +151,23 @@ async function startHttpServer({ pool, authKit, fixedPort = null }) {
     pool,
     authKit,
     workosConfig: { clientId: 'client_phase5', apiKeyConfigured: true },
+    // Deterministic stand-in for the Workspace inference path, which otherwise needs an
+    // enrolled Runner or a cloud key. It answers strictly from the evidence the Knowledge
+    // service authorized for this Workspace, so retrieval, evidence authorization, and
+    // cross-Workspace isolation all stay under test.
+    workspaceInferenceBroker: {
+      async complete(input) {
+        const evidence = (input.messages || [])
+          .filter((message) => message.role === 'system')
+          .map((message) => message.content)
+          .join('\n');
+        return {
+          text: `근거 기반 응답:\n${evidence}`,
+          provider: 'fake-workspace-inference',
+          model: 'fake-ete-1',
+        };
+      },
+    },
     env,
   });
   const server = createRailwayGatewayServer({

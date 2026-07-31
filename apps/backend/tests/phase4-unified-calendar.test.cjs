@@ -12,6 +12,7 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { withEphemeralPostgres: withSharedEphemeralPostgres } = require('./support/ephemeral-postgres.cjs');
 
 const { runMigrations } = require('../app/db/migrate');
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
@@ -26,66 +27,12 @@ const { resolvePostgresBinDir } = require('../app/lib/phase0-snapshot-restore');
 const LOCAL_ROLE = 'phase4cal';
 const DATABASE = 'phase4_cal';
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const port = server.address().port;
-      server.close((e) => (e ? reject(e) : resolve(port)));
-    });
-    server.on('error', reject);
-  });
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options,
-  });
-}
-
-async function waitForReady(binDir, socketDir, port) {
-  for (let i = 0; i < 50; i += 1) {
-    try {
-      runBin(binDir, 'pg_isready', ['-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE], { timeout: 2000 });
-      return;
-    } catch { await new Promise((r) => setTimeout(r, 100)); }
-  }
-  throw new Error('PG not ready');
-}
-
-function stopCluster(binDir, dataDir) {
-  try { runBin(binDir, 'pg_ctl', ['-D', dataDir, '-m', 'fast', 'stop'], { timeout: 30_000 }); } catch { /* ignore */ }
-}
-
-async function withEphemeralPostgres(fn) {
-  const binDir = resolvePostgresBinDir(process.env);
-  if (!binDir) throw Object.assign(new Error('PG binaries missing'), { code: 'PG_BIN_MISSING' });
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase4-cal-'));
-  const dataDir = path.join(workDir, 'pgdata');
-  const socketDir = path.join(workDir, 'socket');
-  fs.mkdirSync(socketDir, { recursive: true });
-  const port = await freePort();
-  let started = false;
-  let pool = null;
-  try {
-    runBin(binDir, 'initdb', ['-D', dataDir, '-A', 'trust', '-U', LOCAL_ROLE, '--locale=C', '--encoding=UTF8'], { timeout: 60_000 });
-    started = true;
-    runBin(binDir, 'pg_ctl', [
-      '-D', dataDir, '-l', path.join(workDir, 'postgres.log'),
-      '-o', `-p ${port} -k ${socketDir} -c listen_addresses=localhost -c unix_socket_directories=${socketDir}`,
-      'start',
-    ], { timeout: 30_000 });
-    await waitForReady(binDir, socketDir, port);
-    runBin(binDir, 'createdb', ['-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE, DATABASE], { timeout: 15_000 });
-    const connectionString = `postgresql://${encodeURIComponent(LOCAL_ROLE)}@/${encodeURIComponent(DATABASE)}?host=${encodeURIComponent(socketDir)}&port=${port}`;
-    const { Pool } = require('pg');
-    pool = new Pool({ connectionString, ssl: false, connectionTimeoutMillis: 10_000 });
-    return await fn({ pool, connectionString });
-  } finally {
-    if (pool) try { await pool.end(); } catch { /* ignore */ }
-    if (started) stopCluster(binDir, dataDir);
-    fs.rmSync(workDir, { recursive: true, force: true });
-  }
+function withEphemeralPostgres(fn) {
+  return withSharedEphemeralPostgres({
+    prefix: 'phase4-calendar-',
+    role: LOCAL_ROLE,
+    database: DATABASE,
+  }, fn);
 }
 
 function listen(server) {

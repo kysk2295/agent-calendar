@@ -56,9 +56,17 @@ test('a selected work uses a focused session rail and one dominant conversation 
   assert.match(workspaceSource, /sessionsOnly/);
   assert.match(directorySource, /readonly sessionsOnly:\s*boolean/);
   assert.match(directorySource, /data-mode=\{props\.sessionsOnly \? 'sessions' : 'directory'\}/);
-  assert.doesNotMatch(conversationSource, /AgentWorkDetails/);
+  assert.match(conversationSource, /AgentWorkDetails/);
   assert.doesNotMatch(detailsSource, />작업 중단</);
   assert.match(rule('.agent-work-layout'), /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+});
+
+test('Work Details shows server-owned current and historical effective configuration', () => {
+  assert.match(detailsSource, /현재 유효 구성/);
+  assert.match(detailsSource, /이 실행의 구성 기록/);
+  assert.match(detailsSource, /snapshotId/);
+  assert.match(detailsSource, /기본 거부/);
+  assert.match(conversationSource, /effectiveConfiguration=\{props\.conversation\?\.effectiveConfiguration/);
 });
 
 test('user messages are compact bubbles while assistant responses stay in the reading flow', () => {

@@ -70,6 +70,23 @@ insert into calendar_events
   (id, task_id, title, starts_at, payload, created_at, updated_at, workspace_id)
 values
   ('phase10-event-a', 'phase10-task-a', 'Recovery fixture event', '2026-07-25T09:00:00Z', '{}'::jsonb, '2026-07-25T00:00:00Z', '2026-07-25T00:00:00Z', 'phase10-workspace-a');
+
+insert into runners
+  (id, workspace_id, status, fingerprint_sha256, protocol_version, runner_version,
+   connection_state, capabilities, created_at, updated_at)
+values
+  ('phase10-runner-a', 'phase10-workspace-a', 'active',
+   '${'a'.repeat(64)}', 1, 'local-recovery-fixture', 'connected',
+   '{"fixture":"recovery"}'::jsonb, '2026-07-25T00:00:00Z', '2026-07-25T00:00:00Z');
+
+insert into automation_sources
+  (id, workspace_id, runner_id, adapter_kind, display_name, status, capabilities,
+   connection_ref, source_revision, created_by_user_id, created_at, updated_at)
+values
+  ('phase10-automation-a', 'phase10-workspace-a', 'phase10-runner-a', 'fixture',
+   'Recovery automation fixture', 'connected', '{"read":true}'::jsonb,
+   '{}'::jsonb, 'recovery-v1', 'phase10-user-a',
+   '2026-07-25T00:00:00Z', '2026-07-25T00:00:00Z');
 `.trim();
 }
 
@@ -192,6 +209,12 @@ function buildPhase10EvidenceReport({
       safeMarkerPresent: Boolean(pitr.safeMarkerPresent),
       damageMarkerAbsent: Boolean(pitr.damageMarkerAbsent),
       workspaceIsolation: Boolean(pitr.workspaceIsolation),
+      criticalDomains: {
+        calendar: Boolean(pitr.criticalDomains?.calendar),
+        delegatedWork: Boolean(pitr.criticalDomains?.delegatedWork),
+        automation: Boolean(pitr.criticalDomains?.automation),
+        runner: Boolean(pitr.criticalDomains?.runner),
+      },
     },
     clustersStopped: Boolean(clustersStopped),
     durationMs: Math.max(0, Number(durationMs) || 0),

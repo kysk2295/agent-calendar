@@ -6,8 +6,10 @@ const test = require('node:test');
 const {
   agentExecutionProfile,
   applyAgentExecutionProfile,
+  normalizeRunnerCapabilityCatalog,
   normalizeWorkspaceAgent,
   projectWorkspaceAgent,
+  resolveEffectiveAgentConfiguration,
 } = require('../app/lib/workspace-agent-directory');
 
 test('native Workspace agents keep responsibility fields and never persist credentials', () => {
@@ -46,7 +48,20 @@ test('native Workspace agents keep responsibility fields and never persist crede
     connectionStatus: 'ready',
     defaultExecutionEngine: 'codex',
     defaultRunnerId: '',
-    enabled: true,
+    grants: { allow: [], deny: [] },
+    lifecycle: {
+      origin: 'manual',
+      state: 'draft',
+      revision: 1,
+      reviewedRevision: 0,
+      testedRevision: 0,
+      activeVersion: 0,
+      request: '',
+      lastTest: null,
+      reviewedAt: null,
+      activatedAt: null,
+    },
+    enabled: false,
     workspaceId: 'ws-a',
   });
   assert.equal(JSON.stringify(agent).includes('must-not-store'), false);
@@ -172,7 +187,17 @@ test('execution profile is a bounded immutable snapshot applied ahead of the del
     id: 'agent-research',
     workspaceId: 'ws-a',
   });
-  const snapshot = agentExecutionProfile(agent);
+  const snapshot = agentExecutionProfile({
+    ...agent,
+    lifecycle: {
+      ...agent.lifecycle,
+      state: 'active',
+      reviewedRevision: 1,
+      testedRevision: 1,
+      activeVersion: 1,
+    },
+    enabled: true,
+  });
   assert.deepEqual(snapshot, {
     agentId: 'agent-research',
     displayName: 'Research Partner',
@@ -193,4 +218,224 @@ test('execution profile is a bounded immutable snapshot applied ahead of the del
   assert.match(effectiveGoal, /사용자는 한국어를 선호한다/);
   assert.match(effectiveGoal, /Delegated work:\n경쟁사 세 곳을 비교해줘\./);
   assert.equal(effectiveGoal.includes('must-not-store'), false);
+});
+
+test('effective configuration is default-deny with deny-over-allow and a stable redacted identity', () => {
+  const agent = normalizeWorkspaceAgent({
+    displayName: 'Bounded researcher',
+    grants: {
+      allow: ['tool:web.read', 'tool:mail.send', 'skill:summarize'],
+      deny: ['tool:mail.send'],
+    },
+    approvedGrants: {
+      allow: ['tool:web.read', 'tool:mail.send', 'skill:summarize'],
+      deny: ['tool:mail.send'],
+    },
+  }, {
+    id: 'agent-bounded',
+    workspaceId: 'ws-a',
+  });
+  const catalog = normalizeRunnerCapabilityCatalog({
+    catalogId: 'runner-standard',
+    version: 4,
+    entries: [
+      { id: 'tool:web.read', version: 2, kind: 'tool' },
+      { id: 'tool:mail.send', version: 1, kind: 'tool', externalDelivery: true },
+      { id: 'skill:summarize', version: 3, kind: 'skill' },
+      { id: 'tool:filesystem.write', version: 1, kind: 'tool' },
+    ],
+    token: 'must-not-store',
+  });
+
+  const effective = resolveEffectiveAgentConfiguration({
+    workspaceId: 'ws-a',
+    agent,
+    runner: {
+      id: 'runner-a',
+      capabilities: { catalog, token: 'must-not-store' },
+    },
+    requestedEngine: 'codex',
+    requestedModel: 'gpt-5.6-codex',
+    reason: 'explicit',
+    requiredCapabilities: ['tool:web.read', 'tool:mail.send', 'tool:filesystem.write'],
+  });
+
+  assert.deepEqual(effective.grants.allowed.map((entry) => entry.id), [
+    'skill:summarize',
+    'tool:web.read',
+  ]);
+  assert.deepEqual(effective.grants.denied, [
+    'tool:filesystem.write',
+    'tool:mail.send',
+  ]);
+  assert.equal(effective.executable, false);
+  assert.match(effective.runner.ref, /^runner_[a-f0-9]{16}$/);
+  assert.equal(effective.runner.id, undefined);
+  assert.match(effective.snapshotId, /^ecfg_[a-f0-9]{32}$/);
+  assert.equal(JSON.stringify(effective).includes('runner-a'), false);
+  assert.equal(JSON.stringify(effective).includes('must-not-store'), false);
+});
+
+test('profile or Runner catalog mutation invalidates a preview identity', () => {
+  const agent = normalizeWorkspaceAgent({
+    displayName: 'Preview agent',
+    approvedGrants: { allow: ['tool:web.read'], deny: [] },
+  }, { id: 'agent-preview', workspaceId: 'ws-a' });
+  const runner = {
+    id: 'runner-a',
+    capabilities: {
+      catalog: {
+        catalogId: 'runner-standard',
+        version: 1,
+        entries: [{ id: 'tool:web.read', version: 1, kind: 'tool' }],
+      },
+    },
+  };
+  const preview = resolveEffectiveAgentConfiguration({
+    workspaceId: 'ws-a',
+    agent,
+    runner,
+    requestedEngine: 'codex',
+    requiredCapabilities: ['tool:web.read'],
+  });
+  assert.equal(preview.executable, true);
+
+  const revised = normalizeWorkspaceAgent({
+    responseStyle: 'Concise',
+  }, { id: agent.id, workspaceId: 'ws-a', existing: agent });
+  assert.throws(
+    () => resolveEffectiveAgentConfiguration({
+      workspaceId: 'ws-a',
+      agent: revised,
+      runner,
+      requestedEngine: 'codex',
+      requiredCapabilities: ['tool:web.read'],
+      expectedSnapshotId: preview.snapshotId,
+    }),
+    (error) => error?.code === 'effective_configuration_stale' && error?.statusHint === 409,
+  );
+
+  assert.throws(
+    () => resolveEffectiveAgentConfiguration({
+      workspaceId: 'ws-a',
+      agent,
+      runner: {
+        ...runner,
+        capabilities: {
+          catalog: {
+            ...runner.capabilities.catalog,
+            version: 2,
+          },
+        },
+      },
+      requestedEngine: 'codex',
+      requiredCapabilities: ['tool:web.read'],
+      expectedSnapshotId: preview.snapshotId,
+    }),
+    (error) => error?.code === 'effective_configuration_stale',
+  );
+});
+
+test('grant expansion is retained as an Approval Gate while reductions apply immediately', () => {
+  const existing = normalizeWorkspaceAgent({
+    displayName: 'Approval agent',
+    approvedGrants: {
+      allow: ['tool:web.read'],
+      deny: [],
+    },
+  }, { id: 'agent-approval', workspaceId: 'ws-a' });
+
+  const expansion = normalizeWorkspaceAgent({
+    grants: {
+      allow: ['tool:web.read', 'tool:mail.send'],
+      deny: [],
+    },
+  }, { id: existing.id, workspaceId: 'ws-a', existing });
+  assert.deepEqual(expansion.grants.allow, ['tool:web.read']);
+  assert.deepEqual(expansion.approvalGate.requestedGrants.allow, [
+    'tool:mail.send',
+    'tool:web.read',
+  ]);
+  assert.equal(expansion.approvalGate.status, 'pending');
+  assert.equal(expansion.approvalGate.reason, 'grant_expansion');
+
+  const reduction = normalizeWorkspaceAgent({
+    grants: {
+      allow: [],
+      deny: ['tool:web.read'],
+    },
+  }, { id: existing.id, workspaceId: 'ws-a', existing });
+  assert.deepEqual(reduction.grants, {
+    allow: [],
+    deny: ['tool:web.read'],
+  });
+  assert.equal(reduction.approvalGate, undefined);
+});
+
+test('legacy direct-enabled manual agent rows remain active profile v1 projections', () => {
+  const created = projectWorkspaceAgent({
+    id: 'agent-manual-pin',
+    displayName: 'Manual compatibility agent',
+    role: 'Researcher',
+    responsibility: 'Summarize a bounded topic.',
+    defaultExecutionEngine: 'codex',
+    workspaceId: 'ws-pin',
+    enabled: true,
+  });
+
+  assert.deepEqual({
+    id: created.id,
+    displayName: created.displayName,
+    enabled: created.enabled,
+    profileVersion: created.profileVersion,
+    connectionStatus: created.connectionStatus,
+    grants: created.grants,
+  }, {
+    id: 'agent-manual-pin',
+    displayName: 'Manual compatibility agent',
+    enabled: true,
+    profileVersion: 1,
+    connectionStatus: 'ready',
+    grants: { allow: [], deny: [] },
+  });
+});
+
+test('effective configuration identity survives a jsonb round trip and the Runner recomputes it', () => {
+  // The Runner independently recomputes ecfg_ from the delivered payload, and that payload
+  // round-trips through jsonb, which does not preserve key insertion order.
+  const {
+    assertEffectiveConfiguration,
+    runnerCapabilityCatalog,
+  } = require('../../runner/lib/capability-grants');
+
+  const localCatalog = runnerCapabilityCatalog();
+  const agent = normalizeWorkspaceAgent({
+    displayName: 'Runner-verified agent',
+    grants: { allow: [], deny: [] },
+  }, { id: 'agent-runner-verified', workspaceId: 'ws-a' });
+
+  const effective = resolveEffectiveAgentConfiguration({
+    workspaceId: 'ws-a',
+    agent,
+    runner: { id: 'runner-a', capabilities: { catalog: localCatalog } },
+    requestedEngine: 'codex',
+    resolvedEngine: 'codex',
+    requestedModel: 'gpt-5.6-codex',
+    reason: 'explicit',
+    requiredCapabilities: [],
+  });
+  assert.equal(effective.executable, true);
+
+  function scrambleKeys(value) {
+    if (Array.isArray(value)) return value.map(scrambleKeys);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.keys(value).sort().reverse().map((key) => [key, scrambleKeys(value[key])]),
+      );
+    }
+    return value;
+  }
+
+  const delivered = scrambleKeys(JSON.parse(JSON.stringify(effective)));
+  assert.doesNotThrow(() => assertEffectiveConfiguration(delivered));
 });

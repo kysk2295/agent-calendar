@@ -13,6 +13,7 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { withEphemeralPostgres: withSharedEphemeralPostgres } = require('./support/ephemeral-postgres.cjs');
 
 const { runMigrations } = require('../app/db/migrate');
 const { createRailwayGatewayServer } = require('../app/railway-gateway-server');
@@ -36,66 +37,12 @@ const LOCAL_ROLE = 'phase5know';
 const DATABASE = 'phase5_know';
 const TEST_KNOWLEDGE_KEY = Buffer.alloc(32, 5).toString('base64');
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const port = server.address().port;
-      server.close((e) => (e ? reject(e) : resolve(port)));
-    });
-    server.on('error', reject);
-  });
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options,
-  });
-}
-
-async function waitForReady(binDir, socketDir, port) {
-  for (let i = 0; i < 50; i += 1) {
-    try {
-      runBin(binDir, 'pg_isready', ['-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE], { timeout: 2000 });
-      return;
-    } catch { await new Promise((r) => setTimeout(r, 100)); }
-  }
-  throw new Error('PG not ready');
-}
-
-function stopCluster(binDir, dataDir) {
-  try { runBin(binDir, 'pg_ctl', ['-D', dataDir, '-m', 'fast', 'stop'], { timeout: 30_000 }); } catch { /* ignore */ }
-}
-
-async function withEphemeralPostgres(fn) {
-  const binDir = resolvePostgresBinDir(process.env);
-  if (!binDir) throw Object.assign(new Error('PG binaries missing'), { code: 'PG_BIN_MISSING' });
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase5-know-'));
-  const dataDir = path.join(workDir, 'pgdata');
-  const socketDir = path.join(workDir, 'socket');
-  fs.mkdirSync(socketDir, { recursive: true });
-  const port = await freePort();
-  let started = false;
-  let pool = null;
-  try {
-    runBin(binDir, 'initdb', ['-D', dataDir, '-A', 'trust', '-U', LOCAL_ROLE, '--locale=C', '--encoding=UTF8'], { timeout: 60_000 });
-    started = true;
-    runBin(binDir, 'pg_ctl', [
-      '-D', dataDir, '-l', path.join(workDir, 'postgres.log'),
-      '-o', `-p ${port} -k ${socketDir} -c listen_addresses=localhost -c unix_socket_directories=${socketDir}`,
-      'start',
-    ], { timeout: 30_000 });
-    await waitForReady(binDir, socketDir, port);
-    runBin(binDir, 'createdb', ['-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE, DATABASE], { timeout: 15_000 });
-    const connectionString = `postgresql://${encodeURIComponent(LOCAL_ROLE)}@/${encodeURIComponent(DATABASE)}?host=${encodeURIComponent(socketDir)}&port=${port}`;
-    const { Pool } = require('pg');
-    pool = new Pool({ connectionString, ssl: false, connectionTimeoutMillis: 10_000 });
-    return await fn({ pool });
-  } finally {
-    if (pool) try { await pool.end(); } catch { /* ignore */ }
-    if (started) stopCluster(binDir, dataDir);
-    fs.rmSync(workDir, { recursive: true, force: true });
-  }
+function withEphemeralPostgres(fn) {
+  return withSharedEphemeralPostgres({
+    prefix: 'phase5-knowledge-',
+    role: LOCAL_ROLE,
+    database: DATABASE,
+  }, fn);
 }
 
 function listen(server) {
@@ -921,5 +868,69 @@ test('cloud ingestion is atomic when encrypted blob persistence fails', async ()
     );
     assert.notEqual(sourceRow.rows[0].status, 'ready');
     stopRuntime(runtime);
+  });
+});
+
+test('answer synthesis receives a bounded number of citations', async () => {
+  await withEphemeralPostgres(async ({ pool }) => {
+    await seedUsers(pool);
+    Object.assign(process.env, envBase());
+    const calls = [];
+    const runtime = createPhase1Runtime({
+      pool,
+      env: process.env,
+      workspaceInferenceBroker: {
+        async complete(input) {
+          calls.push(input);
+          return { text: '정리된 답변', provider: 'test', model: 'test-1' };
+        },
+      },
+    });
+    const server = createRailwayGatewayServer({
+      env: process.env,
+      phase1Runtime: runtime,
+      phase1Pool: pool,
+      gatewayStore: { getState: () => ({}), ready: Promise.resolve() },
+      fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({}) }),
+    });
+    const baseUrl = await listen(server);
+    try {
+      const token = await issueToken(pool, 'subject-a', 'ws-a');
+      const source = await httpJson(baseUrl, 'POST', '/api/knowledge/sources', {
+        token,
+        body: { sourceKind: 'cloud_indexed', path: 'handbook.md', label: '규정', cloudOptIn: true },
+      });
+      assert.equal(source.status, 200, JSON.stringify(source.json));
+
+      // Many passages that all match, so retrieval depth is what bounds the prompt.
+      for (let index = 0; index < 24; index += 1) {
+        const ingest = await httpJson(baseUrl, 'POST', '/api/knowledge/ingest', {
+          token,
+          body: {
+            sourceId: source.json.source.id,
+            title: `규정 조항 ${index + 1}`,
+            path: `handbook-${index + 1}.md`,
+            content: `연차 규정 조항 ${index + 1}: 연차 관련 세부 내용 ${index + 1}.`,
+          },
+        });
+        assert.equal(ingest.status, 200, JSON.stringify(ingest.json));
+      }
+
+      const ask = await httpJson(baseUrl, 'POST', '/api/knowledge/ask', {
+        token,
+        body: { question: '연차 규정 알려줘', requestId: 'bounded-citations-1' },
+      });
+      assert.equal(ask.status, 200, JSON.stringify(ask.json));
+      assert.equal(calls.length, 1, 'synthesis ran exactly once');
+
+      const citations = calls[0].context.citations || [];
+      assert.ok(citations.length > 0, 'grounded answers still need evidence');
+      assert.ok(
+        citations.length <= 8,
+        `answer synthesis must stay bounded, received ${citations.length} citations`,
+      );
+    } finally {
+      await close(server);
+    }
   });
 });

@@ -7,6 +7,7 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { withEphemeralPostgres } = require('./support/ephemeral-postgres.cjs');
 
 const { runMigrations } = require('../app/db/migrate');
 const { createPhase1Runtime } = require('../app/lib/phase1-auth-routes');
@@ -29,74 +30,12 @@ const LOCAL_ROLE = 'phase6calai';
 const DATABASE = 'phase6_calai';
 const NOW = Date.parse('2026-07-24T03:00:00.000Z');
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : 0;
-      server.close((error) => (error ? reject(error) : resolve(port)));
-    });
-    server.on('error', reject);
-  });
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
-  });
-}
-
-async function waitForReady(binDir, socketDir, port) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    try {
-      runBin(binDir, 'pg_isready', [
-        '-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE,
-      ], { timeout: 2_000 });
-      return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-  throw new Error('Postgres did not become ready');
-}
-
-function stopCluster(binDir, dataDir) {
-  try {
-    runBin(binDir, 'pg_ctl', ['-D', dataDir, '-m', 'fast', 'stop'], { timeout: 30_000 });
-  } catch {
-    // Isolated test cluster cleanup.
-  }
-}
-
 async function withPostgres(fn) {
-  const binDir = resolvePostgresBinDir(process.env);
-  if (!binDir) throw new Error('Postgres binaries missing');
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase6-calai-'));
-  const dataDir = path.join(workDir, 'pgdata');
-  const socketDir = path.join(workDir, 'socket');
-  fs.mkdirSync(socketDir, { recursive: true });
-  const port = await freePort();
-  let pool = null;
-  try {
-    runBin(binDir, 'initdb', [
-      '-D', dataDir, '-A', 'trust', '-U', LOCAL_ROLE, '--locale=C', '--encoding=UTF8',
-    ], { timeout: 60_000 });
-    runBin(binDir, 'pg_ctl', [
-      '-D', dataDir,
-      '-l', path.join(workDir, 'postgres.log'),
-      '-o', `-p ${port} -k ${socketDir} -c listen_addresses=localhost -c unix_socket_directories=${socketDir}`,
-      'start',
-    ], { timeout: 30_000 });
-    await waitForReady(binDir, socketDir, port);
-    runBin(binDir, 'createdb', [
-      '-h', socketDir, '-p', String(port), '-U', LOCAL_ROLE, DATABASE,
-    ], { timeout: 15_000 });
-    const connectionString = `postgresql://${encodeURIComponent(LOCAL_ROLE)}@/${DATABASE}?host=${encodeURIComponent(socketDir)}&port=${port}`;
-    const { Pool } = require('pg');
-    pool = new Pool({ connectionString, ssl: false, connectionTimeoutMillis: 10_000 });
+  return withEphemeralPostgres({
+    prefix: 'phase6-calendar-ai-',
+    role: LOCAL_ROLE,
+    database: DATABASE,
+  }, async ({ pool }) => {
     await runMigrations({ pool });
     await pool.query(`insert into users (id, display_name, status) values
       ('user-a', 'Alex', 'active'), ('user-b', 'Blair', 'active')`);
@@ -105,12 +44,8 @@ async function withPostgres(fn) {
     await pool.query(`insert into workspace_memberships (id, user_id, workspace_id, role, status) values
       ('m-a', 'user-a', 'ws-a', 'owner', 'active'),
       ('m-b', 'user-b', 'ws-b', 'owner', 'active')`);
-    await fn({ pool });
-  } finally {
-    if (pool) await pool.end().catch(() => {});
-    stopCluster(binDir, dataDir);
-    fs.rmSync(workDir, { recursive: true, force: true });
-  }
+    return fn({ pool });
+  });
 }
 
 function env() {
@@ -270,6 +205,14 @@ test('WorkspaceInferenceBroker fails closed and uses platform inference only for
     });
     const scopeA = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
     const scopeB = await resolveWorkspaceScope(pool, { userId: 'user-b', workspaceId: 'ws-b' });
+
+    // A Workspace that explicitly chose Runner-only execution must stay Runner-only: a global
+    // platform key is not consent to send its conversations off the customer host.
+    await pool.query(
+      `insert into state_meta (workspace_id, key, payload)
+       values ('ws-a', 'workspace_settings', '{"inferencePolicy":{"mode":"runner","defaultEngine":"codex"}}'::jsonb)
+       on conflict (workspace_id, key) do update set payload = excluded.payload`,
+    );
 
     await assert.rejects(
       () => broker.complete({
@@ -615,5 +558,221 @@ test('Calendar AI isolates conversation, exact context, memory, actions, and Del
     assert.equal(tableCount.rows[0].n, 6);
     runtime.durableExecution.stopBackgroundWorkers();
     runtime.unifiedCalendar.stopBackgroundWorkers();
+  });
+});
+
+test('exact schedule answers render internal event times in the product timezone', async () => {
+  await withPostgres(async ({ pool }) => {
+    const runtime = createPhase1Runtime({
+      pool,
+      env: env(),
+      calendarAiModelAdapter: {
+        async complete() {
+          throw new Error('exact schedule answers must not call the model');
+        },
+      },
+      calendarAiClock: () => NOW,
+    });
+    const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+    // Created the way /api/calendar/events creates one: an offset in the ISO string and
+    // no separate timezone field.
+    await runtime.product.createCalendarEvent(scope, {
+      id: 'event-tz-1',
+      title: '오후 3시 회의',
+      startsAt: '2026-07-24T15:00:00+09:00',
+    });
+
+    const answer = await runtime.calendarAi.chat(scope, {
+      message: '오늘 일정 모두 알려줘',
+      requestId: 'tz-1',
+    });
+
+    assert.equal(answer.mode, 'exact_schedule');
+    assert.match(answer.answer, /15:00/, 'a 15:00+09:00 event must read as 15:00, not its UTC value');
+    assert.doesNotMatch(answer.answer, /06:00/);
+  });
+});
+
+test('a model claiming a finished action never reaches the user without a real action', async () => {
+  await withPostgres(async ({ pool }) => {
+    const runtime = createPhase1Runtime({
+      pool,
+      env: env(),
+      calendarAiModelAdapter: {
+        async complete() {
+          return {
+            text: '알겠습니다. 8월 5일 오후 2시에 치과 예약을 추가했습니다. 완료되었습니다.',
+            provider: 'fake-calendar-ai',
+            model: 'fake-1',
+          };
+        },
+      },
+      calendarAiClock: () => NOW,
+    });
+    const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+    // Phrasing the intent parser does not recognise, so it falls through to free conversation.
+    const reply = await runtime.calendarAi.chat(scope, {
+      message: '8월 5일 오후 2시에 치과 예약 넣어줘',
+      requestId: 'false-claim-1',
+    });
+
+    assert.equal(reply.mode, 'conversation');
+    assert.doesNotMatch(
+      reply.answer,
+      /추가했습니다|완료되었습니다|등록했습니다|만들었습니다/,
+      'the model must not be allowed to report an action it never performed',
+    );
+
+    const drafts = await pool.query(
+      `select count(*)::int as n from calendar_ai_action_drafts where workspace_id = 'ws-a'`,
+    );
+    assert.equal(drafts.rows[0].n, 0, 'no action was actually created');
+
+    const events = await runtime.product.listCalendarEvents(scope);
+    assert.equal(events.length, 0, 'no calendar event was actually created');
+  });
+});
+
+test('Calendar AI and Wiki AI default to platform inference instead of requiring a Runner', async () => {
+  await withPostgres(async ({ pool }) => {
+    const cloudCalls = [];
+    const broker = new WorkspaceInferenceBroker({
+      pool,
+      env: {},
+      runnerComplete: async () => {
+        throw new Error('a Workspace without a Runner must still answer');
+      },
+      cloudComplete: async (input) => {
+        cloudCalls.push(input);
+        return { text: '기본 경로 응답', provider: 'agent-calendar-cloud', model: 'local-llm' };
+      },
+    });
+    const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+    // No Runner is enrolled and no policy has been saved.
+    const answer = await broker.complete({
+      scope,
+      purpose: 'calendar_ai',
+      messages: [{ role: 'user', content: '이번 주 일정 정리해줘' }],
+    });
+
+    assert.equal(answer.text, '기본 경로 응답');
+    assert.equal(cloudCalls.length, 1);
+  });
+});
+
+test('platform inference falls back to a Runner when the host is unavailable', async () => {
+  await withPostgres(async ({ pool }) => {
+    const attempts = [];
+    const broker = new WorkspaceInferenceBroker({
+      pool,
+      env: {},
+      cloudComplete: async () => {
+        attempts.push('cloud');
+        throw Object.assign(new Error('llm host down'), { code: 'AGENT_CALENDAR_CLOUD_AI_FAILED' });
+      },
+      runnerComplete: async () => {
+        attempts.push('runner');
+        return { text: 'Runner 응답', engine: 'codex' };
+      },
+    });
+    const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+    await pool.query(
+      `insert into runners (
+         id, workspace_id, status, connection_state, capabilities, last_seen_at
+       ) values (
+         'runner-fallback', 'ws-a', 'active', 'connected',
+         '{"engines":{"codex":{"available":true,"status":"available","authStatus":"authenticated"}}}'::jsonb,
+         now()
+       )`,
+    );
+
+    const answer = await broker.complete({
+      scope,
+      purpose: 'wiki_ai',
+      messages: [{ role: 'user', content: '휴가 규정 알려줘' }],
+    });
+
+    assert.deepEqual(attempts, ['cloud', 'runner'], 'the Runner is a fallback, not the default');
+    assert.equal(answer.text, 'Runner 응답');
+  });
+});
+
+test('an unavailable host with no Runner fails honestly instead of inventing an answer', async () => {
+  await withPostgres(async ({ pool }) => {
+    const broker = new WorkspaceInferenceBroker({
+      pool,
+      env: {},
+      cloudComplete: async () => {
+        throw Object.assign(new Error('llm host down'), { code: 'AGENT_CALENDAR_CLOUD_AI_FAILED' });
+      },
+      runnerComplete: async () => {
+        throw new Error('no runner');
+      },
+    });
+    const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+    await assert.rejects(
+      () => broker.complete({
+        scope,
+        purpose: 'calendar_ai',
+        messages: [{ role: 'user', content: 'hello' }],
+      }),
+    );
+  });
+});
+
+test('answers that report or quote a completed action are delivered unchanged', async () => {
+  // The guard exists to stop the model claiming it did something. Reporting a fact and
+  // quoting the user are neither, and losing them costs the user a real answer.
+  const cases = [
+    {
+      name: 'reported speech about a past fact',
+      text: '그 회의는 어제 완료됐다고 기록돼 있어요. 후속 일정은 아직 없습니다.',
+      keep: /기록돼 있어요/,
+    },
+    {
+      name: 'quoting what the user said',
+      text: '"등록했어"라고 하셨는데, 어떤 일정을 말씀하시는 걸까요?',
+      keep: /어떤 일정을 말씀하시는/,
+    },
+    {
+      name: 'the system safety instruction echoed back inside the answer',
+      // A Runner engine that returns its prompt makes the guard read its own instruction.
+      text: 'CALENDAR-MARKER-1 안녕하세요. (지시: 일정 변경을 완료했다고 주장하지 마세요.)',
+      keep: /CALENDAR-MARKER-1/,
+    },
+  ];
+
+  await withPostgres(async ({ pool }) => {
+    for (const [index, testCase] of cases.entries()) {
+      const runtime = createPhase1Runtime({
+        pool,
+        env: env(),
+        calendarAiModelAdapter: {
+          async complete() {
+            return { text: testCase.text, provider: 'fake-calendar-ai', model: 'fake-1' };
+          },
+        },
+        calendarAiClock: () => NOW,
+      });
+      const scope = await resolveWorkspaceScope(pool, { userId: 'user-a', workspaceId: 'ws-a' });
+
+      const reply = await runtime.calendarAi.chat(scope, {
+        message: '오늘 기분이 어때?',
+        requestId: `guard-keep-${index}`,
+      });
+
+      assert.equal(reply.mode, 'conversation');
+      assert.match(reply.answer, testCase.keep, `${testCase.name}: the answer must survive`);
+      assert.doesNotMatch(
+        reply.answer,
+        /요청하신 내용을 아직 실행하지 않았습니다/,
+        `${testCase.name}: the guard must not replace an answer that claims nothing`,
+      );
+    }
   });
 });

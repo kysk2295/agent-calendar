@@ -43,3 +43,119 @@ jobs:
             apps/desktop/dist-electron
           if-no-files-found: error
           retention-days: 14
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install locked Web dependencies
+        run: npm ci --prefix apps/web
+
+      - name: Verify Web artifact source SHA
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          mkdir -p .ci-artifacts/web
+          printf '%s\n' "$(git rev-parse HEAD)" > .ci-artifacts/web/source-sha
+
+      - name: Lint Web
+        run: npm run lint:web
+
+      - name: Build Web
+        run: npm run build:web
+
+      - name: Test Web
+        run: npm run test:web
+
+      - name: Retain SHA-bound Web build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: web-build-${{ github.sha }}
+          path: |
+            apps/web/dist
+            .ci-artifacts/web/source-sha
+          if-no-files-found: error
+          retention-days: 14
+
+  widget:
+    name: Native macOS widget
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Verify native widget source contract
+        run: npm run test:widget-contract
+
+      - name: Build unsigned native widget Release
+        run: |
+          set -o pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          mkdir -p .ci-artifacts/widget
+          printf '%s\n' "$(git rev-parse HEAD)" > .ci-artifacts/widget/source-sha
+          npm run build:widget:unsigned 2>&1 | tee .ci-artifacts/widget/xcodebuild.log
+
+      - name: Retain SHA-bound native widget build receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-widget-build-${{ github.sha }}
+          path: |
+            .ci-artifacts/widget/source-sha
+            .ci-artifacts/widget/xcodebuild.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  desktop-release-smoke:
+    name: Desktop release smoke (local injected fixture)
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build Electron before release smoke
+        run: npm run build:electron
+
+      - name: Run deterministic Desktop release smoke
+        env:
+          AGENT_CALENDAR_SOURCE_SHA: ${{ github.sha }}
+          AGENT_CALENDAR_RELEASE_SMOKE_ARTIFACT_DIR: .ci-artifacts/desktop-release-smoke
+        run: npm run test:desktop-release-smoke
+
+      - name: Retain SHA-bound Desktop release-smoke receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-release-smoke-${{ github.sha }}
+          path: .ci-artifacts/desktop-release-smoke
+          if-no-files-found: error
+          retention-days: 14

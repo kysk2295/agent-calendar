@@ -1,7 +1,8 @@
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 
-const target = process.env.HERMES_UI_URL || 'http://127.0.0.1:5173/';
+const target = process.env.HERMES_UI_URL;
+if (!target) throw new Error('HERMES_UI_URL is required; run this scenario through run-playwright-with-vite.cjs');
 const calls = [];
 
 const wiki = {
@@ -24,6 +25,23 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1320, height: 824 } });
 
+  await page.addInitScript(() => {
+    window.hermesDesktop = {
+      getSettings: async () => ({
+        apiBaseUrl: '',
+        hasApiToken: false,
+        theme: 'default',
+        authProfile: { provider: 'password', id: 'wiki-graph-user', email: 'wiki@example.test', name: 'Wiki QA' },
+        uiPreferences: { notify: true, agentShare: true, weekStartMon: true },
+      }),
+      getHermesConnection: async () => ({ baseUrl: '', credential: '' }),
+      getSessionStatus: async () => ({ signedIn: true, sessionId: 'wiki-graph-session' }),
+      getDesktopReleaseStatus: async () => ({ supported: false, phase: 'unsupported', currentVersion: '', availableVersion: null, progressPercent: null, checkedAt: null, message: '' }),
+      consumeDesktopRecoveryStatus: async () => ({ phase: 'none', crashCount: 0, reason: null, occurredAt: null, message: '' }),
+      onDesktopReleaseStatus: () => () => {},
+    };
+  });
+
   await page.route('**/*', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -33,6 +51,10 @@ async function main() {
       return;
     }
     const method = request.method();
+    if (method === 'GET' && path === '/api/settings') {
+      await route.fulfill({ json: { ok: true, onboarding: { status: 'completed' } } });
+      return;
+    }
     let body = {};
     try { body = request.postData() ? JSON.parse(request.postData()) : {}; } catch { body = {}; }
     calls.push({ method, path, body });

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, screen, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeTheme, safeStorage, screen, shell } from 'electron';
 import electronUpdater from 'electron-updater';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -40,6 +40,7 @@ import {
 } from './settings.js';
 import { createWorkspaceSnapshotStore } from './workspaceSnapshot.js';
 import { createWorkspaceSnapshotWriteGate } from './workspaceSnapshotWriteGate.js';
+import { createQaTestSecureStorage } from './qaTestSecureStorage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { autoUpdater } = electronUpdater;
@@ -74,7 +75,8 @@ if (!gotLock) {
   app.quit();
 }
 
-const workspaceSnapshotStore = createWorkspaceSnapshotStore();
+const secureStorage = createQaTestSecureStorage({ nativeStorage: safeStorage });
+const workspaceSnapshotStore = createWorkspaceSnapshotStore({ storage: secureStorage.storage });
 const workspaceSnapshotWriteGate = createWorkspaceSnapshotWriteGate();
 const desktopCrashRecovery = createDesktopCrashRecoveryController();
 const e2eReleaseMode = process.env.AGENT_CALENDAR_E2E_RELEASE === '1';
@@ -99,6 +101,7 @@ const desktopReleaseManager = createDesktopReleaseManager({
   onStatus: (status) => publishDesktopReleaseStatus(status),
 });
 const sessionManager = createSecureSessionManager({
+  storage: secureStorage.storage,
   apiBaseUrl: () => readSettings().apiBaseUrl,
   onCleared: () => {
     workspaceSnapshotWriteGate.reset();
@@ -107,6 +110,7 @@ const sessionManager = createSecureSessionManager({
 });
 
 const e2eAuthMode = process.env.AGENT_CALENDAR_E2E_AUTH === '1';
+const liveKeychainReceiptMode = process.env.AGENT_CALENDAR_LIVE_KEYCHAIN_RECEIPT === '1';
 
 /** Open system browser for AuthKit / OAuth. */
 async function openExternalBrowser(url: string): Promise<void> {
@@ -127,7 +131,6 @@ async function openExternalBrowser(url: string): Promise<void> {
     throw error;
   }
 }
-
 const authKitLogin = createDesktopAuthKitLogin({
   apiBaseUrl: () => readSettings().apiBaseUrl,
   sessionManager,
@@ -255,13 +258,49 @@ if (e2eAuthMode) {
   (globalThis as { __agentCalendarE2E?: {
     receiveAuthUrl: (url: string) => Promise<unknown> | unknown;
     simulateRendererGone: (details?: RendererGoneDetails) => unknown;
+    getSecureStorageReceipt: () => unknown;
   } }).__agentCalendarE2E = {
     receiveAuthUrl: (url: string) => deepLinks.receiveRawUrl(url),
+    getSecureStorageReceipt: () => secureStorage.getReceipt(),
     simulateRendererGone: (details = { reason: 'crashed', exitCode: 1 }) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         throw new Error('Desktop window is unavailable');
       }
       return handleRendererGone(mainWindow, details);
+    },
+  };
+}
+
+if (liveKeychainReceiptMode) {
+  (globalThis as { __agentCalendarLiveKeychain?: {
+    getSecureStorageReceipt: () => unknown;
+    saveFixture: () => { sessionId: string; workspaceId: string; snapshotSaved: boolean };
+  } }).__agentCalendarLiveKeychain = {
+    getSecureStorageReceipt: () => secureStorage.getReceipt(),
+    saveFixture: () => {
+      const session = sessionManager.save({
+        accessToken: 'live-keychain-fixture-access',
+        refreshToken: 'live-keychain-fixture-refresh',
+        accessExpiresAt: '2099-01-01T00:00:00.000Z',
+        refreshExpiresAt: '2099-01-02T00:00:00.000Z',
+        sessionId: 'live-keychain-fixture-session',
+        userId: 'live-keychain-fixture-user',
+        workspaceId: 'live-keychain-fixture-workspace',
+        role: 'owner',
+        user: { id: 'live-keychain-fixture-user', email: null, displayName: 'Live Keychain Fixture' },
+        updatedAt: '2026-07-26T00:00:00.000Z',
+      });
+      workspaceSnapshotStore.save({
+        userId: session.userId,
+        workspaceId: session.workspaceId,
+      }, {
+        privateTitle: 'Live Keychain Workspace Snapshot',
+      });
+      return {
+        sessionId: session.sessionId,
+        workspaceId: session.workspaceId,
+        snapshotSaved: true,
+      };
     },
   };
 }

@@ -1,6 +1,10 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const {
+  projectPublicDisplayEvent,
+  publicDisplayDelivery,
+} = require('./public-work-conversation-event');
 const { resolveWorkspaceScope } = require('./workspace-scope');
 const { WorkspaceScopedProductService } = require('./workspace-scoped-product-service');
 
@@ -115,16 +119,17 @@ class WorkConversationChannelService {
     }
   }
 
-  async #endpoint(runner, endpointId) {
+  async #endpoint(runner, endpointId, queryable = this.pool, { lock = false } = {}) {
     const id = publicId(endpointId, 'endpoint_id');
-    const result = await this.pool.query(
+    const result = await queryable.query(
       `select e.*, s.mission_id
        from work_conversation_channel_endpoints e
        inner join agent_sessions s
          on s.workspace_id = e.workspace_id and s.id = e.work_conversation_id
        where e.workspace_id = $1 and e.runner_id = $2 and e.id = $3
          and e.channel = 'telegram' and e.status = 'active'
-       limit 1`,
+       limit 1
+       ${lock ? 'for update of e' : ''}`,
       [runner.workspace_id, runner.id, id],
     );
     if (!result.rowCount) reject('CHANNEL_ENDPOINT_NOT_FOUND', 'channel endpoint not found', 404);
@@ -241,85 +246,253 @@ class WorkConversationChannelService {
   }
 
   async nextOutbound(runner, input = {}) {
-    const endpoint = await this.#endpoint(runner, input.endpointId);
-    const event = await this.pool.query(
-      `select id, sequence, kind, payload, created_at
-       from agent_session_events
-       where workspace_id = $1 and session_id = $2 and sequence > $3
-         and coalesce(payload->>'originEndpointId', '') <> $4
-         and (
-           kind in (
-             'user_message',
-             'approval_request',
-             'approval_response',
-             'error',
-             'blocked',
-             'revision_completed'
-           )
-           or (
-             kind = 'agent_message'
-             and coalesce(payload->'metadata'->>'jobId', '') = ''
-           )
-           or (
-             kind = 'completion'
-             and coalesce(payload->>'text', '') !~* '^(Codex|Claude|Grok|Hermes) execution completed$'
-           )
-         )
-       order by sequence asc
-       limit 1`,
-      [
-        runner.workspace_id,
-        endpoint.work_conversation_id,
-        Number(endpoint.outbound_cursor || 0),
-        endpoint.id,
-      ],
-    );
-    if (!event.rowCount) return { ok: true, delivery: null };
-    const row = event.rows[0];
-    return {
-      ok: true,
-      delivery: {
-        eventId: row.id,
-        sequence: Number(row.sequence),
-        kind: row.kind,
-        text: String(row.payload?.text || '').slice(0, 4_000),
-        createdAt: row.created_at ? new Date(row.created_at).toISOString() : '',
-      },
-    };
+    const requestedReceiptId = input.receiptId
+      ? publicId(input.receiptId, 'receipt_id')
+      : '';
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const endpoint = await this.#endpoint(runner, input.endpointId, client, { lock: true });
+      const active = await client.query(
+        `select *
+         from work_conversation_channel_receipts
+         where workspace_id = $1 and endpoint_id = $2 and direction = 'outbound'
+           and status in ('claimed', 'sending')
+         order by sequence asc
+         limit 1
+         for update`,
+        [runner.workspace_id, endpoint.id],
+      );
+      if (active.rowCount && active.rows[0].status === 'sending') {
+        const receipt = active.rows[0];
+        await client.query(
+          `update work_conversation_channel_receipts
+           set status = 'delivery_unknown', terminal_at = now(), updated_at = now()
+           where workspace_id = $1 and endpoint_id = $2 and id = $3`,
+          [runner.workspace_id, endpoint.id, receipt.id],
+        );
+        await client.query(
+          `update work_conversation_channel_endpoints
+           set outbound_cursor = greatest(outbound_cursor, $3),
+               public_metadata = public_metadata || jsonb_build_object(
+                 'outboundDeliveryStatus', 'delivery_unknown',
+                 'outboundDeliverySequence', $3::bigint
+               ),
+               last_activity_at = now(), updated_at = now()
+           where workspace_id = $1 and id = $2`,
+          [runner.workspace_id, endpoint.id, Number(receipt.sequence)],
+        );
+        await client.query('commit');
+        return {
+          ok: true,
+          delivery: null,
+          deliveryUnknown: {
+            receiptId: receipt.id,
+            eventId: receipt.event_id,
+            sequence: Number(receipt.sequence),
+            status: 'delivery_unknown',
+          },
+        };
+      }
+
+      let receipt = active.rows[0] || null;
+      if (receipt) {
+        const claimMatches = requestedReceiptId && receipt.id === requestedReceiptId;
+        const claimStale = new Date(receipt.updated_at).getTime() < Date.now() - 60_000;
+        if (!claimMatches && !claimStale) {
+          reject('CHANNEL_DELIVERY_IN_PROGRESS', 'channel delivery is already in progress', 409);
+        }
+        if (!claimMatches) {
+          const reclaimed = await client.query(
+            `update work_conversation_channel_receipts
+             set claimed_at = now(), updated_at = now()
+             where workspace_id = $1 and endpoint_id = $2 and id = $3
+             returning *`,
+            [runner.workspace_id, endpoint.id, receipt.id],
+          );
+          receipt = reclaimed.rows[0];
+        }
+      } else {
+        if (requestedReceiptId) {
+          reject('CHANNEL_DELIVERY_NOT_FOUND', 'channel delivery not found', 404);
+        }
+        const events = await client.query(
+          `select id, sequence, kind, payload, created_at
+           from agent_session_events
+           where workspace_id = $1 and session_id = $2 and sequence > $3
+             and coalesce(payload->>'originEndpointId', '') <> $4
+           order by sequence asc
+           limit 200`,
+          [
+            runner.workspace_id,
+            endpoint.work_conversation_id,
+            Number(endpoint.outbound_cursor || 0),
+            endpoint.id,
+          ],
+        );
+        const event = events.rows
+          .map((row) => projectPublicDisplayEvent(row, {
+            sessionId: endpoint.work_conversation_id,
+          }))
+          .find(Boolean);
+        if (!event) {
+          await client.query('commit');
+          return { ok: true, delivery: null };
+        }
+        const inserted = await client.query(
+          `insert into work_conversation_channel_receipts (
+             id, workspace_id, endpoint_id, direction, delivery_key,
+             event_id, sequence, status, claimed_at
+           ) values ($1,$2,$3,'outbound',$4,$4,$5,'claimed',now())
+           returning *`,
+          [
+            newId('receipt'),
+            runner.workspace_id,
+            endpoint.id,
+            event.id,
+            event.sequence,
+          ],
+        );
+        receipt = inserted.rows[0];
+      }
+
+      const eventResult = await client.query(
+        `select id, sequence, kind, payload, created_at
+         from agent_session_events
+         where workspace_id = $1 and session_id = $2
+           and id = $3 and sequence = $4
+         limit 1`,
+        [
+          runner.workspace_id,
+          endpoint.work_conversation_id,
+          receipt.event_id,
+          receipt.sequence,
+        ],
+      );
+      const event = eventResult.rowCount
+        ? projectPublicDisplayEvent(eventResult.rows[0], {
+          sessionId: endpoint.work_conversation_id,
+        })
+        : null;
+      if (!event) reject('CHANNEL_DELIVERY_NOT_FOUND', 'channel delivery not found', 404);
+      await client.query('commit');
+      return {
+        ok: true,
+        delivery: {
+          ...publicDisplayDelivery(event),
+          receiptId: receipt.id,
+          status: 'claimed',
+        },
+      };
+    } catch (error) {
+      try { await client.query('rollback'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
-  async ackOutbound(runner, input = {}) {
-    const endpoint = await this.#endpoint(runner, input.endpointId);
+  async beginOutbound(runner, input = {}) {
+    const receiptId = publicId(input.receiptId, 'receipt_id');
     const eventId = publicId(input.eventId, 'event_id');
     const sequence = Number(input.sequence);
     if (!Number.isSafeInteger(sequence) || sequence < 1) {
       reject('CHANNEL_SEQUENCE_INVALID', 'sequence is invalid', 400);
     }
-    const event = await this.pool.query(
-      `select id
-       from agent_session_events
-       where workspace_id = $1 and session_id = $2 and id = $3 and sequence = $4
-       limit 1`,
-      [runner.workspace_id, endpoint.work_conversation_id, eventId, sequence],
-    );
-    if (!event.rowCount) reject('CHANNEL_EVENT_NOT_FOUND', 'event not found', 404);
-    await this.pool.query(
-      `insert into work_conversation_channel_receipts (
-         id, workspace_id, endpoint_id, direction, delivery_key,
-         event_id, sequence, status
-       ) values ($1,$2,$3,'outbound',$4,$5,$6,'delivered')
-       on conflict (workspace_id, endpoint_id, direction, delivery_key)
-       do nothing`,
-      [newId('receipt'), runner.workspace_id, endpoint.id, eventId, eventId, sequence],
-    );
-    await this.pool.query(
-      `update work_conversation_channel_endpoints
-       set outbound_cursor = greatest(outbound_cursor, $3),
-           last_activity_at = now(), updated_at = now()
-       where workspace_id = $1 and id = $2`,
-      [runner.workspace_id, endpoint.id, sequence],
-    );
-    return { ok: true, sequence };
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const endpoint = await this.#endpoint(runner, input.endpointId, client, { lock: true });
+      const receipt = await client.query(
+        `select status
+         from work_conversation_channel_receipts
+         where workspace_id = $1 and endpoint_id = $2 and id = $3
+           and direction = 'outbound' and event_id = $4 and sequence = $5
+         limit 1
+         for update`,
+        [runner.workspace_id, endpoint.id, receiptId, eventId, sequence],
+      );
+      if (!receipt.rowCount) reject('CHANNEL_DELIVERY_NOT_FOUND', 'channel delivery not found', 404);
+      if (receipt.rows[0].status === 'sending') {
+        await client.query('commit');
+        return { ok: true, receiptId, eventId, sequence, status: 'sending' };
+      }
+      if (receipt.rows[0].status !== 'claimed') {
+        reject('CHANNEL_DELIVERY_NOT_OPEN', 'channel delivery is not open', 409);
+      }
+      await client.query(
+        `update work_conversation_channel_receipts
+         set status = 'sending', send_started_at = now(), updated_at = now()
+         where workspace_id = $1 and endpoint_id = $2 and id = $3`,
+        [runner.workspace_id, endpoint.id, receiptId],
+      );
+      await client.query('commit');
+      return { ok: true, receiptId, eventId, sequence, status: 'sending' };
+    } catch (error) {
+      try { await client.query('rollback'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async ackOutbound(runner, input = {}) {
+    const receiptId = publicId(input.receiptId, 'receipt_id');
+    const eventId = publicId(input.eventId, 'event_id');
+    const sequence = Number(input.sequence);
+    if (!Number.isSafeInteger(sequence) || sequence < 1) {
+      reject('CHANNEL_SEQUENCE_INVALID', 'sequence is invalid', 400);
+    }
+    const outcome = String(input.outcome || 'delivered');
+    if (!['delivered', 'delivery_unknown'].includes(outcome)) {
+      reject('CHANNEL_DELIVERY_OUTCOME_INVALID', 'channel delivery outcome is invalid', 400);
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const endpoint = await this.#endpoint(runner, input.endpointId, client, { lock: true });
+      const receipt = await client.query(
+        `select status
+         from work_conversation_channel_receipts
+         where workspace_id = $1 and endpoint_id = $2 and id = $3
+           and direction = 'outbound' and event_id = $4 and sequence = $5
+         limit 1
+         for update`,
+        [runner.workspace_id, endpoint.id, receiptId, eventId, sequence],
+      );
+      if (!receipt.rowCount) reject('CHANNEL_DELIVERY_NOT_FOUND', 'channel delivery not found', 404);
+      if (receipt.rows[0].status === outcome) {
+        await client.query('commit');
+        return { ok: true, receiptId, eventId, sequence, status: outcome };
+      }
+      if (receipt.rows[0].status !== 'sending') {
+        reject('CHANNEL_DELIVERY_NOT_OPEN', 'channel delivery is not open', 409);
+      }
+      await client.query(
+        `update work_conversation_channel_receipts
+         set status = $4, terminal_at = now(), updated_at = now()
+         where workspace_id = $1 and endpoint_id = $2 and id = $3`,
+        [runner.workspace_id, endpoint.id, receiptId, outcome],
+      );
+      await client.query(
+        `update work_conversation_channel_endpoints
+         set outbound_cursor = greatest(outbound_cursor, $3),
+             public_metadata = public_metadata || jsonb_build_object(
+               'outboundDeliveryStatus', $4::text,
+               'outboundDeliverySequence', $3::bigint
+             ),
+             last_activity_at = now(), updated_at = now()
+         where workspace_id = $1 and id = $2`,
+        [runner.workspace_id, endpoint.id, sequence, outcome],
+      );
+      await client.query('commit');
+      return { ok: true, receiptId, eventId, sequence, status: outcome };
+    } catch (error) {
+      try { await client.query('rollback'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }
 

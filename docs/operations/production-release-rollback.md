@@ -112,6 +112,36 @@ prefix가 candidate binding의 exact deployment/full commit과 일치할 때만 
 URL, response body, header, 사용자 데이터는 출력하지 않으며 비정상 JSON과 64KiB를 넘는
 응답도 bounded 오류로 거부한다.
 
+실제 WorkOS clean-account 실행 전에 repository preflight도 통과해야 한다.
+
+```sh
+npm run verify:staging-clean-account
+```
+
+이 명령은 CLI 인자로 live configuration을 받지 않는다. secret manager가 권한 `0600`의
+repository 외부 파일로 주입한 `AGENT_CALENDAR_STAGING_CONFIG_PATH`와 다음 delivery
+metadata를 process environment에 제공해야 한다.
+
+- `AGENT_CALENDAR_STAGING_CONFIG_SOURCE=secret-manager`
+- `AGENT_CALENDAR_STAGING_SECRET_MANAGER`: 허용된 secret manager 종류
+- `AGENT_CALENDAR_STAGING_WORKOS_AUTHORITY_REF`: `secret://` reference
+- `AGENT_CALENDAR_STAGING_ENGINE_AUTHORITY_REF`: `secret://` reference
+
+configuration은 public HTTPS staging origin, 30분 이내에 결속한 full commit과
+deployment/environment/service ID, live WorkOS AuthKit 및 live Engine provenance만
+가진다. credential, cookie, token, 사용자/Workspace 식별자, 임의 instruction은
+configuration에 넣지 않는다. local/private endpoint, injected AuthKit, Fake Engine,
+stale binding, symlink 또는 권한이 넓은 live configuration은 즉시 거부된다.
+
+출력은 candidate binding과 allowlist된 capability category만 포함한다.
+`preflightReady=true`여도 `ok=false`, `journeyVerified=false`이므로 clean-account 성공
+증거가 아니다. 실제 journey 권한이 없으면 nonzero `blocked` JSON을 기록하고 중단한다.
+로컬 hostile configuration 검사에는 side effect가 없는 다음 명령만 사용한다.
+
+```sh
+node scripts/staging-workos-clean-account.cjs preflight --config "$HOSTILE_FIXTURE"
+```
+
 로컬 producer 계약은 Phase 3 Golden ETE의 live Engine 모드로 검증한다. binding은
 반드시 현재 검증 대상의 full commit과 environment/service/deployment 식별자여야 한다.
 

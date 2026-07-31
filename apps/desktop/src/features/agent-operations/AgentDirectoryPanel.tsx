@@ -19,9 +19,11 @@ import {
 import type { PublicRunner } from '../runner/runnerApi';
 import type {
   AgentCatalogRequest,
+  AgentBuilderTestRequest,
   AgentDirectoryMutationInput,
   AgentExecutionEngine,
   AgentRosterEntry,
+  AgentProfileVersion,
   ProviderAgentSession,
   ProviderSessionCatalogRequest,
   ProviderSessionImportResult,
@@ -37,6 +39,13 @@ type AgentDirectoryPanelProps = {
   readonly onSelect: (agentId: string) => void;
   readonly onCreate: (input: AgentDirectoryMutationInput) => Promise<boolean>;
   readonly onUpdate: (agentId: string, input: AgentDirectoryMutationInput) => Promise<boolean>;
+  readonly onCreateBuilderDraft: (request: string) => Promise<boolean>;
+  readonly onReviewBuilderDraft: (agentId: string, expectedRevision: number) => Promise<boolean>;
+  readonly onTestBuilderDraft: (agentId: string, expectedRevision: number) => Promise<AgentBuilderTestRequest | null>;
+  readonly onRefreshBuilderTest: (agentId: string, requestId: string) => Promise<AgentBuilderTestRequest | null>;
+  readonly onCancelBuilderTest: (agentId: string, requestId: string) => Promise<boolean>;
+  readonly onActivateBuilderProfile: (agentId: string, expectedRevision: number, requestId: string) => Promise<boolean>;
+  readonly onListAgentProfileVersions: (agentId: string) => Promise<readonly AgentProfileVersion[]>;
   readonly onRequestAgentCatalog: (input: Readonly<{ runnerId: string; provider: string; consent: true }>) => Promise<AgentCatalogRequest | null>;
   readonly onGetAgentCatalogRequest: (requestId: string) => Promise<AgentCatalogRequest | null>;
   readonly onImportAgentCatalogEntry: (requestId: string, input: Readonly<{ externalAgentId: string; defaultExecutionEngine: AgentExecutionEngine }>) => Promise<boolean>;
@@ -55,7 +64,7 @@ type AgentDirectoryPanelProps = {
   readonly onArchiveProviderSession: (sessionId: string) => Promise<void>;
 };
 
-type EditorMode = '' | 'create' | 'import' | 'sessions' | 'connect' | 'edit';
+type EditorMode = '' | 'builder' | 'create' | 'import' | 'sessions' | 'connect' | 'edit';
 
 type AgentFormState = {
   readonly displayName: string;
@@ -301,7 +310,7 @@ function AgentDirectoryRow({
 }) {
   const record = recordValue(agent);
   const status = agentConnectionLabel(record, { runnerConnected });
-  const available = isAgentSelectable(record, { runnerConnected });
+  const available = agent.enabled !== false && isAgentSelectable(record, { runnerConnected });
   return (
     <button
       className="agent-directory-row"
@@ -314,6 +323,11 @@ function AgentDirectoryRow({
       <span>
         <strong>{agent.displayName}</strong>
         <small>{agent.role || '역할 미설정'}</small>
+        {agent.lifecycle?.state !== 'active' && (
+          <small className="agent-builder-row-state">
+            {agent.lifecycle?.state === 'tested' ? 'Tested' : 'Draft'}
+          </small>
+        )}
       </span>
       <i title={status} aria-label={status} />
     </button>
@@ -332,6 +346,10 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
   const [sessionCatalog, setSessionCatalog] = useState<ProviderSessionCatalogRequest | null>(null);
   const [sessionCatalogBusy, setSessionCatalogBusy] = useState(false);
   const [sessionCatalogError, setSessionCatalogError] = useState('');
+  const [builderRequest, setBuilderRequest] = useState('');
+  const [builderTest, setBuilderTest] = useState<AgentBuilderTestRequest | null>(null);
+  const [profileVersions, setProfileVersions] = useState<readonly AgentProfileVersion[]>([]);
+  const [showProfileVersions, setShowProfileVersions] = useState(false);
   const groups = useMemo(
     () => groupAgentDirectory(props.agents.map((agent) => recordValue(agent))),
     [props.agents],
@@ -342,10 +360,32 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
   const connected = props.agents.filter((agent) => connectedIds.has(agent.id));
   const selectedAgent = props.agents.find((agent) => agent.id === props.selectedAgentId);
   const selectedSourceKind = selectedAgent?.sourceKind === 'connected' ? 'connected' : 'native';
+  const displayedBuilderTest = builderTest
+    || (selectedAgent?.lifecycle?.lastTest
+      ? {
+          id: selectedAgent.lifecycle.lastTest.id,
+          agentId: selectedAgent.id,
+          revision: selectedAgent.lifecycle.testedRevision || selectedAgent.lifecycle.revision,
+          runnerId: '',
+          provider: '',
+          status: selectedAgent.lifecycle.lastTest.status,
+          passed: selectedAgent.lifecycle.lastTest.status === 'passed',
+          summary: selectedAgent.lifecycle.lastTest.summary,
+          durationMs: selectedAgent.lifecycle.lastTest.durationMs,
+          errorCode: '',
+          createdAt: null,
+          terminalAt: null,
+        } satisfies AgentBuilderTestRequest
+      : null);
 
   const openCreate = () => {
     setForm(EMPTY_FORM);
     setEditorMode('create');
+  };
+  const openBuilder = () => {
+    setBuilderRequest('');
+    setBuilderTest(null);
+    setEditorMode('builder');
   };
   const openConnect = () => {
     const defaultRunnerId = props.runners.find((runner) => runner.connectionState === 'connected')?.id
@@ -380,6 +420,7 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
     setCatalogError('');
     setSessionCatalog(null);
     setSessionCatalogError('');
+    setBuilderRequest('');
   };
   const sourceKind = editorMode === 'connect'
     ? 'connected'
@@ -503,6 +544,68 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
       setSaving(false);
     }
   };
+  const submitBuilderDraft = async () => {
+    const request = builderRequest.trim();
+    if (!request || request.length > 500 || saving) return;
+    setSaving(true);
+    try {
+      if (await props.onCreateBuilderDraft(request)) closeEditor();
+    } finally {
+      setSaving(false);
+    }
+  };
+  const reviewBuilderDraft = async () => {
+    if (!selectedAgent?.lifecycle || saving) return;
+    setSaving(true);
+    try {
+      await props.onReviewBuilderDraft(selectedAgent.id, selectedAgent.lifecycle.revision);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const runBuilderTest = async () => {
+    if (!selectedAgent?.lifecycle || saving) return;
+    setSaving(true);
+    try {
+      let request = await props.onTestBuilderDraft(selectedAgent.id, selectedAgent.lifecycle.revision);
+      if (!request) return;
+      setBuilderTest(request);
+      for (let attempt = 0; attempt < 40 && ['pending', 'running'].includes(request.status); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const refreshed = await props.onRefreshBuilderTest(selectedAgent.id, request.id);
+        if (!refreshed) break;
+        request = refreshed;
+        setBuilderTest(request);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+  const cancelBuilderTest = async () => {
+    if (!selectedAgent || !displayedBuilderTest
+      || !['pending', 'running'].includes(displayedBuilderTest.status)) return;
+    if (await props.onCancelBuilderTest(selectedAgent.id, displayedBuilderTest.id)) {
+      setBuilderTest({ ...displayedBuilderTest, status: 'cancelled', passed: false });
+    }
+  };
+  const activateBuilderProfile = async () => {
+    const lifecycle = selectedAgent?.lifecycle;
+    const requestId = lifecycle?.lastTest?.id || builderTest?.id || '';
+    if (!selectedAgent || !lifecycle || lifecycle.state !== 'tested' || !requestId || saving) return;
+    setSaving(true);
+    try {
+      await props.onActivateBuilderProfile(selectedAgent.id, lifecycle.revision, requestId);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const toggleProfileVersions = async () => {
+    if (!selectedAgent) return;
+    if (!showProfileVersions) {
+      setProfileVersions(await props.onListAgentProfileVersions(selectedAgent.id));
+    }
+    setShowProfileVersions(!showProfileVersions);
+  };
 
   return (
     <aside
@@ -595,9 +698,71 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
           </dl>
           <div className="agent-directory-profile-state" aria-label="프로필 실행 상태">
             <span>프로필 v{selectedAgent.profileVersion || 1}</span>
+            <span className="agent-builder-state-badge" data-state={selectedAgent.lifecycle?.state || 'active'}>
+              {selectedAgent.lifecycle?.state === 'draft'
+                ? 'Draft'
+                : selectedAgent.lifecycle?.state === 'tested'
+                  ? 'Tested'
+                  : 'Active'}
+            </span>
             <span>{selectedAgent.memories?.length ? `기억 ${selectedAgent.memories.length}개` : '저장된 기억 없음'}</span>
-            <span>실시간 작업</span>
+            <span>{selectedAgent.enabled ? '실행 가능' : '실행 비활성'}</span>
           </div>
+          {selectedAgent.lifecycle && (
+            <div className="agent-builder-actions" aria-label="에이전트 빌더 수명주기">
+              <button
+                type="button"
+                disabled={selectedAgent.lifecycle.state !== 'draft'
+                  || selectedAgent.lifecycle.reviewedRevision === selectedAgent.lifecycle.revision
+                  || saving}
+                onClick={() => void reviewBuilderDraft()}
+              >
+                검토 완료
+              </button>
+              <button
+                type="button"
+                disabled={selectedAgent.lifecycle.state !== 'draft'
+                  || selectedAgent.lifecycle.reviewedRevision !== selectedAgent.lifecycle.revision
+                  || saving}
+                onClick={() => void runBuilderTest()}
+              >
+                테스트 실행
+              </button>
+              {displayedBuilderTest && ['pending', 'running'].includes(displayedBuilderTest.status) && (
+                <button type="button" onClick={() => void cancelBuilderTest()}>테스트 취소</button>
+              )}
+              <button
+                type="button"
+                disabled={selectedAgent.lifecycle.state !== 'tested' || saving}
+                onClick={() => void activateBuilderProfile()}
+              >
+                프로필 활성화
+              </button>
+              <button type="button" onClick={() => void toggleProfileVersions()}>프로필 버전 기록</button>
+              {displayedBuilderTest && !['pending', 'running'].includes(displayedBuilderTest.status) && (
+                <p className="agent-builder-test-result" data-status={displayedBuilderTest.status} role="status">
+                  {displayedBuilderTest.status === 'passed' ? '테스트 통과' : '테스트 실패'} · {displayedBuilderTest.summary}
+                </p>
+              )}
+            </div>
+          )}
+          {showProfileVersions && (
+            <div className="agent-profile-version-list" aria-label="프로필 버전 기록">
+              {!profileVersions.length && <p>활성화된 프로필 버전이 없습니다.</p>}
+              {profileVersions.map((version) => (
+                <article key={`${version.agentId}:${version.profileVersion}`}>
+                  <strong>프로필 v{version.profileVersion}</strong>
+                  <small>{version.activatedAt || '활성화 시각 없음'}</small>
+                  <span>테스트 {String(version.testEvidence.status || 'passed')}</span>
+                  {version.historicalJobs.map((job) => (
+                    <span className="agent-profile-historical-job" key={job.id}>
+                      기록된 작업 {job.name || job.id} · 프로필 v{job.profileVersion}
+                    </span>
+                  ))}
+                </article>
+              ))}
+            </div>
+          )}
           {!!selectedAgent.specialties?.length && (
             <ul aria-label="전문 분야">
               {selectedAgent.specialties.slice(0, 4).map((specialty) => <li key={specialty}>{specialty}</li>)}
@@ -622,7 +787,11 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
         />
       )}
 
-      {!props.sessionsOnly && !!props.agents.length && <footer>
+      {!props.sessionsOnly && <footer>
+        <button type="button" onClick={openBuilder}>
+          <Plus size={14} weight="bold" aria-hidden="true" />
+          한 줄로 에이전트 만들기
+        </button>
         <button type="button" onClick={openCreate}>
           <Plus size={14} weight="bold" aria-hidden="true" />
           에이전트 만들기
@@ -644,6 +813,8 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
                 <h2 id="agent-directory-dialog-title">{
                   editorMode === 'edit'
                     ? '에이전트 카드 편집'
+                    : editorMode === 'builder'
+                      ? '한 줄로 에이전트 만들기'
                     : editorMode === 'import'
                       ? 'Runner에서 에이전트 가져오기'
                     : editorMode === 'sessions'
@@ -660,7 +831,23 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
                 Runner에 인증된 계정의 공개 프로필 정보만 읽습니다. provider 로그인 정보는 Runner 밖으로 나오지 않습니다.
               </p>
             )}
-            {editorMode === 'sessions' ? (
+            {editorMode === 'builder' ? (
+              <div className="agent-builder-dialog">
+                <p>한 줄 요청은 바로 실행되지 않는 비활성 초안으로 저장됩니다.</p>
+                <label>
+                  <span>에이전트가 맡을 일</span>
+                  <textarea
+                    autoFocus
+                    aria-label="한 줄 에이전트 요청"
+                    value={builderRequest}
+                    maxLength={500}
+                    onChange={(event) => setBuilderRequest(event.target.value)}
+                    placeholder="예: 매주 경쟁사 출시 소식을 근거 링크와 함께 요약하는 에이전트"
+                  />
+                </label>
+                <small>{builderRequest.trim().length}/500 · 검토와 부작용 없는 테스트 후에만 활성화할 수 있습니다.</small>
+              </div>
+            ) : editorMode === 'sessions' ? (
               <div className="agent-catalog-import">
                 <p className="agent-session-import-summary">
                   {selectedAgent?.displayName}의 {selectedAgent?.provider} 세션을 같은 Workspace Runner에서 찾습니다.
@@ -851,7 +1038,17 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
             )}
             <footer>
               <button type="button" onClick={closeEditor}>취소</button>
-              {!['import', 'sessions'].includes(editorMode) && <button className="primary" type="button" disabled={!canSubmit || props.busy || saving} onClick={() => void submit()}>
+              {editorMode === 'builder' && (
+                <button
+                  className="primary"
+                  type="button"
+                  disabled={!builderRequest.trim() || builderRequest.trim().length > 500 || saving}
+                  onClick={() => void submitBuilderDraft()}
+                >
+                  비활성 초안 저장
+                </button>
+              )}
+              {!['builder', 'import', 'sessions'].includes(editorMode) && <button className="primary" type="button" disabled={!canSubmit || props.busy || saving} onClick={() => void submit()}>
                 {editorMode === 'edit' ? '저장' : sourceKind === 'connected' ? '연결' : '만들기'}
               </button>}
             </footer>

@@ -9,7 +9,6 @@
  */
 
 const assert = require('node:assert/strict');
-const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
@@ -17,6 +16,7 @@ const path = require('node:path');
 const { _electron: electron } = require('playwright');
 
 const { runMigrations } = require('../../backend/app/db/migrate');
+const { defaultRunBin: runBin } = require('../../backend/app/lib/local-postgres-lifecycle');
 const { createRailwayGatewayServer } = require('../../backend/app/railway-gateway-server');
 const { createPhase1Runtime } = require('../../backend/app/lib/phase1-auth-routes');
 const { issueSessionForVerifiedSubject } = require('../../backend/app/lib/workspace-auth-session');
@@ -48,14 +48,6 @@ function freePort() {
       server.close((error) => (error ? reject(error) : resolve(port)));
     });
     server.on('error', reject);
-  });
-}
-
-function runBin(binDir, name, args, options = {}) {
-  return execFileSync(path.join(binDir, name), args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
   });
 }
 

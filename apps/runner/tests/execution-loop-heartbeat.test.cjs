@@ -1,8 +1,89 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const test = require('node:test');
 const { runOnce } = require('../lib/execution-loop');
+const { runnerCapabilityCatalog, stableJson } = require('../lib/capability-grants');
+
+function backendAuthorizedLease(lease, state) {
+  const catalog = runnerCapabilityCatalog();
+  const configuration = {
+    schemaVersion: 1,
+    engine: {
+      requested: lease.engine,
+      resolved: lease.engine,
+      model: String(lease.requestedModel || ''),
+      reason: 'runner_available',
+    },
+    runner: {
+      ref: state.runnerId,
+      catalogId: catalog.catalogId,
+      catalogVersion: catalog.version,
+      catalogRevision: catalog.revision,
+    },
+    profile: {
+      agentId: 'default',
+      displayName: 'Default agent',
+      version: 1,
+    },
+    rules: {
+      base: 'workspace_agent',
+      profileInstructionsApplied: false,
+      defaultDeny: true,
+      denyPrecedence: true,
+    },
+    grants: {
+      allowed: catalog.entries.filter((entry) => entry.id === 'tool:workspace.read'),
+      denied: [],
+      approvalRequired: [],
+    },
+    memoryScopes: ['agent_profile'],
+    approvalPolicy: {
+      grantExpansion: 'required',
+      externalDelivery: 'required',
+    },
+    requiredCapabilities: ['tool:workspace.read'],
+  };
+  const effectiveConfiguration = {
+    ...configuration,
+    snapshotId: `ecfg_${crypto
+      .createHash('sha256')
+      .update(stableJson(configuration))
+      .digest('hex')
+      .slice(0, 32)}`,
+    executable: true,
+  };
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  const unsignedLease = {
+    offerId: String(lease.offerId || 'offer-fixture'),
+    leaseExpiresAt: expiresAt,
+    workspaceId: state.workspaceId,
+    ...lease,
+    effectiveConfiguration,
+  };
+  const authorization = {
+    schemaVersion: 1,
+    algorithm: 'hmac-sha256',
+    runnerId: state.runnerId,
+    workspaceId: state.workspaceId,
+    credentialVersion: state.credentialVersion,
+    issuedAt: new Date(Date.now() - 1_000).toISOString(),
+    expiresAt,
+  };
+  const transcript = `lease-authorization-v1\n${stableJson({
+    authorization,
+    lease: unsignedLease,
+  })}`;
+  const key = crypto.createHash('sha256').update(state.deviceCredential, 'utf8').digest();
+  return {
+    ...unsignedLease,
+    authorization: {
+      ...authorization,
+      mac: crypto.createHmac('sha256', key).update(transcript, 'utf8').digest('base64url'),
+    },
+  };
+}
 
 function mockClient({ cancelAfterHeartbeats = 0 } = {}) {
   let heartbeats = 0;
@@ -11,7 +92,12 @@ function mockClient({ cancelAfterHeartbeats = 0 } = {}) {
   return {
     calls,
     cancelAcked: () => cancelAcked,
-    state: {},
+    state: {
+      runnerId: 'runner-heartbeat-fixture',
+      workspaceId: 'workspace-heartbeat-fixture',
+      credentialVersion: 1,
+      deviceCredential: 'runner-heartbeat-fixture-credential',
+    },
     persist(patch) { Object.assign(this.state, patch); },
     async deviceRequest(method, path, body) {
       calls.push({ method, path, body });
@@ -29,7 +115,8 @@ function mockClient({ cancelAfterHeartbeats = 0 } = {}) {
       }
       if (path === '/api/runner/device/lease') {
         return {
-          lease: {
+          lease: backendAuthorizedLease({
+            offerId: 'off1',
             attemptId: 'att1',
             jobId: 'job1',
             missionId: 'm1',
@@ -37,7 +124,7 @@ function mockClient({ cancelAfterHeartbeats = 0 } = {}) {
             leaseEpoch: 1,
             engine: 'fake',
             goal: 'long',
-          },
+          }, this.state),
         };
       }
       if (path === '/api/runner/device/attempt-heartbeat') {
@@ -62,11 +149,10 @@ function mockClient({ cancelAfterHeartbeats = 0 } = {}) {
 }
 
 test('execution-loop heartbeats during long fake run then completes', async () => {
-  process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE = '1';
   process.env.AGENT_CALENDAR_FAKE_ENGINE_STEP_MS = '0';
   const client = mockClient({ cancelAfterHeartbeats: 0 });
   const result = await runOnce(client, {
-    allowFake: true,
+    env: { NODE_ENV: 'test', AGENT_CALENDAR_ALLOW_FAKE_ENGINE: '1' },
     longRunMs: 350,
     heartbeatIntervalMs: 80,
   });
@@ -77,11 +163,10 @@ test('execution-loop heartbeats during long fake run then completes', async () =
 });
 
 test('execution-loop cancel-acks only when server requested cancellation', async () => {
-  process.env.AGENT_CALENDAR_ALLOW_FAKE_ENGINE = '1';
   process.env.AGENT_CALENDAR_FAKE_ENGINE_STEP_MS = '0';
   const client = mockClient({ cancelAfterHeartbeats: 2 });
   const result = await runOnce(client, {
-    allowFake: true,
+    env: { NODE_ENV: 'test', AGENT_CALENDAR_ALLOW_FAKE_ENGINE: '1' },
     longRunMs: 800,
     heartbeatIntervalMs: 60,
   });
@@ -115,7 +200,8 @@ test('execution-loop sends the exact provider session to the adapter and returns
     }
     if (path === '/api/runner/device/lease') {
       return {
-        lease: {
+        lease: backendAuthorizedLease({
+          offerId: 'off-provider',
           attemptId: 'attempt-provider',
           jobId: 'job-provider',
           missionId: 'mission-provider',
@@ -125,7 +211,7 @@ test('execution-loop sends the exact provider session to the adapter and returns
           requestedModel: 'gpt-5.6-codex',
           goal: 'continue the same work',
           providerSession,
-        },
+        }, this.state),
       };
     }
     if (path === '/api/runner/device/attempt-heartbeat') return { ok: true, cancellationRequested: false };
@@ -193,7 +279,8 @@ test('execution-loop durably binds a newly reported provider session before term
     }
     if (path === '/api/runner/device/lease') {
       return {
-        lease: {
+        lease: backendAuthorizedLease({
+          offerId: 'offer-new',
           attemptId: 'attempt-new',
           jobId: 'job-new',
           missionId: 'mission-new',
@@ -202,7 +289,7 @@ test('execution-loop durably binds a newly reported provider session before term
           engine: 'codex',
           goal: 'start provider session',
           providerSession,
-        },
+        }, this.state),
       };
     }
     if (path === '/api/runner/device/attempt-heartbeat') return { ok: true, cancellationRequested: false };
