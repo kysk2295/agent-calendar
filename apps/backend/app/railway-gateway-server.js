@@ -90,7 +90,7 @@ const { projectStateWithAgents, resolveHermesAgent } = require('./lib/agent-regi
 const {
   buildScheduleAssistantAnswer,
   buildScheduleAssistantContext,
-  ensureCompletionAnswerCoverage,
+  withCompletionCoverageHonesty,
   fallbackAnswer: fallbackScheduleAnswer,
   isScheduleQuestion,
   localLlmModel,
@@ -3858,9 +3858,16 @@ async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, ques
   });
   attempts.push({ provider: 'local-llm', model, used: Boolean(first?.text), transport: 'railway-relay', ...(first?.jobId ? { jobId: first.jobId } : {}) });
   if (first?.text && !noItemsContradiction(first.text, sources)) {
-    return {
-      answer: ensureCompletionAnswerCoverage({ answer: first.text, computed, sources }),
+    const covered = withCompletionCoverageHonesty({
+      answer: first.text,
       answerMode: 'llm',
+      computed,
+      sources,
+    });
+    return {
+      answer: covered.answer,
+      answerMode: covered.answerMode,
+      coverageAugmented: covered.coverageAugmented,
       llm: { provider: 'local-llm', model, used: true, transport: 'railway-relay' },
       llmAttempts: attempts,
     };
@@ -3874,20 +3881,30 @@ async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, ques
   });
   attempts.push({ provider: 'local-llm', model, used: Boolean(retry?.text), transport: 'railway-relay', ...(retry?.jobId ? { jobId: retry.jobId } : {}) });
   if (retry?.text && !noItemsContradiction(retry.text, sources)) {
-    return {
-      answer: ensureCompletionAnswerCoverage({ answer: retry.text, computed, sources }),
+    const covered = withCompletionCoverageHonesty({
+      answer: retry.text,
       answerMode: 'llm-retry',
+      computed,
+      sources,
+    });
+    return {
+      answer: covered.answer,
+      answerMode: covered.answerMode,
+      coverageAugmented: covered.coverageAugmented,
       llm: { provider: 'local-llm', model, used: true, transport: 'railway-relay' },
       llmAttempts: attempts,
     };
   }
-  return {
-    answer: ensureCompletionAnswerCoverage({
-      answer: fallbackScheduleAnswer(question, computed, sources),
-      computed,
-      sources,
-    }),
+  const coveredFallback = withCompletionCoverageHonesty({
+    answer: fallbackScheduleAnswer(question, computed, sources),
     answerMode: 'fallback',
+    computed,
+    sources,
+  });
+  return {
+    answer: coveredFallback.answer,
+    answerMode: coveredFallback.answerMode,
+    coverageAugmented: coveredFallback.coverageAugmented,
     llm: {
       provider: 'local-llm',
       model,

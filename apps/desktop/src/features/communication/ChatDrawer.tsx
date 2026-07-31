@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  calendarAnswerHonestyLabel,
   validateScheduleAttachment,
   type ChatMessage,
   type CalendarAiActionDraft,
@@ -336,7 +337,10 @@ export function ChatDrawer({
         <button type="button" className="voice-mic-button" data-listening={listening} disabled={!voiceInputSupported || busy} onClick={toggleListening} aria-label={listening ? '음성 질문 듣기 중지' : '음성으로 질문'}>{listening ? '■' : '●'}</button>
       </div>
     </section>
-    <div className="messages" ref={messagesRef} onScroll={trackLatestScroll}>{messages.map((message, index) => <div className={`message ${message.role}`} key={message.id || index}><span>{message.text || '응답 수신 중...'}</span>{message.coverage?.some((coverage) => text(coverage.state) !== 'complete') && <em className="calendar-ai-coverage">일부 연결 일정의 조회 범위가 완전하지 않습니다.</em>}{message.sources?.length ? <div className="calendar-ai-sources">{message.sources.slice(0, 5).map((source, sourceIndex) => <span key={text(source.id || source.handle, `source-${sourceIndex}`)}>{text(source.title, '근거')}</span>)}</div> : null}{message.actionDraft ? <CalendarAiDraftCard draft={message.actionDraft} busy={actionBusyId === message.actionDraft.id} act={actOnDraft} /> : null}{message.drafts?.length ? <ScheduleDraftCards drafts={message.drafts} warnings={message.warnings} conflicts={message.conflicts} registerDrafts={registerDrafts} /> : null}</div>)}</div>
+    <div className="messages" ref={messagesRef} onScroll={trackLatestScroll}>{messages.map((message, index) => {
+      const honesty = message.role === 'assistant' ? calendarAnswerHonestyLabel(message) : '';
+      return <div className={`message ${message.role}`} key={message.id || index}><span>{message.text || '응답 수신 중...'}</span>{honesty ? <em className="calendar-ai-honesty" data-mode={message.answerMode || message.mode || ''}>{honesty}</em> : null}{message.coverage?.some((coverage) => text(coverage.state) !== 'complete') && <em className="calendar-ai-coverage">일부 연결 일정의 조회 범위가 완전하지 않습니다.</em>}{message.sources?.length ? <div className="calendar-ai-sources">{message.sources.slice(0, 5).map((source, sourceIndex) => <span key={text(source.id || source.handle, `source-${sourceIndex}`)}>{text(source.title, '근거')}</span>)}</div> : null}{message.actionDraft ? <CalendarAiDraftCard draft={message.actionDraft} busy={actionBusyId === message.actionDraft.id} act={actOnDraft} /> : null}{message.drafts?.length ? <ScheduleDraftCards drafts={message.drafts} warnings={message.warnings} conflicts={message.conflicts} registerDrafts={registerDrafts} /> : null}</div>;
+    })}</div>
     <div className="chat-chips">{['이번 주 완료율?', '오늘 할 일 정리해줘', '이번 주 빈 시간 알려줘'].map((chip) => <button key={chip} onClick={() => setChip(chip)}>{chip}</button>)}</div>
     <footer>
       <div className="chat-compose">

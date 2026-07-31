@@ -268,7 +268,7 @@ test('next weekday question resolves one exact date and is not misclassified as 
 });
 
 test('completion answer coverage appends only grounded records omitted by the LLM', () => {
-  const answer = ensureCompletionAnswerCoverage({
+  const coverage = ensureCompletionAnswerCoverage({
     answer: '이번 주에는 리포트 작성(2026-07-17)을 완료했습니다.',
     computed: { questionType: 'completion-rate' },
     sources: [
@@ -278,10 +278,26 @@ test('completion answer coverage appends only grounded records omitted by the LL
     ],
   });
 
-  assert.equal((answer.match(/리포트 작성/g) || []).length, 1);
-  assert.match(answer, /확인된 나머지 완료 기록/);
-  assert.match(answer, /회의 정리 \(2026-07-16\)/);
-  assert.doesNotMatch(answer, /다음 주 계획/);
+  assert.equal(coverage.coverageAugmented, true);
+  assert.equal((coverage.answer.match(/리포트 작성/g) || []).length, 1);
+  assert.match(coverage.answer, /확인된 나머지 완료 기록/);
+  assert.match(coverage.answer, /회의 정리 \(2026-07-16\)/);
+  assert.doesNotMatch(coverage.answer, /다음 주 계획/);
+});
+
+test('completion coverage honesty rewrites llm answerMode when titles are appended', () => {
+  const { withCompletionCoverageHonesty } = require('../app/lib/schedule-assistant');
+  const covered = withCompletionCoverageHonesty({
+    answer: '완료율 요약입니다.',
+    answerMode: 'llm',
+    computed: { questionType: 'completion-rate' },
+    sources: [
+      { id: 'done-1', title: '회의 정리', date: '2026-07-16', done: true },
+    ],
+  });
+  assert.equal(covered.coverageAugmented, true);
+  assert.equal(covered.answerMode, 'llm-augmented');
+  assert.match(covered.answer, /회의 정리/);
 });
 
 test('completion list keeps every completed schedule item beyond the vector-search cutoff', async () => {

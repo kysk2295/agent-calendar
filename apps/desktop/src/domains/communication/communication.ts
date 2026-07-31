@@ -24,6 +24,8 @@ export type ChatMessage = {
   role: string;
   text: string;
   mode?: string;
+  answerMode?: string;
+  coverageAugmented?: boolean;
   actionDraft?: CalendarAiActionDraft | null;
   sources?: CommunicationRecord[];
   coverage?: CommunicationRecord[];
@@ -102,15 +104,35 @@ function calendarAiActionDraft(value: unknown): CalendarAiActionDraft | null {
 
 export function calendarAiMessageFromDone(payload: CommunicationRecord): ChatMessage {
   const actionDraft = calendarAiActionDraft(payload.actionDraft);
+  const answerMode = text(payload.answerMode || payload.mode) || undefined;
+  const coverageAugmented = payload.coverageAugmented === true || answerMode === 'llm-augmented';
   return {
     id: text(payload.turnId) || undefined,
     role: 'assistant',
     text: text(payload.answer),
     mode: text(payload.mode) || undefined,
+    ...(answerMode ? { answerMode } : {}),
+    ...(coverageAugmented ? { coverageAugmented: true } : {}),
     actionDraft,
     sources: records(payload, 'sources'),
     coverage: records(payload, 'coverage'),
   };
+}
+
+export function calendarAnswerHonestyLabel(message: Pick<ChatMessage, 'answerMode' | 'coverageAugmented' | 'mode'>): string {
+  if (message.coverageAugmented || message.answerMode === 'llm-augmented') {
+    return '근거 보강됨 · 모델 답변 뒤에 일정 완료 기록이 추가됨';
+  }
+  switch (message.answerMode || message.mode) {
+    case 'llm':
+      return '모델 답변';
+    case 'llm-retry':
+      return '모델 재시도 답변';
+    case 'fallback':
+      return '규칙 기반 답변';
+    default:
+      return '';
+  }
 }
 
 export function normalizeCalendarChatHistory(items: CommunicationRecord[]): ChatMessage[] {
