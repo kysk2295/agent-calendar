@@ -16,3 +16,9 @@ test('AuthKit bridge explains WorkOS config missing for first-user setup', () =>
   assert.match(auth, /WORKOS_CONFIG_MISSING/);
   assert.match(auth, /WorkOS\(Google\/이메일\)/);
 });
+
+test('login waiting state can be cancelled so it does not look like infinite loading', () => {
+  assert.match(app, /login-authkit-cancel/);
+  assert.match(app, /로그인 취소/);
+  assert.match(app, /cancelAuthKitLogin/);
+});

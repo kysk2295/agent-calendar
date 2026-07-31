@@ -91,12 +91,22 @@ export function createDesktopAuthKitLogin(options: DesktopAuthKitOptions) {
     });
   }
 
+  function hasPendingLogin() {
+    return completion !== null;
+  }
+
   async function completeWithCallback(callback: AgentCalendarAuthCallbackDeepLink): Promise<AppSessionTokens> {
     if (!completion) {
-      throw new Error('진행 중인 로그인이 없습니다.');
+      const error = new Error('진행 중인 로그인이 없습니다.');
+      (error as Error & { code?: string }).code = 'AUTH_NO_PENDING_LOGIN';
+      throw error;
     }
     if (callback.state !== completion.state) {
-      throw new Error('로그인 state 검증에 실패했습니다.');
+      // Stale deep link from an older browser tab / other Electron instance.
+      // Do not abort the current wait — user may still complete the matching flow.
+      const error = new Error('로그인 state 검증에 실패했습니다.');
+      (error as Error & { code?: string }).code = 'AUTH_STATE_MISMATCH_STALE';
+      throw error;
     }
     const { codeVerifier, state, timer, resolve, reject } = completion;
     // One-use local pending slot before network complete (client-side replay protection).
@@ -168,6 +178,7 @@ export function createDesktopAuthKitLogin(options: DesktopAuthKitOptions) {
     beginAuthKitLogin,
     handleAuthDeepLink,
     cancelLogin,
+    hasPendingLogin,
   };
 }
 

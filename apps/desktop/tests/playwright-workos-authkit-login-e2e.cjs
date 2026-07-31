@@ -468,6 +468,7 @@ function createFakeAuthBackend() {
         server,
         baseUrl: `http://127.0.0.1:${address.port}`,
         getCompleteCount: () => completeCount,
+        getStartCount: () => transactions.size,
         getProtectedRequestCount: () => protectedRequestCount,
         getWorkspaceSettings: () => workspaceSettings,
         getCalendarAuthorizeCount: () => calendarAuthorizeCount,
@@ -743,7 +744,26 @@ async function runScenario(backend) {
     );
 
     await page.getByRole('button', { name: /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/ }).click();
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(200);
+    assert.equal(backend.getStartCount(), 1, 'first login attempt must create a transaction');
+
+    await page.getByTestId('login-authkit-cancel').click();
+    await page.getByTestId('login-authkit-continue').waitFor({ state: 'visible', timeout: 5_000 });
+    await page.getByTestId('login-authkit-continue').click();
+    await page.waitForTimeout(500);
+
+    assert.equal(backend.getStartCount(), 2, 'retry after cancel must create a fresh transaction');
+    const retrySurface = await page.locator('body').innerText();
+    assert.doesNotMatch(
+      retrySurface,
+      /이전 로그인 시도가 취소되었습니다/,
+      'the cancelled attempt must not overwrite the retry state',
+    );
+    assert.equal(
+      await page.getByTestId('login-authkit-cancel').count(),
+      1,
+      'retry must remain in the browser-waiting state',
+    );
 
     const pending = backend.getLastState();
     assert.ok(pending, 'start must create a pending transaction');

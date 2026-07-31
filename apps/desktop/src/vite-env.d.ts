@@ -111,6 +111,7 @@ interface Window {
     getSettings(): Promise<HermesDesktopSettings>;
     saveSettings(settings: Partial<HermesDesktopSettings & { apiToken: string }>): Promise<HermesDesktopSettings>;
     loginWithAuthKit(): Promise<HermesDesktopSettings>;
+    cancelAuthKitLogin(): Promise<{ ok: true }>;
     connectGoogleCalendar(): Promise<{
       ok: true;
       source: {

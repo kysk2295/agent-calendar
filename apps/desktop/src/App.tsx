@@ -596,6 +596,7 @@ export function App() {
   const [loginStatus, setLoginStatus] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
   const [authPhase, setAuthPhase] = useState<'idle' | 'opening' | 'waiting' | 'completing' | 'error'>('idle');
+  const authLoginAttemptRef = useRef(0);
   const [prefs, setPrefs] = useState<UiPreferences>(DEFAULT_UI_PREFERENCES);
   const [quickText, setQuickText] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState('');
@@ -1332,6 +1333,8 @@ export function App() {
   }
 
   async function loginWithAuthKit() {
+    const attempt = authLoginAttemptRef.current + 1;
+    authLoginAttemptRef.current = attempt;
     setLoginStatus('');
     setAuthBusy(true);
     setAuthPhase('opening');
@@ -1343,6 +1346,7 @@ export function App() {
       }
       setAuthPhase('waiting');
       const next = await window.hermesDesktop.loginWithAuthKit();
+      if (authLoginAttemptRef.current !== attempt) return;
       setSettings(desktopSettingsState(next));
       const signedIn = desktopSettingsSignedIn(next);
       setLoggedIn(signedIn);
@@ -1352,11 +1356,26 @@ export function App() {
         await startSignedInWorkspace();
       }
     } catch (error) {
+      if (authLoginAttemptRef.current !== attempt) return;
       setAuthPhase('error');
       setLoginStatus(error instanceof Error ? error.message : 'AuthKit 로그인을 완료하지 못했습니다.');
     } finally {
-      setAuthBusy(false);
+      if (authLoginAttemptRef.current === attempt) setAuthBusy(false);
     }
+  }
+
+  async function cancelAuthKitLogin() {
+    const cancellation = authLoginAttemptRef.current + 1;
+    authLoginAttemptRef.current = cancellation;
+    try {
+      await window.hermesDesktop?.cancelAuthKitLogin?.();
+    } catch {
+      // Main may already have cleared the pending login.
+    }
+    if (authLoginAttemptRef.current !== cancellation) return;
+    setAuthBusy(false);
+    setAuthPhase('idle');
+    setLoginStatus('로그인을 취소했습니다. 다시 시도하세요.');
   }
 
   async function logout() {
@@ -3206,7 +3225,7 @@ export function App() {
   if (!loggedIn) {
     return (
       <div className="app-root login-root" data-theme={settings.theme}>
-        <LoginScreen loginWithAuthKit={loginWithAuthKit} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} />
+        <LoginScreen loginWithAuthKit={loginWithAuthKit} cancelAuthKitLogin={cancelAuthKitLogin} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} />
       </div>
     );
   }
@@ -3427,7 +3446,7 @@ export function App() {
                 onReadyCalendar={() => openScreen('calendar')}
               />
             )}
-            {screen === 'login' && <LoginScreen loginWithAuthKit={loginWithAuthKit} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} />}
+            {screen === 'login' && <LoginScreen loginWithAuthKit={loginWithAuthKit} cancelAuthKitLogin={cancelAuthKitLogin} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} />}
           </section>
         )}
       </main>
@@ -4395,11 +4414,13 @@ function SettingsScreen({ settings, gatewayStatus, setSettings, refresh, openRun
 
 function LoginScreen({
   loginWithAuthKit,
+  cancelAuthKitLogin,
   authBusy,
   authPhase,
   loginStatus,
 }: {
   loginWithAuthKit: () => void;
+  cancelAuthKitLogin?: () => void;
   authBusy: boolean;
   authPhase: 'idle' | 'opening' | 'waiting' | 'completing' | 'error';
   loginStatus: string;
@@ -4408,6 +4429,7 @@ function LoginScreen({
     <AgentCalendarLoginExperience
       mode="page"
       loginWithAuthKit={loginWithAuthKit}
+      cancelAuthKitLogin={cancelAuthKitLogin}
       authBusy={authBusy}
       authPhase={authPhase}
       loginStatus={loginStatus}
@@ -4418,12 +4440,14 @@ function LoginScreen({
 function AgentCalendarLoginExperience({
   mode,
   loginWithAuthKit,
+  cancelAuthKitLogin,
   authBusy,
   authPhase,
   loginStatus,
 }: {
   mode: 'overlay' | 'page';
   loginWithAuthKit: () => void;
+  cancelAuthKitLogin?: () => void;
   authBusy: boolean;
   authPhase: 'idle' | 'opening' | 'waiting' | 'completing' | 'error';
   loginStatus: string;
@@ -4431,7 +4455,7 @@ function AgentCalendarLoginExperience({
   const phaseLabel = authPhase === 'opening'
     ? '브라우저를 여는 중…'
     : authPhase === 'waiting'
-      ? '브라우저에서 Google 또는 이메일 로그인을 완료하세요'
+      ? '브라우저에서 Google 계정을 선택해 로그인을 완료하세요'
       : authPhase === 'completing'
         ? '세션을 확인하는 중…'
         : authPhase === 'error'
@@ -4460,7 +4484,10 @@ function AgentCalendarLoginExperience({
             <div className="login-status" role="alert" aria-live="assertive">{loginStatus}</div>
           )}
           {!loginStatus && authBusy && (
-            <div className="login-status login-status-progress" role="status" aria-live="polite">{phaseLabel}</div>
+            <div className="login-status login-status-progress" role="status" aria-live="polite">
+              {phaseLabel}
+              {authPhase === 'waiting' ? ' · Chrome에서 계정을 고른 뒤 “Electron 열기”를 허용하세요.' : ''}
+            </div>
           )}
 
           <button
@@ -4474,6 +4501,16 @@ function AgentCalendarLoginExperience({
           >
             {buttonLabel}
           </button>
+          {authBusy && cancelAuthKitLogin ? (
+            <button
+              type="button"
+              className="login-cancel"
+              data-testid="login-authkit-cancel"
+              onClick={() => cancelAuthKitLogin()}
+            >
+              로그인 취소
+            </button>
+          ) : null}
 
           <p className="login-boundary-note">세션은 이 기기에서 암호화됩니다. 앱 안에 Google 비밀번호를 입력하지 않습니다.</p>
         </div>

@@ -2,7 +2,7 @@
 
 - Date: 2026-07-31
 - Work size: Large / Boundary
-- Status: Verified (injected AuthKit ETE; live WorkOS tenant still external)
+- Status: Verified (injected AuthKit ETE + live empty-state login after OAuth state fix)
 - Branch: `kysk2295/agent-control-p0-wave1`
 
 ## Goal
@@ -45,4 +45,27 @@ Result: `ok: true`, `completeCount: 1`, `googleCalendarOAuth: true`, restart res
 - `WORKOS_API_KEY` + `WORKOS_CLIENT_ID` + AuthKit Google connection for live Google account login
 - Google Calendar OAuth client for real calendar connect
 - Workspace Runner enrollment for real agent execution
-- Local `POST /api/phase1/auth/desktop/start` currently returns `WORKOS_CONFIG_MISSING` without secrets
+- Local WorkOS secrets live in gitignored `.env.workos.local` for dogfood
+
+## 2026-07-31 empty-state / second-account follow-up
+
+### Findings
+
+1. **OAuth state mismatch (P0, fixed):** WorkOS SDK generates `state` inside the authorize URL.
+   Returning a different `state` in the JSON body caused every live callback to fail as
+   `AUTH_STATE_MISMATCH_STALE` / infinite login wait. Canonical state is now the URL query value.
+2. **Silent SSO (improved):** default `prompt=login` + Google `select_account` so account chooser
+   appears for empty-state / second-account dogfood.
+3. **Protocol contention (mitigated earlier):** bare Electron under `Documents/agent-calendar` can
+   steal `agent-calendar://` — keep only escolar Electron running for dogfood.
+4. **Injected first-user ETE:** still green (`completeCount: 1`, Google OAuth path, restart restore).
+5. **Live empty-state:** session clear → AuthKit → start guide **0/4** (Calendar / Runner / Wiki /
+   Calendar AI) confirmed for the primary Google account. Second account selection still needs a
+   human password step when Google requires re-auth for the secondary account.
+
+### Next product work (empty workspace)
+
+- [ ] Google Calendar connect on empty guide
+- [ ] Runner enrollment on empty guide
+- [ ] Wiki source bind
+- [ ] Soften false “Railway API 확인 필요” when local gateway is intentionally fallback-only
