@@ -98,6 +98,10 @@ function publicMissionRecord(mission = {}) {
     const value = publicText(mission[key], '');
     if (value) projected[key] = value;
   }
+  const delegationMode = String(mission.delegationMode || '').trim();
+  if (delegationMode === 'mode_a' || delegationMode === 'mode_b') {
+    projected.delegationMode = delegationMode;
+  }
   projected.agentId = resolveRequestedOfficialProfile({ agentId: mission.agentId });
   projectExecutionContract(mission, projected);
   projected.successCriteria = publicStringArray(mission.successCriteria);

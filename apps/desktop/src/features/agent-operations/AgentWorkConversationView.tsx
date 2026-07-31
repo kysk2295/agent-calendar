@@ -295,6 +295,12 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
             <h1 ref={headingRef} tabIndex={-1}>{preserveWorkClosingPhrase(props.mission.title)}</h1>
             <div className="agent-work-status-line">
               <b className="agent-work-status-badge" data-status={statusTone}>{statusLabel}</b>
+              {props.mission.delegationMode && (
+                <span className="agent-work-assignment" data-testid="agent-work-delegation-mode">
+                  <span>모드</span>
+                  <strong>{props.mission.delegationMode === 'mode_b' ? 'Mode B · 역할 지정' : 'Mode A · 목표만'}</strong>
+                </span>
+              )}
               <span className="agent-work-assignment"><span>담당</span><strong>{props.responsibleAgentName}</strong></span>
               <span className="agent-work-next-action"><span>다음 행동</span><strong>{nextAction}</strong></span>
               <span className="agent-work-assignment agent-work-assignment-reason"><span>배정</span><strong>{assignmentCopy}</strong></span>

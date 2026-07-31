@@ -279,6 +279,48 @@
 
 .agent-control-head > div { min-width: 0; display: flex; align-items: baseline; gap: 11px; }
 .agent-control-head h1 { margin: 0; font-size: var(--agent-type-screen-title); line-height: 1.25; letter-spacing: 0; }
+.agent-delegate-mode {
+  display: inline-flex;
+  gap: 4px;
+  margin: 0 3px 6px;
+  padding: 3px;
+  background: var(--bar);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.agent-delegate-mode > button {
+  min-height: 28px;
+  padding: 0 12px;
+  color: var(--muted-dark);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+.agent-delegate-mode > button[data-active="true"] {
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.agent-delegate-role {
+  display: grid;
+  gap: 4px;
+  margin: 0 3px 8px;
+  color: var(--muted-dark);
+  font-size: var(--agent-type-caption);
+}
+.agent-delegate-role select {
+  min-height: 34px;
+  max-width: 420px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
 .agent-control-lede { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 3px 3px 8px; color: var(--muted-dark); font-size: var(--agent-type-caption); line-height: 1.45; }
 .agent-control-lede strong { color: var(--text); }
 .agent-control-summary { color: var(--muted); font-size: var(--agent-type-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }

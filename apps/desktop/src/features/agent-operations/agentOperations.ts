@@ -186,6 +186,9 @@ function parseMission(value: unknown): AgentMission | null {
       proposedMemoryPins,
       proposedMemoryPinCount: numberValue(value.proposedMemoryPinCount, proposedMemoryPins.length),
     } : {}),
+    ...(value.delegationMode === 'mode_a' || value.delegationMode === 'mode_b'
+      ? { delegationMode: value.delegationMode }
+      : {}),
   };
 }
 

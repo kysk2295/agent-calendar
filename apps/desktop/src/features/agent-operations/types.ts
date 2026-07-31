@@ -90,6 +90,7 @@ export type AgentMission = {
   readonly wikiArchive?: AgentWikiArchive | null;
   readonly proposedMemoryPins?: readonly string[];
   readonly proposedMemoryPinCount?: number;
+  readonly delegationMode?: 'mode_a' | 'mode_b';
 };
 
 export type AgentTask = {

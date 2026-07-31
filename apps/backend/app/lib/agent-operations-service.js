@@ -153,9 +153,12 @@ class AgentOperationsService {
     } catch (error) {
       throw new AgentOperationsError('mission_contract_invalid', error.message, 422);
     }
+    const explicitAgent = Boolean(String(input.agentId || '').trim());
     return this.store.createAgentMission({
       ...mission,
       ...(String(input.title || '').trim() ? { title: String(input.title).trim() } : {}),
+      // Mode A = goal-only auto assignment; Mode B = user-selected Responsible Agent role.
+      delegationMode: explicitAgent ? 'mode_b' : 'mode_a',
     });
   }
 
