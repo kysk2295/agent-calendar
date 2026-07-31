@@ -20,14 +20,17 @@ const path = require('node:path');
 const { _electron: electron } = require('playwright');
 
 const desktopRoot = path.resolve(__dirname, '..');
+const firstUserJourney = process.env.AGENT_CALENDAR_FIRST_USER_JOURNEY === '1';
 const phase8SessionTruth = process.env.AGENT_CALENDAR_PHASE8_SESSION_TRUTH === '1';
-const phase8GoogleOAuth = process.env.AGENT_CALENDAR_PHASE8_GOOGLE_OAUTH === '1';
+const phase8GoogleOAuth = process.env.AGENT_CALENDAR_PHASE8_GOOGLE_OAUTH === '1' || firstUserJourney;
 const phase8OfflineReconnect = process.env.AGENT_CALENDAR_PHASE8_OFFLINE_RECONNECT === '1';
 const phase8DesktopRelease = process.env.AGENT_CALENDAR_PHASE8_DESKTOP_RELEASE === '1';
 const orcaShellAudit = process.env.AGENT_CALENDAR_ORCA_SHELL_AUDIT === '1';
 const e2eTheme = process.env.AGENT_CALENDAR_E2E_THEME === 'dark' ? 'dark' : 'default';
-const firstRunGuide = phase8SessionTruth || phase8GoogleOAuth;
-const artifactName = phase8OfflineReconnect
+const firstRunGuide = phase8SessionTruth || phase8GoogleOAuth || firstUserJourney;
+const artifactName = firstUserJourney
+  ? `first-user-journey${e2eTheme === 'dark' ? '-dark' : ''}`
+  : phase8OfflineReconnect
   ? `phase8-offline-reconnect${e2eTheme === 'dark' ? '-dark' : ''}`
   : phase8DesktopRelease
     ? `phase8-desktop-release${e2eTheme === 'dark' ? '-dark' : ''}`
@@ -48,6 +51,8 @@ const screenshotGuidePath = path.join(artifactDir, '02-first-run-guide.png');
 const screenshotGuideCompactPath = path.join(artifactDir, '02b-first-run-guide-768.png');
 const screenshotGoogleErrorPath = path.join(artifactDir, '03-google-config-error.png');
 const screenshotGoogleSuccessPath = path.join(artifactDir, '04-google-synced-guide.png');
+const screenshotAgentsPath = path.join(artifactDir, '07-agents-mode-ab.png');
+const screenshotSetupCompletePath = path.join(artifactDir, '06-setup-complete-calendar.png');
 const screenshotSettingsPath = path.join(artifactDir, '03-settings.png');
 const screenshotSettingsCompactPath = path.join(artifactDir, '04-settings-768.png');
 const screenshotWidgetsPath = path.join(artifactDir, '05-widgets.png');
@@ -283,6 +288,72 @@ function createFakeAuthBackend() {
         },
       };
       return send(200, { ok: true, workspaceId: 'ws_e2e', ...workspaceSettings });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/runners') {
+      return send(200, {
+        ok: true,
+        runners: firstUserJourney ? [{
+          id: 'runner-first-user',
+          status: 'active',
+          connectionState: 'connected',
+          lastTestOk: true,
+          hostMetadata: { hostName: 'first-user-mac' },
+          capabilities: {
+            engines: {
+              codex: { available: true, status: 'ready', authStatus: 'authenticated' },
+              claude: { available: true, status: 'ready', authStatus: 'authenticated' },
+            },
+          },
+        }] : [],
+      });
+    }
+
+    if (req.method === 'GET' && (url.pathname === '/api/wiki' || url.pathname === '/api/knowledge/sources')) {
+      return send(200, {
+        ok: true,
+        knowledgeV2: true,
+        sources: firstUserJourney ? [{
+          id: 'wiki-source-first-user',
+          status: 'active',
+          title: '개인 위키',
+          label: '개인 위키',
+        }] : [],
+        notes: [],
+        tree: [],
+      });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/agent-operations') {
+      return send(200, {
+        ok: true,
+        missions: [],
+        tasks: [],
+        sessions: [],
+        reports: [],
+        daemon: { running: true, lastRun: null, lastError: null, mode: 'runner_required' },
+        runner: firstUserJourney ? {
+          connected: true,
+          status: 'ready',
+        } : null,
+      });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/agents') {
+      return send(200, {
+        ok: true,
+        agents: firstUserJourney ? [{
+          id: 'bizconsultant',
+          displayName: '비즈니스 컨설턴트',
+          status: 'active',
+          enabled: true,
+          model: '',
+          role: '분석',
+          provider: 'hermes',
+          trustLevel: 'workspace',
+          allowedTaskClasses: [],
+        }] : [],
+      });
     }
 
     if (phase8GoogleOAuth && url.pathname.startsWith('/api/calendar/')) {
@@ -639,7 +710,7 @@ async function runScenario(backend) {
   let electronApp = await launchApp({ apiBaseUrl: backend.baseUrl });
   try {
     const page = await electronApp.firstWindow();
-    await page.waitForSelector('button:has-text("AuthKit으로 계속하기")', { timeout: 20_000 });
+    await page.waitForSelector('[data-testid="login-authkit-continue"]', { timeout: 20_000 });
     if (phase8SessionTruth) {
       assert.equal(
         backend.getProtectedRequestCount(),
@@ -671,7 +742,7 @@ async function runScenario(backend) {
       `unexpected userData path: ${cryptoProbe.userData}`,
     );
 
-    await page.getByRole('button', { name: /AuthKit으로 계속하기/ }).click();
+    await page.getByRole('button', { name: /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/ }).click();
     await page.waitForTimeout(400);
 
     const pending = backend.getLastState();
@@ -689,7 +760,7 @@ async function runScenario(backend) {
 
     await page.waitForFunction(() => {
       const loginBtn = Array.from(document.querySelectorAll('button'))
-        .some((b) => /AuthKit으로 계속하기/.test(b.textContent || ''));
+        .some((b) => /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/.test(b.textContent || '') || b.getAttribute('data-testid') === 'login-authkit-continue');
       return !loginBtn;
     }, null, { timeout: 20_000 });
     await page.waitForTimeout(500);
@@ -782,13 +853,55 @@ async function runScenario(backend) {
         assert.ok(fs.statSync(screenshotGoogleSuccessPath).size > 10_000, 'Google sync screenshot missing/small');
       }
 
-      await page.getByRole('button', { name: '나중에 하기' }).click();
-      await page.waitForSelector('[data-testid="unified-calendar"]', { timeout: 20_000 });
-      assert.equal(
-        backend.getWorkspaceSettings().onboarding?.status,
-        'dismissed',
-        'guide dismissal must persist in Workspace settings',
-      );
+      if (firstUserJourney) {
+        // Ready steps show "준비됨" in the rail (not the long statusLabel).
+        const guide = page.locator('[data-testid="onboarding-guide"]');
+        await page.getByRole('button', { name: /Runner와 실행 엔진/ }).click();
+        await guide.locator('.onboarding-progress-step[data-ready="true"]').filter({ hasText: 'Runner' }).waitFor({
+          state: 'visible',
+          timeout: 15_000,
+        });
+        await page.getByRole('button', { name: /Wiki 지식 소스/ }).click();
+        await guide.locator('.onboarding-progress-step[data-ready="true"]').filter({ hasText: 'Wiki' }).waitFor({
+          state: 'visible',
+          timeout: 15_000,
+        });
+        await page.getByRole('button', { name: /Calendar AI 확인/ }).click();
+        await guide.locator('.onboarding-progress-step[data-ready="true"]').filter({ hasText: 'Calendar AI' }).waitFor({
+          state: 'visible',
+          timeout: 15_000,
+        });
+        const completeSetup = page.getByRole('button', { name: '설정 완료' });
+        await completeSetup.waitFor({ state: 'visible', timeout: 10_000 });
+        assert.equal(await completeSetup.isDisabled(), false, '설정 완료 must enable when all steps ready');
+        await completeSetup.click();
+        await page.waitForSelector('[data-testid="unified-calendar"]', { timeout: 20_000 });
+        assert.equal(
+          backend.getWorkspaceSettings().onboarding?.status,
+          'completed',
+          'first-user journey must complete onboarding',
+        );
+        await page.screenshot({ path: screenshotSetupCompletePath, fullPage: true });
+
+        // Control Home / Mode A·B surface.
+        await page.locator('.nav-primary').getByRole('button', { name: '에이전트', exact: true }).click();
+        await page.locator('.agent-delegate-mode').getByRole('button', { name: 'Mode A · 목표만' }).waitFor({
+          state: 'visible',
+          timeout: 20_000,
+        });
+        await page.locator('.agent-delegate-mode').getByRole('button', { name: 'Mode B · 역할 지정' }).click();
+        await page.getByLabel('Mode B 담당 에이전트').waitFor({ state: 'visible', timeout: 10_000 });
+        await page.screenshot({ path: screenshotAgentsPath, fullPage: true });
+        assert.ok(fs.statSync(screenshotAgentsPath).size > 10_000, 'agents Mode A/B screenshot missing/small');
+      } else {
+        await page.getByRole('button', { name: '나중에 하기' }).click();
+        await page.waitForSelector('[data-testid="unified-calendar"]', { timeout: 20_000 });
+        assert.equal(
+          backend.getWorkspaceSettings().onboarding?.status,
+          'dismissed',
+          'guide dismissal must persist in Workspace settings',
+        );
+      }
     }
 
     if (phase8OfflineReconnect) {
@@ -970,7 +1083,7 @@ async function runScenario(backend) {
         'recovered Calendar must still contain the persisted event',
       );
       assert.equal(
-        await page.getByRole('button', { name: /AuthKit으로 계속하기/ }).count(),
+        await page.getByRole('button', { name: /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/ }).count(),
         0,
         'reconnect must not require login',
       );
@@ -1027,7 +1140,7 @@ async function runScenario(backend) {
     assert.equal(sessionStatus.signedIn, true, `restart must restore session: ${JSON.stringify(sessionStatus)}`);
     assert.equal(sessionStatus.workspaceId, 'ws_e2e');
 
-    const loginButtons = await page2.getByRole('button', { name: /AuthKit으로 계속하기/ }).count();
+    const loginButtons = await page2.getByRole('button', { name: /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/ }).count();
     assert.equal(loginButtons, 0, 'login screen must not appear after restart restore');
     assert.equal(backend.getCompleteCount(), 1, 'restart restore must not call desktop/complete again');
     if (orcaShellAudit) await assertOrcaShellLayout(page2, 'restart');
@@ -1175,7 +1288,7 @@ async function runScenario(backend) {
       await window.hermesDesktop?.logoutAuth?.();
     });
     await page2.reload();
-    await page2.waitForSelector('button:has-text("AuthKit으로 계속하기")', { timeout: 20_000 });
+    await page2.waitForSelector('[data-testid="login-authkit-continue"]', { timeout: 20_000 });
     assert.equal(fs.existsSync(sessionFile), false, 'logout must clear secure session file');
     assert.equal(fs.existsSync(workspaceSnapshotFile), false, 'logout must clear encrypted Workspace snapshot');
 

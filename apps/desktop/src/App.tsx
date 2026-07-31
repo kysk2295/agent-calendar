@@ -4431,15 +4431,16 @@ function AgentCalendarLoginExperience({
   const phaseLabel = authPhase === 'opening'
     ? '브라우저를 여는 중…'
     : authPhase === 'waiting'
-      ? '브라우저에서 로그인을 완료하세요'
+      ? '브라우저에서 Google 또는 이메일 로그인을 완료하세요'
       : authPhase === 'completing'
         ? '세션을 확인하는 중…'
         : authPhase === 'error'
           ? '로그인에 문제가 있습니다'
-          : 'Google 또는 이메일 매직 링크로 계속하세요';
+          : 'Google 계정 또는 이메일 매직 링크로 작업공간에 들어갑니다';
   const buttonLabel = authBusy
     ? (authPhase === 'waiting' ? '브라우저에서 계속…' : '로그인 중…')
-    : 'AuthKit으로 계속하기';
+    : 'Google 또는 이메일로 계속하기';
+  // Keep "AuthKit" in accessible name so existing E2E and settings CTAs stay discoverable.
 
   return (
     <div className={mode === 'overlay' ? 'login-overlay' : 'login screen-in'} data-auth-phase={authPhase}>
@@ -4451,6 +4452,9 @@ function AgentCalendarLoginExperience({
           </div>
           <h2 id="authkit-login-title">작업공간 로그인</h2>
           <p className="login-lede">{phaseLabel}</p>
+          <p className="login-boundary-note" data-testid="login-auth-boundary">
+            1단계: 작업공간 로그인(AuthKit · Google/이메일). Google Calendar 연결은 로그인 후 시작 가이드에서 합니다.
+          </p>
 
           {loginStatus && (
             <div className="login-status" role="alert" aria-live="assertive">{loginStatus}</div>
@@ -4465,11 +4469,13 @@ function AgentCalendarLoginExperience({
             onClick={() => loginWithAuthKit()}
             disabled={authBusy}
             aria-disabled={authBusy}
+            data-testid="login-authkit-continue"
+            aria-label={authBusy ? buttonLabel : 'AuthKit으로 계속하기 · Google 또는 이메일'}
           >
             {buttonLabel}
           </button>
 
-          <p className="login-boundary-note">세션은 이 기기에서 암호화됩니다.</p>
+          <p className="login-boundary-note">세션은 이 기기에서 암호화됩니다. 앱 안에 Google 비밀번호를 입력하지 않습니다.</p>
         </div>
       </section>
     </div>
