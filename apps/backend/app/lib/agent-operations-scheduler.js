@@ -7,6 +7,7 @@ class AgentOperationsScheduler {
     clock = () => new Date(),
     executeCompletion,
     sendTelegram = null,
+    wikiRoot = '',
   } = {}) {
     if (!store) throw new Error('AgentOperationsScheduler requires a store');
     if (typeof executeCompletion !== 'function') {
@@ -16,6 +17,7 @@ class AgentOperationsScheduler {
     this.clock = clock;
     this.executeCompletion = executeCompletion;
     this.sendTelegram = sendTelegram;
+    this.wikiRoot = typeof wikiRoot === 'function' ? wikiRoot : () => wikiRoot || '';
     this.tickPromise = null;
   }
 
@@ -120,11 +122,13 @@ class AgentOperationsScheduler {
   }
 
   async #executeTask(task, result, onStarted) {
+    const wikiRoot = typeof this.wikiRoot === 'function' ? this.wikiRoot() : this.wikiRoot;
     return executeAgentTask({
       store: this.store,
       clock: this.clock,
       executeCompletion: this.executeCompletion,
       sendTelegram: this.sendTelegram,
+      wikiRoot: String(wikiRoot || ''),
       task,
       result,
       onStarted,

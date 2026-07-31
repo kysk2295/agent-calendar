@@ -361,6 +361,7 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
             tasks={selectedTasks}
             reports={selectedReports}
             responsibleAgentName={props.agents.find((agent) => agent.id === selectedMission.agentId)?.displayName || selectedMission.agentId}
+            responsibleAgent={props.agents.find((agent) => agent.id === selectedMission.agentId) || null}
             provisional={!selectedConversation && provisionalMission?.id === selectedMission.id}
             conversation={selectedConversation}
             loading={conversationLoading}
@@ -379,6 +380,7 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
             onOpenSession={props.onOpenSession}
             onReportFeedback={props.onReportFeedback}
             onFollowUpDecision={props.onFollowUpDecision}
+            onPinAgentMemory={props.onUpdateAgent}
             liveTurn={liveTurn}
             runners={props.runners}
             controlPlaneBaseUrl={props.controlPlaneBaseUrl}

@@ -55,6 +55,14 @@ export type AgentMissionBudget = {
   readonly weekStartedAt: string;
 };
 
+export type AgentWikiArchiveStatus = 'written' | 'skipped_no_wiki' | 'failed';
+
+export type AgentWikiArchive = {
+  readonly status: AgentWikiArchiveStatus;
+  readonly relativePath: string;
+  readonly archivedAt: string;
+};
+
 export type AgentMission = {
   readonly id: string;
   readonly templateId: string;
@@ -79,6 +87,9 @@ export type AgentMission = {
   readonly plannedAt: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly wikiArchive?: AgentWikiArchive | null;
+  readonly proposedMemoryPins?: readonly string[];
+  readonly proposedMemoryPinCount?: number;
 };
 
 export type AgentTask = {

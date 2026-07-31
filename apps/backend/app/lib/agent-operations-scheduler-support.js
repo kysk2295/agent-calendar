@@ -61,7 +61,12 @@ function recordMissionBudget(store, mission, task) {
   });
 }
 
-function terminalizeAgentMission({ store, missionId, clock = () => new Date() } = {}) {
+function terminalizeAgentMission({
+  store,
+  missionId,
+  clock = () => new Date(),
+  wikiRoot = '',
+} = {}) {
   const state = store.getState();
   const mission = state.agentMissions.find((item) => item.id === missionId);
   if (!mission || TERMINAL_MISSION_STATUSES.has(mission.status) || mission.pendingRevisionId) {
@@ -87,7 +92,7 @@ function terminalizeAgentMission({ store, missionId, clock = () => new Date() } 
       ? 'failed'
       : 'completed';
   const terminalAt = clock().toISOString();
-  const updated = store.updateAgentMission(mission.id, {
+  let updated = store.updateAgentMission(mission.id, {
     status,
     [`${status}At`]: terminalAt,
   });
@@ -109,6 +114,25 @@ function terminalizeAgentMission({ store, missionId, clock = () => new Date() } 
           taskCount: tasks.length,
         },
       }));
+    }
+    try {
+      const { archiveCompletedDelegatedWork } = require('./agent-work-wiki-archive');
+      const archiveResult = archiveCompletedDelegatedWork({
+        store,
+        missionId: mission.id,
+        wikiRoot,
+        clock,
+      });
+      if (archiveResult?.mission) {
+        updated = archiveResult.mission;
+      } else if (archiveResult?.status) {
+        updated = store.getAgentMissions().find((item) => item.id === mission.id) || updated;
+      } else {
+        updated = store.getAgentMissions().find((item) => item.id === mission.id) || updated;
+      }
+    } catch {
+      // Archive must never block terminalization.
+      updated = store.getAgentMissions().find((item) => item.id === mission.id) || updated;
     }
   }
   return updated;

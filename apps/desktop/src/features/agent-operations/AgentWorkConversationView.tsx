@@ -16,8 +16,17 @@ import {
   responsibleAgentAssignmentCopy,
   telegramIngressOwnershipLabel,
   telegramIngressReadinessLabel,
+  wikiArchiveStatusLabel,
 } from './workConversationPresentation';
-import type { AgentExecutionEngine, AgentMission, AgentReport, AgentTask, AgentTaskAction } from './types';
+import type {
+  AgentDirectoryMutationInput,
+  AgentExecutionEngine,
+  AgentMission,
+  AgentReport,
+  AgentRosterEntry,
+  AgentTask,
+  AgentTaskAction,
+} from './types';
 import type {
   AgentWorkComparisonTarget,
   AgentWorkConversationPage,
@@ -30,6 +39,7 @@ type AgentWorkConversationViewProps = {
   readonly tasks: readonly AgentTask[];
   readonly reports: readonly AgentReport[];
   readonly responsibleAgentName: string;
+  readonly responsibleAgent?: AgentRosterEntry | null;
   readonly provisional: boolean;
   readonly conversation: AgentWorkConversationPage | null;
   readonly loading: boolean;
@@ -53,6 +63,7 @@ type AgentWorkConversationViewProps = {
   readonly onOpenSession: (sessionId: string) => void;
   readonly onReportFeedback: (reportId: string, useful: boolean) => Promise<void>;
   readonly onFollowUpDecision: (reportId: string, index: number, decision: 'approved' | 'rejected') => Promise<void>;
+  readonly onPinAgentMemory?: (agentId: string, input: AgentDirectoryMutationInput) => Promise<boolean>;
   readonly liveTurn: AgentWorkLiveTurnState;
   readonly runners: readonly PublicRunner[];
   readonly controlPlaneBaseUrl: string;
@@ -70,7 +81,15 @@ function attentionSummary(props: AgentWorkConversationViewProps): string {
     case 'draft': return '계획 필요 · 요청을 작업 단계로 정리한 뒤 검토하고 시작하세요.';
     case 'active': return '진행 준비 · 다음 실행을 시작하거나 지시를 남길 수 있습니다.';
     case 'paused': return '일시정지 · 재개 전에 변경할 방향을 남겨 주세요.';
-    case 'completed': return '결과 검토 · 현재 결과를 확인하거나 같은 목표로 수정을 요청하세요.';
+    case 'completed': {
+      if (props.mission.wikiArchive?.status === 'written') {
+        return '결과 검토 · 위키 보관본과 기억 후보를 확인하세요.';
+      }
+      if (props.mission.proposedMemoryPins?.length) {
+        return '결과 검토 · 기억에 남길 후보를 확인한 뒤 필요한 것만 고정하세요.';
+      }
+      return '결과 검토 · 현재 결과를 확인하거나 같은 목표로 수정을 요청하세요.';
+    }
     case 'failed': return '재시도 필요 · 실패 원인을 확인한 뒤 다시 시도해 주세요.';
     case 'cancelled': return '중단됨 · 기록을 검토하거나 별도 작업을 시작할 수 있습니다.';
   }
@@ -102,6 +121,8 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
   const [nextActionError, setNextActionError] = useState('');
   const [telegramCopyState, setTelegramCopyState] = useState('');
   const [openWorkerId, setOpenWorkerId] = useState<string | null>(null);
+  const [pinReceipt, setPinReceipt] = useState('');
+  const [pinnedMemoryKeys, setPinnedMemoryKeys] = useState<readonly string[]>([]);
   const assignmentCopy = props.conversation
     ? responsibleAgentAssignmentCopy(props.conversation.work.assignment)
     : '배정 이유 확인 중 · 작업 정보를 불러오고 있습니다.';
@@ -188,7 +209,44 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
   useEffect(() => {
     headingRef.current?.focus();
     setOpenWorkerId(null);
+    setPinnedMemoryKeys([]);
+    setPinReceipt('');
   }, [props.mission.id]);
+  const pinMemory = async (pin: string) => {
+    const agent = props.responsibleAgent;
+    if (!agent || !props.onPinAgentMemory) {
+      setPinReceipt('담당 에이전트 프로필을 찾을 수 없어 기억을 고정하지 못했습니다.');
+      return;
+    }
+    const existing = agent.memories || [];
+    if (existing.some((item) => item.trim() === pin.trim())) {
+      setPinnedMemoryKeys((current) => current.includes(pin) ? current : [...current, pin]);
+      setPinReceipt('이미 에이전트 기억에 있는 항목입니다.');
+      return;
+    }
+    const input: AgentDirectoryMutationInput = {
+      displayName: agent.displayName,
+      role: agent.role,
+      responsibility: agent.responsibility || '',
+      instructions: agent.instructions || '',
+      responseStyle: agent.responseStyle || '',
+      specialties: [...(agent.specialties || [])],
+      memories: [...existing, pin],
+      sourceKind: agent.sourceKind === 'connected' ? 'connected' : 'native',
+      provider: agent.provider || '',
+      externalAgentId: agent.externalAgentId || '',
+      defaultExecutionEngine: agent.defaultExecutionEngine || 'auto',
+      defaultRunnerId: agent.defaultRunnerId || '',
+    };
+    setPinReceipt('기억을 고정하는 중…');
+    const ok = await props.onPinAgentMemory(agent.id, input);
+    if (ok) {
+      setPinnedMemoryKeys((current) => current.includes(pin) ? current : [...current, pin]);
+      setPinReceipt('담당 에이전트 기억에 추가했습니다. 다음 위임부터 반영됩니다.');
+    } else {
+      setPinReceipt('기억 고정에 실패했습니다. 에이전트 프로필에서 직접 추가해 주세요.');
+    }
+  };
   const taskAction = async (taskId: string, action: AgentTaskAction) => {
     const label = action === 'approve' ? '승인' : action === 'cancel' ? '거절' : action === 'pause' ? '일시정지' : action === 'resume' ? '재개' : '재시도';
     setActionReceipt(`${label} 요청을 처리하고 있습니다.`);
@@ -318,6 +376,46 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
           </p>
         </div>
       </details>
+      {(props.mission.wikiArchive || (props.mission.proposedMemoryPins?.length || 0) > 0) && (
+        <section className="agent-work-archive-panel" aria-label="완료 보관과 기억 후보" data-testid="agent-work-archive-panel">
+          {props.mission.wikiArchive && (
+            <div className="agent-work-archive-row" data-status={props.mission.wikiArchive.status}>
+              <strong>{wikiArchiveStatusLabel(props.mission.wikiArchive.status)}</strong>
+              {props.mission.wikiArchive.status === 'written' && props.mission.wikiArchive.relativePath ? (
+                <code>{props.mission.wikiArchive.relativePath}</code>
+              ) : props.mission.wikiArchive.status === 'skipped_no_wiki' ? (
+                <span>실행 컴퓨터(또는 Gateway)에 위키 루트가 설정되면 다음 완료부터 자동 보관됩니다.</span>
+              ) : (
+                <span>작업 결과는 대화에 남아 있습니다. 위키 설정을 확인한 뒤 필요하면 수동으로 복사하세요.</span>
+              )}
+            </div>
+          )}
+          {(props.mission.proposedMemoryPins?.length || 0) > 0 && (
+            <div className="agent-work-memory-pins">
+              <strong>기억 후보</strong>
+              <p>자동으로 저장되지 않습니다. 담당 에이전트에 남길 항목만 고정하세요.</p>
+              <ul>
+                {props.mission.proposedMemoryPins!.map((pin) => {
+                  const pinned = pinnedMemoryKeys.includes(pin) || Boolean(props.responsibleAgent?.memories?.includes(pin));
+                  return (
+                    <li key={pin}>
+                      <span>{pin}</span>
+                      <button
+                        type="button"
+                        disabled={pinned || !props.onPinAgentMemory || !props.responsibleAgent || Boolean(props.busy)}
+                        onClick={() => void pinMemory(pin)}
+                      >
+                        {pinned ? '고정됨' : '기억에 고정'}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {pinReceipt && <p role="status" aria-live="polite">{pinReceipt}</p>}
+            </div>
+          )}
+        </section>
+      )}
       <div className="agent-work-layout">
         <section className="agent-work-primary" aria-label="작업 대화">
           <AgentWorkTimeline checkpoints={props.conversation?.checkpoints || []} loading={props.loading} error={props.error} readOnly={props.aggregateStale || props.loading || Boolean(props.error)} tasks={props.tasks} reports={props.reports} currentResultReportId={props.conversation?.work.revision.currentResultReportId || ''} responsibleAgentName={props.responsibleAgentName} busy={props.busy} onTaskAction={taskAction} onOpenSession={props.onOpenSession} onReportFeedback={props.onReportFeedback} onFollowUpDecision={props.onFollowUpDecision} onRefresh={props.onRefresh} onRetry={retryConversation} liveTurn={props.liveTurn} />

@@ -9149,6 +9149,7 @@ function createRailwayGatewayServer({
         clock: operationClock,
         executeCompletion: executeAgentCompletion,
         sendTelegram: agentReportTelegramSender,
+        wikiRoot: () => resolveReadableWikiRoot(env),
       })
       : null);
   const agentOperationsDaemon = agentOperationsScheduler
