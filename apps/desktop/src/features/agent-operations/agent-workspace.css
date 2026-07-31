@@ -341,6 +341,7 @@
   font-weight: 700;
 }
 .agent-delegate-send:disabled { color: var(--muted); background: var(--line); border-color: var(--line); }
+.agent-delegate-readiness { margin: 6px 3px 0; color: var(--agent-attention-text); font-size: var(--agent-type-caption); line-height: 1.45; }
 
 .agent-status-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; margin: 0; border-top: 1px solid var(--line); }
 .agent-status-card { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px 0; background: transparent; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }

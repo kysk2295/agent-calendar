@@ -3441,6 +3441,93 @@ test('scheduler creates an evidence-backed report from a due report task', async
   await rm(dataDir, { recursive: true, force: true });
 });
 
+test('scheduler completes delegated work when its last task produces the current result', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-terminal-mission-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-terminal', clock }),
+    status: 'active',
+    missionThreadId: 'mission-thread-terminal',
+    currentResultReportId: '',
+    pendingRevisionId: '',
+  });
+  store.createAgentSession({
+    id: mission.missionThreadId,
+    missionId: mission.id,
+    taskId: '',
+    type: 'mission-thread',
+    title: mission.title,
+    status: 'waiting_for_approval',
+  });
+  const priorTask = store.createTask({
+    id: 'task-terminal-research',
+    title: '완료된 근거 조사',
+    status: 'completed',
+    missionId: mission.id,
+    origin: 'agent',
+    actionClass: 'research',
+  });
+  store.createAgentSession({
+    id: 'session-terminal-research',
+    missionId: mission.id,
+    taskId: priorTask.id,
+    type: 'task',
+    status: 'completed',
+  });
+  const reportTask = store.createTask({
+    id: 'task-terminal-report',
+    title: '최종 보고서',
+    owner: 'Agent',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    scheduledAt: '2026-07-13T08:59:00.000Z',
+    dueAt: '2026-07-13T10:00:00.000Z',
+    estimatedMinutes: 30,
+    actionClass: 'report',
+    sourceRefs: ['mission'],
+  });
+  store.createAgentSession({
+    id: 'session-terminal-report',
+    missionId: mission.id,
+    taskId: reportTask.id,
+    type: 'task',
+    status: 'scheduled',
+  });
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async () => ({
+      text: JSON.stringify({
+        title: '최종 보고서',
+        findings: ['완료된 결과'],
+        evidence: [{ label: '공식 근거', url: 'https://example.com/final' }],
+        limitations: [],
+        followUps: [],
+        budget: { usedRuns: 2, usedMinutes: 45 },
+      }),
+    }),
+  });
+
+  // When
+  await scheduler.tick();
+
+  // Then
+  const completedMission = store.getAgentMissions().find((item) => item.id === mission.id);
+  const missionThread = store.getAgentSession(mission.missionThreadId);
+  assert.equal(completedMission.status, 'completed');
+  assert.ok(completedMission.currentResultReportId);
+  assert.equal(
+    missionThread.events.filter((event) => event.kind === 'completion').length,
+    1,
+  );
+  assert.equal(missionThread.events.find((event) => event.kind === 'completion').metadata.status, 'completed');
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
 test('run-now API accepts one future Agent Task before the long execution completes', async () => {
   // Given
   const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
@@ -4451,6 +4538,7 @@ test('revision cycle preserves the old result until success and advances two rev
   const store = new HermesStore({ dataDir, clock });
   const service = new AgentOperationsService({ store, clock });
   const fixture = await createRevisionFixture(store, service, 'success');
+  store.updateAgentMission(fixture.created.work.id, { status: 'completed' });
   const scheduler = new AgentOperationsScheduler({
     store,
     clock,
@@ -4477,6 +4565,8 @@ test('revision cycle preserves the old result until success and advances two rev
 
   // Then
   assert.equal(first.delivery.status, 'applied');
+  assert.equal(beforeExecution.status, 'active');
+  assert.equal(afterSuccess.status, 'completed');
   assert.equal(first.delivery.applicationMode, 'revision');
   assert.ok(first.delivery.revisionId);
   assert.equal(firstTask.status, 'proposed');

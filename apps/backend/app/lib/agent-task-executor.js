@@ -6,6 +6,7 @@ const {
   isRuntimeFailure,
   recordMissionBudget,
   schedulerId,
+  terminalizeAgentMission,
 } = require('./agent-operations-scheduler-support');
 const {
   blockExhaustedRevision,
@@ -34,6 +35,7 @@ async function executeAgentTask({
       finishedAt: clock().toISOString(),
     });
     result.failedTaskIds.push(task.id);
+    if (mission) terminalizeAgentMission({ store, missionId: mission.id, clock });
     return false;
   }
   if (blockExhaustedRevision({ store, mission, task, session, result, clock })) return true;
@@ -133,6 +135,7 @@ async function executeAgentTask({
         metadata: { action: cancelled ? 'cancel' : 'pause', applicationMode: 'applied_at_checkpoint' },
       }));
       (cancelled ? result.cancelledTaskIds : result.blockedTaskIds).push(task.id);
+      terminalizeAgentMission({ store, missionId: mission.id, clock });
       return true;
     }
     let report = null;
@@ -210,6 +213,7 @@ async function executeAgentTask({
     if (!task.revisionId) {
       await completeWorkResult({ store, mission, task, session, report, clock });
     }
+    terminalizeAgentMission({ store, missionId: mission.id, clock });
     result.completedTaskIds.push(task.id);
     await deliverAgentReport({ store, sessionId: session.id, report, sendTelegram, clock });
   } catch (error) {
@@ -227,6 +231,7 @@ async function executeAgentTask({
       text: error.message || 'Agent task execution failed',
       metadata: { code: error.code || 'task_execution_failed', status },
     }));
+    terminalizeAgentMission({ store, missionId: mission.id, clock });
     (blocked ? result.blockedTaskIds : result.failedTaskIds).push(task.id);
   }
   return true;

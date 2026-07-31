@@ -49,7 +49,7 @@ test('an empty Work Conversation exposes the real plan lifecycle action', () => 
   assert.match(detailsSource, /props\.tasks\.length > 0/);
   assert.match(conversationSource, /aria-label="위임 작업 계획 만들기"/);
   assert.match(conversationSource, /props\.onPlanMission\(props\.mission\.id\)/);
-  assert.match(workspaceSource, /onPlanMission=\{props\.onPlanMission\}/);
+  assert.match(workspaceSource, /onPlanMission=\{planNewlyCreatedWork\}/);
 });
 
 test('a selected work uses a focused session rail and one dominant conversation canvas', () => {

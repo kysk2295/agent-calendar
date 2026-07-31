@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { isAgentSelectable } from '../../domains/agent-work/agentRoster';
 import { engineModels, type PublicRunner } from '../runner/runnerApi';
+import { isRunnerCurrentlyReady } from '../runner/runnerConnectionPresentation';
 import { compareAgentTasksBySchedule } from './agentOperations';
 import { AgentControlRoomBoard } from './AgentControlRoomBoard';
 import { AgentDirectoryPanel } from './AgentDirectoryPanel';
@@ -86,6 +87,21 @@ export function displayMissionTitle(title: string, objective: string): string {
   return completeTitle.startsWith(title.slice(0, -truncatedSuffix.length)) ? completeTitle : title;
 }
 
+export type AgentWorkCreationPresentation = Readonly<{
+  canCreate: boolean;
+  message: string;
+}>;
+
+export function agentWorkCreationPresentation(
+  runners: readonly PublicRunner[],
+): AgentWorkCreationPresentation {
+  const canCreate = runners.some((runner) => isRunnerCurrentlyReady(runner));
+  return {
+    canCreate,
+    message: canCreate ? '' : '새 작업을 위임하려면 실행 컴퓨터 연결이 필요합니다.',
+  };
+}
+
 function executionEngine(value: string): AgentExecutionEngine {
   switch (value) {
     case 'hermes':
@@ -166,6 +182,7 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
     ...directoryState,
     missions: directoryState.missions.map((mission) => ({ ...mission, title: displayMissionTitle(mission.title, mission.objective) })),
   }), [directoryState]);
+  const creationPresentation = agentWorkCreationPresentation(props.runners);
 
   useEffect(() => {
     if (selectedMissionId || !returnFocusTarget) return;
@@ -260,7 +277,7 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
   };
   const submit = async () => {
     const objective = request.trim();
-    if (!objective || props.busy === 'create') return;
+    if (!objective || props.busy === 'create' || !creationPresentation.canCreate) return;
     const created = await props.onCreateMission({
       templateId: 'general-agent-work',
       title: titleFromRequest(objective),
@@ -397,9 +414,10 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
         }</span></header>
 
         <div className="agent-delegate-bar">
-          <textarea aria-label="에이전트에게 작업 지시" rows={1} value={request} onChange={(event) => setRequest(event.target.value)} onKeyDown={keyDown} placeholder={directoryAgent ? `${directoryAgent.displayName}에게 작업을 지시하세요` : '작업을 설명하세요. 예: 경쟁사 3곳을 조사해서 문서로 정리해줘'} />
-          <button className="agent-delegate-send" type="button" aria-label="위임" disabled={!request.trim() || props.busy === 'create' || Boolean(directoryAgent && !effectiveAgentId)} onClick={() => void submit()}><span>위임</span></button>
+          <textarea aria-label="에이전트에게 작업 지시" aria-describedby={!creationPresentation.canCreate ? 'agent-work-create-readiness' : undefined} rows={1} value={request} onChange={(event) => setRequest(event.target.value)} onKeyDown={keyDown} placeholder={directoryAgent ? `${directoryAgent.displayName}에게 작업을 지시하세요` : '작업을 설명하세요. 예: 경쟁사 3곳을 조사해서 문서로 정리해줘'} />
+          <button className="agent-delegate-send" type="button" aria-label="위임" disabled={!request.trim() || props.busy === 'create' || !creationPresentation.canCreate || Boolean(directoryAgent && !effectiveAgentId)} onClick={() => void submit()}><span>위임</span></button>
         </div>
+        {!creationPresentation.canCreate && <p id="agent-work-create-readiness" className="agent-delegate-readiness" role="status">{creationPresentation.message}</p>}
         <details className="agent-delegate-advanced"><summary>고급 설정</summary><div><label><span>담당 에이전트</span><select aria-label="담당 에이전트" value={effectiveAgentId} onChange={(event) => setAgentId(event.target.value)}><option value="">자동 배정</option>{props.agents.map((agent) => <option value={agent.id} key={agent.id}>{agent.displayName}</option>)}</select></label><label><span>실행 엔진</span><select aria-label="실행 엔진" value={engine} onChange={(event) => { setEngine(executionEngine(event.target.value)); setRequestedModel(''); }}>{ENGINE_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>{['codex', 'claude', 'grok', 'hermes'].includes(engine) && <label><span>실행 모델</span>{creationModels.models.length ? <select aria-label="실행 모델" value={requestedModel} onChange={(event) => setRequestedModel(event.target.value)}><option value="">Runner 기본 모델</option>{creationModels.models.map((model) => <option value={model} key={model}>{model}</option>)}</select> : <input aria-label="실행 모델" value={requestedModel} onChange={(event) => setRequestedModel(event.target.value)} placeholder="예: gpt-5.6-codex" />}</label>}</div></details>
 
         <AgentControlRoomBoard state={controlHomeState} agents={directoryAgent ? [directoryAgent] : props.agents} automationJobs={props.automationJobs} readOnly={props.aggregateStale} busy={props.busy} onOpenMission={openMission} onTaskAction={props.onTaskAction} />

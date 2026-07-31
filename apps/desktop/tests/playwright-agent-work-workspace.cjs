@@ -4,6 +4,18 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 
 const evidenceDir = process.env.EVIDENCE_DIR || path.resolve('.omo/evidence/agent-work-operating-system/task-5-workspace');
+const fixtureRunnerReady = process.env.AGENT_CALENDAR_E2E_RUNNER_READY !== '0';
+const fixtureRunner = {
+  id: 'runner-agent-work-qa',
+  status: 'active',
+  connectionState: fixtureRunnerReady ? 'connected' : 'disconnected',
+  lastTestOk: true,
+  capabilities: {
+    engines: {
+      codex: { available: true, authStatus: 'authenticated' },
+    },
+  },
+};
 
 const baseMission = {
   id: 'mission-work-1', templateId: 'general-agent-work', title: '경쟁사 가격표 조사와 장기적인 시장 변화 대응 전략을 함께 정리하는 운영 보고서',
@@ -224,6 +236,7 @@ async function main() {
     if (method === 'GET' && apiPath === '/api/agent-operations') { await route.fulfill({ json: operationState }); return; }
     if (method === 'GET' && apiPath === '/api/agents') { await route.fulfill({ json: { ok: true, agents } }); return; }
     if (method === 'GET' && apiPath === '/api/scheduler/jobs') { await route.fulfill({ json: { ok: true, jobs } }); return; }
+    if (method === 'GET' && apiPath === '/api/runners') { await route.fulfill({ json: { ok: true, runners: [fixtureRunner] } }); return; }
     const conversationMatch = apiPath.match(/^\/api\/agent-operations\/work\/([^/]+)\/conversation$/);
     if (method === 'GET' && conversationMatch) {
       if (forceConversationRefreshFailure) { await route.fulfill({ status: 503, json: { ok: false, error: 'GET /api/agent-operations/work/private/conversation failed' } }); return; }
@@ -342,6 +355,22 @@ async function main() {
     await page.waitForSelector('.agent-control-room');
     assert.equal(await page.locator('.agent-work-conversation').count(), 0);
     assert.equal(await page.locator('.agent-scheduler-card button').count(), 0);
+    if (!fixtureRunnerReady) {
+      const delegate = page.getByLabel('에이전트에게 작업 지시');
+      const createButton = page.getByRole('button', { name: '위임' });
+      await page.getByText('새 작업을 위임하려면 실행 컴퓨터 연결이 필요합니다.').waitFor();
+      await delegate.fill('연결 없이 생성되면 안 되는 작업');
+      assert.equal(await createButton.isDisabled(), true);
+      await delegate.press('Enter');
+      assert.equal(calls.some((call) => call.path === '/api/agent-operations/work'), false);
+      await capture(page, 'desktop-control-home-runner-required');
+      await page.locator('[data-work-mission="mission-work-1"]').first().click();
+      await page.locator('.agent-work-conversation').waitFor();
+      assert.equal(await page.getByRole('heading', { name: baseMission.title }).isVisible(), true);
+      await capture(page, 'desktop-control-home-runner-required-read-only');
+      console.log(JSON.stringify({ ok: true, createBlocked: true, existingConversationReadable: true }, null, 2));
+      return;
+    }
     const controlHomeLayouts = [];
     for (const viewport of [{ width: 1280, height: 900, name: 'desktop' }, { width: 768, height: 900, name: 'tablet' }, { width: 375, height: 812, name: 'mobile' }]) {
       await page.setViewportSize(viewport);
