@@ -594,10 +594,20 @@ test('creation callbacks return created identity and the workspace selects it', 
   const workspaceSource = readFileSync(new URL('../src/features/agent-operations/AgentWorkWorkspace.tsx', import.meta.url), 'utf8');
   const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
   const adapterSource = readFileSync(new URL('../src/api/agentWorkApiClient.ts', import.meta.url), 'utf8');
+  const conversationSource = readFileSync(new URL('../src/features/agent-operations/AgentWorkConversationView.tsx', import.meta.url), 'utf8');
 
   // When / Then
   assert.match(screenSource, /Promise<AgentCreatedWork \| null>/);
+  assert.match(screenSource, /aggregateStale=\{props\.error\.includes\('새로고침'\)\}/);
   assert.match(workspaceSource, /setSelectedMissionId\(created\.id\)/);
+  assert.match(workspaceSource, /await planNewlyCreatedWork\(created\.id\)/);
+  assert.equal(
+    workspaceSource.indexOf('await planNewlyCreatedWork(created.id)')
+      > workspaceSource.indexOf('setSelectedMissionId(created.id)'),
+    true,
+  );
+  assert.match(workspaceSource, /자동 계획을 만들지 못했습니다/);
+  assert.match(conversationSource, /operationError/);
   assert.doesNotMatch(workspaceSource, /AgentWorkDrawer|setDrawerOpen/);
   assert.match(workspaceSource, /AgentWorkConversationView/);
   assert.match(workspaceSource, /agentId: effectiveAgentId/);

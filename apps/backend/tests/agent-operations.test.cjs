@@ -2524,8 +2524,100 @@ test('planning API creates proposed calendar work and one Task Session per task'
     assert.equal(planningRequest.payload.profile, 'bizconsultant');
     assert.equal(Object.hasOwn(planningRequest.payload, 'model'), false);
     assert.equal(planningRequest.meta.agentId, 'bizconsultant');
+    assert.equal(store.getAgentMissions().find((item) => item.id === mission.id).planSummary, createValidPlan().summary);
+    const missionThread = store.getState().agentSessions.find((session) => session.type === 'mission-thread');
+    assert.equal(
+      store.getAgentSession(missionThread.id).events.some((event) => /deterministic fallback/i.test(event.text)),
+      false,
+    );
   } finally {
     await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('planning API creates a deterministic fallback plan when plan completion is unavailable', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-plan-fallback-'));
+  const store = new HermesStore({ dataDir, clock });
+  const service = new AgentOperationsService({ store, clock });
+  const mission = service.createMission({
+    templateId: 'general-agent-work',
+    title: '경쟁사 가격 조사',
+    objective: '세 경쟁사의 최근 가격 정책을 조사하고 근거가 있는 보고서로 정리한다.',
+  });
+  const server = createRailwayGatewayServer({
+    env: {},
+    gatewayStore: store,
+    agentOperationsService: service,
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/agent-operations/missions/${mission.id}/plan`, {
+      method: 'POST',
+    });
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.equal(body.tasks.length >= 2 && body.tasks.length <= 5, true);
+    assert.equal(body.tasks.filter((task) => task.actionClass === 'report').length, 1);
+    assert.equal(
+      body.tasks.reduce((total, task) => total + task.estimatedMinutes, 0)
+        <= mission.policy.maxRuntimeMinutesPerWeek,
+      true,
+    );
+    assert.equal(body.tasks.every((task) => task.status === 'proposed' && task.sessionId), true);
+    const missionThread = store.getState().agentSessions.find((session) => session.type === 'mission-thread');
+    const persistedMissionThread = store.getAgentSession(missionThread.id);
+    assert.equal(persistedMissionThread.status, 'waiting_for_approval');
+    assert.equal(
+      persistedMissionThread.events.some((event) => /deterministic fallback/i.test(event.text)),
+      true,
+    );
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('planning falls back when plan completion reports runtime unavailable', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-plan-runtime-fallback-'));
+  const store = new HermesStore({ dataDir, clock });
+  let completionCalls = 0;
+  const service = new AgentOperationsService({
+    store,
+    clock,
+    planCompletion: async () => {
+      completionCalls += 1;
+      const error = new Error('Selected runner is offline');
+      error.code = 'runtime_unavailable';
+      throw error;
+    },
+  });
+  const mission = service.createMission({ templateId: 'weekly-opportunity-brief' });
+
+  try {
+    // When
+    const planned = await service.planMission(mission.id);
+
+    // Then
+    assert.equal(completionCalls, 1);
+    assert.equal(planned.tasks.length >= 2 && planned.tasks.length <= 5, true);
+    assert.equal(planned.tasks.filter((task) => task.actionClass === 'report').length, 1);
+    assert.equal(planned.missionThread.status, 'waiting_for_approval');
+    assert.equal(
+      planned.missionThread.events.some((event) => /deterministic fallback/i.test(event.text)),
+      true,
+    );
+    assert.equal(
+      planned.missionThread.events.some((event) => event.kind === 'error'),
+      false,
+    );
+  } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
 });
@@ -2789,7 +2881,7 @@ test('Codex mission planning requests the per-run Codex CLI adapter', async () =
   }
 });
 
-test('Codex mission planning stops when the Mac mini Codex runner is not ready', async () => {
+test('Codex mission planning uses the deterministic fallback when its runner is not ready', async () => {
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-codex-unavailable-'));
   const store = new HermesStore({ dataDir, clock });
@@ -2838,10 +2930,14 @@ test('Codex mission planning stops when the Mac mini Codex runner is not ready',
 
     // Then
     assert.equal(readiness.job.payload.path, '/api/runner/adapters');
-    assert.equal(response.status, 503);
-    assert.equal(body.error, 'runtime_unavailable');
-    assert.match(body.message, /Codex runner/i);
-    assert.equal(store.getState().tasks.filter((task) => task.origin === 'agent').length, 0);
+    assert.equal(response.status, 200);
+    assert.equal(body.tasks.length >= 2 && body.tasks.length <= 5, true);
+    assert.equal(body.tasks.filter((task) => task.actionClass === 'report').length, 1);
+    const missionThread = store.getState().agentSessions.find((session) => session.type === 'mission-thread');
+    assert.equal(
+      store.getAgentSession(missionThread.id).events.some((event) => /deterministic fallback/i.test(event.text)),
+      true,
+    );
   } finally {
     await close(server);
     await rm(dataDir, { recursive: true, force: true });

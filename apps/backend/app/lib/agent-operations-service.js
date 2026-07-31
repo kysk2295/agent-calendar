@@ -240,13 +240,6 @@ class AgentOperationsService {
   }
 
   async planMission(missionId) {
-    if (!this.planCompletion) {
-      throw new AgentOperationsError(
-        'runtime_unavailable',
-        'Hermes Runner planning is unavailable',
-        503,
-      );
-    }
     const mission = this.#mission(missionId);
     try {
       return await planAgentMission({

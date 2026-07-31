@@ -34,6 +34,7 @@ type AgentWorkConversationViewProps = {
   readonly conversation: AgentWorkConversationPage | null;
   readonly loading: boolean;
   readonly error: string;
+  readonly operationError?: string;
   readonly aggregateStale: boolean;
   readonly busy: string;
   readonly onBack: () => void;
@@ -263,6 +264,7 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
             )}
           </div>
           {nextActionError && <p className="agent-work-next-action-error" role="alert">{nextActionError}</p>}
+          {!nextActionError && props.operationError && <p className="agent-work-next-action-error" role="alert">{props.operationError}</p>}
           <details className="agent-work-execution-details">
             <summary>실행 정보</summary>
             <div>

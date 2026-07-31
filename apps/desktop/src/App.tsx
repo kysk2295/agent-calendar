@@ -2066,7 +2066,7 @@ export function App() {
   }
 
   async function planAgentMission(missionId: string) {
-    await runAgentOperation(missionId, () => hermesApi.planAgentMission(missionId));
+    return (await runAgentOperation(missionId, () => hermesApi.planAgentMission(missionId))) !== null;
   }
 
   async function approveAgentMissionPlan(missionId: string) {

@@ -44,7 +44,7 @@ type AgentWorkWorkspaceProps = {
   readonly onUpdateProviderAgentSession: (sessionId: string, patch: Readonly<{ title?: string; archived?: boolean }>) => Promise<ProviderAgentSession | null>;
   readonly onCreateMission: (input: AgentMissionCreateInput) => Promise<AgentCreatedWork | null>;
   readonly onRefreshAgentOperations: () => Promise<boolean>;
-  readonly onPlanMission: (missionId: string) => Promise<void>;
+  readonly onPlanMission: (missionId: string) => Promise<boolean>;
   readonly onApprovePlan: (missionId: string) => Promise<void>;
   readonly onMissionWorkAction: (missionId: string, action: 'activate' | 'pause' | 'cancel') => Promise<void>;
   readonly onTaskAction: (taskId: string, action: AgentTaskAction) => Promise<boolean>;
@@ -108,6 +108,7 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
   const [provisionalMission, setProvisionalMission] = useState<AgentMission | null>(null);
   const [returnFocusTarget, setReturnFocusTarget] = useState('');
   const [pendingInitialWorkId, setPendingInitialWorkId] = useState('');
+  const [planOperationError, setPlanOperationError] = useState('');
   const [providerSessions, setProviderSessions] = useState<readonly ProviderAgentSession[]>([]);
   const [providerSessionSearch, setProviderSessionSearch] = useState('');
   const [showArchivedProviderSessions, setShowArchivedProviderSessions] = useState(false);
@@ -202,9 +203,10 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
     };
   }, [agentId, providerSessionSearch, showArchivedProviderSessions]);
 
-  const openMission = (missionId: string, originKey: string) => { setProvisionalMission(null); setReturnFocusTarget(originKey); setSelectedMissionId(missionId); };
+  const openMission = (missionId: string, originKey: string) => { setProvisionalMission(null); setPlanOperationError(''); setReturnFocusTarget(originKey); setSelectedMissionId(missionId); };
   const closeMission = () => {
     setProvisionalMission(null);
+    setPlanOperationError('');
     setSelectedMissionId('');
   };
   const selectDirectoryAgent = (nextAgentId: string) => {
@@ -247,8 +249,14 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
   };
   const openImportedProviderSession = (result: ProviderSessionImportResult) => {
     setProvisionalMission(null);
+    setPlanOperationError('');
     setSelectedMissionId(result.missionId);
     void refreshProviderSessions();
+  };
+  const planNewlyCreatedWork = async (missionId: string) => {
+    setPlanOperationError('');
+    if (await props.onPlanMission(missionId)) return;
+    setPlanOperationError('자동 계획을 만들지 못했습니다. 계획 만들기를 눌러 다시 시도해 주세요.');
   };
   const submit = async () => {
     const objective = request.trim();
@@ -274,8 +282,9 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
       });
       setReturnFocusTarget('delegate');
       setRequest('');
-      setPendingInitialWorkId(created.id);
       setSelectedMissionId(created.id);
+      await planNewlyCreatedWork(created.id);
+      setPendingInitialWorkId(created.id);
     }
   };
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -324,12 +333,13 @@ export function AgentWorkWorkspace(props: AgentWorkWorkspaceProps) {
             conversation={selectedConversation}
             loading={conversationLoading}
             error={conversationError}
+            operationError={planOperationError}
             aggregateStale={props.aggregateStale}
             busy={props.busy}
             onBack={closeMission}
             onRefresh={refreshConversation}
             onSendMessage={(text, executionEngine, requestedModel, comparisonTargets): Promise<AgentWorkDelivery> => sendLiveTurn(text, executionEngine, requestedModel, comparisonTargets)}
-            onPlanMission={props.onPlanMission}
+            onPlanMission={planNewlyCreatedWork}
             onApprovePlan={props.onApprovePlan}
             onMissionWorkAction={props.onMissionWorkAction}
             onTaskAction={props.onTaskAction}

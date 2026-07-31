@@ -37,7 +37,7 @@ type AgentOperationsScreenProps = {
   readonly onImportProviderSessionCatalogEntry: (agentId: string, requestId: string, externalSessionId: string) => Promise<ProviderSessionImportResult | null>;
   readonly onUpdateProviderAgentSession: (sessionId: string, patch: Readonly<{ title?: string; archived?: boolean }>) => Promise<ProviderAgentSession | null>;
   readonly onCreateMission: (input: AgentMissionCreateInput) => Promise<AgentCreatedWork | null>;
-  readonly onPlanMission: (missionId: string) => Promise<void>;
+  readonly onPlanMission: (missionId: string) => Promise<boolean>;
   readonly onApprovePlan: (missionId: string) => Promise<void>;
   readonly onMissionWorkAction: (missionId: string, action: 'activate' | 'pause' | 'cancel') => Promise<void>;
   readonly onTaskAction: (taskId: string, action: AgentTaskAction) => Promise<boolean>;
@@ -68,7 +68,7 @@ export function AgentOperationsScreen(props: AgentOperationsScreenProps) {
         runners={props.runners}
         automationJobs={props.automationJobs}
         controlPlaneBaseUrl={props.controlPlaneBaseUrl}
-        aggregateStale={Boolean(props.error)}
+        aggregateStale={props.error.includes('새로고침')}
         busy={props.busy}
         onCreateAgent={props.onCreateAgent}
         onUpdateAgent={props.onUpdateAgent}

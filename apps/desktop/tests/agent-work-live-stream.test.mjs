@@ -114,7 +114,7 @@ test('the Work Conversation composer keeps execution choices out of the primary 
   );
 });
 
-test('a newly opened delegated work shows a real plan next action with engine details secondary', () => {
+test('a failed automatic plan leaves the plan CTA available with an honest error', () => {
   const mission = {
     id: 'draft-work',
     templateId: 'general-agent-work',
@@ -160,6 +160,7 @@ test('a newly opened delegated work shows a real plan next action with engine de
     },
     loading: false,
     error: '',
+    operationError: '자동 계획을 만들지 못했습니다. 계획 만들기를 눌러 다시 시도해 주세요.',
     aggregateStale: false,
     busy: '',
     onBack: () => {},
@@ -182,6 +183,8 @@ test('a newly opened delegated work shows a real plan next action with engine de
   assert.match(html, /다음 행동/);
   assert.match(html, /aria-label="위임 작업 계획 만들기"/);
   assert.match(html, /계획 만들기/);
+  assert.match(html, /role="alert"/);
+  assert.match(html, /자동 계획을 만들지 못했습니다/);
   assert.doesNotMatch(html, /class="agent-work-session-engine"/);
   assert.match(html, /<details class="agent-work-execution-details">[\s\S]*?실행 정보[\s\S]*?<\/details>/);
   assert.match(html, /요청<\/small><strong>자동 선택<\/strong>/);

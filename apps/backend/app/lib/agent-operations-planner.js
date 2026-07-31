@@ -44,6 +44,100 @@ function appendPlanningError(store, sessionId, error) {
   }));
 }
 
+function isRuntimeUnavailable(error) {
+  return error?.code === 'runtime_unavailable' || error?.error === 'runtime_unavailable';
+}
+
+function createDeterministicFallbackPlan({ mission, clock }) {
+  const maxRuns = Number(mission.policy?.maxRunsPerWeek);
+  const maxMinutes = Math.floor(Number(mission.policy?.maxRuntimeMinutesPerWeek));
+  const taskCount = Math.min(3, Math.floor(maxRuns));
+  if (!Number.isFinite(maxRuns) || taskCount < 2 || !Number.isFinite(maxMinutes) || maxMinutes < taskCount) {
+    throw new AgentOperationsPlanError(
+      'plan_policy_invalid',
+      'Mission policy cannot support a deterministic fallback plan',
+      422,
+    );
+  }
+
+  const objective = String(mission.objective || mission.title || '요청한 작업').trim();
+  const missionSourceRefs = Array.isArray(mission.sources)
+    ? mission.sources.map(String).map((source) => source.trim()).filter(Boolean)
+    : [];
+  const sourceRefs = missionSourceRefs.length ? missionSourceRefs : ['mission'];
+  const totalMinutes = Math.min(maxMinutes, taskCount * 30);
+  const baseMinutes = Math.floor(totalMinutes / taskCount);
+  const remainder = totalMinutes % taskCount;
+  const scheduledFrom = clock().getTime();
+  const schedule = (index) => {
+    const scheduledAt = new Date(scheduledFrom + (index * 2 * 60 * 60 * 1000));
+    const dueAt = new Date(scheduledAt.getTime() + (90 * 60 * 1000));
+    return { scheduledAt: scheduledAt.toISOString(), dueAt: dueAt.toISOString() };
+  };
+  const taskContracts = taskCount === 2
+    ? [
+      {
+        key: 'research',
+        title: `${mission.title} 근거 수집`,
+        reason: `요청 목표를 수행하기 전에 검증 가능한 근거가 필요합니다: ${objective}`,
+        expectedOutput: '출처와 핵심 사실이 연결된 근거 목록',
+        actionClass: 'research',
+        sourceRefs,
+      },
+      {
+        key: 'report',
+        title: `${mission.title} 결과 보고`,
+        reason: '수집한 근거를 요청 목표에 맞는 최종 결과로 정리해야 합니다.',
+        expectedOutput: `${objective}에 대한 근거, 결론, 한계가 포함된 최종 산출물`,
+        actionClass: 'report',
+        sourceRefs: ['mission'],
+      },
+    ]
+    : [
+      {
+        key: 'research',
+        title: `${mission.title} 근거 수집`,
+        reason: `요청 목표를 수행하기 전에 검증 가능한 근거가 필요합니다: ${objective}`,
+        expectedOutput: '출처와 핵심 사실이 연결된 근거 목록',
+        actionClass: 'research',
+        sourceRefs,
+      },
+      {
+        key: 'analysis',
+        title: `${mission.title} 근거 분석`,
+        reason: '수집한 근거를 목표와 성공 기준에 맞춰 비교하고 해석해야 합니다.',
+        expectedOutput: '근거별 시사점, 불확실성, 권고안이 포함된 분석',
+        actionClass: 'analysis',
+        sourceRefs: ['mission'],
+      },
+      {
+        key: 'report',
+        title: `${mission.title} 결과 보고`,
+        reason: '검증한 근거와 분석을 요청 목표에 맞는 최종 결과로 정리해야 합니다.',
+        expectedOutput: `${objective}에 대한 근거, 결론, 한계가 포함된 최종 산출물`,
+        actionClass: 'report',
+        sourceRefs: ['mission'],
+      },
+    ];
+
+  return {
+    summary: `Deterministic fallback으로 "${objective}" 작업 계획을 생성했습니다.`,
+    tasks: taskContracts.map((task, index) => ({
+      ...task,
+      ...schedule(index),
+      estimatedMinutes: baseMinutes + (index < remainder ? 1 : 0),
+    })),
+  };
+}
+
+function appendFallbackCheckpoint(store, sessionId, reason) {
+  store.appendAgentSessionEvent(sessionId, sanitizeSessionEvent({
+    kind: 'progress',
+    text: '실행 가능한 계획 런타임이 없어 deterministic fallback으로 계획을 만들었습니다.',
+    metadata: { code: 'deterministic_fallback', reason },
+  }));
+}
+
 function createPlannedTask({ store, mission, taskPlan, clock }) {
   const task = store.createTask({
     id: createPlannerId('agent-task', clock),
@@ -128,47 +222,62 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
   const handlePlanningEvent = async (event) => {
     store.appendAgentSessionEvent(missionThread.id, sanitizeSessionEvent(event));
   };
+  if (typeof planCompletion !== 'function') {
+    completion = { text: JSON.stringify(createDeterministicFallbackPlan({ mission, clock })) };
+    appendFallbackCheckpoint(store, missionThread.id, 'plan_completion_missing');
+  }
   try {
-    const workMessages = store.getAgentSession(missionThread.id).events
-      .filter((event) => event.kind === 'user_message')
-      .map((event) => event.text);
-    const basePrompt = buildMissionPlanPrompt({
-      mission,
-      priorReports: store.getAgentReports().filter((report) => report.missionId === mission.id),
-      userFeedback: Array.isArray(mission.userFeedback) ? mission.userFeedback : [],
-    });
-    const prompt = workMessages.length
-      ? `${basePrompt}\nWork Conversation context:\n${workMessages.map((text) => `- ${text}`).join('\n')}`
-      : basePrompt;
-    planningMessages = [
-      { role: 'system', content: 'You plan bounded internal work for Agent Calendar. Return JSON only.' },
-      { role: 'user', content: prompt },
-    ];
-    completion = await planCompletion({
-      payload: {
-        profile: mission.agentId,
-        executionEngine: mission.executionEngine || 'hermes',
-        deliverable: mission.deliverable || { kind: 'report', format: 'markdown' },
-        stream: true,
-        messages: planningMessages,
-      },
-      meta: {
-        missionId: mission.id,
-        sessionId: missionThread.id,
-        agentId: mission.agentId,
-        executionEngine: mission.executionEngine || 'hermes',
-        deliverable: mission.deliverable || { kind: 'report', format: 'markdown' },
-        idempotencyKey: `${mission.id}:plan:1`,
-      },
-      onEvent: handlePlanningEvent,
-    });
+    if (typeof planCompletion === 'function') {
+      const workMessages = store.getAgentSession(missionThread.id).events
+        .filter((event) => event.kind === 'user_message')
+        .map((event) => event.text);
+      const basePrompt = buildMissionPlanPrompt({
+        mission,
+        priorReports: store.getAgentReports().filter((report) => report.missionId === mission.id),
+        userFeedback: Array.isArray(mission.userFeedback) ? mission.userFeedback : [],
+      });
+      const prompt = workMessages.length
+        ? `${basePrompt}\nWork Conversation context:\n${workMessages.map((text) => `- ${text}`).join('\n')}`
+        : basePrompt;
+      planningMessages = [
+        { role: 'system', content: 'You plan bounded internal work for Agent Calendar. Return JSON only.' },
+        { role: 'user', content: prompt },
+      ];
+      completion = await planCompletion({
+        payload: {
+          profile: mission.agentId,
+          executionEngine: mission.executionEngine || 'hermes',
+          deliverable: mission.deliverable || { kind: 'report', format: 'markdown' },
+          stream: true,
+          messages: planningMessages,
+        },
+        meta: {
+          missionId: mission.id,
+          sessionId: missionThread.id,
+          agentId: mission.agentId,
+          executionEngine: mission.executionEngine || 'hermes',
+          deliverable: mission.deliverable || { kind: 'report', format: 'markdown' },
+          idempotencyKey: `${mission.id}:plan:1`,
+        },
+        onEvent: handlePlanningEvent,
+      });
+      if (isRuntimeUnavailable(completion)) {
+        completion = { text: JSON.stringify(createDeterministicFallbackPlan({ mission, clock })) };
+        appendFallbackCheckpoint(store, missionThread.id, 'runtime_unavailable');
+      }
+    }
   } catch (error) {
-    appendPlanningError(store, missionThread.id, error);
-    throw new AgentOperationsPlanError(
-      error.code || 'runtime_unavailable',
-      error.message || 'Hermes Runner planning failed',
-      error.code === 'runtime_unavailable' ? 503 : 502,
-    );
+    if (isRuntimeUnavailable(error)) {
+      completion = { text: JSON.stringify(createDeterministicFallbackPlan({ mission, clock })) };
+      appendFallbackCheckpoint(store, missionThread.id, 'runtime_unavailable');
+    } else {
+      appendPlanningError(store, missionThread.id, error);
+      throw new AgentOperationsPlanError(
+        error.code || 'runtime_unavailable',
+        error.message || 'Hermes Runner planning failed',
+        error.code === 'runtime_unavailable' ? 503 : 502,
+      );
+    }
   }
 
   let plan;
@@ -211,15 +320,23 @@ async function planAgentMission({ store, mission, planCompletion, clock = () => 
       });
       plan = parseMissionPlan({ mission, raw: completion?.text });
     } catch (error) {
-      appendPlanningError(store, missionThread.id, error);
-      if (error.code && error.code !== 'plan_invalid') {
-        throw new AgentOperationsPlanError(
-          error.code,
-          error.message || 'Hermes Runner planning failed',
-          error.code === 'runtime_unavailable' ? 503 : 502,
-        );
+      if (isRuntimeUnavailable(error)) {
+        plan = parseMissionPlan({
+          mission,
+          raw: JSON.stringify(createDeterministicFallbackPlan({ mission, clock })),
+        });
+        appendFallbackCheckpoint(store, missionThread.id, 'runtime_unavailable');
+      } else {
+        appendPlanningError(store, missionThread.id, error);
+        if (error.code && error.code !== 'plan_invalid') {
+          throw new AgentOperationsPlanError(
+            error.code,
+            error.message || 'Hermes Runner planning failed',
+            error.code === 'runtime_unavailable' ? 503 : 502,
+          );
+        }
+        throw new AgentOperationsPlanError('plan_invalid', 'Hermes returned an invalid mission plan', 422);
       }
-      throw new AgentOperationsPlanError('plan_invalid', 'Hermes returned an invalid mission plan', 422);
     }
   }
 
