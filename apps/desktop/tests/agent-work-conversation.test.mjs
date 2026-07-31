@@ -610,8 +610,9 @@ test('creation callbacks return created identity and the workspace selects it', 
   assert.match(conversationSource, /operationError/);
   assert.doesNotMatch(workspaceSource, /AgentWorkDrawer|setDrawerOpen/);
   assert.match(workspaceSource, /AgentWorkConversationView/);
-  assert.match(workspaceSource, /agentId: effectiveAgentId/);
-  assert.match(workspaceSource, /\.\.\.\(effectiveAgentId/);
+  assert.match(workspaceSource, /agentWorkCreateInput/);
+  assert.match(workspaceSource, /agentId: input\.effectiveAgentId/);
+  assert.match(workspaceSource, /\.\.\.\(input\.effectiveAgentId/);
   assert.match(appSource, /createAgentWork\(input\)/);
   assert.match(adapterSource, /createdWorkIdentity/);
   assert.match(adapterSource, /sendAgentWorkMessage/);

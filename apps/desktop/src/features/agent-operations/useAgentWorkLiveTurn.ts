@@ -172,6 +172,18 @@ export function useAgentWorkLiveTurn(missionId: string, onRefresh: () => Promise
       };
     retryMessageRef.current = pending;
     try {
+      if (abortRef.current) {
+        const queued = await hermesApi.sendAgentWorkMessage(missionId, {
+          clientMessageId: pending.clientMessageId,
+          text: pending.text,
+          ...(pending.executionEngine ? { executionEngine: pending.executionEngine } : {}),
+          ...(pending.requestedModel ? { requestedModel: pending.requestedModel } : {}),
+          ...(pending.comparisonTargets.length ? { comparisonTargets: pending.comparisonTargets } : {}),
+        });
+        if (retryMessageRef.current === pending) retryMessageRef.current = null;
+        void onRefreshRef.current().catch(() => false);
+        return queued.delivery;
+      }
       const accepted = await start({
         text: pending.text,
         ...(pending.executionEngine ? { executionEngine: pending.executionEngine } : {}),

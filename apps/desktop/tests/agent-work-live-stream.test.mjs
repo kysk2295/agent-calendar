@@ -114,6 +114,41 @@ test('the Work Conversation composer keeps execution choices out of the primary 
   );
 });
 
+test('running Work Conversation keeps durable message send available without pretending to interrupt', () => {
+  const html = renderToStaticMarkup(React.createElement(composerModule.AgentWorkComposer, {
+    onSend: async () => ({ status: 'queued', applicationMode: 'next_attempt', acceptedAt: '2026-07-31T00:00:00.000Z' }),
+    interventionActive: true,
+    running: true,
+    refreshError: '',
+    activeEngine: 'auto',
+    activeModel: '',
+    modelCapabilities: {},
+    availableEngines: ['codex', 'claude'],
+  }));
+
+  assert.equal(composerModule.workMessageSendDisabled({
+    hasDraft: true,
+    sending: false,
+    streaming: true,
+    comparisonMode: false,
+    comparisonTargetCount: 0,
+  }), false);
+  assert.match(html, /현재 실행은 중단하지 않습니다/);
+  assert.match(html, /다음 체크포인트/);
+  assert.doesNotMatch(html, /즉시 반영 요청|인터럽트/);
+});
+
+test('delivery receipts use the locked Korean queue and checkpoint labels', () => {
+  assert.equal(
+    presentationModule.deliveryCopy('queued', 'next_attempt'),
+    '다음 시도에 반영 예정 — 현재 실행은 중단하지 않습니다.',
+  );
+  assert.equal(
+    presentationModule.deliveryCopy('accepted', 'next_checkpoint'),
+    '다음 체크포인트 적용 요청됨. 실행 중인 단계가 끝난 뒤 반영됩니다.',
+  );
+});
+
 test('a failed automatic plan leaves the plan CTA available with an honest error', () => {
   const mission = {
     id: 'draft-work',

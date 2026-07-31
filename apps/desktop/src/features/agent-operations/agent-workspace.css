@@ -279,6 +279,8 @@
 
 .agent-control-head > div { min-width: 0; display: flex; align-items: baseline; gap: 11px; }
 .agent-control-head h1 { margin: 0; font-size: var(--agent-type-screen-title); line-height: 1.25; letter-spacing: 0; }
+.agent-control-lede { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 3px 3px 8px; color: var(--muted-dark); font-size: var(--agent-type-caption); line-height: 1.45; }
+.agent-control-lede strong { color: var(--text); }
 .agent-control-summary { color: var(--muted); font-size: var(--agent-type-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .agent-control-live { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--agent-type-caption); white-space: nowrap; }
 .agent-control-live i { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--red); }

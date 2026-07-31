@@ -328,6 +328,7 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
             modelCapabilities={modelCapabilities}
             availableEngines={availableEngines}
             streaming={props.liveTurn.active}
+            running={props.mission.status === 'active' || props.tasks.some((task) => task.status === 'running')}
             refreshError={props.error && props.liveTurn.refreshFailed ? '메시지는 저장됐지만 최신 대화를 불러오지 못했습니다. 다시 시도해 주세요.' : ''}
           />
         </section>

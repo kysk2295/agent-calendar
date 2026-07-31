@@ -3,7 +3,7 @@
 - Date: 2026-07-31
 - Owner: Codex (orchestrated)
 - Work size: Large / Boundary (desktop agent-operations + light backend hooks)
-- Status: Implemented (uncommitted; coordinator review)
+- Status: Verified
 
 ## Goal
 
@@ -81,7 +81,41 @@ Align the Agent Work Control Space UI with the refined product intent:
 - [ ] Step 5: Copy pass on touched agent-operations strings (mission → 위임 작업 where user-visible).
 - [ ] Step 6: Run gates; leave verification notes in worker_done.
 
+## Mode A + intervention honesty follow-up
+
+- Work size: Medium (desktop React + desktop tests; no API/schema changes)
+- Goal: make goal-only Mode A explicit on Control Home, name the optional Responsible Agent entry as advanced Mode B setup, and keep running-work intervention copy aligned with the existing queued delivery contract.
+- Non-goals: role creation wizard, backend interrupt protocol, memory graph, Wiki archive automation.
+- Success criteria:
+  - [x] Control Home says users can delegate with only a goal.
+  - [x] Advanced copy names optional Responsible Agent role selection without implying a full Mode B workflow.
+  - [x] Running/streaming work keeps the primary message path available and explains that it does not interrupt the current run.
+  - [x] No immediate-interrupt button appears because no end-to-end interrupt/restart API exists.
+  - [x] Goal-only create omits `agentId`, preserving backend auto-assignment.
+- Edge cases: an explicitly selected directory agent still stays explicit; an in-flight live response queues a second message through the durable message endpoint; delivery receipts remain authoritative.
+- RED: focused desktop tests for Mode A copy, empty auto-assignment create input, and running composer queue copy/action availability.
+- GREEN: minimal helper extraction, copy, and existing REST queue-path wiring.
+- Acceptance gates: focused `node --test`, desktop `typecheck`, desktop test suite, and a scoped Playwright workflow if the local fixture starts cleanly.
+- Rollback: revert this follow-up commit; no persisted contracts or backend data change.
+
+### Follow-up checklist
+
+- [x] Add failing Mode A and intervention-honesty tests.
+- [x] Implement Control Home and advanced Mode B entry copy.
+- [x] Keep message send enabled while streaming and route the second message through the durable queue endpoint.
+- [x] Verify focused tests, typecheck, desktop suite, and scoped UI workflow.
+
 ## Verification Notes
+
+- 2026-07-31 Mode A/intervention follow-up:
+  - RED: focused tests failed on missing Mode A create helper/copy and a disabled streaming send action.
+  - `node --test tests/agent-work-create-readiness.test.mjs tests/agent-work-live-stream.test.mjs` — 21/21 passed.
+  - `npm run typecheck` — passed.
+  - `npm --workspace apps/desktop run test` — 309/309 passed.
+  - Control Home Playwright — passed at desktop/tablet/mobile; evidence in `.omo/evidence/task_b73aa42f656f-final-control-home/`.
+  - Create-to-plan Playwright — passed; request omitted `agentId`, kept `executionEngine: auto`, and opened the real plan path; evidence in `.omo/evidence/task_b73aa42f656f-final-create/`.
+  - Full Work Conversation Playwright — passed, including queued/next-checkpoint delivery receipts.
+  - Backend gates skipped because no backend file or contract changed; existing desktop code consumes the already-supported durable message endpoint.
 
 - Orchestration: run `run_eb9cd722631d`, task `task_909383630cbd`, dispatch `ctx_d7edcc3c4eaf` (Codex) → `worker_done` succeeded.
 - Worker reported: typecheck pass; 46 focused tests; scoped Playwright create-to-plan pass; full desktop suite 295/295; backend:check skipped (no backend changes).
