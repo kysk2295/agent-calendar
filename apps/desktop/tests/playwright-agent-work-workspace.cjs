@@ -4,6 +4,18 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 
 const evidenceDir = process.env.EVIDENCE_DIR || path.resolve('.omo/evidence/agent-work-operating-system/task-5-workspace');
+const fixtureRunnerReady = process.env.AGENT_CALENDAR_E2E_RUNNER_READY !== '0';
+const fixtureRunner = {
+  id: 'runner-agent-work-qa',
+  status: 'active',
+  connectionState: fixtureRunnerReady ? 'connected' : 'disconnected',
+  lastTestOk: true,
+  capabilities: {
+    engines: {
+      codex: { available: true, authStatus: 'authenticated' },
+    },
+  },
+};
 
 const baseMission = {
   id: 'mission-work-1', templateId: 'general-agent-work', title: '경쟁사 가격표 조사와 장기적인 시장 변화 대응 전략을 함께 정리하는 운영 보고서',
@@ -222,8 +234,12 @@ async function main() {
     const body = request.postDataJSON?.() || {};
     calls.push({ method, path: apiPath, body });
     if (method === 'GET' && apiPath === '/api/agent-operations') { await route.fulfill({ json: operationState }); return; }
-    if (method === 'GET' && apiPath === '/api/agents') { await route.fulfill({ json: { ok: true, agents } }); return; }
+    if (method === 'GET' && apiPath === '/api/agents') {
+      await route.fulfill({ json: { ok: true, agents: process.env.AGENT_CALENDAR_E2E_EMPTY_AGENTS === '1' ? [] : agents } });
+      return;
+    }
     if (method === 'GET' && apiPath === '/api/scheduler/jobs') { await route.fulfill({ json: { ok: true, jobs } }); return; }
+    if (method === 'GET' && apiPath === '/api/runners') { await route.fulfill({ json: { ok: true, runners: [fixtureRunner] } }); return; }
     const conversationMatch = apiPath.match(/^\/api\/agent-operations\/work\/([^/]+)\/conversation$/);
     if (method === 'GET' && conversationMatch) {
       if (forceConversationRefreshFailure) { await route.fulfill({ status: 503, json: { ok: false, error: 'GET /api/agent-operations/work/private/conversation failed' } }); return; }
@@ -342,6 +358,34 @@ async function main() {
     await page.waitForSelector('.agent-control-room');
     assert.equal(await page.locator('.agent-work-conversation').count(), 0);
     assert.equal(await page.locator('.agent-scheduler-card button').count(), 0);
+    if (process.env.AGENT_CALENDAR_E2E_EMPTY_AGENTS === '1') {
+      await page.getByText('이 Workspace에는 미리 연결된 에이전트가 없습니다.').first().waitFor();
+      await capture(page, 'desktop-control-home-empty-agent-roster');
+      await page.getByRole('button', { name: '첫 에이전트 만들기' }).click();
+      await page.getByRole('heading', { name: '에이전트 만들기' }).waitFor();
+      await page.getByRole('button', { name: '닫기' }).click();
+      await page.getByRole('button', { name: 'Runner에서 가져오기' }).click();
+      await page.getByRole('heading', { name: 'Runner에서 에이전트 가져오기' }).waitFor();
+      await capture(page, 'desktop-empty-agent-import-path');
+      console.log(JSON.stringify({ ok: true, emptyRoster: true, createPath: true, importPath: true }, null, 2));
+      return;
+    }
+    if (!fixtureRunnerReady) {
+      const delegate = page.getByLabel('에이전트에게 작업 지시');
+      const createButton = page.getByRole('button', { name: '위임' });
+      await page.getByText('새 작업을 위임하려면 실행 컴퓨터 연결이 필요합니다.').waitFor();
+      await delegate.fill('연결 없이 생성되면 안 되는 작업');
+      assert.equal(await createButton.isDisabled(), true);
+      await delegate.press('Enter');
+      assert.equal(calls.some((call) => call.path === '/api/agent-operations/work'), false);
+      await capture(page, 'desktop-control-home-runner-required');
+      await page.locator('[data-work-mission="mission-work-1"]').first().click();
+      await page.locator('.agent-work-conversation').waitFor();
+      assert.equal(await page.getByRole('heading', { name: baseMission.title }).isVisible(), true);
+      await capture(page, 'desktop-control-home-runner-required-read-only');
+      console.log(JSON.stringify({ ok: true, createBlocked: true, existingConversationReadable: true }, null, 2));
+      return;
+    }
     const controlHomeLayouts = [];
     for (const viewport of [{ width: 1280, height: 900, name: 'desktop' }, { width: 768, height: 900, name: 'tablet' }, { width: 375, height: 812, name: 'mobile' }]) {
       await page.setViewportSize(viewport);
@@ -473,6 +517,18 @@ async function main() {
     assert.match(await actionReceipt.textContent() || '', /승인.*완료/);
     assert.equal(await actionReceipt.getAttribute('role'), 'status');
     assert.equal(await approvalCheckpoint.getByRole('button', { name: /이 제안/ }).count(), 0);
+    const workerStrip = page.getByLabel('하위 작업자 상태');
+    assert.equal(await workerStrip.locator('li').count(), 3);
+    assert.match(await workerStrip.textContent() || '', /실제 실행 확인 필요/);
+    await workerStrip.getByRole('button', { name: '가격 정책 수집 실행 상세 열기' }).click();
+    const executionDetail = page.getByRole('dialog', { name: '가격 정책 수집' });
+    await executionDetail.waitFor();
+    assert.equal(await executionDetail.getAttribute('aria-modal'), 'false');
+    assert.equal(await executionDetail.getByRole('log').count(), 1);
+    assert.equal(await page.locator('main.agent-work-conversation').count(), 1);
+    await capture(page, 'desktop-worker-execution-detail');
+    await executionDetail.getByRole('button', { name: '실행 상세 닫기' }).click();
+    await executionDetail.waitFor({ state: 'detached' });
     await capture(page, 'desktop-work-conversation');
     if (process.env.AGENT_CALENDAR_E2E_CONVERSATION_SURFACE_ONLY === '1') {
       for (const viewport of [{ width: 768, height: 900, name: 'tablet' }, { width: 375, height: 812, name: 'mobile' }]) {
@@ -511,11 +567,20 @@ async function main() {
     assert.equal(createCall.body.executionEngine, 'auto');
 
     assert.equal(await composer.isEnabled(), true);
+    assert.match(await page.locator('.agent-work-next-action').textContent() || '', /다음 행동.*계획 만들기/);
+    assert.equal(await page.getByLabel('이 메시지의 실행 엔진').isVisible(), false);
+    assert.equal(await page.getByRole('button', { name: '여러 실행 엔진 비교' }).isVisible(), false);
+    assert.equal(await page.locator('.agent-work-composer-advanced').getByText('고급 실행 설정', { exact: true }).isVisible(), true);
     await composer.fill('계획에 공식 출처를 추가해줘');
     await page.getByRole('button', { name: '작업 대화에 보내기' }).click();
     await page.getByRole('status').filter({ hasText: '접수됨' }).waitFor();
     await page.getByRole('button', { name: '계획 만들기' }).click();
     assert.equal(calls.some((call) => call.path.endsWith('/mission-created/plan')), true);
+    if (process.env.AGENT_CALENDAR_E2E_AGENT_CONTROL_P0 === '1') {
+      await capture(page, 'desktop-agent-control-p0-create-plan');
+      console.log(JSON.stringify({ ok: true, surface: 'agent-control-p0', createPlan: true, enginePrimaryVisible: false }, null, 2));
+      return;
+    }
 
     await page.getByRole('button', { name: '관제 홈으로 돌아가기' }).click();
     await page.locator('.agent-running-card', { hasText: '가격 정책 수집' }).click();
@@ -536,8 +601,12 @@ async function main() {
       assert.match(await page.locator('.agent-work-timeline').textContent() || '', new RegExp(expected));
     }
 
-    assert.equal(await page.getByText('요청 방식', { exact: true }).isVisible(), true);
-    assert.equal(await page.getByText('실제 실행', { exact: true }).isVisible(), true);
+    const executionDetails = page.locator('.agent-work-execution-details');
+    assert.equal(await executionDetails.locator('div').isVisible(), false);
+    await executionDetails.getByText('실행 정보', { exact: true }).click();
+    assert.equal(await executionDetails.getByText('요청', { exact: true }).isVisible(), true);
+    assert.equal(await executionDetails.getByText('실제 실행', { exact: true }).isVisible(), true);
+    assert.equal(await executionDetails.getByText('Codex', { exact: true }).isVisible(), true);
     await page.getByRole('button', { name: '지금 실행' }).first().click();
     await page.getByRole('button', { name: '재개' }).click();
     await currentResultCheckpoint.getByRole('button', { name: '도움 됨' }).click();

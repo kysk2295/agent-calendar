@@ -25,7 +25,8 @@ import {
   shouldShowReadyCard,
   shouldShowReconnectRequired,
 } from './runnerConnectionPresentation';
-
+import { ProviderAccountsPanel } from './ProviderAccountsPanel';
+import './provider-accounts.css';
 type SetupStep =
   | 'workspace'
   | 'install'
@@ -39,12 +40,14 @@ type Props = {
   workspaceLabel?: string;
   controlPlaneBaseUrl?: string;
   onReadyCalendar?: () => void;
+  onRunnersChange?: (runners: readonly PublicRunner[]) => void;
 };
 
 export function RunnerSetupPanel({
   workspaceLabel = '현재 작업공간',
   controlPlaneBaseUrl = '',
   onReadyCalendar,
+  onRunnersChange,
 }: Props) {
   const [step, setStep] = useState<SetupStep>('workspace');
   const [busy, setBusy] = useState(false);
@@ -57,12 +60,14 @@ export function RunnerSetupPanel({
   const [testMessage, setTestMessage] = useState('');
   const [qrSvg, setQrSvg] = useState('');
   const [lastRevoked, setLastRevoked] = useState<PublicRunner | null>(null);
+  const [providerNotice, setProviderNotice] = useState('');
 
   const refreshRunners = useCallback(async () => {
     const list = await listRunners();
     setRunners(list);
+    onRunnersChange?.(list);
     return list;
-  }, []);
+  }, [onRunnersChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -296,7 +301,7 @@ export function RunnerSetupPanel({
       {step === 'workspace' && (
         <section className="runner-card" data-testid="runner-step-workspace">
           <h3>1. 작업공간 확인</h3>
-          <p>이 작업공간에서 사용할 Runner를 확인하고 추가합니다.</p>
+          <p>등록된 Runner가 없으면 아래 Runner 추가를 누르세요. 설치/열기와 일회용 코드 발급 순서로 안내합니다.</p>
           {runners.length > 0 && (
             <ul className="runner-list" data-testid="runner-list">
               {runners.map((r) => (
@@ -422,7 +427,7 @@ export function RunnerSetupPanel({
           {selectedRunner.fingerprint && (
             <code className="runner-fp" data-testid="runner-active-fingerprint">{selectedRunner.fingerprint}</code>
           )}
-          <ul className="runner-engines" data-testid="runner-engines">
+          <ul className="runner-engines" data-testid="runner-engines" hidden>
             {engines.map(({ name, cap }) => {
               const presentation = engineAuthenticationPresentation(cap);
               return (
@@ -439,6 +444,42 @@ export function RunnerSetupPanel({
               );
             })}
           </ul>
+          <ProviderAccountsPanel
+            engines={engines}
+            hostLabel={
+              selectedRunner.hostMetadata && typeof selectedRunner.hostMetadata === 'object' && 'hostName' in selectedRunner.hostMetadata
+                ? String((selectedRunner.hostMetadata as { hostName?: string }).hostName || '실행 컴퓨터')
+                : '실행 컴퓨터'
+            }
+            busy={busy}
+            onRefresh={() => {
+              void refreshRunners().then((list) => {
+                const current = list.find((r) => r.id === selectedRunner.id);
+                if (current) {
+                  setSelectedRunner(current);
+                  if (isRunnerCurrentlyReady(current)) setStep('ready');
+                  else setStep('active');
+                }
+                setProviderNotice('Runner 엔진 로그인 상태를 새로고침했습니다.');
+              });
+            }}
+            onAddAccount={(providerId) => {
+              setProviderNotice(
+                `${providerId} 계정 추가는 Runner 호스트에서 해당 CLI로 로그인하세요. 자격 증명은 이 앱으로 복사되지 않습니다.`,
+              );
+            }}
+            onReauth={(providerId) => {
+              setProviderNotice(`${providerId} 재인증은 Runner 호스트에서 다시 로그인하면 반영됩니다.`);
+            }}
+            onRemove={(providerId) => {
+              setProviderNotice(`${providerId} 계정 제거는 Runner 호스트의 로컬 로그인 관리에서 처리하세요.`);
+            }}
+          />
+          {providerNotice && (
+            <p className="runner-test-message" data-testid="provider-accounts-notice" role="status">
+              {providerNotice}
+            </p>
+          )}
           <div className="runner-actions">
             <button type="button" data-testid="runner-connection-test" className="primary" disabled={busy} onClick={() => void onTest()}>
               연결 테스트

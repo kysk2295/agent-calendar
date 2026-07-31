@@ -151,7 +151,11 @@ import {
 } from './features/settings/uiPreferences';
 import { WorkspaceInferencePolicyPanel } from './features/settings/WorkspaceInferencePolicyPanel';
 import { OnboardingGuide } from './features/onboarding/OnboardingGuide';
-import { buildOnboardingReadiness } from './features/onboarding/onboardingReadiness';
+import {
+  buildOnboardingReadiness,
+  mergeCalendarSourceTruth,
+  type OnboardingActionKind,
+} from './features/onboarding/onboardingReadiness';
 import {
   INITIAL_DESKTOP_CONNECTIVITY,
   beginConnectivityRetry,
@@ -161,6 +165,7 @@ import {
   offlineRetryDelayMs,
   settleRecoveredConnectivity,
 } from './features/connectivity/desktopConnectivity';
+import { shouldShowGlobalApiBanner } from './features/connectivity/globalApiBanner';
 import {
   createWorkspaceHydrationCoordinator,
   type WorkspaceHydrationCoordinator,
@@ -649,6 +654,7 @@ export function App() {
   const [loginStatus, setLoginStatus] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
   const [authPhase, setAuthPhase] = useState<'idle' | 'opening' | 'waiting' | 'completing' | 'error'>('idle');
+  const authLoginAttemptRef = useRef(0);
   const [prefs, setPrefs] = useState<UiPreferences>(DEFAULT_UI_PREFERENCES);
   const [quickText, setQuickText] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState('');
@@ -693,6 +699,7 @@ export function App() {
   const [calendarAiActionBusyId, setCalendarAiActionBusyId] = useState('');
   const [onboardingBusy, setOnboardingBusy] = useState(false);
   const [onboardingMessage, setOnboardingMessage] = useState('');
+  const [onboardingPendingAction, setOnboardingPendingAction] = useState<OnboardingActionKind | null>(null);
   const [completionNotice, setCompletionNotice] = useState<CompletionNotice>(null);
   const widgetActionDrainRef = useRef(false);
   const optimisticRunsRef = useRef<Item[]>([]);
@@ -722,6 +729,9 @@ export function App() {
     setChatMessages([]);
     setCalendarAiConversationId('');
     setCalendarAiMemories([]);
+    setOnboardingBusy(false);
+    setOnboardingMessage('');
+    setOnboardingPendingAction(null);
     setWikiAnswer('');
     setWikiAnswerSources([]);
     setWikiAnswerMeta({});
@@ -829,9 +839,11 @@ export function App() {
     calendarSources,
     runners: automationRunners,
     knowledgeSources: arr(state.wiki, 'sources'),
+    wiki: state.wiki && typeof state.wiki === 'object' && !Array.isArray(state.wiki)
+      ? state.wiki as Record<string, unknown>
+      : undefined,
     calendarAiConversationId,
-    calendarAiAvailable: state.settings.calendarAiAvailable === true
-      || text(state.settings.calendarAiMode) === 'cloud_model',
+    calendarAiAvailable: state.settings.calendarAiAvailable === true,
   }), [
     automationRunners,
     calendarAiConversationId,
@@ -866,11 +878,12 @@ export function App() {
     'reconnecting',
     'recovered',
   ].includes(desktopConnectivity.status);
-  const showGlobalApiBanner = Boolean(
-    apiError
-    && screen !== 'agents'
-    && !['offline', 'reconnecting'].includes(desktopConnectivity.status),
-  );
+  const showGlobalApiBanner = shouldShowGlobalApiBanner({
+    apiError,
+    screen,
+    connectivityStatus: desktopConnectivity.status,
+    gatewayStatus: state.gatewayStatus,
+  });
   const taxonomy = useMemo(() => {
     const byId = new Map<string, TaxonomyItem>();
     const metadata = state.taxonomy.map(parseTaxonomyRecord).filter(Boolean) as TaxonomyItem[];
@@ -1386,6 +1399,8 @@ export function App() {
   }
 
   async function loginWithAuthKit() {
+    const attempt = authLoginAttemptRef.current + 1;
+    authLoginAttemptRef.current = attempt;
     setLoginStatus('');
     setAuthBusy(true);
     setAuthPhase('opening');
@@ -1397,6 +1412,7 @@ export function App() {
       }
       setAuthPhase('waiting');
       const next = await window.hermesDesktop.loginWithAuthKit();
+      if (authLoginAttemptRef.current !== attempt) return;
       setSettings(desktopSettingsState(next));
       const signedIn = desktopSettingsSignedIn(next);
       setLoggedIn(signedIn);
@@ -1406,11 +1422,26 @@ export function App() {
         await startSignedInWorkspace();
       }
     } catch (error) {
+      if (authLoginAttemptRef.current !== attempt) return;
       setAuthPhase('error');
       setLoginStatus(desktopBridgeErrorMessage(error, 'AuthKit 로그인을 완료하지 못했습니다.'));
     } finally {
-      setAuthBusy(false);
+      if (authLoginAttemptRef.current === attempt) setAuthBusy(false);
     }
+  }
+
+  async function cancelAuthKitLogin() {
+    const cancellation = authLoginAttemptRef.current + 1;
+    authLoginAttemptRef.current = cancellation;
+    try {
+      await window.hermesDesktop?.cancelAuthKitLogin?.();
+    } catch {
+      // Main may already have cleared the pending login.
+    }
+    if (authLoginAttemptRef.current !== cancellation) return;
+    setAuthBusy(false);
+    setAuthPhase('idle');
+    setLoginStatus('로그인을 취소했습니다. 다시 시도하세요.');
   }
 
   async function logout() {
@@ -2120,7 +2151,7 @@ export function App() {
   }
 
   async function planAgentMission(missionId: string) {
-    await runAgentOperation(missionId, () => hermesApi.planAgentMission(missionId));
+    return (await runAgentOperation(missionId, () => hermesApi.planAgentMission(missionId))) !== null;
   }
 
   async function approveAgentMissionPlan(missionId: string) {
@@ -2733,6 +2764,9 @@ export function App() {
   }
 
   async function syncCalendarSources() {
+    if (onboardingBusy) return;
+    setOnboardingBusy(true);
+    setOnboardingPendingAction('calendar_sync');
     setOnboardingMessage('');
     try {
       const list = await hermesApi.getCalendarSources();
@@ -2755,18 +2789,23 @@ export function App() {
       const message = error instanceof Error ? error.message : '캘린더 동기화 실패';
       setApiError(message);
       setOnboardingMessage(message);
+    } finally {
+      setOnboardingBusy(false);
+      setOnboardingPendingAction(null);
     }
   }
 
   async function connectGoogleCalendar() {
     if (onboardingBusy) return;
     setOnboardingBusy(true);
-    setOnboardingMessage('Google 로그인 창을 여는 중입니다.');
+    setOnboardingPendingAction('calendar_connect');
+    setOnboardingMessage('브라우저에서 Google 계정을 선택해 Calendar 일정 권한을 승인하세요.');
     try {
       if (!window.hermesDesktop?.connectGoogleCalendar) {
         throw new Error('Google Calendar 연결은 데스크톱 앱에서 사용할 수 있습니다.');
       }
       const result = await window.hermesDesktop.connectGoogleCalendar();
+      setCalendarSources((current) => mergeCalendarSourceTruth(current, result.source as Item));
       await hydrate({ blocking: false });
       setOnboardingMessage(
         result.sync.ok
@@ -2782,6 +2821,7 @@ export function App() {
       );
     } finally {
       setOnboardingBusy(false);
+      setOnboardingPendingAction(null);
     }
   }
 
@@ -3378,7 +3418,7 @@ export function App() {
   if (!loggedIn) {
     return (
       <div className="app-root login-root" data-theme={settings.theme}>
-        <LoginScreen loginWithAuthKit={loginWithAuthKit} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} />
+        <LoginScreen loginWithAuthKit={loginWithAuthKit} cancelAuthKitLogin={cancelAuthKitLogin} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} />
       </div>
     );
   }
@@ -3578,6 +3618,7 @@ export function App() {
                 readiness={onboardingReadiness}
                 busy={onboardingBusy || wikiSourceBusy}
                 message={onboardingMessage || wikiSourceMessage}
+                pendingAction={onboardingPendingAction}
                 onConnectCalendar={connectGoogleCalendar}
                 onSyncCalendar={syncCalendarSources}
                 onOpenRunner={() => openScreen('runner')}
@@ -3596,10 +3637,11 @@ export function App() {
               <RunnerSetupPanel
                 workspaceLabel={settings.authProfile?.email || settings.authProfile?.name || accountName || 'Workspace'}
                 controlPlaneBaseUrl={settings.apiBaseUrl}
+                onRunnersChange={setAutomationRunners}
                 onReadyCalendar={() => openScreen('calendar')}
               />
             )}
-            {screen === 'login' && <LoginScreen loginWithAuthKit={loginWithAuthKit} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} />}
+            {screen === 'login' && <LoginScreen loginWithAuthKit={loginWithAuthKit} cancelAuthKitLogin={cancelAuthKitLogin} authBusy={authBusy} authPhase={authPhase} loginStatus={loginStatus} />}
           </section>
         )}
       </main>
@@ -4567,11 +4609,13 @@ function SettingsScreen({ settings, gatewayStatus, setSettings, refresh, openRun
 
 function LoginScreen({
   loginWithAuthKit,
+  cancelAuthKitLogin,
   authBusy,
   authPhase,
   loginStatus,
 }: {
   loginWithAuthKit: () => void;
+  cancelAuthKitLogin?: () => void;
   authBusy: boolean;
   authPhase: 'idle' | 'opening' | 'waiting' | 'completing' | 'error';
   loginStatus: string;
@@ -4580,6 +4624,7 @@ function LoginScreen({
     <AgentCalendarLoginExperience
       mode="page"
       loginWithAuthKit={loginWithAuthKit}
+      cancelAuthKitLogin={cancelAuthKitLogin}
       authBusy={authBusy}
       authPhase={authPhase}
       loginStatus={loginStatus}
@@ -4590,12 +4635,14 @@ function LoginScreen({
 function AgentCalendarLoginExperience({
   mode,
   loginWithAuthKit,
+  cancelAuthKitLogin,
   authBusy,
   authPhase,
   loginStatus,
 }: {
   mode: 'overlay' | 'page';
   loginWithAuthKit: () => void;
+  cancelAuthKitLogin?: () => void;
   authBusy: boolean;
   authPhase: 'idle' | 'opening' | 'waiting' | 'completing' | 'error';
   loginStatus: string;
@@ -4603,15 +4650,16 @@ function AgentCalendarLoginExperience({
   const phaseLabel = authPhase === 'opening'
     ? '브라우저를 여는 중…'
     : authPhase === 'waiting'
-      ? '브라우저에서 로그인을 완료하세요'
+      ? '브라우저에서 Google 계정을 선택해 로그인을 완료하세요'
       : authPhase === 'completing'
         ? '세션을 확인하는 중…'
         : authPhase === 'error'
           ? '로그인에 문제가 있습니다'
-          : 'Google 또는 이메일 매직 링크로 계속하세요';
+          : 'Google 계정 또는 이메일 매직 링크로 작업공간에 들어갑니다';
   const buttonLabel = authBusy
     ? (authPhase === 'waiting' ? '브라우저에서 계속…' : '로그인 중…')
-    : 'AuthKit으로 계속하기';
+    : 'Google 또는 이메일로 계속하기';
+  // Keep "AuthKit" in accessible name so existing E2E and settings CTAs stay discoverable.
 
   return (
     <div className={mode === 'overlay' ? 'login-overlay' : 'login screen-in'} data-auth-phase={authPhase}>
@@ -4623,12 +4671,18 @@ function AgentCalendarLoginExperience({
           </div>
           <h2 id="authkit-login-title">작업공간 로그인</h2>
           <p className="login-lede">{phaseLabel}</p>
+          <p className="login-boundary-note" data-testid="login-auth-boundary">
+            1단계: 작업공간 로그인(AuthKit · Google/이메일). Google Calendar 연결은 로그인 후 시작 가이드에서 합니다.
+          </p>
 
           {loginStatus && (
             <div className="login-status" role="alert" aria-live="assertive">{loginStatus}</div>
           )}
           {!loginStatus && authBusy && (
-            <div className="login-status login-status-progress" role="status" aria-live="polite">{phaseLabel}</div>
+            <div className="login-status login-status-progress" role="status" aria-live="polite">
+              {phaseLabel}
+              {authPhase === 'waiting' ? ' · Chrome에서 계정을 고른 뒤 “Electron 열기”를 허용하세요.' : ''}
+            </div>
           )}
 
           <button
@@ -4637,11 +4691,23 @@ function AgentCalendarLoginExperience({
             onClick={() => loginWithAuthKit()}
             disabled={authBusy}
             aria-disabled={authBusy}
+            data-testid="login-authkit-continue"
+            aria-label={authBusy ? buttonLabel : 'AuthKit으로 계속하기 · Google 또는 이메일'}
           >
             {buttonLabel}
           </button>
+          {authBusy && cancelAuthKitLogin ? (
+            <button
+              type="button"
+              className="login-cancel"
+              data-testid="login-authkit-cancel"
+              onClick={() => cancelAuthKitLogin()}
+            >
+              로그인 취소
+            </button>
+          ) : null}
 
-          <p className="login-boundary-note">세션은 이 기기에서 암호화됩니다.</p>
+          <p className="login-boundary-note">세션은 이 기기에서 암호화됩니다. 앱 안에 Google 비밀번호를 입력하지 않습니다.</p>
         </div>
       </section>
     </div>

@@ -523,6 +523,75 @@ test('preflight CLI consumes evidence documents instead of operator boolean clai
   }
 });
 
+test('dry-run CLI validates a complete evidence package offline with strict arguments', () => {
+  const tempDir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'release-gate-dry-run-'));
+  const files = {
+    status: path.join(tempDir, 'status.json'),
+    deployments: path.join(tempDir, 'deployments.json'),
+    readiness: path.join(tempDir, 'readiness.json'),
+    smoke: path.join(tempDir, 'smoke.json'),
+    isolation: path.join(tempDir, 'isolation.json'),
+  };
+  try {
+    fs.writeFileSync(files.status, JSON.stringify(validStatus()));
+    fs.writeFileSync(files.deployments, JSON.stringify(validDeployments()));
+    fs.writeFileSync(files.readiness, JSON.stringify(validReadinessEvidence()));
+    fs.writeFileSync(files.smoke, JSON.stringify(validSmokeEvidence()));
+    fs.writeFileSync(files.isolation, JSON.stringify(validStagingIsolationEvidence()));
+    const args = [
+      RELEASE_GATE_CLI,
+      'dry-run',
+      '--status-json', files.status,
+      '--deployments-json', files.deployments,
+      '--expected-commit', CANDIDATE_COMMIT,
+      '--readiness-evidence-json', files.readiness,
+      '--smoke-evidence-json', files.smoke,
+      '--staging-isolation-evidence-json', files.isolation,
+      '--evaluated-at', EVALUATED_AT,
+    ];
+    const env = {
+      ...process.env,
+      RAILWAY_API_TOKEN: '',
+      RAILWAY_PROJECT_TOKEN: '',
+    };
+    const result = spawnSync(process.execPath, args, {
+      cwd: path.resolve(__dirname, '../../..'),
+      encoding: 'utf8',
+      env,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.deepEqual(JSON.parse(result.stdout), evaluateValidPreflight());
+
+    fs.writeFileSync(files.readiness, JSON.stringify({ schemaVersion: 1 }));
+    const invalidEvidence = spawnSync(process.execPath, args, {
+      cwd: path.resolve(__dirname, '../../..'),
+      encoding: 'utf8',
+      env,
+    });
+    assert.notEqual(invalidEvidence.status, 0);
+    const rejection = JSON.parse(invalidEvidence.stdout);
+    assert.equal(rejection.ok, false);
+    assert.equal(
+      rejection.failures.includes('candidate_readiness_evidence_invalid'),
+      true,
+    );
+
+    const unsupported = spawnSync(process.execPath, [
+      ...args,
+      '--contact-railway', 'true',
+    ], {
+      cwd: path.resolve(__dirname, '../../..'),
+      encoding: 'utf8',
+      env,
+    });
+    assert.notEqual(unsupported.status, 0);
+    assert.match(unsupported.stderr, /dry-run.*unsupported flag/i);
+    assert.equal(unsupported.stdout, '');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('rollback target must be the exact retained canRollback deployment', () => {
   const deployments = validDeployments();
   const accepted = validateRollbackTarget({
@@ -835,6 +904,54 @@ test('snapshot CLI fails closed without an explicit Public API token', () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /token/i);
   assert.doesNotMatch(result.stderr, /Usage:/);
+});
+
+test('live Railway CLI commands name missing token inputs and do not spawn Railway', () => {
+  const tempDir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'release-gate-token-'));
+  const binDir = path.join(tempDir, 'bin');
+  const railwayCallPath = path.join(tempDir, 'railway-called');
+  const deploymentsPath = path.join(tempDir, 'deployments.json');
+  fs.mkdirSync(binDir);
+  fs.writeFileSync(
+    path.join(binDir, 'railway'),
+    '#!/bin/sh\nprintf called > "$RAILWAY_CALL_PATH"\nexit 99\n',
+  );
+  fs.chmodSync(path.join(binDir, 'railway'), 0o755);
+  fs.writeFileSync(deploymentsPath, JSON.stringify(validDeployments()));
+  try {
+    const commands = [
+      ['snapshot-deployments'],
+      ['snapshot-staging-isolation'],
+      [
+        'rollback',
+        '--deployments-json', deploymentsPath,
+        '--current-deployment-id', 'current-production',
+        '--target-deployment-id', 'last-known-good',
+        '--confirm', 'ROLLBACK:last-known-good',
+      ],
+    ];
+    for (const command of commands) {
+      const result = spawnSync(process.execPath, [RELEASE_GATE_CLI, ...command], {
+        cwd: path.resolve(__dirname, '../../..'),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+          RAILWAY_CALL_PATH: railwayCallPath,
+          RAILWAY_API_TOKEN: '',
+          RAILWAY_PROJECT_TOKEN: '',
+        },
+      });
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /RAILWAY_API_TOKEN/);
+      assert.match(result.stderr, /RAILWAY_PROJECT_TOKEN/);
+      assert.match(result.stderr, /exactly one/i);
+      assert.equal(result.stdout, '');
+      assert.equal(fs.existsSync(railwayCallPath), false);
+    }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('actual local Gateway readiness promotion failure restores the known-good process', () => {

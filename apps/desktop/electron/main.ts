@@ -111,19 +111,39 @@ const sessionManager = createSecureSessionManager({
 
 const e2eAuthMode = process.env.AGENT_CALENDAR_E2E_AUTH === '1';
 const liveKeychainReceiptMode = process.env.AGENT_CALENDAR_LIVE_KEYCHAIN_RECEIPT === '1';
+
+/** Open system browser for AuthKit / OAuth. */
+async function openExternalBrowser(url: string): Promise<void> {
+  const target = String(url || '').trim();
+  if (!target) throw new Error('브라우저로 열 URL이 비어 있습니다.');
+  try {
+    const host = new URL(target).host;
+    logLifecycle('open-external', { host });
+  } catch {
+    logLifecycle('open-external', { host: 'invalid' });
+  }
+  try {
+    await shell.openExternal(target);
+  } catch (error) {
+    logLifecycle('open-external-shell-failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
 const authKitLogin = createDesktopAuthKitLogin({
   apiBaseUrl: () => readSettings().apiBaseUrl,
   sessionManager,
   openExternal: e2eAuthMode
     ? async () => undefined
-    : (url) => shell.openExternal(url).then(() => undefined),
+    : openExternalBrowser,
 });
 const googleCalendarOAuth = createDesktopGoogleCalendarOAuth({
   apiBaseUrl: () => readSettings().apiBaseUrl,
   getAccessToken: () => sessionManager.getAccessToken(),
   openExternal: e2eAuthMode
     ? async () => undefined
-    : (url) => shell.openExternal(url).then(() => undefined),
+    : openExternalBrowser,
 });
 
 function profileFromSession(session: AppSessionTokens): DesktopAuthProfile {
@@ -182,12 +202,19 @@ async function handleAuthCallbackDeepLink(target: { kind: 'auth-callback'; code:
     }
     return { ok: true as const, workspaceId: session.workspaceId };
   } catch (error) {
-    logLifecycle('auth-callback-failed', {
-      message: error instanceof Error ? error.message : String(error),
-    });
+    const code = error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: string }).code || '')
+      : '';
+    const message = error instanceof Error ? error.message : String(error);
+    logLifecycle('auth-callback-failed', { message, code });
+    // Stale callbacks (wrong state / no pending) must not cancel an in-flight login wait
+    // or surface a red error when the user is mid-browser login.
+    if (code === 'AUTH_STATE_MISMATCH_STALE' || code === 'AUTH_NO_PENDING_LOGIN') {
+      return { ok: false as const, stale: true as const };
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('auth:login-error', {
-        message: error instanceof Error ? error.message : String(error),
+        message,
       });
       mainWindow.show();
       mainWindow.focus();
@@ -452,6 +479,27 @@ function createWindow() {
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     logLifecycle('did-fail-load', { errorCode, errorDescription, validatedURL });
+    // Dev: Vite down looks like infinite white load — show an honest recovery page.
+    const failWindow = mainWindow;
+    if (
+      failWindow
+      && !failWindow.isDestroyed()
+      && process.env.VITE_DEV_SERVER_URL
+      && (errorCode === -102 || errorCode === -105 || errorCode === -106)
+    ) {
+      const retryTarget = process.env.VITE_DEV_SERVER_URL;
+      const html = `<!doctype html><html lang="ko"><meta charset="utf-8"/><title>Agent Calendar</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:48px;color:#111;background:#fafafa}
+main{max-width:420px}h1{font-size:20px}code{background:#eee;padding:2px 6px;border-radius:4px}
+button{margin-top:16px;padding:10px 16px;border:0;border-radius:8px;background:#111;color:#fff;cursor:pointer}</style>
+<main><h1>개발 서버에 연결하지 못했습니다</h1>
+<p>Vite(<code>127.0.0.1:5173</code>)가 꺼져 있으면 화면이 하얗게 멈춥니다.</p>
+<p>터미널에서 <code>npm run electron:dev</code>로 다시 시작하세요.</p>
+<p style="color:#666;font-size:13px">${String(errorDescription || '')} (${errorCode})</p>
+<button type="button" onclick="location.href=${JSON.stringify(retryTarget)}">다시 시도</button>
+</main>`;
+      void failWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    }
   });
 
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
@@ -463,7 +511,11 @@ function createWindow() {
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
   if (devServerUrl) {
     void mainWindow.loadURL(devServerUrl);
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    // Detached DevTools confuses macOS accessibility targeting (login automation).
+    // Opt-in with AGENT_CALENDAR_OPEN_DEVTOOLS=1 when debugging the renderer.
+    if (process.env.AGENT_CALENDAR_OPEN_DEVTOOLS === '1') {
+      mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
   } else {
     void mainWindow.loadFile(packagedRendererIndexPath());
   }
@@ -577,6 +629,10 @@ registerTrustedIpcHandle(ipcMain, 'auth:authkit-login', requireTrustedRenderer, 
   saveSettings({ auth: profileFromSession(session) });
   return publishSettings();
 });
+registerTrustedIpcHandle(ipcMain, 'auth:authkit-cancel', requireTrustedRenderer, async () => {
+  authKitLogin.cancelLogin('로그인이 취소되었습니다. 다시 시도할 수 있습니다.');
+  return { ok: true as const };
+});
 registerTrustedIpcHandle(ipcMain, 'calendar:google-connect', requireTrustedRenderer, () => googleCalendarOAuth.begin());
 // Legacy IPC names: disabled for production (AuthKit only).
 registerTrustedIpcHandle(ipcMain, 'auth:provider-login', requireTrustedRenderer, async () => {
@@ -681,13 +737,35 @@ app.whenReady().then(async () => {
   }
 
   // Register custom protocol for packaged + dev AuthKit callbacks.
-  if (process.defaultApp) {
-    if (process.argv.length >= 2) {
-      app.setAsDefaultProtocolClient('agent-calendar', process.execPath, [path.resolve(process.argv[1])]);
+  // Dev Electron shares bundle id com.github.Electron with every other local
+  // Electron binary — re-claim the scheme on every ready/activate so a stray
+  // Electron from another checkout does not swallow AuthKit deep links.
+  const claimAgentCalendarProtocol = () => {
+    let claimed = false;
+    if (process.defaultApp) {
+      if (process.argv.length >= 2) {
+        claimed = app.setAsDefaultProtocolClient(
+          'agent-calendar',
+          process.execPath,
+          [path.resolve(process.argv[1])],
+        );
+      }
+    } else {
+      claimed = app.setAsDefaultProtocolClient('agent-calendar');
     }
-  } else {
-    app.setAsDefaultProtocolClient('agent-calendar');
-  }
+    logLifecycle('protocol-claim', {
+      scheme: 'agent-calendar',
+      claimed,
+      defaultApp: Boolean(process.defaultApp),
+      execPath: process.execPath,
+      mainScript: process.defaultApp && process.argv[1] ? path.resolve(process.argv[1]) : null,
+    });
+    return claimed;
+  };
+  claimAgentCalendarProtocol();
+  app.on('activate', () => {
+    claimAgentCalendarProtocol();
+  });
 
   logLifecycle('app-ready', { userData: app.getPath('userData') });
   const loadedEnvKeys = loadLocalRuntimeEnv();

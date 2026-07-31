@@ -1,4 +1,5 @@
 const { sanitizeSessionEvent, transitionAgentTask } = require('./agent-operations-domain');
+const { terminalizeAgentMission } = require('./agent-operations-scheduler-support');
 const { isUnsupportedExternalRequest } = require('./agent-work-delivery');
 
 class AgentOperationsInterventionError extends Error {
@@ -156,6 +157,7 @@ function transitionAgentTaskWithIntervention({
       metadata: { action, previousStatus: task.status, status: updated.status },
     }));
   }
+  terminalizeAgentMission({ store, missionId: updated.missionId, clock });
   return updated;
 }
 

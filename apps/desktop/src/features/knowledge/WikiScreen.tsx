@@ -127,7 +127,12 @@ export function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOp
         </label>
       </div>
       <div className="knowledge-source-list">
-        {knowledgeSources.length === 0 && <p>아직 연결된 지식 소스가 없습니다.</p>}
+        {knowledgeSources.length === 0 && (
+          <p>
+            연결된 지식 소스가 없습니다. 파일을 추가하거나 데스크톱 실행 환경의 LLM_WIKI_VAULT에
+            실제 폴더 경로를 지정하세요. 경로가 없거나 오프라인이면 로컬 Wiki는 준비되지 않습니다.
+          </p>
+        )}
         {knowledgeSources.map((source, index) => {
           const sourceId = text(source.id, `knowledge-source-${index}`);
           const status = text(source.status);

@@ -1,0 +1,221 @@
+/* Orca-inspired provider account management — Agent Calendar tokens */
+
+.provider-accounts {
+  display: grid;
+  gap: 16px;
+  width: min(920px, 100%);
+}
+
+.provider-accounts-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.provider-accounts-kicker {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.provider-accounts-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.provider-accounts-lede {
+  margin: 8px 0 0;
+  max-width: 62ch;
+  color: var(--muted-dark);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.provider-accounts-list {
+  display: grid;
+  gap: 14px;
+}
+
+.provider-accounts-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 16px 18px;
+}
+
+.provider-accounts-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.provider-accounts-card-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.provider-accounts-optional {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.provider-accounts-desc {
+  margin: 8px 0 0;
+  color: var(--muted-dark);
+  font-size: 12.5px;
+  line-height: 1.45;
+  max-width: 58ch;
+}
+
+.provider-accounts-add {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--input);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.provider-accounts-add:hover {
+  background: var(--bar);
+}
+
+.provider-accounts-block-label {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.provider-accounts-block-label strong {
+  font-size: 12px;
+}
+
+.provider-accounts-block-label span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.provider-account-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--main);
+  margin-bottom: 8px;
+}
+
+.provider-account-row[data-active='true'] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.provider-account-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.provider-account-title-row strong {
+  font-size: 13px;
+}
+
+.provider-account-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bar);
+  color: var(--muted-dark);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.provider-account-badge[data-badge='active'] {
+  border-color: var(--accent-line);
+  background: var(--panel);
+  color: var(--accent-dark);
+}
+
+.provider-account-badge[data-badge='device'] {
+  color: var(--muted-dark);
+}
+
+.provider-account-row p {
+  margin: 6px 0 0;
+  color: var(--muted-dark);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.provider-account-auth {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.provider-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.provider-account-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--input);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.provider-account-actions button.danger {
+  color: var(--red);
+  border-color: var(--red-soft);
+}
+
+.provider-accounts-empty {
+  margin-top: 4px;
+  padding: 14px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+  background: var(--bar);
+}
+
+@media (max-width: 720px) {
+  .provider-accounts-head,
+  .provider-accounts-card-head,
+  .provider-account-row {
+    flex-direction: column;
+  }
+
+  .provider-accounts-add,
+  .provider-account-actions {
+    width: 100%;
+  }
+}

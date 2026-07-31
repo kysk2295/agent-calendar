@@ -149,7 +149,7 @@ test('api golden calendar cases satisfy hard schema and source isolation', async
       assert.equal(response.status, 200, entry.question);
       assert.equal(payload.search?.strategy, 'backend-calendar-ai-rag', entry.question);
       assert.equal(payload.search?.intent, 'ask', entry.question);
-      assert.ok(['llm', 'llm-retry', 'fallback'].includes(payload.answerMode), entry.question);
+      assert.ok(['llm', 'llm-retry', 'llm-augmented', 'fallback'].includes(payload.answerMode), entry.question);
       assert.equal(payload.computed?.questionType, entry.expectedComputed.questionType, entry.question);
       assert.ok(includesAll(haystack, entry.mustIncludeFacts), entry.question);
       for (const forbidden of entry.mustNotInclude || []) assert.doesNotMatch(payload.answer || '', new RegExp(forbidden), entry.question);

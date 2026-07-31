@@ -486,8 +486,8 @@ async function waitBody(page, re, timeoutMs = 45_000) {
 }
 
 async function loginAccount({ app, page, authState, code, expectedCount, expectedEmail }) {
-  await page.waitForSelector('button:has-text("AuthKit으로 계속하기")', { timeout: 25_000 });
-  await page.getByRole('button', { name: /AuthKit으로 계속하기/ }).click();
+  await page.waitForSelector('[data-testid="login-authkit-continue"]', { timeout: 25_000 });
+  await page.getByRole('button', { name: /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/ }).click();
   await page.waitForTimeout(500);
   const pending = authState.getLastStart();
   assert.ok(pending);
@@ -861,7 +861,7 @@ async function runTwoAccountIsolation({ pool, baseUrl, authState }) {
       app = await launchApp(baseUrl, contextB);
       page = await app.firstWindow();
       await page.waitForTimeout(1500);
-      assert.equal(await page.locator('button:has-text("AuthKit으로 계속하기")').count(), 0);
+      assert.equal(await page.locator('[data-testid="login-authkit-continue"]').count(), 0);
       await openAgentControl(page);
       await verifyLiveProviderSessionRehydrated(
         page,
@@ -877,7 +877,7 @@ async function runTwoAccountIsolation({ pool, baseUrl, authState }) {
     page = await app.firstWindow();
     await page.waitForTimeout(1500);
     assert.equal(
-      await page.locator('button:has-text("AuthKit으로 계속하기")').count(),
+      await page.locator('[data-testid="login-authkit-continue"]').count(),
       0,
       'Account A secure session must restore without another login',
     );
@@ -1662,13 +1662,13 @@ async function main() {
     let page = await electronApp.firstWindow();
 
     // 1) Login
-    await page.waitForSelector('button:has-text("AuthKit으로 계속하기")', { timeout: 25_000 });
-    await page.getByRole('button', { name: /AuthKit으로 계속하기/ }).click();
+    await page.waitForSelector('[data-testid="login-authkit-continue"]', { timeout: 25_000 });
+    await page.getByRole('button', { name: /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/ }).click();
     await page.waitForTimeout(500);
     const pending = authState.getLastStart();
     assert.ok(pending);
     await receiveAuthUrl(electronApp, `agent-calendar://auth/callback?code=p3&state=${encodeURIComponent(pending.state)}`);
-    await page.waitForFunction(() => !Array.from(document.querySelectorAll('button')).some((b) => /AuthKit으로 계속하기/.test(b.textContent || '')), null, { timeout: 25_000 });
+    await page.waitForFunction(() => !Array.from(document.querySelectorAll('button')).some((b) => /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/.test(b.textContent || '') || b.getAttribute('data-testid') === 'login-authkit-continue'), null, { timeout: 25_000 });
     assert.equal(authState.getCompleteCount(), 1);
 
     // 2) Follow the clean-account guide into Runner Setup, then enroll → confirm → connect/capabilities.
@@ -1968,7 +1968,7 @@ async function main() {
     electronApp = await launchApp(http.baseUrl);
     page = await electronApp.firstWindow();
     await page.waitForTimeout(2000);
-    const loginCount = await page.locator('button:has-text("AuthKit으로 계속하기")').count();
+    const loginCount = await page.locator('[data-testid="login-authkit-continue"]').count();
     assert.equal(loginCount, 0, 'login wall must not appear after Desktop restart');
     assert.equal(authState.getCompleteCount(), 1, 'completeCount must remain exactly 1');
 

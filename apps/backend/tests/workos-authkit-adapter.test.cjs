@@ -41,7 +41,7 @@ test('production adapter calls getAuthorizationUrlWithPKCE and authenticateWithC
       this.userManagement = {
         async getAuthorizationUrlWithPKCE(args) {
           calls.push({ getAuthorizationUrlWithPKCE: args });
-          return { url: 'https://authkit.test/start', codeVerifier: 'ver_real' };
+          return { url: 'https://authkit.test/start?state=state_real', state: 'state_real', codeVerifier: 'ver_real' };
         },
         async authenticateWithCodeAndVerifier(args) {
           calls.push({ authenticateWithCodeAndVerifier: args });
@@ -74,7 +74,8 @@ test('production adapter calls getAuthorizationUrlWithPKCE and authenticateWithC
     state: 'st1',
     screenHint: 'sign-in',
   });
-  assert.equal(started.url, 'https://authkit.test/start');
+  assert.equal(started.url, 'https://authkit.test/start?state=state_real');
+  assert.equal(started.state, 'state_real');
   assert.equal(started.codeVerifier, 'ver_real');
 
   const auth = await adapter.authenticateWithCodeAndVerifier({

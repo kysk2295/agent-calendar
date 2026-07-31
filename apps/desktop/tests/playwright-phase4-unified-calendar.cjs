@@ -407,13 +407,13 @@ async function main() {
     let page = await electronApp.firstWindow();
 
     // 1) Login
-    await page.waitForSelector('button:has-text("AuthKit으로 계속하기")', { timeout: 25_000 });
-    await page.getByRole('button', { name: /AuthKit으로 계속하기/ }).click();
+    await page.waitForSelector('[data-testid="login-authkit-continue"]', { timeout: 25_000 });
+    await page.getByRole('button', { name: /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/ }).click();
     await page.waitForTimeout(500);
     const pending = authState.getLastStart();
     assert.ok(pending);
     await receiveAuthUrl(electronApp, `agent-calendar://auth/callback?code=p4&state=${encodeURIComponent(pending.state)}`);
-    await page.waitForFunction(() => !Array.from(document.querySelectorAll('button')).some((b) => /AuthKit으로 계속하기/.test(b.textContent || '')), null, { timeout: 25_000 });
+    await page.waitForFunction(() => !Array.from(document.querySelectorAll('button')).some((b) => /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/.test(b.textContent || '') || b.getAttribute('data-testid') === 'login-authkit-continue'), null, { timeout: 25_000 });
     assert.equal(authState.getCompleteCount(), 1);
 
     // Ensure calendar surface
@@ -682,15 +682,15 @@ async function main() {
     electronApp = await launchApp(http.baseUrl);
     page = await electronApp.firstWindow();
     await page.waitForTimeout(2000);
-    const loginCount = await page.locator('button:has-text("AuthKit으로 계속하기")').count();
+    const loginCount = await page.locator('[data-testid="login-authkit-continue"]').count();
     if (loginCount > 0) {
       // Fallback only if session store was wiped: re-auth once
-      await page.locator('button:has-text("AuthKit으로 계속하기")').click();
+      await page.locator('[data-testid="login-authkit-continue"]').click();
       await page.waitForTimeout(400);
       const pending2 = authState.getLastStart();
       assert.ok(pending2);
       await receiveAuthUrl(electronApp, `agent-calendar://auth/callback?code=p4r&state=${encodeURIComponent(pending2.state)}`);
-      await page.waitForFunction(() => !Array.from(document.querySelectorAll('button')).some((b) => /AuthKit으로 계속하기/.test(b.textContent || '')), null, { timeout: 25_000 });
+      await page.waitForFunction(() => !Array.from(document.querySelectorAll('button')).some((b) => /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/.test(b.textContent || '') || b.getAttribute('data-testid') === 'login-authkit-continue'), null, { timeout: 25_000 });
     }
     const calNav2 = page.getByRole('button', { name: /캘린더|Calendar/i }).first();
     if (await calNav2.count()) await calNav2.click().catch(() => {});

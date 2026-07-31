@@ -131,11 +131,24 @@ function parseDeliverable(value: unknown): AgentDeliverable {
   };
 }
 
+function parseWikiArchive(value: unknown): AgentMission['wikiArchive'] {
+  if (!isRecord(value)) return null;
+  const status = stringValue(value.status);
+  if (status !== 'written' && status !== 'skipped_no_wiki' && status !== 'failed') return null;
+  return {
+    status,
+    relativePath: stringValue(value.relativePath),
+    archivedAt: stringValue(value.archivedAt),
+  };
+}
+
 function parseMission(value: unknown): AgentMission | null {
   if (!isRecord(value) || !stringValue(value.id)) return null;
   const schedule = recordValue(value.reportSchedule);
   const policy = recordValue(value.policy);
   const budget = recordValue(value.budget);
+  const wikiArchive = parseWikiArchive(value.wikiArchive);
+  const proposedMemoryPins = stringArray(value.proposedMemoryPins).slice(0, 3);
   return {
     id: stringValue(value.id),
     templateId: stringValue(value.templateId),
@@ -168,6 +181,14 @@ function parseMission(value: unknown): AgentMission | null {
     plannedAt: stringValue(value.plannedAt),
     createdAt: stringValue(value.createdAt),
     updatedAt: stringValue(value.updatedAt),
+    ...(wikiArchive ? { wikiArchive } : {}),
+    ...(proposedMemoryPins.length ? {
+      proposedMemoryPins,
+      proposedMemoryPinCount: numberValue(value.proposedMemoryPinCount, proposedMemoryPins.length),
+    } : {}),
+    ...(value.delegationMode === 'mode_a' || value.delegationMode === 'mode_b'
+      ? { delegationMode: value.delegationMode }
+      : {}),
   };
 }
 

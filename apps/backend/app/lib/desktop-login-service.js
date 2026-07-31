@@ -81,18 +81,32 @@ function assertAuthKitReady(runtime) {
  * Begin Desktop AuthKit PKCE login. Returns plaintext state + verifier once;
  * only hashes are persisted.
  */
-async function startDesktopLogin(runtime, { screenHint } = {}) {
+async function startDesktopLogin(runtime, { screenHint, prompt } = {}) {
   const { authKit, clientId } = assertAuthKitReady(runtime);
   const redirectUri = desktopLoginRedirectUri(runtime);
-  const state = newOpaqueToken();
-  const { url, codeVerifier } = await authKit.getAuthorizationUrlWithPKCE({
+  const requestedState = newOpaqueToken();
+  // Force interactive account selection by default so a previous Google/WorkOS
+  // browser session cannot silently complete with the wrong OAuth state.
+  const authPrompt = String(prompt || 'login').trim() || 'login';
+  const { url, state: providerState, codeVerifier } = await authKit.getAuthorizationUrlWithPKCE({
     clientId,
     redirectUri,
     provider: 'authkit',
-    state,
+    state: requestedState,
     screenHint: screenHint || undefined,
+    prompt: authPrompt,
+    // Also ask Google for an account picker when AuthKit routes through Google.
+    providerQueryParams: { prompt: 'select_account' },
   });
-  if (!url || !codeVerifier) {
+  let authorizationUrlState = '';
+  try {
+    authorizationUrlState = new URL(url).searchParams.get('state') || '';
+  } catch {
+    authorizationUrlState = '';
+  }
+  // Canonical state is always the one inside the authorization URL (callback returns it).
+  const state = String(authorizationUrlState || providerState || '').trim();
+  if (!url || !state || !codeVerifier || authorizationUrlState !== state) {
     reject('WORKOS_AUTH_URL_INVALID', 'AuthKit authorization URL incomplete', 503);
   }
 

@@ -307,9 +307,9 @@ async function login(app, authState, account) {
   await page.waitForFunction(() => (
     Boolean(document.querySelector('.nav-item'))
     || Array.from(document.querySelectorAll('button'))
-      .some((button) => /AuthKit으로 계속하기/.test(button.textContent || ''))
+      .some((button) => /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/.test(button.textContent || '') || button.getAttribute('data-testid') === 'login-authkit-continue')
   ), null, { timeout: 25_000 });
-  const loginButton = page.getByRole('button', { name: /AuthKit으로 계속하기/ });
+  const loginButton = page.getByRole('button', { name: /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/ });
   if (await loginButton.count()) {
     authState.select(account);
     await loginButton.click();
@@ -322,7 +322,7 @@ async function login(app, authState, account) {
     );
     await page.waitForFunction(
       () => !Array.from(document.querySelectorAll('button'))
-        .some((button) => /AuthKit으로 계속하기/.test(button.textContent || '')),
+        .some((button) => /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/.test(button.textContent || '') || button.getAttribute('data-testid') === 'login-authkit-continue'),
       null,
       { timeout: 25_000 },
     );

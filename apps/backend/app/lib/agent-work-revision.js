@@ -161,6 +161,7 @@ function createRevisionAttempt({
     session,
     events,
     missionPatch: {
+      status: 'active',
       revisionCounter: revisionNumber,
       pendingRevisionId: revisionId,
       currentResultReportId: current.report.id,

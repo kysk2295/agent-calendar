@@ -2524,8 +2524,100 @@ test('planning API creates proposed calendar work and one Task Session per task'
     assert.equal(planningRequest.payload.profile, 'bizconsultant');
     assert.equal(Object.hasOwn(planningRequest.payload, 'model'), false);
     assert.equal(planningRequest.meta.agentId, 'bizconsultant');
+    assert.equal(store.getAgentMissions().find((item) => item.id === mission.id).planSummary, createValidPlan().summary);
+    const missionThread = store.getState().agentSessions.find((session) => session.type === 'mission-thread');
+    assert.equal(
+      store.getAgentSession(missionThread.id).events.some((event) => /deterministic fallback/i.test(event.text)),
+      false,
+    );
   } finally {
     await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('planning API creates a deterministic fallback plan when plan completion is unavailable', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-plan-fallback-'));
+  const store = new HermesStore({ dataDir, clock });
+  const service = new AgentOperationsService({ store, clock });
+  const mission = service.createMission({
+    templateId: 'general-agent-work',
+    title: '경쟁사 가격 조사',
+    objective: '세 경쟁사의 최근 가격 정책을 조사하고 근거가 있는 보고서로 정리한다.',
+  });
+  const server = createRailwayGatewayServer({
+    env: {},
+    gatewayStore: store,
+    agentOperationsService: service,
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    // When
+    const response = await fetch(`${baseUrl}/api/agent-operations/missions/${mission.id}/plan`, {
+      method: 'POST',
+    });
+    const body = await response.json();
+
+    // Then
+    assert.equal(response.status, 200);
+    assert.equal(body.tasks.length >= 2 && body.tasks.length <= 5, true);
+    assert.equal(body.tasks.filter((task) => task.actionClass === 'report').length, 1);
+    assert.equal(
+      body.tasks.reduce((total, task) => total + task.estimatedMinutes, 0)
+        <= mission.policy.maxRuntimeMinutesPerWeek,
+      true,
+    );
+    assert.equal(body.tasks.every((task) => task.status === 'proposed' && task.sessionId), true);
+    const missionThread = store.getState().agentSessions.find((session) => session.type === 'mission-thread');
+    const persistedMissionThread = store.getAgentSession(missionThread.id);
+    assert.equal(persistedMissionThread.status, 'waiting_for_approval');
+    assert.equal(
+      persistedMissionThread.events.some((event) => /deterministic fallback/i.test(event.text)),
+      true,
+    );
+  } finally {
+    await close(server);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('planning falls back when plan completion reports runtime unavailable', async () => {
+  // Given
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-plan-runtime-fallback-'));
+  const store = new HermesStore({ dataDir, clock });
+  let completionCalls = 0;
+  const service = new AgentOperationsService({
+    store,
+    clock,
+    planCompletion: async () => {
+      completionCalls += 1;
+      const error = new Error('Selected runner is offline');
+      error.code = 'runtime_unavailable';
+      throw error;
+    },
+  });
+  const mission = service.createMission({ templateId: 'weekly-opportunity-brief' });
+
+  try {
+    // When
+    const planned = await service.planMission(mission.id);
+
+    // Then
+    assert.equal(completionCalls, 1);
+    assert.equal(planned.tasks.length >= 2 && planned.tasks.length <= 5, true);
+    assert.equal(planned.tasks.filter((task) => task.actionClass === 'report').length, 1);
+    assert.equal(planned.missionThread.status, 'waiting_for_approval');
+    assert.equal(
+      planned.missionThread.events.some((event) => /deterministic fallback/i.test(event.text)),
+      true,
+    );
+    assert.equal(
+      planned.missionThread.events.some((event) => event.kind === 'error'),
+      false,
+    );
+  } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
 });
@@ -2789,7 +2881,7 @@ test('Codex mission planning requests the per-run Codex CLI adapter', async () =
   }
 });
 
-test('Codex mission planning stops when the Mac mini Codex runner is not ready', async () => {
+test('Codex mission planning uses the deterministic fallback when its runner is not ready', async () => {
   // Given
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-codex-unavailable-'));
   const store = new HermesStore({ dataDir, clock });
@@ -2838,10 +2930,14 @@ test('Codex mission planning stops when the Mac mini Codex runner is not ready',
 
     // Then
     assert.equal(readiness.job.payload.path, '/api/runner/adapters');
-    assert.equal(response.status, 503);
-    assert.equal(body.error, 'runtime_unavailable');
-    assert.match(body.message, /Codex runner/i);
-    assert.equal(store.getState().tasks.filter((task) => task.origin === 'agent').length, 0);
+    assert.equal(response.status, 200);
+    assert.equal(body.tasks.length >= 2 && body.tasks.length <= 5, true);
+    assert.equal(body.tasks.filter((task) => task.actionClass === 'report').length, 1);
+    const missionThread = store.getState().agentSessions.find((session) => session.type === 'mission-thread');
+    assert.equal(
+      store.getAgentSession(missionThread.id).events.some((event) => /deterministic fallback/i.test(event.text)),
+      true,
+    );
   } finally {
     await close(server);
     await rm(dataDir, { recursive: true, force: true });
@@ -3341,6 +3437,93 @@ test('scheduler creates an evidence-backed report from a due report task', async
   assert.equal(store.getAgentReports()[0].sessionId, session.id);
   assert.equal(store.getState().tasks.find((item) => item.id === task.id).reportId, result.createdReportIds[0]);
   assert.match(executionPayload.messages[1].content, /공식 가격 페이지에서 기회 A의 근거/);
+
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+test('scheduler completes delegated work when its last task produces the current result', async () => {
+  // Given
+  const { AgentOperationsScheduler } = require('../app/lib/agent-operations-scheduler');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'agent-operations-terminal-mission-'));
+  const store = new HermesStore({ dataDir, clock });
+  const mission = store.createAgentMission({
+    ...createWeeklyOpportunityMission({ id: 'mission-terminal', clock }),
+    status: 'active',
+    missionThreadId: 'mission-thread-terminal',
+    currentResultReportId: '',
+    pendingRevisionId: '',
+  });
+  store.createAgentSession({
+    id: mission.missionThreadId,
+    missionId: mission.id,
+    taskId: '',
+    type: 'mission-thread',
+    title: mission.title,
+    status: 'waiting_for_approval',
+  });
+  const priorTask = store.createTask({
+    id: 'task-terminal-research',
+    title: '완료된 근거 조사',
+    status: 'completed',
+    missionId: mission.id,
+    origin: 'agent',
+    actionClass: 'research',
+  });
+  store.createAgentSession({
+    id: 'session-terminal-research',
+    missionId: mission.id,
+    taskId: priorTask.id,
+    type: 'task',
+    status: 'completed',
+  });
+  const reportTask = store.createTask({
+    id: 'task-terminal-report',
+    title: '최종 보고서',
+    owner: 'Agent',
+    status: 'scheduled',
+    missionId: mission.id,
+    origin: 'agent',
+    scheduledAt: '2026-07-13T08:59:00.000Z',
+    dueAt: '2026-07-13T10:00:00.000Z',
+    estimatedMinutes: 30,
+    actionClass: 'report',
+    sourceRefs: ['mission'],
+  });
+  store.createAgentSession({
+    id: 'session-terminal-report',
+    missionId: mission.id,
+    taskId: reportTask.id,
+    type: 'task',
+    status: 'scheduled',
+  });
+  const scheduler = new AgentOperationsScheduler({
+    store,
+    clock,
+    executeCompletion: async () => ({
+      text: JSON.stringify({
+        title: '최종 보고서',
+        findings: ['완료된 결과'],
+        evidence: [{ label: '공식 근거', url: 'https://example.com/final' }],
+        limitations: [],
+        followUps: [],
+        budget: { usedRuns: 2, usedMinutes: 45 },
+      }),
+    }),
+  });
+
+  // When
+  await scheduler.tick();
+
+  // Then
+  const completedMission = store.getAgentMissions().find((item) => item.id === mission.id);
+  const missionThread = store.getAgentSession(mission.missionThreadId);
+  assert.equal(completedMission.status, 'completed');
+  assert.ok(completedMission.currentResultReportId);
+  assert.equal(
+    missionThread.events.filter((event) => event.kind === 'completion').length,
+    1,
+  );
+  assert.equal(missionThread.events.find((event) => event.kind === 'completion').metadata.status, 'completed');
 
   await rm(dataDir, { recursive: true, force: true });
 });
@@ -4355,6 +4538,7 @@ test('revision cycle preserves the old result until success and advances two rev
   const store = new HermesStore({ dataDir, clock });
   const service = new AgentOperationsService({ store, clock });
   const fixture = await createRevisionFixture(store, service, 'success');
+  store.updateAgentMission(fixture.created.work.id, { status: 'completed' });
   const scheduler = new AgentOperationsScheduler({
     store,
     clock,
@@ -4381,6 +4565,8 @@ test('revision cycle preserves the old result until success and advances two rev
 
   // Then
   assert.equal(first.delivery.status, 'applied');
+  assert.equal(beforeExecution.status, 'active');
+  assert.equal(afterSuccess.status, 'completed');
   assert.equal(first.delivery.applicationMode, 'revision');
   assert.ok(first.delivery.revisionId);
   assert.equal(firstTask.status, 'proposed');

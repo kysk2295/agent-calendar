@@ -632,6 +632,22 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
         >
           전체 작업
         </button>
+        {!props.agents.length ? (
+          <section className="agent-directory-empty" aria-label="빈 에이전트 디렉터리">
+            <strong>이 Workspace에는 미리 연결된 에이전트가 없습니다.</strong>
+            <p>업무에 맞는 에이전트를 직접 만들거나, 이 Workspace의 Runner에서 기존 에이전트를 가져오세요.</p>
+            <div>
+              <button type="button" className="primary" onClick={openCreate}>
+                <Plus size={14} weight="bold" aria-hidden="true" />
+                첫 에이전트 만들기
+              </button>
+              <button type="button" onClick={openConnect}>
+                <DownloadSimple size={14} aria-hidden="true" />
+                Runner에서 가져오기
+              </button>
+            </div>
+          </section>
+        ) : <>
         <section>
           <h2>내 에이전트</h2>
           {native.map((agent) => (
@@ -658,6 +674,7 @@ export function AgentDirectoryPanel(props: AgentDirectoryPanelProps) {
           ))}
           {!connected.length && <p>외부에서 연결한 에이전트가 없습니다.</p>}
         </section>
+        </>}
       </nav>}
 
       {!props.sessionsOnly && selectedAgent && (

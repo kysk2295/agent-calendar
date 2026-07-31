@@ -64,12 +64,13 @@ test('agent work state refreshes independently of unrelated application hydratio
 });
 
 test('unrelated optional API failures do not cover the independent Work Conversation view', () => {
-  assert.match(appSource, /const showGlobalApiBanner = Boolean\(/);
-  assert.match(appSource, /screen !== 'agents'/);
+  assert.match(appSource, /const showGlobalApiBanner = shouldShowGlobalApiBanner\(\{/);
+  assert.match(appSource, /screen,/);
   assert.match(
     appSource,
-    /!\['offline', 'reconnecting'\]\.includes\(desktopConnectivity\.status\)/,
+    /connectivityStatus: desktopConnectivity\.status,/,
   );
+  assert.match(appSource, /gatewayStatus: state\.gatewayStatus,/);
   assert.match(appSource, /data-testid="desktop-connectivity"/);
   assert.match(appSource, /\{showGlobalApiBanner && <div className="api-banner">/);
   assert.match(

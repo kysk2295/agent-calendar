@@ -12,6 +12,7 @@ type Props = Readonly<{
   readiness: OnboardingReadiness;
   busy?: boolean;
   message?: string;
+  pendingAction?: OnboardingActionKind | null;
   onConnectCalendar: () => Promise<void>;
   onSyncCalendar: () => Promise<void>;
   onOpenRunner: () => void;
@@ -26,6 +27,7 @@ export function OnboardingGuide({
   readiness,
   busy = false,
   message = '',
+  pendingAction = null,
   onConnectCalendar,
   onSyncCalendar,
   onOpenRunner,
@@ -80,6 +82,7 @@ export function OnboardingGuide({
               key={step.id}
               data-active={activeStep.id === step.id}
               data-ready={step.ready}
+              data-pending={pendingAction === step.actionKind}
               data-optional={step.optional === true}
               aria-current={activeStep.id === step.id ? 'step' : undefined}
               onClick={() => setActiveStepId(step.id)}
@@ -90,7 +93,13 @@ export function OnboardingGuide({
               <span className="onboarding-step-copy">
                 <strong>{step.title}</strong>
                 <small className="onboarding-step-state">
-                  {step.ready ? '준비됨' : step.optional ? `선택 · ${step.statusLabel}` : step.statusLabel}
+                  {pendingAction === step.actionKind
+                    ? step.actionKind === 'calendar_connect' ? '연결 진행 중' : '동기화 진행 중'
+                    : step.ready
+                      ? '준비됨'
+                      : step.optional
+                        ? `선택 · ${step.statusLabel}`
+                        : step.statusLabel}
                 </small>
               </span>
             </button>
@@ -135,8 +144,8 @@ export function OnboardingGuide({
             {activeStep.id === 'runner' ? (
               <dl className="onboarding-auth-boundaries" data-testid="onboarding-auth-boundaries">
                 <div>
-                  <dt>작업공간 로그인</dt>
-                  <dd>현재 사용자와 Workspace를 확인합니다.</dd>
+                  <dt>Runner 등록 순서</dt>
+                  <dd>Runner 설정에서 Runner 추가 → 설치/열기 → 일회용 코드 발급 순서로 진행합니다.</dd>
                 </div>
                 <div>
                   <dt>캘린더 OAuth</dt>
@@ -153,10 +162,18 @@ export function OnboardingGuide({
               <button
                 type="button"
                 className="primary"
+                data-testid={`onboarding-action-${activeStep.id}`}
                 disabled={busy}
+                aria-busy={pendingAction === activeStep.actionKind || undefined}
                 onClick={() => { void runAction(activeStep.actionKind); }}
               >
-                {activeStep.actionLabel}
+                {pendingAction === activeStep.actionKind
+                  ? activeStep.actionKind === 'calendar_connect'
+                    ? '브라우저 승인 대기 중…'
+                    : activeStep.actionKind === 'calendar_sync'
+                      ? '동기화 확인 중…'
+                      : activeStep.actionLabel
+                  : activeStep.actionLabel}
               </button>
               {activeStep.id === 'wiki' && (
                 <button type="button" disabled={busy} onClick={onOpenWiki}>Wiki 전체 설정</button>

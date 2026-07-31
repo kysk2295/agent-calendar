@@ -226,7 +226,7 @@ export function AgentControlRoomBoard(props: AgentControlRoomBoardProps) {
             <div className="agent-status-grid" aria-label="에이전트 상태">
               {props.agents.map((agent) => <AgentStatusCard key={agent.id} agent={agent} tasks={props.state.tasks.filter((task) => task.agent === agent.id)} />)}
               {!!props.automationJobs.length && <SchedulerStatusCard jobs={props.automationJobs} />}
-              {!props.agents.length && <p className="agent-control-empty">연결된 Hermes 에이전트가 없습니다.</p>}
+              {!props.agents.length && <p className="agent-control-empty">이 Workspace에는 미리 연결된 에이전트가 없습니다. 왼쪽 담당 에이전트에서 만들거나 Runner에서 가져올 수 있습니다.</p>}
             </div>
           </section>
 

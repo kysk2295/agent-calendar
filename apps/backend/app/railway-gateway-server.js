@@ -90,7 +90,7 @@ const { projectStateWithAgents, resolveHermesAgent } = require('./lib/agent-regi
 const {
   buildScheduleAssistantAnswer,
   buildScheduleAssistantContext,
-  ensureCompletionAnswerCoverage,
+  withCompletionCoverageHonesty,
   fallbackAnswer: fallbackScheduleAnswer,
   isScheduleQuestion,
   localLlmModel,
@@ -1229,15 +1229,23 @@ function filterDeletedGatewayAgents(state = {}, gatewayState = {}, gatewayStore 
 
 function gatewaySnapshot(gatewayState, gatewayStore) {
   const snapshot = readHermesAgentSnapshot();
-  const profileAgents = snapshot?.agents?.length ? snapshot.agents : fallbackOfficialProfileAgents();
+  // Product roster is workspace-owned only:
+  // - never invent official-profile-fallback agents
+  // - never project HermesStore machine profiles as a fake connected roster
+  // Workspace-owned rows are served by production listAgents (Postgres) when auth is on.
+  const profileAgents = [];
+  const base = gatewayStore ? gatewayStore.getState() : gatewayState;
   const state = projectStateWithAgents({
-    ...(gatewayStore ? gatewayStore.getState() : gatewayState),
+    ...base,
+    agents: [],
     gatewayFallback: true,
   }, {
     profileAgents,
     agentSourceStatus: agentSourceStatusWithFallback(
       snapshot?.agentSourceStatus || null,
-      snapshot ? 'runtime-unreachable' : 'local-snapshot-missing',
+      snapshot
+        ? 'runtime-unreachable-empty-roster'
+        : 'local-snapshot-missing',
     ),
   });
   return filterDeletedGatewayAgents({
@@ -1879,10 +1887,12 @@ function relayStateFromSnapshot(snapshot, gatewayState, env = process.env, gatew
   const runtimeState = publicSnapshot.state && typeof publicSnapshot.state === 'object' && !Array.isArray(publicSnapshot.state)
     ? publicSnapshot.state
     : {};
+  // Keep only agents actually present in the relay snapshot. Never invent the five
+  // official profiles when the snapshot roster is empty.
   const snapshotAgents = Array.isArray(publicSnapshot.agents)
     ? normalizeLiveAgentSkillOrigins(publicSnapshot.agents)
     : [];
-  const profileAgents = snapshotAgents.length ? snapshotAgents : fallbackOfficialProfileAgents();
+  const profileAgents = snapshotAgents;
   const agentSourceStatus = snapshotAgents.length
     ? publicSnapshot.agentSourceStatus
     : agentSourceStatusWithFallback(publicSnapshot.agentSourceStatus || null, 'relay-snapshot-empty');
@@ -2464,23 +2474,24 @@ function fallbackAgentSourceStatus() {
   };
 }
 
+/**
+ * @deprecated Do not inject into product agent lists.
+ * Kept only for internal inventory/diagnostics helpers that still need the official name set.
+ */
 function fallbackOfficialProfileAgents() {
-  return OFFICIAL_PROFILE_NAMES.map((name) => createOfficialProfileAgent(name, {
-    role: name === 'default' ? 'General Hermes operator' : `${name} Hermes profile`,
-    status: 'Unavailable',
-    runtimeAvailable: false,
-    source: 'official-profile-fallback',
-  }));
+  return [];
 }
 
 function agentSourceStatusWithFallback(status = null, reason = 'snapshot-empty') {
+  const base = status || fallbackAgentSourceStatus();
   return {
-    ...(status || fallbackAgentSourceStatus()),
+    ...base,
     ok: false,
-    source: status?.source || 'official-profile-fallback',
+    source: base.source || 'workspace-owned-roster',
     reason,
     runtimeReachable: false,
-    profileCount: Math.max(Number(status?.profileCount || 0), OFFICIAL_PROFILE_NAMES.length),
+    // Honest count: do not pretend five official profiles exist in the product roster.
+    profileCount: Number(base.profileCount || 0) || 0,
   };
 }
 
@@ -3858,9 +3869,16 @@ async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, ques
   });
   attempts.push({ provider: 'local-llm', model, used: Boolean(first?.text), transport: 'railway-relay', ...(first?.jobId ? { jobId: first.jobId } : {}) });
   if (first?.text && !noItemsContradiction(first.text, sources)) {
-    return {
-      answer: ensureCompletionAnswerCoverage({ answer: first.text, computed, sources }),
+    const covered = withCompletionCoverageHonesty({
+      answer: first.text,
       answerMode: 'llm',
+      computed,
+      sources,
+    });
+    return {
+      answer: covered.answer,
+      answerMode: covered.answerMode,
+      coverageAugmented: covered.coverageAugmented,
       llm: { provider: 'local-llm', model, used: true, transport: 'railway-relay' },
       llmAttempts: attempts,
     };
@@ -3874,20 +3892,30 @@ async function synthesizeScheduleAnswerViaRelay({ relay, env = process.env, ques
   });
   attempts.push({ provider: 'local-llm', model, used: Boolean(retry?.text), transport: 'railway-relay', ...(retry?.jobId ? { jobId: retry.jobId } : {}) });
   if (retry?.text && !noItemsContradiction(retry.text, sources)) {
-    return {
-      answer: ensureCompletionAnswerCoverage({ answer: retry.text, computed, sources }),
+    const covered = withCompletionCoverageHonesty({
+      answer: retry.text,
       answerMode: 'llm-retry',
+      computed,
+      sources,
+    });
+    return {
+      answer: covered.answer,
+      answerMode: covered.answerMode,
+      coverageAugmented: covered.coverageAugmented,
       llm: { provider: 'local-llm', model, used: true, transport: 'railway-relay' },
       llmAttempts: attempts,
     };
   }
-  return {
-    answer: ensureCompletionAnswerCoverage({
-      answer: fallbackScheduleAnswer(question, computed, sources),
-      computed,
-      sources,
-    }),
+  const coveredFallback = withCompletionCoverageHonesty({
+    answer: fallbackScheduleAnswer(question, computed, sources),
     answerMode: 'fallback',
+    computed,
+    sources,
+  });
+  return {
+    answer: coveredFallback.answer,
+    answerMode: coveredFallback.answerMode,
+    coverageAugmented: coveredFallback.coverageAugmented,
     llm: {
       provider: 'local-llm',
       model,
@@ -9149,6 +9177,7 @@ function createRailwayGatewayServer({
         clock: operationClock,
         executeCompletion: executeAgentCompletion,
         sendTelegram: agentReportTelegramSender,
+        wikiRoot: () => resolveReadableWikiRoot(env),
       })
       : null);
   const agentOperationsDaemon = agentOperationsScheduler

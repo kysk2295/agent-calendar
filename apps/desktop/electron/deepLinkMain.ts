@@ -69,12 +69,23 @@ export function createAgentCalendarDeepLinkMain(
 
   app.on('open-url', (event, rawUrl) => {
     event.preventDefault();
+    // Keep diagnostics free of OAuth secrets — log shape only.
+    try {
+      const host = new URL(String(rawUrl || '')).hostname || '';
+      // eslint-disable-next-line no-console
+      console.log('[deep-link] open-url', host || 'unknown');
+    } catch {
+      // eslint-disable-next-line no-console
+      console.log('[deep-link] open-url unparseable');
+    }
     ignoreRejected(receive(rawUrl));
   });
 
   // Second-instance argv path (Windows/Linux + macOS multi-instance attempts).
   app.on('second-instance', (_event, secondArgv) => {
     const found = findAgentCalendarDeepLink(secondArgv);
+    // eslint-disable-next-line no-console
+    console.log('[deep-link] second-instance', found ? found.kind : 'none');
     if (!found) return;
     if (found.kind === 'auth-callback') {
       const result = options.onAuthCallback?.(found);

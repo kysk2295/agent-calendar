@@ -129,6 +129,12 @@ test('onboarding uses an Orca-like workspace rail and one flat detail pane', () 
   assert.doesNotMatch(onboardingCss, /\.app-root:has\(\.onboarding-guide\) \.(?:sidebar|topbar)\s*\{[^}]*display:\s*none/s);
 });
 
+test('Runner enrollment refreshes the Workspace roster used by onboarding readiness', () => {
+  assert.match(runnerSource, /onRunnersChange/);
+  assert.match(runnerSource, /onRunnersChange\?\.\(list\)/);
+  assert.match(appSource, /onRunnersChange=\{setAutomationRunners\}/);
+});
+
 test('agent control home is scan-first rows rather than a card wall', () => {
   assert.doesNotMatch(controlRoomSource, /카드를 열어/);
   assert.doesNotMatch(controlRoomSource, /읽기 전용으로 표시합니다/);

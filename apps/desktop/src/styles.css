@@ -5644,6 +5644,18 @@ textarea { resize: vertical; min-height: 72px; }
   font-size: 10px;
   font-style: normal;
 }
+.calendar-ai-honesty {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted-dark);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+}
+.calendar-ai-honesty[data-mode="llm-augmented"],
+.calendar-ai-honesty[data-mode="fallback"] {
+  color: #7a5b1a;
+}
 .calendar-ai-sources {
   display: flex;
   flex-wrap: wrap;

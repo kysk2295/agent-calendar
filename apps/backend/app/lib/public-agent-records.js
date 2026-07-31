@@ -21,8 +21,10 @@ const PUBLIC_SESSION_METADATA_KEYS = new Set([
   'reportId', 'requestedAt', 'runId', 'scheduledAt', 'sessionId', 'sourceRefs', 'startedAt', 'state',
   'status', 'successCriteria', 'taskId', 'tool', 'executionEngine', 'requestedExecutionEngine',
   'deliverable', 'format', 'acceptedAt', 'appliedAt', 'targetTaskId', 'revisionId', 'revisionNumber',
-  'resolvedExecutionEngine',
+  'resolvedExecutionEngine', 'wikiArchiveStatus', 'wikiArchiveNote', 'proposedMemoryPinCount',
 ]);
+
+const PUBLIC_WIKI_ARCHIVE_STATUSES = new Set(['written', 'skipped_no_wiki', 'failed']);
 
 const PUBLIC_EXECUTION_ENGINES = new Set(['auto', 'hermes', 'local_llm', 'codex']);
 const PUBLIC_RESOLVED_EXECUTION_ENGINES = new Set(['hermes', 'codex', 'claude', 'grok']);
@@ -96,6 +98,10 @@ function publicMissionRecord(mission = {}) {
     const value = publicText(mission[key], '');
     if (value) projected[key] = value;
   }
+  const delegationMode = String(mission.delegationMode || '').trim();
+  if (delegationMode === 'mode_a' || delegationMode === 'mode_b') {
+    projected.delegationMode = delegationMode;
+  }
   projected.agentId = resolveRequestedOfficialProfile({ agentId: mission.agentId });
   projectExecutionContract(mission, projected);
   projected.successCriteria = publicStringArray(mission.successCriteria);
@@ -119,9 +125,24 @@ function publicMissionRecord(mission = {}) {
     weekStartedAt: publicTimestamp(mission.budget?.weekStartedAt),
   };
   projected.revisionCounter = Math.max(0, Number(mission.revisionCounter) || 0);
-  for (const key of ['plannedAt', 'activatedAt', 'pausedAt', 'cancelledAt', 'createdAt', 'updatedAt']) {
+  for (const key of ['plannedAt', 'activatedAt', 'pausedAt', 'cancelledAt', 'completedAt', 'failedAt', 'createdAt', 'updatedAt']) {
     const value = publicTimestamp(mission[key]);
     if (value) projected[key] = value;
+  }
+  if (mission.wikiArchive && typeof mission.wikiArchive === 'object') {
+    const status = String(mission.wikiArchive.status || '').trim();
+    if (PUBLIC_WIKI_ARCHIVE_STATUSES.has(status)) {
+      const relativePath = publicText(mission.wikiArchive.relativePath, '', 300);
+      projected.wikiArchive = {
+        status,
+        relativePath: relativePath && !relativePath.includes('..') ? relativePath : '',
+        archivedAt: publicTimestamp(mission.wikiArchive.archivedAt),
+      };
+    }
+  }
+  if (Array.isArray(mission.proposedMemoryPins) && mission.proposedMemoryPins.length) {
+    projected.proposedMemoryPins = publicStringArray(mission.proposedMemoryPins, 200).slice(0, 3);
+    projected.proposedMemoryPinCount = projected.proposedMemoryPins.length;
   }
   return projected;
 }

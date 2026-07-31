@@ -49,14 +49,34 @@ function createFakeAuthKit({ usersByCode = new Map(), failCodes = new Set() } = 
   return {
     kind: 'fake',
     started,
-    async getAuthorizationUrlWithPKCE({ clientId, redirectUri, provider, state, screenHint }) {
+    async getAuthorizationUrlWithPKCE({
+      clientId,
+      redirectUri,
+      provider,
+      state,
+      screenHint,
+      prompt,
+      providerQueryParams,
+    }) {
       assert.equal(provider, 'authkit');
       assert.equal(redirectUri, DESKTOP_LOGIN_REDIRECT_URI);
       assert.ok(clientId);
       const codeVerifier = `verifier_${crypto.randomBytes(16).toString('hex')}`;
-      started.push({ clientId, redirectUri, provider, state, screenHint, codeVerifier });
+      const providerState = `sdk_${crypto.randomBytes(24).toString('base64url')}`;
+      started.push({
+        clientId,
+        redirectUri,
+        provider,
+        requestedState: state,
+        providerState,
+        screenHint,
+        prompt,
+        providerQueryParams,
+        codeVerifier,
+      });
       return {
-        url: `https://authkit.test/authorize?state=${encodeURIComponent(state)}&client_id=${encodeURIComponent(clientId)}`,
+        url: `https://authkit.test/authorize?state=${encodeURIComponent(providerState)}&client_id=${encodeURIComponent(clientId)}`,
+        state: providerState,
         codeVerifier,
       };
     },
@@ -210,6 +230,9 @@ test('desktop start/complete bootstrap + isolation matrix on real PostgreSQL', a
       assert.ok(startA.body.codeVerifier);
       assert.ok(startA.body.transactionId);
       assert.equal(startA.body.redirectUri, DESKTOP_LOGIN_REDIRECT_URI);
+      assert.equal(new URL(startA.body.authorizationUrl).searchParams.get('state'), startA.body.state);
+      assert.equal(startA.body.state, authKit.started[0].providerState);
+      assert.notEqual(startA.body.state, authKit.started[0].requestedState);
 
       const row = await pool.query(
         `select * from desktop_login_transactions where id = $1`,

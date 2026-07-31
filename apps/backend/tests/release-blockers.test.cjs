@@ -1340,7 +1340,7 @@ test('does not let the client token replace relay callback authentication', asyn
   }
 });
 
-test('reports offline fallback agents and their source as unavailable', async () => {
+test('reports offline empty agent roster without inventing official profiles', async () => {
   // Given
   const state = { agents: [], runs: [], agentProfileRequests: [] };
   const server = createRailwayGatewayServer({
@@ -1354,12 +1354,12 @@ test('reports offline fallback agents and their source as unavailable', async ()
     const response = await fetch(`${baseUrl}/api/agents`);
     const body = await response.json();
 
-    // Then
+    // Then — product roster is workspace-owned only; offline gateway does not invent profiles
     assert.equal(response.status, 200);
-    assert.ok(body.agents.length > 0);
-    assert.ok(body.agents.every((agent) => agent.status === 'Unavailable'));
+    assert.deepEqual(body.agents, []);
     assert.equal(body.agentSourceStatus.ok, false);
     assert.equal(body.agentSourceStatus.runtimeReachable, false);
+    assert.notEqual(body.agentSourceStatus.source, 'official-profile-fallback');
   } finally {
     await close(server);
   }

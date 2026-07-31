@@ -896,7 +896,9 @@ function noItemsContradiction(answer, sources) {
 
 function ensureCompletionAnswerCoverage({ answer, computed = {}, sources = [] } = {}) {
   const normalizedAnswer = text(answer).trim();
-  if (!normalizedAnswer || computed.questionType !== 'completion-rate') return normalizedAnswer;
+  if (!normalizedAnswer || computed.questionType !== 'completion-rate') {
+    return { answer: normalizedAnswer, coverageAugmented: false };
+  }
   const seen = new Set();
   const completedSources = array(sources).filter((source) => {
     if (!source?.done || !text(source.title).trim()) return false;
@@ -906,11 +908,34 @@ function ensureCompletionAnswerCoverage({ answer, computed = {}, sources = [] } 
     return true;
   });
   const missing = completedSources.filter((source) => !normalizedAnswer.includes(text(source.title).trim()));
-  if (!missing.length) return normalizedAnswer;
+  if (!missing.length) {
+    return { answer: normalizedAnswer, coverageAugmented: false };
+  }
   const groundedList = missing
     .map((source) => `${text(source.title).trim()} (${source.date || '날짜 없음'})`)
     .join(', ');
-  return `${normalizedAnswer}\n\n확인된 나머지 완료 기록은 ${groundedList}입니다.`;
+  return {
+    answer: `${normalizedAnswer}\n\n확인된 나머지 완료 기록은 ${groundedList}입니다.`,
+    coverageAugmented: true,
+  };
+}
+
+function withCompletionCoverageHonesty({
+  answer = '',
+  answerMode = 'llm',
+  computed = {},
+  sources = [],
+} = {}) {
+  const coverage = ensureCompletionAnswerCoverage({ answer, computed, sources });
+  const baseMode = text(answerMode).trim() || 'llm';
+  const nextMode = coverage.coverageAugmented && (baseMode === 'llm' || baseMode === 'llm-retry')
+    ? 'llm-augmented'
+    : baseMode;
+  return {
+    answer: coverage.answer,
+    answerMode: nextMode,
+    coverageAugmented: Boolean(coverage.coverageAugmented),
+  };
 }
 
 function openAiKey(env = process.env) {
@@ -1315,14 +1340,17 @@ async function buildScheduleAssistantAnswer({ question, filters = {}, state = {}
       fetchImpl,
     });
     if (synthesis?.answer) {
+      const covered = withCompletionCoverageHonesty({
+        answer: synthesis.answer,
+        answerMode: synthesis.answerMode || 'llm',
+        computed: result.computed,
+        sources: result.sources,
+      });
       return {
         ...result,
-        answer: ensureCompletionAnswerCoverage({
-          answer: synthesis.answer,
-          computed: result.computed,
-          sources: result.sources,
-        }),
-        answerMode: synthesis.answerMode || 'llm',
+        answer: covered.answer,
+        answerMode: covered.answerMode,
+        coverageAugmented: covered.coverageAugmented,
         llm: synthesis.llm,
         ...(synthesis.attempts ? { llmAttempts: synthesis.attempts } : {}),
       };
@@ -1366,6 +1394,7 @@ module.exports = {
   clearRecordEmbeddingCacheForTests,
   embedScheduleRecord,
   ensureCompletionAnswerCoverage,
+  withCompletionCoverageHonesty,
   fallbackAnswer,
   isScheduleQuestion,
   localLlmModel,

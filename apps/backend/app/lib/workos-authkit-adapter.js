@@ -66,16 +66,36 @@ function createWorkosAuthKitAdapterFromConfig(config, { WorkOSCtor = null } = {}
       getAuthorizationUrlWithPKCE: true,
       authenticateWithCodeAndVerifier: true,
     },
-    async getAuthorizationUrlWithPKCE({ clientId, redirectUri, provider = 'authkit', state, screenHint } = {}) {
+    async getAuthorizationUrlWithPKCE({
+      clientId,
+      redirectUri,
+      provider = 'authkit',
+      state,
+      screenHint,
+      prompt,
+      providerQueryParams,
+    } = {}) {
+      // WorkOS SDK generates PKCE state itself; do not invent a second state here.
+      // prompt=login|select_account forces account chooser so second-account dogfood works.
       const result = await um.getAuthorizationUrlWithPKCE({
         clientId: clientId || config.clientId,
         redirectUri,
         provider: provider || 'authkit',
-        state,
         screenHint,
+        prompt: prompt || undefined,
+        providerQueryParams: providerQueryParams || undefined,
       });
+      const url = result.url || result.authorizationUrl;
+      let urlState = '';
+      try {
+        urlState = url ? (new URL(url).searchParams.get('state') || '') : '';
+      } catch {
+        urlState = '';
+      }
       return {
-        url: result.url || result.authorizationUrl,
+        url,
+        // Prefer the state embedded in the authorization URL — that is what the browser returns.
+        state: String(result.state || urlState || state || '').trim(),
         codeVerifier: result.codeVerifier,
       };
     },

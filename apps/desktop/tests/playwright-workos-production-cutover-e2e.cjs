@@ -311,9 +311,9 @@ async function runScenario(backend) {
 
   try {
     const page = await electronApp.firstWindow();
-    await page.waitForSelector('button:has-text("AuthKit으로 계속하기")', { timeout: 25_000 });
+    await page.waitForSelector('[data-testid="login-authkit-continue"]', { timeout: 25_000 });
 
-    await page.getByRole('button', { name: /AuthKit으로 계속하기/ }).click();
+    await page.getByRole('button', { name: /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/ }).click();
     await page.waitForTimeout(600);
     const pending = backend.getLastStart();
     assert.ok(pending, 'desktop start must invoke AuthKit');
@@ -323,7 +323,7 @@ async function runScenario(backend) {
 
     await page.waitForFunction(() => {
       const loginBtn = Array.from(document.querySelectorAll('button'))
-        .some((b) => /AuthKit으로 계속하기/.test(b.textContent || ''));
+        .some((b) => /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/.test(b.textContent || '') || b.getAttribute('data-testid') === 'login-authkit-continue');
       return !loginBtn;
     }, null, { timeout: 25_000 });
     await page.waitForTimeout(800);
@@ -406,7 +406,7 @@ async function runScenario(backend) {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => {
       const loginBtn = Array.from(document.querySelectorAll('button'))
-        .some((b) => /AuthKit으로 계속하기/.test(b.textContent || ''));
+        .some((b) => /AuthKit으로 계속하기|Google 또는 이메일로 계속하기/.test(b.textContent || '') || b.getAttribute('data-testid') === 'login-authkit-continue');
       return !loginBtn;
     }, null, { timeout: 25_000 });
     await page.waitForTimeout(1_500);

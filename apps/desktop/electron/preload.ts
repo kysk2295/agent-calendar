@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: unknown) => ipcRenderer.invoke('settings:save', settings),
   loginWithAuthKit: () => ipcRenderer.invoke('auth:authkit-login'),
+  cancelAuthKitLogin: () => ipcRenderer.invoke('auth:authkit-cancel'),
   connectGoogleCalendar: () => ipcRenderer.invoke('calendar:google-connect'),
   // Legacy names kept but main process rejects production use.
   loginWithProvider: (provider: unknown) => ipcRenderer.invoke('auth:provider-login', provider),
