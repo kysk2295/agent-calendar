@@ -1,0 +1,197 @@
+{
+  "capturedAt": "2026-08-03T13:49:12.729Z",
+  "source": {
+    "title": "Agent Calendar",
+    "renderer": "file://…/Agent Calendar.app/Contents/Resources/app.asar/dist/index.html",
+    "packaged": true,
+    "signedIn": true,
+    "workspaceBound": true,
+    "packagedProxy": true,
+    "gateway": {
+      "status": 200,
+      "mode": "production",
+      "service": "agent-calendar-gateway",
+      "sourceCommit": "f2a3b430bdc0",
+      "deploymentId": "645783ab-c729-4575-a00c-8c844bf06f30"
+    }
+  },
+  "redactions": [
+    "account display name",
+    "Workspace email address",
+    "Runner public fingerprint",
+    "personal diary history"
+  ],
+  "expectedCount": 13,
+  "capturedCount": 13,
+  "captures": [
+    {
+      "label": "캘린더",
+      "file": "docs/product/surfaces/01-calendar.png",
+      "sha256": "ceecd2c37fd8dbc752226f9a57b799c645ad313a1df983b9a9ca0f7c29789b4b",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "2026년 8월"
+    },
+    {
+      "label": "에이전트",
+      "file": "docs/product/surfaces/02-agents.png",
+      "sha256": "4e3e9992ec7aaeb5e4cc3e10084c40e6274be3a91ae9484dd389f9e6b9025044",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "에이전트 작업"
+    },
+    {
+      "label": "자동화",
+      "file": "docs/product/surfaces/03-automation.png",
+      "sha256": "3c88aaeedc451d17674dd343bcffb535fc4dee9084e474a514f7fb8c1f4deab6",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "자동화"
+    },
+    {
+      "label": "오늘",
+      "file": "docs/product/surfaces/04-today.png",
+      "sha256": "293f2a091495d24662e4d797a3dfb20ee44a85514a0657ce8fe89dc5edd0ddde",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "📅 오늘 할 일"
+    },
+    {
+      "label": "다음 7일",
+      "file": "docs/product/surfaces/05-next-seven-days.png",
+      "sha256": "760688cb82f1438a56a0f2395b1b3279279e6cefdeca3171604196d6d055781d",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "다음 7일"
+    },
+    {
+      "label": "기본함",
+      "file": "docs/product/surfaces/06-inbox.png",
+      "sha256": "d14b37f67d97eb9eec23078882e004de7a2fddd479440df1824d1541be5a7777",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "기본함"
+    },
+    {
+      "label": "메일함",
+      "file": "docs/product/surfaces/07-mail.png",
+      "sha256": "b289150bc953654925f9bde5f36ff326af3790a25ae318dd676be5ed436eea00",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "메일함"
+    },
+    {
+      "label": "칸반 보드",
+      "file": "docs/product/surfaces/08-kanban.png",
+      "sha256": "1db9eab8d130db91a49865e1309f13694f4e3d1347d8120de94a810afc5986c9",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "칸반 보드"
+    },
+    {
+      "label": "위키",
+      "file": "docs/product/surfaces/09-wiki.png",
+      "sha256": "28c04154e15f04d65f96ea3a83b05073a32f488eddf377a1b6eab8c389a910e3",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "위키"
+    },
+    {
+      "label": "주간 회고",
+      "file": "docs/product/surfaces/10-weekly-review.png",
+      "sha256": "81f763611fe4afadeb14a39ea8834857a0b2dd8eb4e0364e41b717fc090fc3d6",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "🎯 이번 주 목표"
+    },
+    {
+      "label": "일기",
+      "file": "docs/product/surfaces/11-diary.png",
+      "sha256": "478b38ea0775ae7de34fac2fb34a8845b97525843bf617346d11ac695586ebb0",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "오늘의 일기"
+    },
+    {
+      "label": "Runner 설정",
+      "file": "docs/product/surfaces/12-runner.png",
+      "sha256": "7fdcbfb89474d1430209f3b844e01285b6f0debf9d8f966cebbccc15b9536a5c",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "Runner 설정"
+    },
+    {
+      "label": "위젯",
+      "file": "docs/product/surfaces/13-widgets.png",
+      "sha256": "c7f0c5e73cfe1f43c468ab541294a1fb9ed12fe635f57fc48731b124252b52bd",
+      "pixelWidth": 2640,
+      "pixelHeight": 1584,
+      "viewport": {
+        "width": 1320,
+        "height": 792,
+        "deviceScaleFactor": 2
+      },
+      "activeTitle": "위젯"
+    }
+  ]
+}

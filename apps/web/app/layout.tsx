@@ -3,18 +3,18 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Agent Calendar | 일정에서 시작하는 에이전트 작업",
+    default: "Agent Calendar | 나를 이해하고 일을 이어가는 캘린더",
     template: "%s · Agent Calendar",
   },
   description:
-    "내 일정, 자동화, 위임한 에이전트 작업을 하나의 캘린더에서 계획하고 관찰하는 작업 관제 공간.",
+    "일정, 메일, 파일과 기록을 이해해 지금 중요한 일을 알려주고 필요한 작업을 같은 맥락으로 이어가는 macOS 캘린더.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
   },
   openGraph: {
     title: "Agent Calendar",
-    description: "일정이 흐르는 곳에서, 에이전트 일도 끝나게.",
+    description: "나를 이해하고, 기억하며, 필요한 일을 실제로 수행하는 캘린더.",
     type: "website",
     locale: "ko_KR",
     images: [
@@ -22,14 +22,14 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1536,
         height: 1024,
-        alt: "사람 일정과 에이전트 작업이 함께 놓인 Agent Calendar",
+        alt: "일정과 작업 결과가 함께 놓인 Agent Calendar 통합 캘린더",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
     title: "Agent Calendar",
-    description: "일정이 흐르는 곳에서, 에이전트 일도 끝나게.",
+    description: "나를 이해하고, 기억하며, 필요한 일을 실제로 수행하는 캘린더.",
     images: ["/og.png"],
   },
 };
