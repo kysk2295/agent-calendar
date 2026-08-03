@@ -211,6 +211,7 @@ a.action:hover {
 }
 
 .hero h1,
+.why-section h2,
 .product-intro h2,
 .feature-copy h2,
 .runner-copy h2,
@@ -269,6 +270,69 @@ a.action:hover {
   color: var(--quiet);
   font-size: 10px;
   letter-spacing: 0.02em;
+}
+
+.why-section {
+  display: grid;
+  grid-template-columns: minmax(390px, 0.88fr) minmax(480px, 1.12fr);
+  gap: clamp(72px, 11vw, 172px);
+  padding: 142px 0 132px;
+  border-top: 1px solid var(--line);
+}
+
+.why-heading h2 {
+  max-width: 620px;
+  margin-top: 20px;
+  font-size: clamp(42px, 4.5vw, 62px);
+}
+
+.why-copy > p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.9;
+  word-break: keep-all;
+}
+
+.why-list {
+  margin: 42px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--line-strong);
+  list-style: none;
+}
+
+.why-list li {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 18px;
+  padding: 24px 0 25px;
+  border-bottom: 1px solid var(--line);
+}
+
+.why-list li > span {
+  padding-top: 3px;
+  color: var(--accent);
+  font-family: "Avenir Next", "Helvetica Neue", sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.why-list strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 620;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+.why-list p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.75;
+  word-break: keep-all;
 }
 
 .product-intro {
@@ -767,6 +831,7 @@ footer > p:last-child {
   }
 
   .product-intro,
+  .why-section,
   .runner-section,
   .trust-section,
   .release {
@@ -774,6 +839,10 @@ footer > p:last-child {
   }
 
   .product-intro {
+    gap: 54px;
+  }
+
+  .why-section {
     gap: 54px;
   }
 
@@ -849,6 +918,7 @@ footer > p:last-child {
   }
 
   .product-intro,
+  .why-section,
   .feature-story,
   .runner-section,
   .trust-section {
@@ -859,7 +929,12 @@ footer > p:last-child {
     gap: 44px;
   }
 
-  .product-intro h2 {
+  .why-section {
+    gap: 44px;
+  }
+
+  .product-intro h2,
+  .why-section h2 {
     font-size: 42px;
   }
 

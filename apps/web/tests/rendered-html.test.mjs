@@ -22,7 +22,7 @@ async function render(pathname = "/") {
   );
 }
 
-test("server-renders the calendar-first product story", async () => {
+test("server-renders the calendar-centered personal intelligence story", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -30,10 +30,13 @@ test("server-renders the calendar-first product story", async () => {
   const html = await response.text();
   assert.match(html, /<html lang="ko">/i);
   assert.match(html, /<title>Agent Calendar/);
-  assert.match(html, /일정이 흐르는 곳에서/);
+  assert.match(html, /나를 이해하고/);
+  assert.match(html, /나를 다시 설명하지 않도록/);
+  assert.match(html, /사용자가 허용한 일정, 메일, 파일과 기록/);
+  assert.match(html, /결과를 다시 캘린더와 Wiki에 남깁니다/);
   assert.match(html, /통합 캘린더/);
-  assert.match(html, /캘린더 AI/);
-  assert.match(html, /러너/);
+  assert.match(html, /Calendar AI/);
+  assert.match(html, /Runner/);
   assert.match(html, /Codex/);
   assert.match(html, /Claude/);
   assert.match(html, /Grok/);

@@ -1,14 +1,28 @@
-# vinext-starter
+# Agent Calendar Web
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Agent Calendar의 공개 제품 소개, 다운로드 handoff와 개인정보·이용정책·지원 문서를
+제공하는 vinext 기반 웹 앱입니다. 루트 [README](../../README.md)와
+[권위 PRD](../../docs/PRD-agent-calendar-second-brain.md)의 제품 언어를 사용합니다.
+
+이 화면은 캘린더, Second Brain, LLM Wiki와 에이전트 작업을 별도 도구 모음으로 소개하지
+않습니다. `사용자를 이해하고 필요한 일을 실제로 수행한 뒤 결과를 기억하는 캘린더`라는
+하나의 제품 흐름을 설명합니다.
 
 ## Prerequisites
 
 - Node.js `>=22.13.0`
 
-## Quick Start
+## 주요 화면
+
+- `/`: 실제 Desktop 스크린샷을 사용하는 제품 랜딩
+- `/privacy`: 개인정보와 데이터 경계
+- `/terms`: Private beta 이용정책
+- `/support`: 지원과 운영 상태
+
+공개 가입과 다운로드 링크는 서명된 handoff receipt가 검증될 때만 활성화됩니다. 설정이
+없거나 검증에 실패하면 링크를 만들지 않고 Private beta 준비 상태를 표시합니다.
+
+## 개발
 
 ```bash
 npm install
@@ -16,16 +30,14 @@ npm run dev
 npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+주요 파일:
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+- `app/page.tsx`: 제품 랜딩 구조와 문구
+- `app/globals.css`: light/dark 공통 디자인 토큰과 반응형 레이아웃
+- `app/privacy`, `app/terms`, `app/support`: 신뢰 문서
+- `lib/signed-handoff.mjs`: 공개 handoff 서명 검증
+- `public/product-*.png`: 실제 Desktop 제품 화면
+- `tests/`: SSR, handoff, anti-slop, 프로덕션/로컬 QA 격리 계약
 
 ## Workspace Auth Headers
 
@@ -58,7 +70,7 @@ export default async function Home() {
 }
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+## 선택적 ChatGPT Sign-In
 
 Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
 optional or required ChatGPT sign-in:
@@ -85,14 +97,18 @@ or enforce explicit server-side membership or allowlist checks.
 Use SIWC for account pages, user-specific dashboards, saved records, and write
 actions tied to the current ChatGPT user. Leave public content anonymous.
 
-## Useful Commands
+## 검증
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+- `npm run dev`: 로컬 UI 개발
+- `npm run build`: vinext production build
+- `npm test`: build 후 SSR, handoff와 UI 계약 검증
+- `npm run lint`: ESLint
+- `npm run db:generate`: schema 변경 시 Drizzle migration 생성
 
-## Learn More
+로컬 화면은 개발 피드백 용도이며 프로덕션 제품 증거가 아닙니다. 공개 handoff와 최종 랜딩
+검증은 실제 배포 환경에서 수행합니다.
+
+## 기반 기술
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)

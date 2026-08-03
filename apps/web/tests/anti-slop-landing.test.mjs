@@ -26,6 +26,23 @@ test("hero and page structure follow the restrained asymmetric product contract"
   assert.doesNotMatch(pageSource, /제품 살펴보기.*[↓⇣]|Private beta.*Private beta/s);
 });
 
+test("landing explains why the calendar understands, remembers, works, and reports", () => {
+  assert.match(pageSource, /id="why"/);
+  assert.match(pageSource, /className="why-section"/);
+  assert.match(pageSource, /AI를 열 때마다/);
+  assert.match(pageSource, /나를 다시 설명하지 않도록/);
+  assert.match(pageSource, /사용자가 허용한 일정, 메일, 파일과 기록/);
+  assert.match(pageSource, /결과를 다시 캘린더와 Wiki에 남깁니다/);
+  assert.match(css, /\.why-section\s*\{[^}]*grid-template-columns:/s);
+  assert.doesNotMatch(pageSource, /Calendar-first agent operations/);
+});
+
+test("document metadata describes the current calendar product instead of the old control space", () => {
+  assert.match(layoutSource, /나를 이해하고 일을 이어가는 캘린더/);
+  assert.match(layoutSource, /일정, 메일, 파일과 기록을 이해해/);
+  assert.doesNotMatch(layoutSource, /위임한 에이전트 작업|작업 관제 공간/);
+});
+
 test("landing supports one consistent light and dark token system with reduced motion", () => {
   assert.match(css, /@media\s*\(prefers-color-scheme:\s*dark\)/);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
