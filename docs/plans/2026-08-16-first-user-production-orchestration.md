@@ -743,30 +743,211 @@ GREEN: `App.tsx` `actOnCalendarAiDraft`만. ChatDrawer 레이아웃 재설계 �
 
 ### Wave 3 — Work isolation / 폴더 / 병렬
 
-**Depends on:** Wave 0R (handoffs/`kind` fixture가 이미 GREEN).  
-**Public seams:** Work composer/live/error keyed by `missionId`.  
-**Files:** `useAgentWorkLiveTurn.ts`, `AgentWorkWorkspace.tsx`, `apps/desktop/tests/agent-work-live-stream.test.mjs`, `apps/desktop/tests/agent-work-conversation.test.mjs`.
+**Depends on:** Wave 0R GREEN. Wave 2 handoff(`ece6275`)는 이미 있다. Work Intake route는 Wave 2가 열지 않았다.
+**2026-08-16 gap (clean `ece6275`):** 아래 4개 테스트와 `work-intake.js`는 clean에 **없다**. escolar untracked만 있다. `node --test`는 없는 경로를 조용히 건너뛴다. 2026-08-16 재현: `calendar-ai-work-handoff.test.mjs` + 없는 `work-intake-boundary.test.cjs` → exit 0, tests 1. Desktop만 돌리면 거짓 GREEN이다.
 
-**First RED:**
+**Public seams:**
+
+- API: `POST /api/work-intake/preview`, `POST /api/work-intake/start` (`work-intake.preview` / `work-intake.start`). scoped_product, member. Workspace RLS.
+- DB: 새 working-context 테이블 없음. `agent_missions` + `execution_jobs` (+ offer/attempt load count). `workingContext`는 job/mission payload. **`0038_context_envelopes`는 이 Wave 금지.** persisted envelope RED가 따로 있기 전에 이식하지 않는다.
+- Electron: 새 settings/dashboard/IPC path 없음. `local_folder.handle`은 이미 있는 Runner `registerKnowledgeSource` `sourceId`다. Railway/Desktop에 raw path 금지.
+- Runner: `workspace_general` = `stateDir/execution-workspaces/<workspaceHash>/<workHash>` (daemon cwd 아님). `local_folder` = opaque handle만. capacity 1 = lease 1 + 나머지 queued. capacity 2 = 두 lease overlap. cancel은 그 mission만.
+
+**UI:** 기존 세션 레일 + 대화 + composer. Codex/Claude처럼. 용량 설정 벽, working-context 화면, 새 홈/대시보드 없음. Desktop `useAgentWorkLiveTurn`은 이미 `missionId` owned다. **회귀 게이트이지 UI churn이 아니다.** composer를 `Map`으로 재설계하지 않는다. `key={missionId}`는 draft leak RED가 있을 때만.
+
+**Selective port (escolar 읽기 전용. 통째 복사 금지):**
+
+| 대상 | 출처 | 이식 |
+| --- | --- | --- |
+| create | `escolar` `?? apps/backend/app/lib/work-intake.js` | 모듈 전체 (clean에 없음, 테스트가 require) |
+| create | `escolar` `?? apps/backend/tests/work-intake-boundary.test.cjs` | **앞 8개 unit 테스트만.** 마지막 `real durable boundary persists one isolated Work…`는 `ContextAssembler.assemble`이 `context_envelopes` INSERT를 하므로 **Wave 3 required GREEN에서 제외** |
+| create | `escolar` `?? apps/backend/tests/interactive-agent-work-execution-state.test.cjs` | 파일 전체 (31줄, `normalizeExecutionState`) |
+| create | `escolar` `?? apps/backend/tests/runner-capacity-boundary.test.cjs` | 파일 전체 |
+| create | `escolar` `?? apps/runner/tests/execution-loop-work-context.test.cjs` | 파일 전체 |
+| create | 이 계획 | `apps/backend/tests/runner-interrupt-isolation.test.cjs` (역사 파일에 interrupt-one-with-other-running 없음) |
+| hunk | `public-agent-records.js` | `normalizeExecutionState` + export + `publicMissionRecord.executionState` |
+| hunk | `runner-control.js` | `normalizeRunnerCapacity` (1–8), `deviceCapabilities.maxConcurrentWork`, `publicRunnerRow.maxConcurrentWork`, export |
+| hunk | `durable-execution.js` | `acquireRunnerCapacitySlot` / `runnerCapacity`; `previewWork`; `acceptPreviewedWork`; `acceptWork`의 `WORK_PREVIEW_ATTESTATION_REQUIRED`; `nextOffer`/`leaseOffer`의 `runner_capacity_reached` / `RUNNER_CAPACITY_REACHED` |
+| hunk | `workspace-scoped-product-service.js` | `setWorkIntake`, `previewAgentWork`, `startAgentWork` |
+| hunk | `production-route-registry.js`, `production-product-routes.js`, `client-v1-contract.js` | preview/start 두 경로만 |
+| hunk | `phase1-auth-routes.js` | `WorkIntake` compose. Calendar AI를 Work Intake 필수로 다시 쓰지 않음 (Wave 2 handoff 유지) |
+| hunk | `apps/runner/lib/execution-loop.js` | `activeAttempts` map, `stableWorkDirectory`, `resolveWorkingContext`, `runOnce` capacity>1 |
+| hunk | `apps/runner/lib/capabilities.js` | `normalizeMaxConcurrentWork` + capability report |
+| hunk | `apps/runner/lib/client.js` | `reportCapabilities.maxConcurrentWork` |
+
+이식 금지: `0038`, `context-assembler.js` 전체, escolar `durable-execution.js`/`runner-control.js`/`execution-loop.js` 파일 덮어쓰기, Desktop 레이아웃 재설계, runner bin dirty.
+
+**First genuine RED (이 순서. 제품 코드 전에 테스트 파일만):**
+
+1. Existence — 아래 `assert-wave3-files`가 `MISSING`을 찍는다. 없는 파일을 `node --test`에 넣지 않는다.
+2. `work-intake-boundary.test.cjs`를 앞 8개 unit만 이식한 뒤 첫 테스트만:
 
 ```js
-test('rejected draft and request_failed stay on the work that produced them');
+test('Calendar AI draft preview rejects a stale context/configuration snapshot before creating Work');
 ```
 
-**Narrow command:**
+기대: `Cannot find module '../app/lib/work-intake'`. 이것이 첫 제품 RED다. Desktop `rejected draft and request_failed…`는 **이 이름 테스트가 clean에 없고**, live turn은 이미 mission-keyed라서 first RED가 아니다.
+
+이어서 같은 파일, 제품 코드는 아직 `WorkIntake` require를 통과시키는 최소만:
+
+```js
+test('local_folder keeps only an opaque handle and rejects raw local paths');
+test('two Work starts preserve isolated origin, envelope, and execution payload state');
+test('Workspace product service exposes narrow Work Intake preview/start entries');
+```
+
+3. `interactive-agent-work-execution-state.test.cjs`
+
+```js
+test('Agent Work execution statuses project to the normalized public contract');
+```
+
+기대: `normalizeExecutionState` export 없음. `accepted|waiting_runner|offered → queued`, `leased|running → running`.
+
+4. `runner-capacity-boundary.test.cjs` 첫 테스트:
+
+```js
+test('Gateway persists a bounded Runner capacity report');
+```
+
+기대: `normalizeRunnerCapacity` / `maxConcurrentWork` persist 없음. 이어서 `acquireRunnerCapacitySlot` load=capacity에서 `available:false`, `nextOffer`가 `runner_capacity_reached`로 job scan 없이 멈춤.
+
+5. `execution-loop-work-context.test.cjs` 이 순서:
+
+```js
+test('workspace_general Work uses a stable per-Work directory independent of daemon cwd');
+test('local_folder resolves only a registered opaque handle and rejects raw or unknown paths');
+test('Runner capacity 2 overlaps two leases while capacity 1 leaves the second Work queued');
+test('an interrupted attempt remains durable and a restarted retry clears only that Work');
+```
+
+기대: clean `runOnce`는 단일 `activeAttempt` + `cwd: process.cwd()`/`options.cwd`. `execution-workspaces` 없음.
+
+6. **새 파일** `apps/backend/tests/runner-interrupt-isolation.test.cjs` (역사 테스트에 없음):
+
+```js
+test('requestCancel on one running Work leaves the other running Work leased');
+```
+
+기대: `requestCancel(scope, missionA)`가 `mission_id = missionA` job에만 `cancellation_requested`. missionB attempt/heartbeat는 그대로. capacity 2 + 두 live attempt fixture.
+
+**User / session isolation (같은 Wave에서 잠글 것):**
+
+- `preview`/`start`는 `assertWorkspaceScope`. 다른 workspace `execution_jobs` count 0 (unit: 두 start의 envelope/origin/runtimeState가 섞이지 않음. persisted last test는 0038 없이 강제하지 않음).
+- `acceptWork`에 클라이언트가 넣은 `payload.workIntake`는 `WORK_PREVIEW_ATTESTATION_REQUIRED`.
+- Desktop 회귀: `useAgentWorkLiveTurn` owned `missionId` 유지. 전환 시 다른 Work composer/live/error가 보이지 않음. 새 화면 없음.
+- Runner `activeAttempts`는 attemptId keyed. 한 job의 retry는 그 job의 이전 attempt만 clear.
+
+**GREEN 최소:**
+
+- default workingContext `{ kind: 'workspace_general' }`. 같은 `jobId` 재실행 cwd가 같고 daemon cwd가 아니다.
+- `local_folder`는 `folder_[A-Za-z0-9_-]{…}` handle + 선택 `label`. `path|cwd|root|wikiRoot|localPath|absolutePath` → `WORKING_CONTEXT_RAW_PATH_FORBIDDEN`. 미등록 handle → `LOCAL_FOLDER_HANDLE_NOT_FOUND`.
+- capacity 1: lease 1, 두 번째 offer는 queued/`runner_capacity_reached`. capacity 2: 동시 lease 2, 세 번째는 거부.
+- interrupt-one: 한 Work cancel이 다른 running Work를 바꾸지 않음.
+- restart: crash 후 `activeAttempts[interrupted]` 유지, retry 성공 후 그 Work attempt만 clear.
+- Desktop 기존 live-stream / conversation 테스트 GREEN. UI 재설계 없음.
+
+**Existence gate + narrow commands (파일을 먼저 확인한다):**
 
 ```bash
-node --test --test-concurrency=1 \
-  apps/desktop/tests/agent-work-live-stream.test.mjs \
-  apps/desktop/tests/agent-work-conversation.test.mjs \
-  apps/backend/tests/work-intake-boundary.test.cjs \
-  apps/backend/tests/interactive-agent-work-execution-state.test.cjs \
-  apps/runner/tests/execution-loop-work-context.test.cjs \
-  apps/backend/tests/runner-capacity-boundary.test.cjs
+assert_wave3_files() {
+  missing=0
+  for f in "$@"; do
+    if [ ! -f "$f" ]; then echo "MISSING $f"; missing=1; fi
+  done
+  if [ "$missing" -ne 0 ]; then
+    echo "node --test skipped; missing files would false-green"
+    return 1
+  fi
+}
 ```
 
-GREEN: composer state를 `Map<missionId, …>`로. 전역 `request`/`error` 금지.  
-**Rollback:** 이 Wave 커밋 revert. 다른 Work 화면은 유지.
+RED 0 — 이식 전 (지금 clean에서 실패해야 함):
+
+```bash
+assert_wave3_files \
+  apps/backend/app/lib/work-intake.js \
+  apps/backend/tests/work-intake-boundary.test.cjs \
+  apps/backend/tests/interactive-agent-work-execution-state.test.cjs \
+  apps/backend/tests/runner-capacity-boundary.test.cjs \
+  apps/runner/tests/execution-loop-work-context.test.cjs \
+  apps/backend/tests/runner-interrupt-isolation.test.cjs
+```
+
+RED/GREEN 1 — intake unit (마지막 postgres 테스트 제외):
+
+```bash
+assert_wave3_files \
+  apps/backend/app/lib/work-intake.js \
+  apps/backend/tests/work-intake-boundary.test.cjs
+node --test --test-concurrency=1 --test-name-pattern='stale context/configuration|opaque handle|isolated origin|preview/start entries' \
+  apps/backend/tests/work-intake-boundary.test.cjs
+```
+
+RED/GREEN 2 — public execution state:
+
+```bash
+assert_wave3_files apps/backend/tests/interactive-agent-work-execution-state.test.cjs
+node --test --test-concurrency=1 apps/backend/tests/interactive-agent-work-execution-state.test.cjs
+```
+
+RED/GREEN 3 — gateway capacity:
+
+```bash
+assert_wave3_files apps/backend/tests/runner-capacity-boundary.test.cjs
+node --test --test-concurrency=1 apps/backend/tests/runner-capacity-boundary.test.cjs
+```
+
+RED/GREEN 4 — Runner cwd / handle / capacity / restart:
+
+```bash
+assert_wave3_files apps/runner/tests/execution-loop-work-context.test.cjs
+node --test --test-concurrency=1 apps/runner/tests/execution-loop-work-context.test.cjs
+```
+
+RED/GREEN 5 — interrupt-one-with-other-running:
+
+```bash
+assert_wave3_files apps/backend/tests/runner-interrupt-isolation.test.cjs
+node --test --test-concurrency=1 apps/backend/tests/runner-interrupt-isolation.test.cjs
+```
+
+회귀 (이미 있는 Desktop 파일만. 없는 backend 파일을 넣지 말 것):
+
+```bash
+assert_wave3_files \
+  apps/desktop/tests/agent-work-live-stream.test.mjs \
+  apps/desktop/tests/agent-work-conversation.test.mjs
+node --test --test-concurrency=1 \
+  apps/desktop/tests/agent-work-live-stream.test.mjs \
+  apps/desktop/tests/agent-work-conversation.test.mjs
+```
+
+한 묶음 GREEN (모든 파일이 생긴 뒤에만):
+
+```bash
+assert_wave3_files \
+  apps/backend/app/lib/work-intake.js \
+  apps/backend/tests/work-intake-boundary.test.cjs \
+  apps/backend/tests/interactive-agent-work-execution-state.test.cjs \
+  apps/backend/tests/runner-capacity-boundary.test.cjs \
+  apps/runner/tests/execution-loop-work-context.test.cjs \
+  apps/backend/tests/runner-interrupt-isolation.test.cjs \
+  apps/desktop/tests/agent-work-live-stream.test.mjs \
+  apps/desktop/tests/agent-work-conversation.test.mjs
+node --test --test-concurrency=1 \
+  apps/backend/tests/work-intake-boundary.test.cjs \
+  apps/backend/tests/interactive-agent-work-execution-state.test.cjs \
+  apps/backend/tests/runner-capacity-boundary.test.cjs \
+  apps/runner/tests/execution-loop-work-context.test.cjs \
+  apps/backend/tests/runner-interrupt-isolation.test.cjs \
+  apps/desktop/tests/agent-work-live-stream.test.mjs \
+  apps/desktop/tests/agent-work-conversation.test.mjs
+```
+
+intake 묶음이 마지막 postgres 테스트를 실행해 `context_envelopes` / `0038`로 실패하면 그 테스트를 Wave 3에서 skip/분리한다. `0038`을 심어 통과시키지 않는다.
+
+**Rollback:** Work Intake route/IPC client와 Runner working-context/capacity hunk만 revert. `0038` DROP 없음 (이식하지 않음). 기존 `POST /api/agent-operations/work`, Wave 2 Calendar AI → agents, Desktop 대화 UI, runner bin dirty는 유지. migration additive only — 이 Wave는 payload 계약이지 새 테이블이 아니다.
 
 ### Wave 4 — Wiki 환류 정직
 
