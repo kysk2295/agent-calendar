@@ -13,6 +13,10 @@
 > Electron IPC, Runner 결과, signed-package production flow를 공개 seam으로 삼고 제품 코드보다
 > 아래 RED test를 먼저 작성한다. 다른 작업자의 dirty hunk를 되돌리거나 재포맷하지 않는다.
 > 이 문서는 제품 코드를 변경하지 않는다.
+> Wave 1(`bda4a7c`)은 온보딩 skip/copy만 닫았다. 다음 제품 Wave는 **Wave 0R가 GREEN인 뒤에만**
+> 시작한다. Gmail OAuth(Wave G)와 Second Brain(Wave S)은 Wave 1 copy가 아니라 독립 TDD Wave다.
+> dirty archive `escolar`의 `0f8bee3`와 uncommitted Gmail/Second Brain 파일은 읽기 전용 참고다.
+> 파일 전체 복사를 하지 말고, 각 Wave RED가 요구하는 hunk만 이식한다.
 
 ## Goal
 
@@ -38,25 +42,25 @@
 
 `Large / Boundary`. Backend gateway, client-v1, WorkOS/Google OAuth, Electron IPC, 13개 Desktop surface, Runner working context, Railway deploy, signed package identity가 한 사용자 여정에 묶인다. 구현은 아래 Wave 단위로만 커밋한다. 한 Wave의 RED가 예상 이유로 실패하기 전에 다음 Wave 제품 코드를 쓰지 않는다.
 
-## Evidence Snapshot (2026-08-16, 이 worktree)
+## Evidence Snapshot (2026-08-16, clean worktree `first-user-production`)
 
-이 수치는 구현 시작 전 `git status`로 다시 찍는다. 다른 작업자가 파일을 추가해도 이 계획의 keep/rewrite 규칙을 적용한다.
+구현 Wave를 시작하기 전 `git status`로 다시 찍는다. 다른 작업자가 파일을 추가해도 이 계획의 keep/rewrite 규칙을 적용한다. 이 표의 dirty archive 숫자는 역사다. **현재 구현 worktree는 origin/main + Wave 1만** 가진다.
 
 | 항목 | 관측 |
 | --- | --- |
-| Branch | `kysk2295/agent-control-p0-wave1` |
-| HEAD | `35748b2c622cc76f301677643e860525afa41f69` |
-| origin/main | `d86a1aee4291ebc04dfd5a94debde2559c6b963b` (README/web landing 2커밋 ahead) |
-| Tracking | origin 대비 ahead 2 / behind 2 |
-| origin/main...HEAD 커밋 파일 | 23 |
-| local HEAD 기준 status | modified 119 + untracked 180 = **299** |
-| origin/main과 실제 파일 내용이 다른 path | modified 116 + local-only 164 + main-only/missing 3 = **283** |
+| Implementation branch | `kysk2295/first-user-production` |
+| Implementation HEAD | `bda4a7c6821785667c447e865731cfd25f14fc27` `feat: make first-user setup connections optional` |
+| origin/main | `d86a1aee4291ebc04dfd5a94debde2559c6b963b` |
+| origin/main...HEAD | Wave 1 7 files (onboarding/mail copy + 이 계획). 최신 committed migration은 `0034`. |
+| 이 worktree의 unrelated dirty | `apps/runner/bin/agent-calendar-runner.js`, `apps/runner/bin/agent-calendar-runner-update.js` — **다른 작업자 hunk. revert 금지.** |
+| Dirty source archive | `/Users/koyunseo/orca/workspaces/agent-calendar/escolar` HEAD `35748b2`, Gmail commit `0f8bee3`, plus uncommitted `mailOAuth.ts` / `0036`–`0038` / `second-brain.js` / `source-library.js` / second-brain desktop. **읽기 전용. 파일 전체 복사 금지.** |
+| 과거 dirty-archive snapshot | branch `kysk2295/agent-control-p0-wave1` @ `35748b2`, local modified+untracked ≈ 299. C12/Railway 숫자는 아래 행과 같다. |
 | 과거 C12 frozen triple | marker `f2a3b430bdc0`, Railway `08f238e7-5757-496d-b97a-67b5033853b0`, `app.asar` `e40ab9286f4199c635335ca636e608f6e74d3051e31698db08b2d25206e3c703`. `f2a3b430…`는 현재 Git object가 아니므로 재현 가능한 rollback이 아니라 참고 증거다. |
 | 현재 Railway source | deployment `180de29c-7e2c-4aba-9af4-776d357dbd77`, Git `d86a1aee4291ebc04dfd5a94debde2559c6b963b`; `/api/gateway-status`의 `f2a3b430bdc0` 표시는 stale marker다. |
 | Production gateway | `https://hermes-os-production-e174.up.railway.app` |
-| C12 Runner | PID 46299, `maxConcurrentWork: 2`, connected |
 | 신규 WorkOS 계정 | C12 `NOT RUN / external authority` |
 | 진짜 source-empty | C7/C9의 `source-empty-journey.json`은 connector 0이어도 Source Library 27건. **빈 계정 증거가 아님** |
+| origin/main 기준선 3 RED (2026-08-16 이 worktree에서 재현) | `login-authkit-copy`는 `auth.ts`에서 `WORKOS_CONFIG_MISSING` 문자열을 찾고, `agent-work-live-stream` fixture는 `handoffGraph.handoffs`가 없고, `agent-worker-strip` fixture는 `mission.deliverable.kind`가 없다. |
 
 코드에서 확인한 첫 사용자 구멍 (이 계획이 닫는다):
 
@@ -69,11 +73,30 @@
 7. Agent Control Home 1차 copy가 `새 위임 작업`, `실행 엔진`을 노출한다. `CONTEXT.md`는 `새 작업`과 엔진 비노출을 요구한다.
 8. 2026-08-02 Agent IDE QA는 Work 전환 시 `request_failed` draft 누출을 FAIL로 남겼다. C12는 완료 대화 복원만 재검증했다. isolation은 첫 사용자 acceptance에 다시 넣는다.
 
+### Wave 1 검토 (`bda4a7c`) — 닫힌 것 / 아직 구멍
+
+Wave 1은 온보딩 **선택/skip/copy 계약**만 닫았다. Gmail 연결과 Second Brain run은 닫지 않았다.
+
+닫힘:
+
+- `wiki` / `mail` / `runner` optional. `폴더 없이 계속`와 step skip이 `allReady`를 막지 않는다.
+- skip만으로 `secondBrainSourceAvailable`이 true가 되지 않는다 (`first-user-journey-states`).
+- `LLM_WIKI_VAULT` 사용자 copy 제거. runner 제목 `실행 컴퓨터 (선택)`.
+- MailScreen 연결 안내가 Calendar+Gmail 통합 consent를 주장하지 않는다. `답장 초안 작업`.
+
+아직 구멍 (Wave 0R / G / S가 닫는다):
+
+9. `OnboardingGuide`는 `actionKind === 'mail_open'`이면 **primary CTA를 렌더하지 않는다.** `runAction`도 mail을 다루지 않고 `onConnectMail` prop이 없다. 사용자는 skip만 할 수 있다.
+10. `App.tsx`의 `buildOnboardingReadiness()`가 `mailConnected`를 넘기지 않는다. 메일이 연결되어도 가이드는 `메일 연결 안 됨`이다.
+11. MailScreen 빈 상태가 여전히 `계정별 OAuth 메일 연결은 준비 중입니다`라고 말한다. `not_linked → authorizing → connected` CTA/IPC/route가 이 worktree에 없다.
+12. origin/main `GET /api/mail/messages`만 있고 `POST /api/mail/google/authorize|callback`이 없다. `mail_connections` 테이블도, adapter `purpose: 'mail'`도 없다. callback bridge는 login `agent-calendar://auth/callback`만 연다.
+13. Second Brain Module/route/UI/`second_brain` onboarding step이 없다. `secondBrainSourceAvailable`은 로컬 boolean일 뿐 run이 아니다. work_result·skip·historical Source Library로 `active`를 합성할 경로를 아직 잠그지 않았다.
+
 ## Touched Boundaries
 
 - Backend gateway: `apps/backend/app/lib/production-product-routes.js`, `production-route-registry.js`, `phase1-auth-routes.js`, `apps/backend/app/railway-gateway-server.js` (composition only)
 - Backend library: `source-library.js`, `second-brain.js`, `context-assembler.js`, `work-intake.js`, `calendar-ai-service.js`, `google-calendar-adapter.js`, `google-auth-callback-bridge.js`, `client-v1-contract.js`, `workspace-scoped-product-service.js`, `agent-work-wiki-archive.js`, `runner-control.js`
-- DB/migrations: 기존 `0035`–`0038`만 유지. 새 의미 변경이 있으면 `0039` additive. `0009`/`0010`/`0013`/`0014`/`0022` dirty hunk는 replay-safety만 살리고 스키마 재해석 금지
+- DB/migrations: 이 worktree latest committed는 `0034`. Wave G가 `0036_user_mail_connections`를, Wave S가 `0037_personal_second_brain`을 additive로 추가한다. `0035_agent_work_calendar_terminal_backfill`과 `0038_context_envelopes`는 해당 Wave(작업 환류 / Calendar AI envelope) RED가 요구할 때만 이식한다. `0009`/`0010`/`0013`/`0014`/`0022` dirty hunk는 replay-safety만 살리고 스키마 재해석 금지
 - Electron bridge: `mailOAuth.ts`, `localWikiAsk.ts`, `localWikiWriter.ts`, `deepLink.ts`, `deepLinkMain.ts`, `preload.ts`, `preload.cts`, `settings.ts`, `main.ts`
 - React UI: `OnboardingGuide.tsx`, `onboardingReadiness.ts`, `second-brain/**`, `MailScreen.tsx`, `ChatDrawer.tsx`, `WikiScreen.tsx`, `AgentWorkWorkspace.tsx`, `AgentWorkConversationView.tsx`, `App.tsx` composition only
 - Runner: `apps/runner/lib/execution-loop.js`, `capabilities.js` (folderless cwd, capacity, interrupt)
@@ -122,10 +145,11 @@ packaged app signed-out
   → AuthKit (WorkOS; Google identity 또는 magic link)
   → 기존 시작 가이드 (sidebar 13개는 유지, 가이드가 본문만 가림)
       1. 캘린더 사용 방식 확인          [선택: Google Calendar 연결 / 내부 캘린더로 계속]
-      2. 기록 연결                     [선택: Gmail / 로컬 폴더 / 파일 / 폴더 없이 계속]
-      3. Second Brain 초안 검토        [source 있으면 run, 없으면 source_required]
-      4. Calendar AI 열기              [기존 topbar chat-fab / 가이드 CTA]
-      5. 실행 컴퓨터                   [선택; 작업 전에만 필요]
+      2. 기록 연결                     [선택: 로컬 폴더 / 파일 / 폴더 없이 계속]
+      3. Google 메일                   [선택: gmail.readonly 연결 / 나중에]
+      4. Second Brain 초안 검토        [허용 source 있으면 run, 없으면 source_required]
+      5. Calendar AI 열기              [기존 topbar chat-fab / 가이드 CTA]
+      6. 실행 컴퓨터                   [선택; 작업 전에만 필요]
   → 설정 완료 또는 나중에 → calendar
   → Calendar AI 질문 → (선택) delegate_work 승인 → agents Work Conversation
   → 진행 / 추가 지시 / 병렬 / 중단 / 재시도 / 재시작
@@ -174,8 +198,9 @@ one`의 `for (const step of others) assert.notEqual(step.optional, true)`는 **�
 | Step id | 제목 (사용자) | ready 조건 | 빈/오류 | CTA |
 | --- | --- | --- | --- | --- |
 | `calendar` | 캘린더 사용 방식 | Google source `connected` + `lastSyncedAt` **또는** 내부 캘린더 사용 선택 | OAuth 취소=`연결 필요`. admin client 없음=관리자 설정 안내. skip은 Google 연결로 표시하지 않음 | `Google Calendar 연결` / `내부 캘린더로 계속` / `지금 동기화` |
-| `records` (기존 `wiki` id 유지, 라벨만 변경) | 기록 연결 (선택) | local vault **또는** ready knowledge source **또는** Gmail connected **또는** 사용자가 `폴더 없이 계속`를 누름 | `LLM_WIKI_VAULT` 금지. 폴더 취소는 실패가 아님 | `로컬 폴더 연결`, `파일 추가`(암호화 동의 후), `Google 메일 연결`, `폴더 없이 계속` |
-| `second_brain` | 나를 이해하기 | snapshot.status=`active` **또는** `source_required` 확인 후 나중에 만들기 선택 | `source_required`: 연결 CTA와 `자료를 연결한 뒤 만들기`. `running/queued`: 실제 stage+processed/total. `failed/interrupted`: 저장 지점부터 재시작. citation 없는 claim 숨김 | `검토 완료 및 활성화`, claim별 확인/수정/제외, `나중에 만들기` |
+| `records` (기존 `wiki` id 유지, 라벨만 변경) | 기록 연결 (선택) | local vault **또는** ready knowledge source **또는** 사용자가 `폴더 없이 계속`를 누름 | `LLM_WIKI_VAULT` 금지. 폴더 취소는 실패가 아님. skip은 Second Brain source가 아님 | `로컬 폴더 연결`, `파일 추가`(암호화 동의 후), `폴더 없이 계속` |
+| `mail` (Wave 1이 분리한 step id. 되돌리지 않음) | Google 메일 (선택) | backend `listMailMessages.connector === 'connected'` **또는** skip | Wave 1은 skip만 동작. Wave G가 CTA를 실제 authorize로 연다. `준비 중입니다` 문구 삭제 | `Google 메일 연결` → mail IPC only. 이미 연결되면 `메일 화면 열기` |
+| `second_brain` (Wave S가 추가) | 나를 이해하기 | snapshot.status=`active` **또는** `source_required` 확인 후 나중에 만들기 선택 | `source_required`: 연결 CTA와 `자료를 연결한 뒤 만들기`. `running/queued`: 실제 stage+processed/total. `failed/interrupted`: 저장 지점부터 재시작. citation 없는 claim 숨김 | `검토 완료 및 활성화`, claim별 확인/수정/제외, `나중에 만들기` |
 | `calendar_ai` | Calendar AI 확인 | 기존 규칙 | 대화 id만으로 ready 금지 | `Calendar AI 화면 열기` → `openScreen('calendar'); setChatOpen(true)` |
 | `runner` | 실행 컴퓨터 (선택) | active runner 존재 | 오프라인은 ready이되 `현재 오프라인`. 1차 copy에 일회용 코드는 두되 “Runner”를 제목에서 뺀다 | `실행 컴퓨터 연결` → 기존 `runner` 화면 |
 
@@ -235,7 +260,7 @@ one`의 `for (const step of others) assert.notEqual(step.optional, true)`는 **�
 
 | 상태 `connector` | UI | CTA |
 | --- | --- | --- |
-| `not_linked` | `Google 메일 읽기 전용`. **Calendar와 한 번에 연결한다는 문장 삭제** | `Google 메일 연결` |
+| `not_linked` | `Google 메일 읽기 전용`. **Calendar와 한 번에 연결한다는 문장 삭제. `준비 중입니다` 삭제** | Wave G: `Google 메일 연결` → mail IPC. Wave 1 copy만으로는 연결되지 않음 |
 | busy | `Google 연결 중...` | disabled |
 | `connected` + 목록 | 읽기 전용 inbox | 새로고침, `Google 권한 다시 연결` |
 | `connected` + empty | `받은편지함이 비어 있습니다.` | 새로고침 |
@@ -361,11 +386,8 @@ Backend Module/route/contract:
 - `apps/backend/app/lib/google-auth-callback-bridge.js`
 - `apps/backend/app/lib/calendar-ai-service.js` (delegate_work → Work Intake)
 - `apps/backend/app/lib/durable-execution.js`, `runner-control.js`, `agent-work-wiki-archive.js`
-- `apps/backend/app/db/migrations/0035_agent_work_calendar_terminal_backfill.sql`
-- `apps/backend/app/db/migrations/0036_user_mail_connections.sql`
-- `apps/backend/app/db/migrations/0037_personal_second_brain.sql`
-- `apps/backend/app/db/migrations/0038_context_envelopes.sql`
-- dirty `0009`/`0010`/`0013`/`0014`/`0022` 중 `migration-replay-safety.test.cjs`가 잠그는 idempotent hunk만
+- `0035`–`0038`는 이 worktree에 아직 없다. escolar uncommitted 참고용. Wave G=`0036`, Wave S=`0037`, Wave 4=`0035`(필요 시), Wave 2=`0038`(필요 시). 파일 전체 복사 금지.
+- dirty `0009`/`0010`/`0013`/`0014`/`0022` 중 `migration-replay-safety.test.cjs`가 잠그는 idempotent hunk만 (이 worktree에 없으면 이식하지 않음)
 
 Desktop/Electron:
 
@@ -428,20 +450,19 @@ Docs keep: PRD, CONTEXT, C12 receipts, button matrix(역사), README/surfaces(or
 
 ## Clean Main Integration Order
 
-현재: branch는 origin/main에 2커밋 뒤 (README/web), 2커밋 앞 (Gmail/ready probe) + 대규모 dirty tree.
-이 worktree는 source archive로 보존한다. dirty tree에 merge/rebase하지 않는다.
+현재 구현 위치: clean worktree `kysk2295/first-user-production` @ `bda4a7c` (Wave 1 완료).
+dirty archive `escolar`에는 merge/rebase/checkout하지 않는다.
 
 ```text
-0. 현재 worktree의 `git status --short`, local-only 목록, 파일 SHA manifest를 보존한다.
-1. `origin/main`에서 새 top-level clean worktree/branch `first-user-production`을 만든다.
-   현재 dirty worktree는 읽기 전용 source archive이며 merge/rebase/checkout하지 않는다.
-2. Wave 0 characterization test와 이 계획만 먼저 이식한다.
-3. Keep 목록을 backend contract → Electron boundary → Desktop UI → Runner 순으로 최소 이식한다.
-   파일 전체 복사는 금지하고 각 Wave RED에 필요한 hunk만 가져온다.
-4. Wave 1 onboarding/mail/copy 커밋.
-5. Wave 2 Calendar AI → agents handoff 커밋.
-6. Wave 3 Work isolation/folderless 잔여 커밋.
-7. Wave 4 Wiki pending_local honesty 커밋.
+0. dirty archive status/hash는 이미 보존됨. 이 worktree에서 다른 작업자 runner dirty를 건드리지 않는다.
+1. Wave 0으로 origin/main 기준선 3 RED를 기록한다 (제품 코드 금지).
+2. Wave 0R로 그 3개를 원인별로 고치고 GREEN을 남긴다.
+3. Wave G: Gmail OAuth e2e. escolar에서 authorize/callback/mailOAuth hunk만 이식.
+4. Wave S: 허용 source Second Brain. escolar에서 source-library/second-brain hunk만 이식.
+   Wave S의 mail-origin 케이스는 Wave G connector 뒤에 둔다. calendar/file/source_required는 병렬 가능.
+5. Wave 2 Calendar AI → agents handoff.
+6. Wave 3 Work isolation/folderless.
+7. Wave 4 Wiki pending_local honesty.
 8. 한 release commit SHA를 freeze.
 9. 그 SHA만 Railway deploy + signed package.
 10. 신규 WorkOS 계정 production QA.
@@ -464,66 +485,251 @@ SOURCE_SHA=$(git rev-parse HEAD)
 ## TDD Seams
 
 구현자는 각 Wave에서 가장 위의 명령을 먼저 실행해 **예상 이유로 RED**인 것을 로그에 남긴다.
+한 Wave의 공개 seam RED가 예상 이유로 실패하기 전에 다음 Wave 제품 코드를 쓰지 않는다.
+각 Wave 블록의 **Files**는 hunk 단위다. dirty archive 파일을 통째로 덮어쓰지 않는다.
 
-### Wave 0 — 기준선 (제품 코드 변경 없음)
+참고 전용 (복사 금지):
+
+- `escolar@0f8bee3` committed: purpose별 Calendar/Mail scope, `gmail-readonly-connector.test.cjs` 초안
+- `escolar` uncommitted: `apps/desktop/electron/mailOAuth.ts`, `0036_user_mail_connections.sql`, `0037_personal_second_brain.sql`, `0038_context_envelopes.sql`, `apps/backend/app/lib/second-brain.js`, `apps/backend/app/lib/source-library.js`, `apps/backend/tests/gmail-user-oauth.test.cjs`, `apps/backend/tests/second-brain-foundation.test.cjs`, `apps/desktop/tests/google-mail-oauth.test.mjs`, `apps/desktop/src/features/second-brain/**`
+
+### Wave 0 — 기준선 기록 (제품 코드 변경 없음)
+
+**Depends on:** none  
+**Public seams:** 13 nav / login copy / A0 Calendar CRUD / A5 no briefing card  
+**Files:** 없음  
+**First RED (이미 존재, 2026-08-16 재현):**
+
+1. `apps/desktop/tests/login-authkit-copy.test.mjs` — `auth.ts` 원문에 `/WORKOS_CONFIG_MISSING/` 없음. 실제 정책은 `loginFailure.ts`의 `desktopLoginStartFailureMessage()`.
+2. `apps/desktop/tests/agent-work-live-stream.test.mjs` — `a failed automatic plan…` fixture `conversation`에 `handoffGraph`가 없어 `AgentWorkConversationView`가 `handoffs`를 읽다 throw.
+3. `apps/desktop/tests/agent-worker-strip.test.mjs` — `Work Conversation mounts the worker strip…`의 `mission`에 `deliverable.kind`가 없어 `AgentWorkDetails`가 throw.
+
+**Narrow command:**
 
 ```bash
 node --test --test-concurrency=1 \
   apps/desktop/tests/orca-shell-calendar-design.test.mjs \
   apps/desktop/tests/calendar-intelligence-release-a0.test.mjs \
   apps/desktop/tests/calendar-intelligence-release-a5.test.mjs \
-  apps/desktop/tests/login-authkit-copy.test.mjs
+  apps/desktop/tests/login-authkit-copy.test.mjs \
+  apps/desktop/tests/login-failure-message.test.mjs \
+  apps/desktop/tests/agent-work-live-stream.test.mjs \
+  apps/desktop/tests/agent-worker-strip.test.mjs
 ```
 
-기대: GREEN. 깨지면 이 계획보다 먼저 기준선 회귀를 고친다.
+기대: A0/A5/design/`login-failure-message`는 GREEN. 위 3개는 RED로 기록하고 Wave 0R로 넘긴다. 제품 코드로 기준선을 약화하지 않는다.
 
-### Wave 1 — 온보딩/메일/폴더리스 계약
+**Rollback:** 해당 없음 (기록만).
 
-**Create:** `apps/desktop/tests/first-user-journey-states.test.mjs`
+### Wave 0R — origin/main 기준선 3 RED 원인별 수리 (선행, 제품 동작 변경 금지)
 
-RED 내용 (구현 전 실패해야 함):
+**Depends on:** Wave 0 기록  
+**Public seams:** 테스트 fixture와 login 실패 copy 정책. Calendar/Mail/Second Brain 동작 변경 없음.  
+**Files (modify only):**
 
-```js
-test('wiki and mail steps are optional so folderless setup can complete');
-test('folderless continue does not start a Second Brain run');
-test('source-empty run stays source_required and never says 파악 중');
-test('mail empty copy does not claim Calendar and Gmail share one consent');
-test('onboarding user copy does not mention LLM_WIKI_VAULT');
-test('runner step title is 실행 컴퓨터 and does not block allReady');
+- `apps/desktop/tests/login-authkit-copy.test.mjs`
+- `apps/desktop/electron/loginFailure.ts` (읽기; 문자열을 `auth.ts`에 다시 심지 않음)
+- `apps/desktop/electron/auth.ts` (읽기; `desktopLoginStartFailureMessage` 호출 유지)
+- `apps/desktop/tests/agent-work-live-stream.test.mjs`
+- `apps/desktop/tests/agent-worker-strip.test.mjs`
+
+**First RED:** 위 3개 기존 테스트. 새 제품 테스트는 만들지 않는다.
+
+원인별 GREEN:
+
+1. `WORKOS_CONFIG_MISSING` — 테스트가 `auth.ts`에 코드 문자열이 있다고 가정한다. 구현은 이미 `loginFailure.ts`로 옮겼다. 테스트를 `loginFailure.ts`의 한국어 미설정 copy와 `auth.ts`가 `desktopLoginStartFailureMessage(response.status, …)`를 호출한다는 사실에 맞춘다. `auth.ts`에 dead string을 넣지 않는다.
+2. missing `handoffs` fixture — `AgentWorkConversationView` L429 `props.conversation.handoffGraph.handoffs.length`. fixture `conversation`에 `handoffGraph: { rootMissionId, rootAgentId, maxDepth: 0, maxFanOut: 0, handoffs: [] }`와 빈 `providerSessions` / `comparison.outcomes`를 채운다. View를 optional-chain으로 약화하지 않는다.
+3. missing `kind` fixture — `AgentWorkDetails` L75 `props.mission.deliverable.kind`. worker-strip 테스트의 `mission`에 `deliverable: { kind: 'file', format: 'auto' }`를 넣는다. Details를 가드하지 않는다.
+
+**Narrow command:**
+
+```bash
+node --test --test-concurrency=1 \
+  apps/desktop/tests/login-authkit-copy.test.mjs \
+  apps/desktop/tests/login-failure-message.test.mjs \
+  apps/desktop/tests/agent-work-live-stream.test.mjs \
+  apps/desktop/tests/agent-worker-strip.test.mjs
 ```
 
-기존 파일을 RED로 전환:
+**Rollback:** 이 Wave 커밋만 revert. 제품 파일이 바뀌면 이 Wave가 아니다.
+
+### Wave 1 — 온보딩/메일/폴더리스 계약 [SHIPPED `bda4a7c`]
+
+**Depends on:** none (0R와 독립적으로 이미 합쳐짐)  
+**Public seams:** `OnboardingGuide` skip CTA, `buildOnboardingReadiness` optional steps, MailScreen 독립 consent copy  
+**Files (이미 커밋):** `onboardingReadiness.ts`, `OnboardingGuide.tsx`, `MailScreen.tsx` copy, `first-user-journey-states.test.mjs`, `onboarding-readiness.test.mjs`, `primary-agent-and-mail-connection.test.mjs`
+
+**남은 RED는 Wave G/S로 이동.** Wave 1을 재작업하거나 skip 계약을 되돌리지 않는다.
+
+**Narrow command (회귀):**
 
 ```bash
 node --test --test-concurrency=1 \
   apps/desktop/tests/onboarding-readiness.test.mjs \
   apps/desktop/tests/first-user-journey-states.test.mjs \
-  apps/desktop/tests/primary-agent-and-mail-connection.test.mjs \
-  apps/desktop/tests/second-brain-onboarding.test.mjs
+  apps/desktop/tests/primary-agent-and-mail-connection.test.mjs
 ```
 
-기대 RED 이유:
+**Rollback:** `bda4a7c` revert. origin/main 4-step required wiki로 돌아간다.
 
-- `onboarding-readiness`: `others not optional` (wiki)
-- `primary-agent-and-mail-connection` 또는 신규: MailScreen 통합 consent 문장
-- `first-user-journey-states`: 아직 함수/copy 없음
+### Wave G — Gmail OAuth e2e (`not_linked → authorizing → connected` / revoke / retry)
 
-GREEN 최소 구현: `onboardingReadiness.ts`, `OnboardingGuide.tsx`, `MailScreen.tsx` copy, 테스트 기대값 갱신.
+**Depends on:** Wave 0R GREEN. Wave 1 copy는 유지.  
+**Public seams:**
+
+- `POST /api/mail/google/authorize` → `{ state, authorizationUrl }` (`state` prefix `mail.`)
+- `POST /api/mail/google/callback` `{ code, state }` → `{ connection: { provider:'google', status } }`
+- `GET /api/mail/messages` → `{ connector: 'not_linked'|'connected'|'reauthorization_required', items }`
+- Electron IPC `mail:google-connect` / deep link `agent-calendar://mail/google/callback`
+- Gateway HTTPS callback이 `state` prefix로 mail vs calendar vs login deep link를 고른다
+- Desktop: OnboardingGuide `Google 메일 연결` CTA, MailScreen connect/retry, `mailConnected`는 `connector === 'connected'`만
+
+**Files (create — 최소 신규 파일만):**
+
+- `apps/backend/app/db/migrations/0036_user_mail_connections.sql`
+- `apps/desktop/electron/mailOAuth.ts`
+- `apps/backend/tests/gmail-user-oauth.test.cjs` (user-bound state; 통째 복사 금지)
+- `apps/desktop/tests/google-mail-oauth.test.mjs` (IPC/authorize/callback only)
+- `apps/desktop/tests/first-user-gmail-connect.test.mjs` (가이드 CTA + backend truth)
+
+**Files (modify — hunk only):**
+
+- `apps/backend/app/lib/google-calendar-adapter.js` — `getAuthorizationUrl({ purpose })`, `listMailMessages`
+- `apps/backend/app/lib/unified-calendar.js` — `startGoogleMailAuthorize`, `finalizeGoogleMailOAuth`, `listMailMessages` connector
+- `apps/backend/app/lib/production-route-registry.js` / `production-product-routes.js` / `client-v1-contract.js`
+- `apps/backend/app/lib/google-auth-callback-bridge.js` — `mail.` → `agent-calendar://mail/google/callback`
+- `apps/desktop/electron/deepLink.ts`, `deepLinkMain.ts`, `preload.ts`, `preload.cts`, `main.ts`, `vite-env.d.ts`
+- `apps/desktop/src/features/onboarding/OnboardingGuide.tsx` — `mail_open` CTA 복구, `onConnectMail`
+- `apps/desktop/src/features/onboarding/onboardingReadiness.ts` — `mailConnected`는 caller가 넣은 backend truth만
+- `apps/desktop/src/features/communication/MailScreen.tsx` — connector/CTA, `준비 중입니다` 삭제
+- `apps/desktop/src/App.tsx` — `connectGoogleMail`, hydrate `inbox.connector`, readiness `mailConnected: mailConnector === 'connected'`
+- `apps/backend/tests/gmail-readonly-connector.test.cjs` (origin/main에 있으면 확장, 없으면 최소 생성)
+- `apps/desktop/tests/primary-agent-and-mail-connection.test.mjs`
+
+**First RED (이 순서로 하나만 먼저 실패시킬 것):**
+
+`apps/desktop/tests/first-user-gmail-connect.test.mjs`
+
+```js
+test('OnboardingGuide mail CTA renders and invokes onConnectMail, not calendar IPC');
+test('mailConnected is true only when backend connector is connected');
+test('MailScreen not_linked shows Google 메일 연결 and never says 준비 중입니다');
+```
+
+기대 RED 이유: `OnboardingGuide`가 `mail_open` 버튼을 숨기고, `App.tsx`가 `mailConnected`/`onConnectMail`을 넘기지 않으며, MailScreen에 connector CTA가 없다.
+
+바로 이어서 backend seam RED:
+
+```js
+// apps/backend/tests/gmail-readonly-connector.test.cjs
+test('Google Calendar and Gmail consent request separate minimum scopes');
+test('production exposes authenticated Gmail authorize and callback routes');
+```
+
+기대 RED 이유: `getAuthorizationUrl`에 `purpose`가 없고 `/api/mail/google/authorize`가 registry에 없다.
+
+**Narrow command:**
+
+```bash
+node --test --test-concurrency=1 \
+  apps/desktop/tests/first-user-gmail-connect.test.mjs \
+  apps/desktop/tests/google-mail-oauth.test.mjs \
+  apps/desktop/tests/primary-agent-and-mail-connection.test.mjs \
+  apps/backend/tests/gmail-readonly-connector.test.cjs \
+  apps/backend/tests/gmail-user-oauth.test.cjs \
+  apps/backend/tests/google-auth-callback-bridge.test.cjs
+```
+
+GREEN 최소: mail route + `0036` + purpose=mail scope + Electron mail coordinator + 가이드/MailScreen CTA가 그 IPC를 연다. Calendar grant, login, 13 nav를 바꾸지 않는다. Gmail send/delete/star 없음.
+
+상태 기계: `not_linked → authorizing → connected`. 가지 `denied` / `admin_unconfigured` / `reauthorization_required` / `empty_inbox`. revoke/retry는 같은 mail IPC. Calendar sync를 트리거하지 않는다.
+
+**Rollback:** Desktop `mail:google-connect` IPC와 `/api/mail/google/*` route만 끈다. `0036`은 DROP하지 않는다. Calendar source와 WorkOS 세션은 유지.
+
+### Wave S — 허용 source Second Brain (`source_required → collecting → review → active`)
+
+**Depends on:** Wave 0R GREEN. mail-origin 케이스는 Wave G connector 이후. calendar/file/`source_required`는 Wave G와 병렬 가능.  
+**Public seams:**
+
+- `POST /api/second-brain/runs` `{ idempotencyKey, sourceIds? }`
+- `GET /api/second-brain/runs/:id`, `GET /api/second-brain/current`
+- `POST /api/second-brain/snapshots/:id/review`
+- bootstrap 허용 origin: `calendar`, `mail`, `file` (ready knowledge / local vault). `work_result`는 환류이지 bootstrap이 아니다.
+- skip / `폴더 없이 계속` / empty inbox / 내부 캘린더 skip은 source row를 만들지 않는다.
+- Desktop: onboarding step `second_brain` in-place. `source_required`는 “파악 중”/가짜 % 금지. running은 `stage` + `processed/total`.
+
+**Files (create):**
+
+- `apps/backend/app/db/migrations/0037_personal_second_brain.sql`
+- `apps/backend/app/lib/source-library.js` (허용 adapter만: knowledge file, calendar, mail)
+- `apps/backend/app/lib/second-brain.js`
+- `apps/backend/tests/second-brain-foundation.test.cjs` 중 source-empty / provenance 테스트만
+- `apps/desktop/src/features/second-brain/secondBrainClient.ts`
+- `apps/desktop/src/features/second-brain/secondBrainModel.ts`
+- `apps/desktop/src/features/second-brain/SecondBrainOnboarding.tsx`
+- `apps/desktop/src/features/second-brain/second-brain.css`
+- `apps/desktop/tests/second-brain-onboarding.test.mjs`
+- `apps/desktop/tests/first-user-second-brain-states.test.mjs`
+
+**Files (modify — hunk only):**
+
+- `production-route-registry.js`, `production-product-routes.js`, `client-v1-contract.js`
+- `onboardingReadiness.ts` — step `second_brain` 추가. `ready`는 `active` 또는 `source_required_acknowledged`. skip은 run을 시작하지 않음
+- `OnboardingGuide.tsx` — in-place review panel. 새 route/nav 없음
+- `App.tsx` — current snapshot hydrate. `SecondBrainCalendarBriefing` import 계속 금지
+- `0038_context_envelopes.sql`은 이 Wave가 아니라 Wave 2 envelope RED가 요구할 때만
+
+**First RED:**
+
+`apps/backend/tests/second-brain-foundation.test.cjs`
+
+```js
+test('source-empty Second Brain does not infer from derived Work results');
+```
+
+기대 RED 이유: `SecondBrain` / `SourceLibrary` / `0037` / `second_brain_run_start` route가 없다.
+
+바로 이어서 Desktop:
+
+```js
+// apps/desktop/tests/first-user-second-brain-states.test.mjs
+test('folderless continue does not start a Second Brain run');
+test('source-empty run stays source_required and never says 파악 중');
+test('only calendar, mail, and file origins can leave source_required');
+```
+
+기대 RED 이유: `second_brain` step과 run client가 없다. Wave 1의 `secondBrainSourceAvailable`만으로는 부족하다.
+
+**Narrow command:**
+
+```bash
+node --test --test-concurrency=1 \
+  apps/backend/tests/second-brain-foundation.test.cjs \
+  apps/desktop/tests/first-user-second-brain-states.test.mjs \
+  apps/desktop/tests/second-brain-onboarding.test.mjs \
+  apps/desktop/tests/first-user-journey-states.test.mjs \
+  apps/desktop/tests/calendar-intelligence-release-a5.test.mjs
+```
+
+GREEN 최소: 허용 source 0이면 `source_required` + inference 0회. 허용 source가 있으면 `collecting → indexing → extracting → linking → ready_for_review → active`. citation 없는 claim 숨김. confirm/correct/reject가 snapshot version을 바꾼다. Calendar 기본 화면에 브리핑 카드 없음.
+
+금지: work_result·historical Source Library·skip flag로 inventory를 채우기. `source-empty-journey.json`을 fixture로 쓰지 않기. `SecondBrainCalendarBriefing`을 App에 연결하지 않기.
+
+**Rollback:** `VITE_SECOND_BRAIN_V1=0` 및 `second_brain_*` route disable. `0037` DROP 금지. 연결된 calendar/mail/file source row는 삭제하지 않음.
 
 ### Wave 2 — Calendar AI → 작업 대화
 
-**Modify tests:**
+**Depends on:** Wave 0R. Second Brain citation은 Wave S 이후 회귀에만 필요.  
+**Public seams:** Calendar AI approve 응답 `missionId` → Desktop `openScreen('agents')` + 해당 conversation.  
+**Files:** `apps/desktop/src/App.tsx` (`actOnCalendarAiDraft` only), `apps/desktop/src/api/hermesApi.ts` (필요 시 work-intake client), `apps/backend/app/lib/calendar-ai-service.js` (응답 contract), `apps/desktop/tests/calendar-ai-work-handoff.test.mjs`, `calendar-intelligence-release-a5.test.mjs`, `apps/backend/tests/phase6-calendar-ai.test.cjs`. `0038`는 envelope RED가 요구할 때만.
 
-- `apps/desktop/tests/calendar-intelligence-release-a5.test.mjs`에 추가:
-  - `actOnCalendarAiDraft` approve 성공 경로가 `openScreen('agents')`와 mission id를 쓴다
-- `apps/backend/tests/phase6-calendar-ai.test.cjs` (이미 workIntake origin 검증 있음) — 승인 응답에 `missionId` 유지
-- **Create:** `apps/desktop/tests/calendar-ai-work-handoff.test.mjs`
+**First RED:**
 
 ```js
 test('approving delegate_work opens the existing agents conversation for that mission');
-test('approving delegate_work without an execution computer does not look successful');
-test('App still does not import SecondBrainCalendarBriefing');
 ```
+
+**Narrow command:**
 
 ```bash
 node --test --test-concurrency=1 \
@@ -532,30 +738,49 @@ node --test --test-concurrency=1 \
   apps/backend/tests/phase6-calendar-ai.test.cjs
 ```
 
-GREEN: `App.tsx` `actOnCalendarAiDraft`만. ChatDrawer 레이아웃 재설계 금지.
+GREEN: `App.tsx` `actOnCalendarAiDraft`만. ChatDrawer 레이아웃 재설계 금지.  
+**Rollback:** Calendar AI → Work 전환만 끄고 기존 Agent create/history 유지.
 
 ### Wave 3 — Work isolation / 폴더 / 병렬
 
-**Modify:** `apps/desktop/tests/agent-work-live-stream.test.mjs`, `apps/desktop/tests/agent-work-conversation.test.mjs`
+**Depends on:** Wave 0R (handoffs/`kind` fixture가 이미 GREEN).  
+**Public seams:** Work composer/live/error keyed by `missionId`.  
+**Files:** `useAgentWorkLiveTurn.ts`, `AgentWorkWorkspace.tsx`, `apps/desktop/tests/agent-work-live-stream.test.mjs`, `apps/desktop/tests/agent-work-conversation.test.mjs`.
+
+**First RED:**
 
 ```js
 test('rejected draft and request_failed stay on the work that produced them');
-test('switching works clears the composer of the hidden work');
 ```
 
-**Keep RED/GREEN already present:**
+**Narrow command:**
 
 ```bash
 node --test --test-concurrency=1 \
+  apps/desktop/tests/agent-work-live-stream.test.mjs \
+  apps/desktop/tests/agent-work-conversation.test.mjs \
   apps/backend/tests/work-intake-boundary.test.cjs \
   apps/backend/tests/interactive-agent-work-execution-state.test.cjs \
   apps/runner/tests/execution-loop-work-context.test.cjs \
   apps/backend/tests/runner-capacity-boundary.test.cjs
 ```
 
-GREEN: `useAgentWorkLiveTurn.ts`, composer state를 `Map<missionId, …>`로. 전역 `request`/`error` 금지.
+GREEN: composer state를 `Map<missionId, …>`로. 전역 `request`/`error` 금지.  
+**Rollback:** 이 Wave 커밋 revert. 다른 Work 화면은 유지.
 
 ### Wave 4 — Wiki 환류 정직
+
+**Depends on:** Wave 3 folderless workingContext.  
+**Public seams:** completed current result만 Source Record / pending_local.  
+**Files:** `localWikiWriter.ts`, `workResultWikiProjection.ts`, `WikiScreen.tsx`, `agent-work-wiki-archive.js`, `0035`는 이 Wave RED가 calendar terminal backfill을 요구할 때만.
+
+**First RED:**
+
+```js
+test('folderless workspace keeps pending_local and does not claim wiki written');
+```
+
+**Narrow command:**
 
 ```bash
 node --test --test-concurrency=1 \
@@ -564,29 +789,39 @@ node --test --test-concurrency=1 \
   apps/backend/tests/work-result-feedback.test.cjs
 ```
 
-추가 RED:
-
-```js
-test('folderless workspace keeps pending_local and does not claim wiki written');
-test('failed and cancelled work do not create a success Source Record');
-```
+**Rollback:** pending_local 유지, writer route만 끈다. DROP 금지.
 
 ### Wave 5 — Playwright (로컬 렌더러, production 대체 아님)
+
+**Depends on:** Wave G + Wave S + Wave 2 Desktop seams.  
+**Public seams:** 가이드 CTA, 13 nav, source_required, Calendar CRUD.  
+**Files:** `apps/desktop/tests/playwright-first-user-folderless.cjs` (create), 기존 playwright 스크립트.
+
+**First RED:** folderless 스크립트가 `onboarding-action-mail`과 `source_required`를 찾지 못함 (Wave G/S 전이면 이 Wave를 시작하지 않는다).
+
+**Narrow command:**
 
 ```bash
 node apps/desktop/tests/playwright-second-brain-onboarding.cjs
 node apps/desktop/tests/playwright-calendar-crud.cjs
 node apps/desktop/tests/playwright-agent-work-workspace.cjs
 node apps/desktop/tests/playwright-release-c-existing-surface-integration.cjs
+node apps/desktop/tests/playwright-first-user-folderless.cjs
 ```
 
-**Create:** `apps/desktop/tests/playwright-first-user-folderless.cjs`
+시나리오: 가이드 → 폴더 없이 계속 → mail CTA가 connect IPC를 염 → source_required → Calendar 연결 스텁 → 초안 citation → Calendar AI open → 13 nav 회귀.
 
-시나리오: 가이드 → 폴더 없이 계속 → source_required → Calendar 연결 스텁 → 초안 citation → Calendar AI open → 13 nav 회귀.
+**Rollback:** 테스트 파일만 제거. 제품 동작 없음.
 
 ### Wave 6 — frozen production QA (코드 수정 없는 QA dispatch)
 
-증거 디렉터리: `docs/qa/first-user-production/2026-08-16/`
+**Depends on:** 한 SHA freeze + identity receipt.  
+**Public seams:** packaged `app.asar` + Railway + 실 Runner + 신규 WorkOS 계정.  
+**Files:** `docs/qa/first-user-production/2026-08-16/` receipts only.
+
+**First RED:** 해당 없음. QA는 코드 RED가 아니라 버튼 matrix 판정.
+
+**Narrow command:** 로컬 Vite 금지. 패키지 `file://.../app.asar/dist/index.html`만.
 
 필수 계정:
 
@@ -600,27 +835,30 @@ node apps/desktop/tests/playwright-release-c-existing-surface-integration.cjs
 - 실제 Runner 1대, capacity 2 한 시나리오 / capacity 1 한 시나리오
 - 로컬 폴더 하나, 폴더 없는 기기 프로필 하나
 
-로컬 Vite 금지. 패키지 `file://.../app.asar/dist/index.html`만.
+**Rollback:** traffic을 `d86a1ae` / deployment `180de29c-7e2c-4aba-9af4-776d357dbd77`에 남긴다.
 
 ## Implementation Checklist
 
-- [ ] Step 0: 현재 dirty source archive의 status/hash를 보존하고 `origin/main` 기반 clean top-level worktree를 만든다. 현재 worktree에는 merge/rebase하지 않는다.
-- [ ] Step 1: Wave 0 기준선 명령을 GREEN으로 기록.
-- [ ] Step 2: `first-user-journey-states.test.mjs` 작성 후 RED 확인.
-- [ ] Step 3: onboarding wiki/mail optional + 폴더 없이 계속 + copy. 같은 테스트 GREEN.
-- [ ] Step 4: MailScreen 독립 consent / 답장 초안 작업. `primary-agent-and-mail-connection` GREEN.
-- [ ] Step 5: Calendar AI approve → agents mission handoff RED then GREEN.
-- [ ] Step 6: Work isolation RED (IDE QA 재현) then GREEN.
-- [ ] Step 7: folderless pending_local honesty RED then GREEN.
-- [ ] Step 8: Agent 1차 copy `새 작업`, 엔진 비노출. 관련 design/create-readiness 테스트 GREEN.
-- [ ] Step 9: `npm run backend:check` && focused backend tests.
-- [ ] Step 10: `npm run typecheck` && `npm --workspace apps/desktop run test`.
-- [ ] Step 11: `npm run test:runner` && `npm run build:desktop`.
-- [ ] Step 12: `npm test`.
-- [ ] Step 13: 한 SHA freeze, Railway deploy, signed package, identity receipt.
-- [ ] Step 14: 신규 WorkOS 계정 + source-rich 계정으로 아래 매트릭스 클릭.
-- [ ] Step 15: 앱/Gateway/Runner restart, source revoke, Gmail/Calendar 독립 거부.
-- [ ] Step 16: 실패 항목만 fix Task. QA dispatch는 코드를 고치지 않는다.
+- [x] Step 0: `origin/main` 기반 clean worktree `first-user-production` 존재. dirty archive는 `escolar`.
+- [x] Step 1a: Wave 1 onboarding skip/copy GREEN (`bda4a7c`).
+- [ ] Step 1b: Wave 0 기준선 명령을 돌리고 3 RED를 로그에 남긴다. 제품 코드 금지.
+- [ ] Step 1c: Wave 0R — `WORKOS_CONFIG_MISSING` 테스트 재조준, live-stream `handoffGraph.handoffs` fixture, worker-strip `deliverable.kind` fixture.
+- [ ] Step 2: Wave G first RED `first-user-gmail-connect.test.mjs` (가이드 CTA + `mailConnected` backend truth).
+- [ ] Step 3: Wave G authorize/callback/`0036`/mailOAuth/MailScreen connector GREEN.
+- [ ] Step 4: Wave S first RED source-empty `work_result` 비합성.
+- [ ] Step 5: Wave S `source_required → collecting → review → active` + onboarding step GREEN. A5 briefing import 계속 금지.
+- [ ] Step 6: Wave 2 Calendar AI approve → agents mission handoff RED then GREEN.
+- [ ] Step 7: Wave 3 Work isolation RED then GREEN.
+- [ ] Step 8: Wave 4 folderless pending_local honesty RED then GREEN.
+- [ ] Step 9: Agent 1차 copy `새 작업`, 엔진 비노출. 관련 design/create-readiness 테스트 GREEN.
+- [ ] Step 10: `npm run backend:check` && focused backend tests.
+- [ ] Step 11: `npm run typecheck` && `npm --workspace apps/desktop run test`.
+- [ ] Step 12: `npm run test:runner` && `npm run build:desktop`.
+- [ ] Step 13: `npm test`.
+- [ ] Step 14: 한 SHA freeze, Railway deploy, signed package, identity receipt.
+- [ ] Step 15: 신규 WorkOS 계정 + source-rich 계정으로 아래 매트릭스 클릭.
+- [ ] Step 16: 앱/Gateway/Runner restart, source revoke, Gmail/Calendar 독립 거부.
+- [ ] Step 17: 실패 항목만 fix Task. QA dispatch는 코드를 고치지 않는다.
 
 ## All-Button Acceptance Matrix
 
@@ -645,7 +883,7 @@ node apps/desktop/tests/playwright-release-c-existing-surface-integration.cjs
 | --- | --- |
 | Google Calendar 연결 | Calendar scope만. 로그인/Gmail 불변 |
 | 지금 동기화 | lastSyncedAt 갱신 |
-| Google 메일 연결 | gmail.readonly만 |
+| Google 메일 연결 | Wave G: `onConnectMail` → `window.hermesDesktop.connectGoogleMail()` → `/api/mail/google/authorize`. Calendar IPC 금지. `mailConnected`는 `inbox.connector === 'connected'`일 때만 true |
 | 로컬 폴더 연결 | native picker. 취소=무변경 |
 | 파일 추가 | 동의 없으면 disabled. 있으면 knowledge source |
 | 폴더 없이 계속 | wiki step ready. Second Brain run 없음 |
@@ -735,15 +973,20 @@ node apps/desktop/tests/playwright-release-c-existing-surface-integration.cjs
 ## Test Plan
 
 - RED:
-  - [ ] Wave 1–4의 명시 테스트가 예상 이유로 실패
+  - [ ] Wave 0R 3개 기존 테스트가 원인별로 실패하는 것을 로그에 남긴다
+  - [ ] Wave G `first-user-gmail-connect` / authorize route가 예상 이유로 실패
+  - [ ] Wave S source-empty `work_result` 비합성이 예상 이유로 실패
+  - [ ] Wave 2–4의 명시 테스트가 예상 이유로 실패
 - GREEN:
+  - [x] Wave 1 skip/copy (`bda4a7c`)
   - [ ] 같은 테스트가 최소 구현으로 통과
   - [ ] A0/A5/navigation/Calendar CRUD가 계속 GREEN
 - REFACTOR:
   - [ ] green 범위에서 copy 중복만 정리. App.tsx 분할은 이 계획 밖
 - Boundary:
   - [ ] Calendar AI approve ↔ Work Intake ↔ Desktop parser
-  - [ ] Gmail authorize ↔ mail_connections ↔ MailScreen
+  - [ ] OnboardingGuide mail CTA ↔ `mail:google-connect` ↔ `/api/mail/google/*` ↔ `mail_connections` ↔ `inbox.connector` ↔ `mailConnected`
+  - [ ] Second Brain run ↔ SourceLibrary allowed origins ↔ `source_required` UI
   - [ ] pending_local ↔ localWikiWriter ↔ hydrate
 - Production:
   - [ ] 신규 계정 여정 10단계
@@ -762,6 +1005,12 @@ node apps/desktop/tests/playwright-release-c-existing-surface-integration.cjs
 - [ ] `codesign --verify --deep --strict` on signed `.app`
 - [ ] Railway deployment SUCCESS, Railway metadata source == gateway build == package marker == git SHA
 - [ ] `/api/ready` 200 또는 readiness가 요구하는 production operations 설정을 실제로 완료
+- [ ] Wave 0R: `login-authkit-copy` + `login-failure-message` + `agent-work-live-stream` + `agent-worker-strip` GREEN
+- [ ] Wave G: OnboardingGuide `data-testid="onboarding-action-mail"`이 `onConnectMail`을 호출하고 Calendar IPC를 호출하지 않는다
+- [ ] Wave G: `mailConnected === true`는 hydrate `inbox.connector === 'connected'`일 때만. skip/local flag/합성 inbox로 true가 되지 않는다
+- [ ] Wave G: MailScreen `not_linked` CTA가 `connectGoogleMail`을 열고 `준비 중입니다`를 보여 주지 않는다
+- [ ] Wave S: 허용 origin(`calendar`/`mail`/`file`) 0 + work_result만 있으면 `source_required`, inference 0
+- [ ] Wave S: skip/`폴더 없이 계속`가 Second Brain run 또는 source row를 만들지 않는다
 - [ ] 신규 WorkOS 계정 여정 10단계 PASS
 - [ ] source-rich 회귀 (C12 게이트 + 이 계획 handoff/folderless)
 - [ ] 버튼 matrix에 FAIL/무반응 0
@@ -782,7 +1031,7 @@ node apps/desktop/tests/playwright-release-c-existing-surface-integration.cjs
 - C12 `f2a3b430…` / `08f238e7…` / `app.asar e40ab928…`는 기능 비교 증거다.
   `f2a3b430…`가 Git object가 아니므로 source rollback으로 주장하지 않는다.
 - 새 패키지가 identity 불일치면 배포하지 않고 현재 production main을 유지한다.
-- `VITE_SECOND_BRAIN_V1=0` / 서버 flag off: 기존 4보 가이드(calendar/runner/wiki/calendar_ai)와 기존 Calendar AI로 후퇴. 연결된 source row는 삭제하지 않음.
+- `VITE_SECOND_BRAIN_V1=0` / 서버 flag off: Wave 1 가이드(calendar/wiki/mail/calendar_ai/runner + skip)와 기존 Calendar AI로 후퇴. `second_brain` step만 숨긴다. 연결된 source row는 삭제하지 않음.
 - Gmail 문제: mail route/IPC만 끄기. Calendar grant와 로그인 유지.
 - Work Intake 문제: Calendar AI → Work 전환만 끄고 기존 Agent create/history/Runner enrollment 유지.
 - Wiki writer 문제: pending_local 유지, Diary/Review/Second Brain 초기 writer는 유지.
@@ -793,10 +1042,10 @@ node apps/desktop/tests/playwright-release-c-existing-surface-integration.cjs
 
 - Risk: 신규 WorkOS 계정이 다시 없으면 empty 게이트가 NOT RUN이 된다.
   - Mitigation: QA 시작 전 coordinator가 계정을 만든다. 없으면 succeeded로 위장하지 않고 external-blocked로 남긴다.
-- Risk: dirty worktree 동시 편집.
-  - Mitigation: 단일 editor, ownership 밖 hunk 금지, Wave 전후 `git diff --stat`.
-- Risk: 283개 delta를 파일 단위로 복사하면 main의 이후 수정과 과거 실패를 함께 되살릴 수 있다.
-  - Mitigation: origin/main clean worktree에서 RED 단위 hunk만 이식하고 Wave별 commit/review를 한다.
+- Risk: 이 worktree의 runner bin dirty 또는 다른 작업자 hunk를 실수로 revert/재포맷한다.
+  - Mitigation: 이 계획은 이 파일만 수정한다. 구현 Wave도 ownership 밖 hunk 금지, Wave 전후 `git diff --stat`.
+- Risk: `escolar` Gmail/Second Brain 파일을 통째로 복사하면 Wave 1 skip 계약과 origin/main 이후 수정을 덮는다.
+  - Mitigation: 각 Wave RED가 요구하는 hunk만 이식. `0f8bee3`/uncommitted 파일은 읽기 전용 참고.
 - Risk: Calendar AI approve가 missionId를 Desktop에 안 내려주면 handoff가 실패한다.
   - Mitigation: Wave 2 backend 응답 contract를 먼저 RED로 고정.
 - Risk: Gmail Restricted가 테스트 사용자 밖에서 실패.
@@ -804,14 +1053,20 @@ node apps/desktop/tests/playwright-release-c-existing-surface-integration.cjs
 - Risk: C12 이후 dirty 지능이 Railway에 부분 배포되면 SHA drift가 재발한다 (A6/B5 원인).
   - Mitigation: identity receipt 없이 QA 시작 금지.
 - Risk: `폴더 없이 계속`가 Second Brain 합성으로 오용됨.
-  - Mitigation: skip flag는 wiki ready만, run은 source inventory > 0일 때만.
+  - Mitigation: skip flag는 wiki ready만, run은 허용 origin inventory > 0일 때만. Wave S first RED가 work_result 비합성을 잠근다.
+- Risk: Wave 1이 mail CTA를 숨긴 채 skip만 남겨 “메일은 나중에”가 연결 성공으로 오인됨.
+  - Mitigation: Wave G acceptance gate — CTA는 실제 authorize, `mailConnected`는 `connector === 'connected'`만.
 
 ## Verification Notes
 
-- Command: `git rev-parse HEAD` / `origin/main` / unique path count
-  - Result: `35748b2` / `d86a1ae` / 303 unique (283 excluding ouroboros+surfaces)
+- Command: `git rev-parse HEAD` / `git merge-base --is-ancestor d86a1ae HEAD`
+  - Result: implementation `bda4a7c` (Wave 1). origin/main `d86a1ae` ancestor.
+- Command: Wave 1 vs origin/main
+  - Result: 7 files. onboarding skip/copy + MailScreen consent copy + 이 계획. Gmail route/IPC/Second Brain 없음.
+- Command: `node --test --test-concurrency=1 apps/desktop/tests/login-authkit-copy.test.mjs apps/desktop/tests/agent-work-live-stream.test.mjs apps/desktop/tests/agent-worker-strip.test.mjs`
+  - Result: 3 RED 재현. `WORKOS_CONFIG_MISSING`는 `auth.ts` 문자열 가정. live-stream은 `handoffGraph.handoffs` 부재. worker-strip은 `mission.deliverable.kind` 부재.
+- Command: escolar 읽기 전용 조사
+  - Result: `0f8bee3` + uncommitted `mailOAuth.ts`/`0036`–`0038`/`second-brain.js`/`source-library.js`. 파일 전체 복사 지시 없음.
 - Command: 제품 코드 변경
-  - Result: 이 계획 작성에서 없음. backend:check / desktop test / packaged QA 미실행 (설계 전용).
-- Command: C12 receipt 읽기
-  - Result: 2026-08-03 frozen triple PASS. 신규 계정 NOT RUN. 현재 worktree와 SHA 불일치.
-- 구현 시작 시 Step 0 스냅샷으로 이 절을 갱신한다.
+  - Result: 이 계획 보완에서 없음. runner dirty hunk 미터치.
+- Status: In progress 유지.
