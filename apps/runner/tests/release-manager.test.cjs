@@ -17,6 +17,7 @@ const {
 } = require('../lib/release-manager');
 
 const temporaryDirectories = [];
+const RELEASE_FIXTURE_NOW = () => Date.parse('2026-07-25T00:01:00.000Z');
 
 function makeTempDir(prefix) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -105,7 +106,7 @@ test('manifest trust is selected by signed public key id and unknown signer fail
     installedVersion: '0.9.0',
     protocolVersion: 1,
     stateSchemaVersion: 1,
-    now: () => Date.parse('2026-07-25T00:01:00.000Z'),
+    now: RELEASE_FIXTURE_NOW,
   });
   assert.equal(validated.publicKeyId, fixture.manifest.publicKeyId);
   assert.throws(
@@ -116,7 +117,7 @@ test('manifest trust is selected by signed public key id and unknown signer fail
       installedVersion: '0.9.0',
       protocolVersion: 1,
       stateSchemaVersion: 1,
-      now: () => Date.parse('2026-07-25T00:01:00.000Z'),
+      now: RELEASE_FIXTURE_NOW,
     }),
     /unknown|trust|key/i,
   );
@@ -158,6 +159,7 @@ test('signed manifest fixes stable version, checksum, protocol, state, and pinne
     installedVersion: '0.9.0',
     protocolVersion: 1,
     stateSchemaVersion: 1,
+    now: RELEASE_FIXTURE_NOW,
   });
   assert.equal(validated.version, '1.0.0');
   assert.equal(validated.artifact.sha256.length, 64);
@@ -171,6 +173,7 @@ test('signed manifest fixes stable version, checksum, protocol, state, and pinne
       installedVersion: '0.9.0',
       protocolVersion: 1,
       stateSchemaVersion: 1,
+      now: RELEASE_FIXTURE_NOW,
     }),
     /signature/i,
   );
@@ -183,6 +186,7 @@ test('signed manifest fixes stable version, checksum, protocol, state, and pinne
       installedVersion: '0.9.0',
       protocolVersion: 1,
       stateSchemaVersion: 1,
+      now: RELEASE_FIXTURE_NOW,
     }),
     /size|sha-?256|artifact/i,
   );
@@ -194,6 +198,7 @@ test('manifest rejects downgrade and incompatible protocol or state schema', () 
     manifest: fixture.manifest,
     artifactPath: fixture.archivePath,
     trustedPublicKey: fixture.publicKey,
+    now: RELEASE_FIXTURE_NOW,
   };
   assert.throws(
     () => validateRunnerReleaseManifest({
@@ -236,6 +241,7 @@ test('archive traversal is rejected before extraction', async () => {
       trustedPublicKey: fixture.publicKey,
       protocolVersion: 1,
       stateSchemaVersion: 1,
+      now: RELEASE_FIXTURE_NOW,
     }),
     /archive|traversal|unsafe/i,
   );
@@ -254,6 +260,7 @@ test('archive links are rejected before extraction', async () => {
       trustedPublicKey: fixture.publicKey,
       protocolVersion: 1,
       stateSchemaVersion: 1,
+      now: RELEASE_FIXTURE_NOW,
     }),
     /archive|link|special/i,
   );
@@ -363,6 +370,7 @@ test('interruption after pointer promotion rolls back visibly and leaves no stag
       stateSchemaVersion: 1,
       postPromoteCheck: async () => true,
       onStage,
+      now: RELEASE_FIXTURE_NOW,
     });
   };
   assert.equal((await installVersion('1.0.0', '1')).ok, true);
