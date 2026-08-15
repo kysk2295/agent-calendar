@@ -1465,20 +1465,22 @@ shasum -a 256 ".../app.asar" → frozen-identity-receipt.json
 codesign --verify --deep --strict ".../Agent Calendar.app"  exit 0
 ```
 
-**2026-08-16 실측:** `apps/desktop/package.json`에 `extraMetadata.sourceSha` **없음**. Wave 6 구현이 SHA를 패키지에 심지 않으면 receipt가 불완전 → freeze FAIL. `forceCodeSigning: true`, `hardenedRuntime`, `notarize: true`.
+**2026-08-16 실측:** 첫 frozen ZIP과 서명된 `.app`은 생성됐지만, 정적 `dmg.contents`가 존재하지 않는 Widget companion을 항상 요구해 DMG만 실패했다. 코어 freeze는 조건부 wrapper로 Widget이 없으면 `absent`를 receipt에 남기고 DMG를 만들며, 공식 릴리스는 서명된 `.appex`가 있을 때만 같은 DMG에 companion을 포함한다. unsigned Widget을 production 증거로 채우지 않는다. `forceCodeSigning: true`, `hardenedRuntime`, `notarize: true`.
 
 **현재 production rollback 기준 (승격 전까지 유지):**
 
-- Git `d86a1aee4291ebc04dfd5a94debde2559c6b963b`
-- Railway deployment `180de29c-7e2c-4aba-9af4-776d357dbd77`
+- Git `db44d336280393f6d17c3de2b4e7c1103101d858`
+- Railway deployment `8f9af9ba-5097-4a12-88e1-9795d6a21d42`
 - gateway `https://hermes-os-production-e174.up.railway.app`
 
 **Files (create):**
 
 - `scripts/first-user-production-freeze.cjs` — SHA 수집, asar hash, codesign, curl health/ready/gateway-status, receipt write. 불일치 exit 1
+- `apps/desktop/scripts/electron-builder-mac.cjs` — Widget companion 존재 여부를 검증하고 DMG contents를 조건부 구성
+- `apps/desktop/tests/desktop-dmg-widget-optional.test.mjs` — 코어 DMG 생략/공식 릴리스 포함 계약
 - `docs/qa/first-user-production/2026-08-16/frozen-identity-receipt.json` (실행 산출)
 
-**Files (modify):** `apps/desktop/package.json` `build.extraMetadata.sourceSha` 또는 동등한 embed hunk **한 곳**. runner bin dirty 금지.
+**Files (modify):** `apps/desktop/package.json`의 source SHA embed와 조건부 macOS builder 연결, freeze receipt의 `widgetCompanion: absent|included`. runner bin dirty 금지.
 
 **Secrets/config (값은 커밋 금지):**
 
@@ -1514,7 +1516,7 @@ curl -fsS "$GW/api/gateway-status"
 
 `/api/ready`가 200이 아니면 **가짜 200으로 바꾸지 않음.** 필요한 production operations 설정을 끝내거나 freeze를 `EXTERNAL_BLOCKED`로 남긴다.
 
-**Rollback:** Railway traffic를 `d86a1ae` / `180de29c-7e2c-4aba-9af4-776d357dbd77`에 둔다. 새 DMG를 배포하지 않음. `scripts/railway-release-gate.cjs` rollback 경로 사용.
+**Rollback:** Railway traffic를 `db44d33` / `8f9af9ba-5097-4a12-88e1-9795d6a21d42`에 둔다. 새 DMG를 배포하지 않음. `scripts/railway-release-gate.cjs` rollback 경로 사용.
 
 ### Wave 7 — Live production QA (코드 수정 없는 dispatch)
 

@@ -274,6 +274,7 @@ test('freeze check returns a secret-free identity receipt with the app.asar SHA2
     }, {
       gitHead: () => head,
       now: () => '2026-08-16T00:00:00.000Z',
+      inspectWidgetCompanion: () => 'absent',
       probeRenderer: async () => pathToFileURL(rendererPath).href,
       verifyCodesign: () => undefined,
       fetchImpl: async (url) => ({
@@ -302,6 +303,7 @@ test('freeze check returns a secret-free identity receipt with the app.asar SHA2
         rendererBuildId: head.slice(0, 12),
         asarSha256: createHash('sha256').update(fs.readFileSync(asarPath)).digest('hex'),
         codesignDeepStrict: true,
+        widgetCompanion: 'absent',
       },
       railway: {
         origin: PRODUCTION_GATEWAY,
@@ -392,12 +394,12 @@ test('Desktop packaging embeds the full source SHA in metadata and its 12-char p
   );
   assert.equal(
     desktopPackage.scripts['dist:mac'],
-    'npm run build && electron-builder --mac dmg zip --arm64',
+    'npm run build && node scripts/electron-builder-mac.cjs',
   );
   assert.match(desktopPackage.scripts['dist:mac:frozen'], /test -n "\$AGENT_CALENDAR_SOURCE_SHA"/);
   assert.match(
     desktopPackage.scripts['dist:mac:frozen'],
-    /-c\.extraMetadata\.sourceSha="\$AGENT_CALENDAR_SOURCE_SHA"/,
+    /node scripts\/electron-builder-mac\.cjs/,
   );
   assert.match(viteConfig, /process\.env\.AGENT_CALENDAR_SOURCE_SHA/);
   assert.match(viteConfig, /desktopBuildId[\s\S]*?\.slice\(0, 12\)/);

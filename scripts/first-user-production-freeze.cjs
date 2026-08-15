@@ -10,6 +10,17 @@ const { extractFile, listPackage } = require('@electron/asar');
 const REPOSITORY_ROOT = path.resolve(__dirname, '..');
 const SOURCE_SHA = /^[a-f0-9]{40}$/;
 const PRODUCTION_GATEWAY = 'https://hermes-os-production-e174.up.railway.app';
+const WIDGET_EXTENSION_PATH = path.join(
+  REPOSITORY_ROOT,
+  'apps',
+  'desktop',
+  'build',
+  'widget-companion',
+  'Agents Calendar Widgets.app',
+  'Contents',
+  'PlugIns',
+  'HermesWidgets.appex',
+);
 
 function repositoryHead() {
   return execFileSync('git', ['rev-parse', 'HEAD'], {
@@ -22,6 +33,12 @@ function verifyPackagedCodesign(appPath) {
   execFileSync('codesign', ['--verify', '--deep', '--strict', appPath], {
     stdio: 'ignore',
   });
+}
+
+function inspectWidgetCompanion() {
+  return fs.existsSync(WIDGET_EXTENSION_PATH) && fs.statSync(WIDGET_EXTENSION_PATH).isDirectory()
+    ? 'included'
+    : 'absent';
 }
 
 function productionGatewayOrigin(value) {
@@ -191,6 +208,7 @@ async function runFreeze(options, dependencies = {}) {
       rendererBuildId,
       asarSha256: createHash('sha256').update(fs.readFileSync(asarPath)).digest('hex'),
       codesignDeepStrict: true,
+      widgetCompanion: (dependencies.inspectWidgetCompanion || inspectWidgetCompanion)(),
     },
     railway: {
       origin: gatewayOrigin,
@@ -258,7 +276,7 @@ async function main(values = process.argv.slice(2), environment = process.env) {
   }
 }
 
-module.exports = { main, parseArguments, runFreeze };
+module.exports = { inspectWidgetCompanion, main, parseArguments, runFreeze };
 
 if (require.main === module) {
   main().then((exitCode) => {

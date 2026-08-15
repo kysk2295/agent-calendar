@@ -18,6 +18,7 @@ const localUpdaterEvidenceSchemaUrl = new URL(
   '../../../docs/operations/schemas/desktop-local-updater-evidence.schema.json',
   import.meta.url,
 );
+const macBuilderWrapperUrl = new URL('../scripts/electron-builder-mac.cjs', import.meta.url);
 
 test('desktop package publishes staged GitHub update metadata for macOS DMG and ZIP', () => {
   assert.equal(typeof desktopPackage.dependencies['electron-updater'], 'string');
@@ -69,11 +70,16 @@ test('desktop release workflow is manual, fail-closed, notarized, attested, and 
   assert.match(workflow, /environment:\s*desktop-release-publication/);
 });
 
-test('desktop DMG config places the separately built widget companion beside the Desktop app', () => {
+test('desktop DMG wrapper places a separately built widget companion beside the Desktop app', () => {
   assert.equal(desktopPackage.build.dmg.contents.some((entry) => (
     entry.type === 'file'
     && entry.path === 'build/widget-companion/Agents Calendar Widgets.app'
-  )), true);
+  )), false);
+  const wrapper = fs.readFileSync(macBuilderWrapperUrl, 'utf8');
+  assert.match(wrapper, /build\/widget-companion\/Agents Calendar Widgets\.app/);
+  assert.match(wrapper, /HermesWidgets\.appex/);
+  assert.match(wrapper, /widgetCompanion: 'absent'/);
+  assert.match(wrapper, /widgetCompanion: 'included'/);
   assert.match(
     fs.readFileSync(
       new URL('../../widget/macos/HermesWidgetHost/HermesWidgetHost/HermesWidgetHost.entitlements', import.meta.url),
