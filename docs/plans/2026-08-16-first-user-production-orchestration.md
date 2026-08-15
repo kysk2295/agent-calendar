@@ -1375,51 +1375,242 @@ node --test --test-concurrency=1 \
 - Gateway `writeDelegatedWorkArchive(wikiRoot)`를 남겨 두면 Railway가 경로를 원할 수 있다. 새 complete는 그 경로를 타지 않게 한다.
 - `workspace_source_records` 없이 Second Brain이 work_result를 bootstrap하면 Wave S 계약을 깬다. 4에서 adapter를 넣지 않는다.
 
-### Wave 5 — Playwright (로컬 렌더러, production 대체 아님)
+### Wave 5 — Packaged 13-nav smoke (Vite는 증거가 아님)
 
-**Depends on:** Wave G + Wave S + Wave 2 Desktop seams.  
-**Public seams:** 가이드 CTA, 13 nav, source_required, Calendar CRUD.  
-**Files:** `apps/desktop/tests/playwright-first-user-folderless.cjs` (create), 기존 playwright 스크립트.
+**Depends on:** Wave G + S + 2 Desktop seams GREEN. 3B/3C/4는 있으면 같이 돌리되, 이 Wave가 제품을 구현하지 않는다.  
+**증거 경계:** `npm run dev:desktop` / `electron:dev` / `run-playwright-with-vite.cjs` / `VITE_DEV_SERVER_URL`은 **로컬 회귀일 뿐**이며 Wave 6/7 PASS로 인용 금지. `verify:first-user-journey:injected`와 `test:desktop-release-smoke`의 `FIXTURE_EVIDENCE.liveProduction=false`를 그대로 따른다.
 
-**First RED:** folderless 스크립트가 `onboarding-action-mail`과 `source_required`를 찾지 못함 (Wave G/S 전이면 이 Wave를 시작하지 않는다).
+**2026-08-16 파일 실측 (`3774531`):**
 
-**Narrow command:**
+| 경로 | 상태 |
+| --- | --- |
+| `playwright-first-user-journey.cjs` | 있음. injected AuthKit. **live WorkOS 아님** |
+| `playwright-calendar-crud.cjs` / `playwright-agent-work-workspace.cjs` | 있음. 다수 Vite runner |
+| `playwright-*-surface-buttons.cjs` (calendar/mail/diary/next7-kanban/agent/chat) | 있음 |
+| `playwright-second-brain-onboarding.cjs` | **없음** (옛 Wave 5가 나열 → 거짓 GREEN) |
+| `playwright-first-user-folderless.cjs` | **없음** |
+| `playwright-release-c-existing-surface-integration.cjs` | **없음** |
+| `packaged-deep-link-smoke.cjs` | 있음. `AGENT_CALENDAR_PACKAGED_APP_PATH` 또는 `apps/desktop/release/mac-arm64/Agent Calendar.app` |
+| `run-desktop-release-smoke.cjs` | 있음. fixture only |
+| 13 nav `NAV_GROUPS` | `calendar`, `agents`, `automation`, `today`, `next7`, `tasks`, `mail`, `kanban`, `wiki`, `review`, `diary`, `runner`, `widgets` |
+
+**Public seams:** packaged `Contents/MacOS/Agent Calendar` + `app.asar/dist/index.html`. 13 nav 선택, empty/error/loading, 디자인 토큰. 새 홈/대시보드 없음.
+
+**Files (create):**
+
+- `apps/desktop/tests/playwright-first-user-folderless.cjs` — packaged only (`AGENT_CALENDAR_PACKAGED_APP_PATH` 없으면 exit 2, Vite fallback 금지)
+- `apps/desktop/tests/playwright-first-user-13nav.cjs` — 13 id를 순서대로 열고 `data-screen`/제목/empty copy 촬영
+- `docs/qa/first-user-production/2026-08-16/wave5-packaged-smoke.json` (실행 시)
+
+**Files (modify):** 없음 필수. 기존 Vite playwright를 “production PASS”로 인용하는 문장만 이 계획이 금지.
+
+**First genuine RED:**
 
 ```bash
-node apps/desktop/tests/playwright-second-brain-onboarding.cjs
-node apps/desktop/tests/playwright-calendar-crud.cjs
-node apps/desktop/tests/playwright-agent-work-workspace.cjs
-node apps/desktop/tests/playwright-release-c-existing-surface-integration.cjs
+assert_wave5_files() {
+  missing=0
+  for f in "$@"; do
+    if [ ! -f "$f" ]; then echo "MISSING $f"; missing=1; fi
+  done
+  [ "$missing" -eq 0 ] || { echo "node skipped; missing files would false-green"; return 1; }
+}
+assert_wave5_files \
+  apps/desktop/tests/playwright-first-user-folderless.cjs \
+  apps/desktop/tests/playwright-first-user-13nav.cjs
+```
+
+기대: 두 파일 MISSING.
+
+이어서 패키지 없이:
+
+```bash
+AGENT_CALENDAR_PACKAGED_APP_PATH= \
 node apps/desktop/tests/playwright-first-user-folderless.cjs
 ```
 
-시나리오: 가이드 → 폴더 없이 계속 → mail CTA가 connect IPC를 염 → source_required → Calendar 연결 스텁 → 초안 citation → Calendar AI open → 13 nav 회귀.
+기대: exit 2, “packaged app required”. Vite를 켜서 GREEN 만들지 않는다.
 
-**Rollback:** 테스트 파일만 제거. 제품 동작 없음.
+**Narrow (파일이 생긴 뒤, 패키지 있을 때만):**
 
-### Wave 6 — frozen production QA (코드 수정 없는 QA dispatch)
+```bash
+APP="apps/desktop/release/mac-arm64/Agent Calendar.app"
+test -d "$APP" || { echo "MISSING packaged app"; exit 1; }
+test -f "$APP/Contents/Resources/app.asar" || exit 1
+AGENT_CALENDAR_PACKAGED_APP_PATH="$PWD/$APP" \
+  node apps/desktop/tests/playwright-first-user-folderless.cjs
+AGENT_CALENDAR_PACKAGED_APP_PATH="$PWD/$APP" \
+  node apps/desktop/tests/playwright-first-user-13nav.cjs
+AGENT_CALENDAR_PACKAGED_APP_PATH="$PWD/$APP" \
+  node apps/desktop/tests/packaged-deep-link-smoke.cjs
+```
 
-**Depends on:** 한 SHA freeze + identity receipt.  
-**Public seams:** packaged `app.asar` + Railway + 실 Runner + 신규 WorkOS 계정.  
-**Files:** `docs/qa/first-user-production/2026-08-16/` receipts only.
+**Fixture vs live:** Wave 5는 stub/injected 허용. Google/WorkOS 실계정을 만들지 않음. 13 nav empty/error/loading만. Agent Work 실실행·OAuth는 Wave 7.
 
-**First RED:** 해당 없음. QA는 코드 RED가 아니라 버튼 matrix 판정.
+**Rollback:** 테스트 파일만 삭제. 제품 동작 없음.
 
-**Narrow command:** 로컬 Vite 금지. 패키지 `file://.../app.asar/dist/index.html`만.
+### Wave 6 — Freeze identity + Railway (승격 전)
 
-필수 계정:
+**Depends on:** 구현 Wave 1–4 + 3B/3C 모두 GREEN인 **하나의** `SOURCE_SHA`. 한쪽만 GREEN이면 freeze 금지.  
+**Vite 금지.** `npm run dev:desktop` 결과를 Railway SHA로 쓰지 않는다.
 
-1. **신규 WorkOS 계정** (진짜 empty Source Library)
-2. **source-rich 계정** (현재 production 계정 재사용 가능, 단 empty 증거로 쓰지 않음)
+**Identity 공식 (하나라도 다르면 배포하지 않음):**
 
-필수 외부 권한:
+```text
+SOURCE_SHA=$(git rev-parse HEAD)                    # 40 hex
+Railway deployment metadata source SHA == SOURCE_SHA
+GET https://hermes-os-production-e174.up.railway.app/api/gateway-status
+  → build / sourceSha == SOURCE_SHA
+packaged extraMetadata / 앱 표시 build == SOURCE_SHA
+shasum -a 256 ".../app.asar" → frozen-identity-receipt.json
+codesign --verify --deep --strict ".../Agent Calendar.app"  exit 0
+```
 
-- Railway Google OAuth client (Calendar + Gmail)
-- Gmail Restricted test user
-- 실제 Runner 1대, capacity 2 한 시나리오 / capacity 1 한 시나리오
-- 로컬 폴더 하나, 폴더 없는 기기 프로필 하나
+**2026-08-16 실측:** `apps/desktop/package.json`에 `extraMetadata.sourceSha` **없음**. Wave 6 구현이 SHA를 패키지에 심지 않으면 receipt가 불완전 → freeze FAIL. `forceCodeSigning: true`, `hardenedRuntime`, `notarize: true`.
 
-**Rollback:** traffic을 `d86a1ae` / deployment `180de29c-7e2c-4aba-9af4-776d357dbd77`에 남긴다.
+**현재 production rollback 기준 (승격 전까지 유지):**
+
+- Git `d86a1aee4291ebc04dfd5a94debde2559c6b963b`
+- Railway deployment `180de29c-7e2c-4aba-9af4-776d357dbd77`
+- gateway `https://hermes-os-production-e174.up.railway.app`
+
+**Files (create):**
+
+- `scripts/first-user-production-freeze.cjs` — SHA 수집, asar hash, codesign, curl health/ready/gateway-status, receipt write. 불일치 exit 1
+- `docs/qa/first-user-production/2026-08-16/frozen-identity-receipt.json` (실행 산출)
+
+**Files (modify):** `apps/desktop/package.json` `build.extraMetadata.sourceSha` 또는 동등한 embed hunk **한 곳**. runner bin dirty 금지.
+
+**Secrets/config (값은 커밋 금지):**
+
+- `CSC_NAME` / Apple notarize (`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`)
+- Railway CLI 로그인 또는 `RAILWAY_TOKEN`
+- `AGENT_CALENDAR_SOURCE_SHA` (freeze 시 HEAD와 같아야 함)
+
+**First RED:**
+
+```bash
+assert_wave5_files scripts/first-user-production-freeze.cjs
+node scripts/first-user-production-freeze.cjs --check
+```
+
+기대: 스크립트 없음, 또는 extraMetadata/gateway SHA 불일치.
+
+**Narrow:**
+
+```bash
+npm run backend:check
+npm run typecheck
+npm --workspace apps/desktop run dist:mac
+codesign --verify --deep --strict "apps/desktop/release/mac-arm64/Agent Calendar.app"
+node scripts/first-user-production-freeze.cjs --write \
+  --app "apps/desktop/release/mac-arm64/Agent Calendar.app" \
+  --gateway "https://hermes-os-production-e174.up.railway.app"
+# freeze PASS 후에만 Railway deploy of SOURCE_SHA
+curl -fsS "$GW/api/health"
+curl -fsS "$GW/api/ready"
+curl -fsS "$GW/api/gateway-status"
+# /api/operations/status 는 operations_private. 운영 토큰 있을 때만. 없으면 EXTERNAL_BLOCKED
+```
+
+`/api/ready`가 200이 아니면 **가짜 200으로 바꾸지 않음.** 필요한 production operations 설정을 끝내거나 freeze를 `EXTERNAL_BLOCKED`로 남긴다.
+
+**Rollback:** Railway traffic를 `d86a1ae` / `180de29c-7e2c-4aba-9af4-776d357dbd77`에 둔다. 새 DMG를 배포하지 않음. `scripts/railway-release-gate.cjs` rollback 경로 사용.
+
+### Wave 7 — Live production QA (코드 수정 없는 dispatch)
+
+**Depends on:** Wave 6 identity receipt PASS. receipt 없이 시작 금지.  
+**Vite 금지.** 패키지 앱만. injected AuthKit / fake engine / `verify:first-user-journey:injected` / `test:desktop-release-smoke`는 **참고 아님.**
+
+**수동 OAuth checkpoint (자동화 금지):**
+
+자동화는 WorkOS 사용자나 Google Cloud test user를 **만들지 못한다.** 운영자가 패키지 앱에서 직접:
+
+1. 신규 WorkOS 가입 (Google identity 또는 magic link). 기존 production 계정 재사용 금지(empty 증거).
+2. Google Cloud에서 그 Gmail을 Calendar+Gmail **테스트 사용자**로 추가 (값은 문서에 적지 않음).
+3. 체크포인트 로그: `docs/qa/first-user-production/2026-08-16/manual-oauth-checkpoint.json` `{ operator, createdAt, workosUserCreated: true, googleTestUserAdded: true, accountEmailHash }` — 이메일 원문 금지.
+
+이 파일이 없으면 Wave 7는 `EXTERNAL_BLOCKED`, succeeded로 위장하지 않음.
+
+**Accounts / profiles:**
+
+| ID | 역할 |
+| --- | --- |
+| A empty | 신규 WorkOS. 일정/메일/Wiki/작업 0 |
+| B rich | 기존 production. empty 증거 금지 |
+| P-folderless | A, 로컬 폴더 없음 |
+| P-folder | 같은 기기 다른 userData 또는 이후 같은 세션에서 폴더 연결 |
+
+**파괴 최소화 순서:**
+
+1. Read-only: `/api/health`, `/api/ready`, `/api/gateway-status` (Wave 6 receipt와 비교)
+2. 패키지 콜드 스타트 + 로그인 (수동)
+3. 13 nav empty/loading (쓰기 없음)
+4. Calendar connect → sync → CRUD 1건 → **나중에 revoke**
+5. Gmail connect (Calendar와 별도) → empty/list → revoke/retry. Calendar 세션이 꺼지면 FAIL
+6. `폴더 없이 계속` + Second Brain `source_required` 또는 캘린더 초안
+7. Calendar AI 질문 → delegate_work 승인 → agents 해당 대화
+8. **복잡한 Work 2개 이상** (조사 문서 + 일정 근거 정리). capacity 2 overlap. composer 개입 메시지. **하나만 중단**, 다른 쪽 running 유지. 원문 잘림 없음
+9. 앱 / Gateway(가능하면 재기동 금지, 대신 클라이언트 reconnect) / Runner restart 복구
+10. 폴더 연결 → 같은 `workResultId` write
+11. source-rich B는 회귀만 (브리핑 카드 없음, 13 nav)
+12. 운영 Runner revoke는 `NOT_CLICKED`. disposable enrollment만 제거
+
+**Files (create, QA 산출만):**
+
+```
+docs/qa/first-user-production/2026-08-16/
+  frozen-identity-receipt.json      # Wave 6
+  manual-oauth-checkpoint.json
+  verdict.json                      # 컨트롤별 PASS|HONEST_DISABLED|EXTERNAL_BLOCKED|NOT_CLICKED|FAIL
+  screenshots/{nav}-{state}.png     # 13 nav × empty|data|error
+  logs/packaged-main.redacted.log
+  work/{missionId}-full-result.md   # 잘리지 않은 본문
+```
+
+**Files (modify):** 제품 코드 없음. FAIL만 별 fix Task.
+
+**판정 / hard FAIL:**
+
+- Vite/dev URL이 증거에 포함
+- SHA triple 불일치
+- empty 계정에 합성 일정/메일/Wiki/에이전트
+- Calendar+Gmail 한 번 consent
+- 한쪽 revoke가 로그인/다른 Google을 끊음
+- interrupt-one이 다른 Work를 멈춤
+- 완료 본문 잘림 / pending을 written으로 표시
+- 14번째 nav / 새 대시보드 / `SecondBrainCalendarBriefing` on calendar
+- `/api/ready` 실패를 200으로 위장
+- 버튼 무반응
+
+**13 nav 최소 체크 (각각 screenshot):**
+
+| id | empty | error/loading | 금지 |
+| --- | --- | --- | --- |
+| calendar | 외부 캘린더 없음, 그리드 | 배너 재시도 | 브리핑 카드 |
+| agents | 새 작업 composer | Runner 없으면 honest disabled | 엔진 콘솔 |
+| automation | 합성 0 | 담당 미활성 문구 | 활성화 전 실행 |
+| today / next7 / tasks / kanban | 기존 empty | 기존 | AI 요약 카드 |
+| mail | Google 메일 읽기 전용 + 연결 | 준비 중입니다 금지 | 통합 consent |
+| wiki | 로컬 미연결 + pending 한 줄 | 질문 실패 정직 | LLM_WIKI_VAULT |
+| review / diary | 기존 입력 | 가짜 저장 금지 | |
+| runner | 등록 CTA | 오프라인 정직 | 운영 revoke |
+| widgets | 미리보기 | 내부 실행 버튼 없음 | |
+
+위 표 + 기존 All-Button matrix가 Wave 7 전부다. 컨트롤마다 `verdict.json` 한 행: `{ id, screen, action, expected, actual, artifact, judge }`.
+
+**복잡한 Work (live only):**
+
+- Work 1: “이번 주 캘린더에서 중요한 일을 한 장으로”
+- Work 2: “그 결과를 근거와 함께 다시 정리” (병렬, capacity 2)
+- 진행 중 추가 지시 1회
+- Work 2만 중단 → Work 1 heartbeat/complete 유지
+- 재시작 후 두 세션 + 잘리지 않은 결과
+
+**Secrets (이름만):** `WORKOS_*`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, Calendar/Gmail test-user 콘솔, Runner enroll code. 계획/receipt에 값 금지.
+
+**Narrow:** 로컬 Vite 없음. 운영자 체크리스트는 이 절 + matrix. `npm run verify:staging-clean-account`는 staging preflight일 뿐 live empty 증거가 아님.
+
+**Rollback:** 승격 전이면 `d86a1ae` / `180de29c-…` 유지. QA FAIL는 새 SHA fix. 연결된 Google/WorkOS를 QA가 삭제하지 않음.
 
 ## Implementation Checklist
 
@@ -1441,10 +1632,10 @@ node apps/desktop/tests/playwright-first-user-folderless.cjs
 - [ ] Step 11: `npm run typecheck` && `npm --workspace apps/desktop run test`.
 - [ ] Step 12: `npm run test:runner` && `npm run build:desktop`.
 - [ ] Step 13: `npm test`.
-- [ ] Step 14: 한 SHA freeze, Railway deploy, signed package, identity receipt.
-- [ ] Step 15: 신규 WorkOS 계정 + source-rich 계정으로 아래 매트릭스 클릭.
-- [ ] Step 16: 앱/Gateway/Runner restart, source revoke, Gmail/Calendar 독립 거부.
-- [ ] Step 17: 실패 항목만 fix Task. QA dispatch는 코드를 고치지 않는다.
+- [ ] Step 14: Wave 5 packaged 13-nav/folderless 스크립트. Vite를 PASS로 쓰지 않음.
+- [ ] Step 15: Wave 6 freeze identity (`first-user-production-freeze.cjs`) + signed `.app` + Railway SHA triple. 불일치면 승격 금지.
+- [ ] Step 16: Wave 7 수동 OAuth checkpoint 후 신규 empty 계정 매트릭스 + 복잡한 Work 2개 + interrupt-one + 재시작.
+- [ ] Step 17: 실패 항목만 fix Task. QA dispatch는 코드를 고치지 않는다. rollback `d86a1ae` / `180de29c-…`.
 
 ## All-Button Acceptance Matrix
 
@@ -1577,9 +1768,10 @@ node apps/desktop/tests/playwright-first-user-folderless.cjs
   - [ ] Second Brain run ↔ SourceLibrary allowed origins ↔ `source_required` UI
   - [ ] pending_local ↔ localWikiWriter ↔ hydrate
 - Production:
-  - [ ] 신규 계정 여정 10단계
-  - [ ] 버튼 matrix
-  - [ ] SHA identity receipt
+  - [ ] Wave 6 SHA triple receipt (Vite 아님)
+  - [ ] 수동 OAuth checkpoint 파일
+  - [ ] 신규 계정 여정 10단계 + 복잡한 Work 2개
+  - [ ] 버튼 matrix `verdict.json` FAIL 0
 
 ## Acceptance Gates
 
