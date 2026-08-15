@@ -526,6 +526,16 @@ const PRODUCTION_ROUTES = [
     persistence: 'write', action: 'missions_launch_deferred', idempotent: true, role: 'member',
   },
 
+  // Work Intake preview/start (Desktop Agent Work creation boundary)
+  {
+    method: 'POST', pathPattern: '/api/work-intake/preview', class: 'scoped_product',
+    persistence: 'write', action: 'work_intake_preview', idempotent: true, role: 'member',
+  },
+  {
+    method: 'POST', pathPattern: '/api/work-intake/start', class: 'scoped_product',
+    persistence: 'write', action: 'work_intake_start', idempotent: true, role: 'member',
+  },
+
   // Agent operations (Desktop Agent Work)
   {
     method: 'GET', pathPattern: '/api/agent-operations', class: 'scoped_product',
@@ -898,6 +908,8 @@ const DESKTOP_API_PATHS = [
   'POST /api/agents/:id/sessions/catalog/requests',
   'POST /api/agents/:id/sessions/catalog/requests/:requestId/import',
   'GET /api/agent-operations',
+  'POST /api/work-intake/preview',
+  'POST /api/work-intake/start',
   'POST /api/agent-operations/work',
   'GET /api/agent-operations/work/:missionId/conversation',
   'POST /api/agent-operations/work/:missionId/messages',

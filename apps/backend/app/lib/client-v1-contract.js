@@ -166,6 +166,8 @@ const clientV1ContractManifest = deepFreeze({
     ]),
     family('agent-work', [
       operation('agent-work.snapshot', 'GET', '/api/agent-operations', 'agent_ops_snapshot', 'scoped_product', 'read', true, 'member'),
+      operation('work-intake.preview', 'POST', '/api/work-intake/preview', 'work_intake_preview', 'scoped_product', 'write', true, 'member'),
+      operation('work-intake.start', 'POST', '/api/work-intake/start', 'work_intake_start', 'scoped_product', 'write', true, 'member'),
       operation('agent-work.create', 'POST', '/api/agent-operations/work', 'agent_work_create_deferred', 'scoped_product', 'write', true, 'member'),
       operation('agent-work.conversation', 'GET', '/api/agent-operations/work/:missionId/conversation', 'agent_work_conversation', 'scoped_product', 'read', true, 'member'),
       operation('agent-work.message', 'POST', '/api/agent-operations/work/:missionId/messages', 'agent_work_message', 'scoped_product', 'write', true, 'member'),

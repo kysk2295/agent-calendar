@@ -462,6 +462,125 @@ class DurableExecution {
     }
   }
 
+  async previewWork(scope, input = {}) {
+    assertWorkspaceScope(scope);
+    const agentId = String(input.agentId || '').trim().slice(0, 120);
+    if (!agentId || agentId === 'default') {
+      reject(
+        'RESPONSIBLE_AGENT_REQUIRED',
+        'Work preview requires an active Responsible Agent profile',
+        409,
+      );
+    }
+    const requestedEngineInput = String(
+      input.executionEngine || input.engine || 'auto',
+    ).toLowerCase() || 'auto';
+    if (requestedEngineInput === 'fake' && !isFakeEngineAllowed(this.env)) {
+      reject('FAKE_ENGINE_FORBIDDEN', 'Fake Engine is allowed only in explicit tests', 422);
+    }
+    const requestedModel = normalizeExecutionModel(input.requestedModel);
+    const inputPayload = input.payload && typeof input.payload === 'object'
+      && !Array.isArray(input.payload)
+      ? input.payload
+      : {};
+    const requiredCapabilities = Array.isArray(input.requiredCapabilities)
+      ? input.requiredCapabilities
+      : inputPayload.requiredCapabilities;
+    return withAppRoleWorkspaceTransaction(this.pool, scope, async (client, valid) => {
+      const agentResult = await client.query(
+        `select id, payload from agents
+         where workspace_id = $1 and id = $2
+         limit 1`,
+        [valid.workspaceId, agentId],
+      );
+      if (!agentResult.rowCount) {
+        reject(
+          'RESPONSIBLE_AGENT_NOT_AVAILABLE',
+          'The requested Responsible Agent is not available in this Workspace',
+          409,
+        );
+      }
+      const directoryAgent = agentResult.rows[0].payload || {};
+      const profileSnapshot = agentExecutionProfile({
+        id: agentId,
+        ...directoryAgent,
+        workspaceId: valid.workspaceId,
+      });
+      const agentDefaultEngine = String(
+        directoryAgent.defaultExecutionEngine || 'auto',
+      ).toLowerCase();
+      const requestedEngine = requestedEngineInput === 'auto' && agentDefaultEngine !== 'auto'
+        ? agentDefaultEngine
+        : requestedEngineInput;
+      let preferredRunnerId = input.preferredRunnerId || input.runnerId
+        || directoryAgent.defaultRunnerId || null;
+      if (preferredRunnerId) {
+        preferredRunnerId = String(preferredRunnerId);
+        const preferred = await client.query(
+          `select id from runners
+           where workspace_id = $1 and id = $2 and status = 'active'
+           limit 1`,
+          [valid.workspaceId, preferredRunnerId],
+        );
+        if (!preferred.rowCount) preferredRunnerId = null;
+      }
+      const runners = await client.query(
+        `select id, connection_state, capabilities, status
+         from runners
+         where workspace_id = $1 and status = 'active'
+         order by last_seen_at desc nulls last, id asc`,
+        [valid.workspaceId],
+      );
+      const connected = runners.rows.filter((runner) => runner.connection_state === 'connected');
+      const selectedRunner = (
+        preferredRunnerId
+          ? connected.find((runner) => runner.id === preferredRunnerId)
+          : null
+      ) || connected[0]
+        || (preferredRunnerId
+          ? runners.rows.find((runner) => runner.id === preferredRunnerId)
+          : null)
+        || null;
+      let resolved = { requested: requestedEngine, resolved: '', reason: 'waiting_runner' };
+      let status = 'waiting_runner';
+      if (selectedRunner?.connection_state === 'connected') {
+        resolved = resolveEngine(requestedEngine, selectedRunner.capabilities || {}, this.env);
+        if (resolved.resolved && runnerSupportsModel(
+          selectedRunner.capabilities || {},
+          resolved.resolved,
+          requestedModel,
+        )) {
+          status = 'accepted';
+        } else if (resolved.resolved) {
+          resolved = { ...resolved, reason: 'model_unavailable' };
+        }
+      }
+      const effectiveConfiguration = resolveEffectiveAgentConfiguration({
+        workspaceId: valid.workspaceId,
+        agent: { id: agentId, ...directoryAgent, workspaceId: valid.workspaceId },
+        runner: selectedRunner || { id: '', capabilities: {} },
+        requestedEngine,
+        resolvedEngine: resolved.resolved,
+        requestedModel,
+        reason: resolved.reason,
+        requiredCapabilities,
+      });
+      return {
+        ok: true,
+        status,
+        responsibleAgent: profileSnapshot,
+        assignmentReason: String(input.assignmentReason || `explicit:${agentId}`).slice(0, 200),
+        effectiveConfiguration,
+        executionEngine: requestedEngine,
+        requestedModel,
+        resolvedEngine: resolved.resolved || '',
+        engineReason: resolved.reason,
+        preferredRunnerId,
+        workspaceId: valid.workspaceId,
+      };
+    });
+  }
+
   /**
    * Accept Delegated Work via app-role + Workspace RLS (user path).
    * Does not insert service-only outbox/offers/attempts.

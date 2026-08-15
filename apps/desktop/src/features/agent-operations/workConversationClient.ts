@@ -92,8 +92,21 @@ export async function loadCompleteAgentWorkConversation(
 
 export type AgentWorkTransport = {
   readonly createAgentWork: (request: AgentWorkCreateRequest) => Promise<AgentWorkCreateResponse>;
+  readonly previewAgentWork?: (request: AgentWorkIntakeRequest) => Promise<AgentWorkIntakePreview>;
+  readonly startAgentWork?: (request: AgentWorkIntakeStartRequest) => Promise<AgentWorkCreateResponse>;
   readonly sendAgentWorkMessage: (missionId: string, request: AgentWorkMessageRequest) => Promise<AgentWorkMessageResponse>;
 };
+
+export type AgentWorkIntakeRequest = Omit<AgentWorkCreateRequest, 'objective'> & Readonly<{
+  goal: string;
+  workingContext: Readonly<{ kind: 'workspace_general' }>;
+}>;
+
+export type AgentWorkIntakePreview = Readonly<{ snapshotId: string }>;
+
+export type AgentWorkIntakeStartRequest = AgentWorkIntakeRequest & Readonly<{
+  previewSnapshotId: string;
+}>;
 
 export type AgentWorkClient = {
   readonly create: (draft: AgentWorkCreateDraft) => Promise<AgentWorkCreateResponse>;
@@ -139,6 +152,21 @@ function createRequest(draft: AgentWorkCreateDraft, clientRequestId: string): Ag
   };
 }
 
+function createIntakeRequest(request: AgentWorkCreateRequest): AgentWorkIntakeRequest {
+  return {
+    clientRequestId: request.clientRequestId,
+    ...(request.templateId ? { templateId: request.templateId } : {}),
+    title: request.title,
+    goal: request.objective,
+    initialMessage: request.initialMessage,
+    ...(request.agentId ? { agentId: request.agentId } : {}),
+    ...(request.executionEngine ? { executionEngine: request.executionEngine } : {}),
+    ...(request.requestedModel ? { requestedModel: request.requestedModel } : {}),
+    ...(request.deliverable ? { deliverable: request.deliverable } : {}),
+    workingContext: { kind: 'workspace_general' },
+  };
+}
+
 export function createdWorkIdentity(response: AgentWorkCreateResponse): AgentCreatedWork {
   return {
     id: response.work.id,
@@ -155,7 +183,20 @@ export function createAgentWorkClient(options: AgentWorkClientOptions): AgentWor
       const key = draftKey(draft);
       const clientRequestId = pendingCreateIds.get(key) || options.createId();
       pendingCreateIds.set(key, clientRequestId);
-      const response = await options.transport.createAgentWork(createRequest(draft, clientRequestId));
+      const request = createRequest(draft, clientRequestId);
+      const previewAgentWork = options.transport.previewAgentWork;
+      const startAgentWork = options.transport.startAgentWork;
+      let response: AgentWorkCreateResponse;
+      if (previewAgentWork && startAgentWork) {
+        const intakeRequest = createIntakeRequest(request);
+        const preview = await previewAgentWork(intakeRequest);
+        response = await startAgentWork({
+          ...intakeRequest,
+          previewSnapshotId: preview.snapshotId,
+        });
+      } else {
+        response = await options.transport.createAgentWork(request);
+      }
       pendingCreateIds.delete(key);
       return response;
     },

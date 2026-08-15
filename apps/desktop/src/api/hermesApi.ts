@@ -12,6 +12,11 @@ import type {
   AgentWorkMessageRequest,
   AgentWorkMessageResponse,
 } from '../features/agent-operations/workConversationTypes';
+import type {
+  AgentWorkIntakePreview,
+  AgentWorkIntakeRequest,
+  AgentWorkIntakeStartRequest,
+} from '../features/agent-operations/workConversationClient';
 
 export {
   AgentWorkPaginationError,
@@ -213,6 +218,16 @@ export const hermesApi = {
   getAgents: () => hermesJson<ApiEnvelope>('/api/agents'),
   getAgentOperations: () => hermesJson<unknown>('/api/agent-operations', undefined, AGENT_OPERATIONS_TIMEOUT_MS),
   createAgentWork: (body: AgentWorkCreateRequest): Promise<AgentWorkCreateResponse> => hermesJson<unknown>('/api/agent-operations/work', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }, AGENT_OPERATIONS_TIMEOUT_MS).then(parseAgentWorkCreateResponse),
+  previewAgentWork: (body: AgentWorkIntakeRequest): Promise<AgentWorkIntakePreview> => hermesJson<{
+    preview: AgentWorkIntakePreview;
+  }>('/api/work-intake/preview', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }, AGENT_OPERATIONS_TIMEOUT_MS).then((response) => response.preview),
+  startAgentWork: (body: AgentWorkIntakeStartRequest): Promise<AgentWorkCreateResponse> => hermesJson<unknown>('/api/work-intake/start', {
     method: 'POST',
     body: JSON.stringify(body),
   }, AGENT_OPERATIONS_TIMEOUT_MS).then(parseAgentWorkCreateResponse),

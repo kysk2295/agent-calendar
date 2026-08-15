@@ -590,6 +590,7 @@ test('delivery parser covers every public state, mode, revision, and current tar
 
 test('product adapter omits automatic agent assignment, preserves explicit override, and retries a message identity', async () => {
   const calls = [];
+  let previewCount = 0;
   let messageAttempts = 0;
   const responseWork = { ...BASE_WORK, executionEngine: 'codex', deliverable: { kind: 'document', format: 'docx' } };
   const responseConversation = {
@@ -600,6 +601,10 @@ test('product adapter omits automatic agent assignment, preserves explicit overr
   };
   const server = await listenJson((request, body) => {
     calls.push({ method: request.method, url: request.url, body });
+    if (request.url === '/api/work-intake/preview') {
+      previewCount += 1;
+      return { body: { ok: true, preview: { snapshotId: `wip-preview-${previewCount}` } } };
+    }
     if (request.url?.endsWith('/messages')) {
       messageAttempts += 1;
       if (messageAttempts === 1) return { status: 503, body: { ok: false, error: 'temporary_failure' } };
@@ -631,9 +636,22 @@ test('product adapter omits automatic agent assignment, preserves explicit overr
     await adapterModule.sendAgentWorkMessage('mission-work-1', '수정해줘');
 
     assert.equal(automatic.id, 'mission-work-1');
+    assert.deepEqual(calls.slice(0, 4).map(({ url }) => url), [
+      '/api/work-intake/preview',
+      '/api/work-intake/start',
+      '/api/work-intake/preview',
+      '/api/work-intake/start',
+    ]);
     assert.equal(Object.hasOwn(calls[0].body, 'agentId'), false);
-    assert.equal(calls[1].body.agentId, 'stockagent');
-    assert.equal(calls[2].body.clientMessageId, calls[3].body.clientMessageId);
+    assert.equal(Object.hasOwn(calls[1].body, 'agentId'), false);
+    assert.equal(calls[0].body.goal, 'docx 생성');
+    assert.equal(Object.hasOwn(calls[0].body, 'objective'), false);
+    assert.deepEqual(calls[0].body.workingContext, { kind: 'workspace_general' });
+    assert.equal(calls[1].body.previewSnapshotId, 'wip-preview-1');
+    assert.equal(calls[2].body.agentId, 'stockagent');
+    assert.equal(calls[3].body.agentId, 'stockagent');
+    assert.equal(calls[3].body.previewSnapshotId, 'wip-preview-2');
+    assert.equal(calls[4].body.clientMessageId, calls[5].body.clientMessageId);
   } finally {
     await server.close();
   }

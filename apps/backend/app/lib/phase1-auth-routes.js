@@ -31,6 +31,8 @@ const {
   runnerReleaseConfigurationFromEnv,
 } = require('./runner-control');
 const { DurableExecution } = require('./durable-execution');
+const { WorkContextAssembler } = require('./work-context-assembler');
+const { WorkIntake } = require('./work-intake');
 const { UnifiedCalendar } = require('./unified-calendar');
 const { KnowledgeService } = require('./knowledge-service');
 const { CalendarAiService } = require('./calendar-ai-service');
@@ -175,6 +177,13 @@ function createPhase1Runtime({
     unifiedCalendar.startBackgroundWorkers();
   }
   const product = new WorkspaceScopedProductService({ pool, useAppRole: true, env });
+  const workContextAssembler = new WorkContextAssembler({ pool });
+  const workIntake = new WorkIntake({
+    pool,
+    contextAssembler: workContextAssembler,
+    durableExecution,
+  });
+  product.setWorkIntake(workIntake);
   const providerAgentBridge = new ProviderAgentBridge({ pool, env });
   const agentBuilder = new WorkspaceAgentBuilderService({ pool });
   const workConversationChannels = new WorkConversationChannelService({ pool });
@@ -231,6 +240,7 @@ function createPhase1Runtime({
       releaseMinimumVersion: runnerReleaseConfiguration.minimumVersion,
     }),
     durableExecution,
+    workIntake,
     providerAgentBridge,
     agentBuilder,
     workConversationChannels,

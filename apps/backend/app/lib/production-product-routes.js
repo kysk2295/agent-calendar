@@ -973,6 +973,33 @@ async function handleScopedProductRoute({
     return true;
   }
 
+  if (action === 'work_intake_preview' || action === 'work_intake_start') {
+    if (body && body.contextEnvelopeId) {
+      sendJson(res, 409, {
+        ok: false,
+        error: 'CONTEXT_ENVELOPE_UNAVAILABLE',
+        message: 'request_failed',
+      });
+      return true;
+    }
+    if (!runtime.workIntake) {
+      sendJson(res, 503, {
+        ok: false,
+        error: 'work_intake_unavailable',
+        message: 'service_unavailable',
+      });
+      return true;
+    }
+    if (action === 'work_intake_preview') {
+      const preview = await runtime.workIntake.preview(scope, body || {});
+      sendJson(res, 200, { ok: true, preview, workspaceId: scope.workspaceId });
+      return true;
+    }
+    const started = await runtime.workIntake.start(scope, body || {});
+    sendJson(res, 200, { ...started, workspaceId: scope.workspaceId });
+    return true;
+  }
+
   // ── Agent operations ───────────────────────────────────────────────
   if (action === 'agent_ops_snapshot') {
     const snapshot = await product.getAgentOperationsSnapshot(scope);
