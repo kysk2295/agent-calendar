@@ -24,6 +24,7 @@ const mission = {
   objective: '경쟁사 근거를 교차 검증합니다.',
   status: 'active',
   executionEngine: 'auto',
+  deliverable: { kind: 'file', format: 'auto' },
 };
 
 test('worker projection renders truthful text statuses and actual engines when evidenced', () => {

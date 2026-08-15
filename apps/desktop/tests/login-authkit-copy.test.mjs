@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const auth = readFileSync(new URL('../electron/auth.ts', import.meta.url), 'utf8');
+const loginFailure = readFileSync(new URL('../electron/loginFailure.ts', import.meta.url), 'utf8');
 
 test('login screen separates workspace AuthKit login from Google Calendar OAuth', () => {
   assert.match(app, /Google 또는 이메일로 계속하기/);
@@ -13,8 +14,9 @@ test('login screen separates workspace AuthKit login from Google Calendar OAuth'
 });
 
 test('AuthKit bridge explains WorkOS config missing for first-user setup', () => {
-  assert.match(auth, /WORKOS_CONFIG_MISSING/);
-  assert.match(auth, /WorkOS\(Google\/이메일\)/);
+  assert.match(loginFailure, /WORKOS_CONFIG_MISSING/);
+  assert.match(loginFailure, /로그인 제공자가 설정되어 있지 않습니다/);
+  assert.match(auth, /desktopLoginStartFailureMessage\(response\.status, stringValue\(payload\.error\)\)/);
 });
 
 test('login waiting state can be cancelled so it does not look like infinite loading', () => {
