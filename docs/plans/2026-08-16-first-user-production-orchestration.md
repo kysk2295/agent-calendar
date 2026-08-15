@@ -974,10 +974,10 @@ intake 묶음이 마지막 postgres 테스트를 실행해 `context_envelopes` /
 
 **0038 / persisted envelope — EXCLUDE (genuine persisted-contract RED 없음):**
 
-- 첫 사용자 Desktop/Railway 경로는 envelope id를 만들지 않고 보내지 않는다.
-- assemble-only ephemeral receipt(`id`+`digest`+`snapshotVersion`+`citations`)면 preview/start가 돈다. INSERT/SELECT가 필요 없다.
-- HTTP body에 `contextEnvelopeId`가 오면 **테이블을 만들지 말고** `CONTEXT_ENVELOPE_UNAVAILABLE` 409로 거절한다. 없는 `context_envelopes`에 SQL 하지 않는다.
-- `0038`과 `context-assembler.js` 전체 이식은 Calendar AI가 persisted envelope id를 생산·전달하는 **별 RED**가 있을 때만. 그 RED 예: `test('start rejects a stale persisted Context Envelope id')` + `context_envelopes` row. 지금은 그 producer가 없다.
+- 첫 사용자 Desktop/Railway 경로는 `contextEnvelopeId`를 만들지 않고 보내지 않는다.
+- assemble은 **상수/`ctx-1`/`digest-1`/합성 claim 금지.** caller Workspace+user의 `second_brain_snapshots` (`status='active'`, 이미 `0037`)만 읽는다. `context_envelopes` INSERT/SELECT 없음.
+- HTTP body에 `contextEnvelopeId`가 오면 **테이블을 만들지 말고** `CONTEXT_ENVELOPE_UNAVAILABLE` 409. 없는 `context_envelopes`에 SQL 하지 않는다.
+- `0038`과 escolar `context-assembler.js` 전체 이식은 Calendar AI가 persisted envelope id를 생산·전달하는 **별 RED**가 있을 때만. 이 assemble seam은 그 RED가 아니다.
 
 **Public seams:**
 
@@ -985,11 +985,19 @@ intake 묶음이 마지막 postgres 테스트를 실행해 `context_envelopes` /
 - `POST /api/work-intake/start` `{ previewSnapshotId, … }` → `{ ok, work, conversation, message, idempotentReplay, workspaceId }` (`parseAgentWorkCreateResponse`가 요구하는 `work`/`conversation`/`message` 유지)
 - 둘 다 `class: scoped_product`, `role: member`, `persistence: write`, `idempotent: true`
 - Gateway 인증 + `assertWorkspaceScope`. 익명 401. Workspace A 세션으로 B row 0
-- Runtime은 `WorkIntake`를 **한 번** compose: ephemeral assembler + `durableExecution` + `product.setWorkIntake` + `runtime.workIntake`
+- Runtime은 `WorkIntake`를 **한 번** compose: `WorkContextAssembler` + `durableExecution` + `product.setWorkIntake` + `runtime.workIntake`
+- `WorkContextAssembler.assemble(scope, { purpose: 'work', … })` (새 모듈 `apps/backend/app/lib/work-context-assembler.js`):
+  - `assertWorkspaceScope` 후 `withAppRoleWorkspaceTransaction`으로 `second_brain_snapshots`를 `workspace_id=$1 and user_id=$2 and status='active' order by created_at desc, version desc limit 1` (SecondBrain `getCurrent`와 같은 키)
+  - 활성 row 없음 또는 `claims=[]` (**source-empty / source_required / 미활성화**): `citations: []`, `snapshotVersion: 0`, `digest` = sha256(stable `{ workspaceId, userId, snapshotId: null, version: 0, claims: [] }`), `id` = `wctx_${digest[0..32]}`. claim/label/handle을 만들지 않는다
+  - 활성 row 있음: `snapshotVersion = version`. citation은 각 claim의 기존 `citation`+`provenance.evidenceHandle`(없으면 claim `id`)만 `{ handle, label }`. 없는 근거를 채우지 않는다
+  - `digest` = sha256(stable `{ workspaceId, userId, snapshotId, version, claims: [{ id, text, evidenceHandle, citation }] }`). 활성 snapshot version/claim이 바뀌면 digest·id·snapshotVersion이 바뀌고, 기존 preview는 `WORK_PREVIEW_STALE`
+  - 다른 user/workspace active snapshot을 읽지 않는다. `context_envelopes`에 쓰지 않는다
 - Desktop: `hermesApi.previewAgentWork` / `startAgentWork`. `workConversationClient.create`가 preview→start. 기존 `/api/agent-operations/work`는 레거시 유지 (phase3 테스트)
 
 **Files (create):**
 
+- `apps/backend/app/lib/work-context-assembler.js` — `assemble`만. escolar `context-assembler.js` 복사 금지
+- `apps/backend/tests/work-context-assembler.test.cjs`
 - `apps/backend/tests/work-intake-http-boundary.test.cjs`
 - `apps/desktop/tests/work-intake-desktop-client.test.mjs`
 
@@ -998,19 +1006,30 @@ intake 묶음이 마지막 postgres 테스트를 실행해 `context_envelopes` /
 - `production-route-registry.js` — preview/start 두 route + `DESKTOP_API_PATHS` 두 줄 (`POST /api/work-intake/preview`, `POST /api/work-intake/start`). 위치: agent-operations 블록 앞
 - `client-v1-contract.js` — `family('agent-work')`에 `work-intake.preview` / `work-intake.start` (`work_intake_preview` / `work_intake_start`)
 - `production-product-routes.js` — `work_intake_preview` / `work_intake_start`. `runtime.workIntake` 또는 `product.previewAgentWork`/`startAgentWork`. `contextEnvelopeId` 있으면 409 `CONTEXT_ENVELOPE_UNAVAILABLE`
-- `phase1-auth-routes.js` — `const { WorkIntake } = require('./work-intake')`. `createPhase1Runtime`에서 `new WorkIntake` **1회**, `product.setWorkIntake(workIntake)`, return에 `workIntake`. Calendar AI를 Work Intake 필수로 다시 쓰지 않음
+- `phase1-auth-routes.js` — `WorkContextAssembler` + `WorkIntake`. `createPhase1Runtime`에서 각각 **1회**. `new WorkIntake({ pool, contextAssembler: workContextAssembler, durableExecution })`, `product.setWorkIntake(workIntake)`, return에 `workIntake`. 상수 assemble 람다 금지. Calendar AI를 Work Intake 필수로 다시 쓰지 않음
 - `durable-execution.js` — `previewWork(scope, input)` hunk만 (escolar `previewWork` 의미: Workspace agent lookup, persist 없음, `{ responsibleAgent, effectiveConfiguration: { snapshotId, executable } }`). 파일 덮어쓰기 금지
 - `apps/desktop/src/api/hermesApi.ts` — `previewAgentWork` / `startAgentWork` POST. `createAgentWork` 레거시 경로는 유지하되 `workConversationClient.create`만 preview→start
 - `workConversationClient.ts` — `objective`→`goal`, default `workingContext: { kind: 'workspace_general' }`, raw path 필드 없음. UI/composer 변경 없음
 
-이식 금지: `0038`, `context-assembler.js`, escolar `durable-execution.js` 전체, Calendar AI handoff 재작성, Desktop 레이아웃, runner bin dirty, 병렬 3C capacity/cwd 파일(이미 실행 중일 수 있음 — revert 금지).
+이식 금지: `0038`, escolar `context-assembler.js` 전체, escolar `durable-execution.js` 전체, Calendar AI handoff 재작성, Desktop 레이아웃, runner bin dirty, 병렬 3C capacity/cwd 파일(이미 실행 중일 수 있음 — revert 금지).
 
 **UI / no-churn:** 세션 레일 + 대화 + composer 유지. 용량/envelope/설정 벽 없음. `useAgentWorkLiveTurn` mission-keyed는 회귀만. App.tsx handoff 테스트 GREEN 유지.
 
 **First genuine RED (제품 코드 전에 테스트 파일만, 이 순서):**
 
 1. Existence — 아래 `assert_wave3b_files`가 `MISSING`을 찍는다. 없는 파일을 `node --test`에 넣지 않는다 (3A 거짓 GREEN과 같은 구멍).
-2. `work-intake-http-boundary.test.cjs`:
+2. `work-context-assembler.test.cjs` (상수 envelope를 막는 첫 assemble RED):
+
+```js
+test('source-empty assemble has empty citations and does not fabricate claims');
+test('assemble digest snapshotVersion and citations follow the caller active second_brain snapshot');
+test('assemble digest and snapshotVersion change when the active snapshot changes');
+test('assemble does not read another user or workspace active snapshot');
+```
+
+기대: `../app/lib/work-context-assembler` 없음. fixture는 pool mock: (a) active row 없음 → citations `[]`, version `0`, digest가 고정 문자열이 아님 (같은 empty input이면 결정적). (b) workspace A user A active version 2 + claim `{ id, text, citation, provenance.evidenceHandle }` → 그 handle/label만. (c) version 3으로 바꾸면 digest·snapshotVersion이 다름. (d) workspace B 또는 user B row는 쿼리 params에 안 들어감.
+
+3. `work-intake-http-boundary.test.cjs`:
 
 ```js
 test('production exposes authenticated Work Intake preview and start routes');
@@ -1022,7 +1041,7 @@ test('production exposes authenticated Work Intake preview and start routes');
 test('createPhase1Runtime composes one WorkIntake and setWorkIntake');
 ```
 
-기대: `createPhase1Runtime` 소스에 `new WorkIntake` 0회, `runtime.workIntake` 없음. `product.previewAgentWork` → `work_intake_unavailable`.
+기대: `createPhase1Runtime` 소스에 `new WorkIntake` 0회, `new WorkContextAssembler` 0회, `runtime.workIntake` 없음. `product.previewAgentWork` → `work_intake_unavailable`. GREEN 때 assemble 람다/`digest: 'digest-1'` 금지.
 
 ```js
 test('WorkIntake cannot be composed onto DurableExecution until previewWork exists');
@@ -1036,7 +1055,7 @@ test('Work Intake start stays inside the caller Workspace scope');
 test('Work Intake HTTP rejects contextEnvelopeId without a context_envelopes table');
 ```
 
-3. `work-intake-desktop-client.test.mjs`:
+4. `work-intake-desktop-client.test.mjs`:
 
 ```js
 test('Desktop create previews then starts Work Intake and never posts a raw local path');
@@ -1047,10 +1066,11 @@ test('Desktop create previews then starts Work Intake and never posts a raw loca
 **GREEN 최소:**
 
 - 두 route가 scoped_product/member. client-v1 + `DESKTOP_API_PATHS`와 일치 (`phase10-client-v1-contract` GREEN)
-- `createPhase1Runtime`에서 `new WorkIntake` === 1, `new DurableExecution` === 1 유지
+- `createPhase1Runtime`에서 `new WorkIntake` === 1, `new WorkContextAssembler` === 1, `new DurableExecution` === 1 유지
 - `previewWork` persist 0. start는 `acceptPreviewedWork`만
 - 익명 preview/start 401. 다른 workspace job 0
 - `contextEnvelopeId` → 409 `CONTEXT_ENVELOPE_UNAVAILABLE`. `0038` 없음
+- `WorkContextAssembler`가 활성 snapshot claim만 citation으로 쓰고, source-empty는 빈 citations. 합성 claim 0
 - Desktop create = preview then start. 응답은 기존 `parseAgentWorkCreateResponse`. 새 화면 없음
 - 레거시 `POST /api/agent-operations/work`와 Wave 2 handoff GREEN
 
@@ -1073,18 +1093,29 @@ RED 0 — 지금 clean에서 실패해야 함:
 
 ```bash
 assert_wave3b_files \
+  apps/backend/app/lib/work-context-assembler.js \
+  apps/backend/tests/work-context-assembler.test.cjs \
   apps/backend/tests/work-intake-http-boundary.test.cjs \
   apps/desktop/tests/work-intake-desktop-client.test.mjs
 ```
 
-RED/GREEN 1 — HTTP/auth/compose:
+RED/GREEN 1 — honest assemble (0037 snapshot, no 0038):
+
+```bash
+assert_wave3b_files \
+  apps/backend/app/lib/work-context-assembler.js \
+  apps/backend/tests/work-context-assembler.test.cjs
+node --test --test-concurrency=1 apps/backend/tests/work-context-assembler.test.cjs
+```
+
+RED/GREEN 2 — HTTP/auth/compose:
 
 ```bash
 assert_wave3b_files apps/backend/tests/work-intake-http-boundary.test.cjs
 node --test --test-concurrency=1 apps/backend/tests/work-intake-http-boundary.test.cjs
 ```
 
-RED/GREEN 2 — Desktop client:
+RED/GREEN 3 — Desktop client:
 
 ```bash
 assert_wave3b_files apps/desktop/tests/work-intake-desktop-client.test.mjs
@@ -1116,10 +1147,13 @@ node --test --test-concurrency=1 \
 
 ```bash
 assert_wave3b_files \
+  apps/backend/app/lib/work-context-assembler.js \
+  apps/backend/tests/work-context-assembler.test.cjs \
   apps/backend/tests/work-intake-http-boundary.test.cjs \
   apps/desktop/tests/work-intake-desktop-client.test.mjs \
   apps/backend/app/lib/work-intake.js
 node --test --test-concurrency=1 \
+  apps/backend/tests/work-context-assembler.test.cjs \
   apps/backend/tests/work-intake-http-boundary.test.cjs \
   apps/desktop/tests/work-intake-desktop-client.test.mjs \
   apps/backend/tests/phase10-client-v1-contract.test.cjs
@@ -1127,14 +1161,15 @@ node --test --test-concurrency=1 \
 
 3C 파일(`runner-capacity-boundary`, `execution-loop-work-context`)을 이 3B 명령에 넣지 않는다. 3C는 별도 병렬 Wave다.
 
-**Rollback:** preview/start route, client-v1 op, `createPhase1Runtime` WorkIntake compose, Desktop preview/start client만 끈다. `createAgentWork` 레거시와 `POST /api/agent-operations/work` 유지. `0038` DROP 없음 (이식하지 않음). `previewWork` hunk revert는 compose를 끈 뒤에만.
+**Rollback:** preview/start route, client-v1 op, `WorkContextAssembler` 모듈, `createPhase1Runtime` WorkIntake compose, Desktop preview/start client만 끈다. `0037` second_brain row는 삭제하지 않는다. `createAgentWork` 레거시와 `POST /api/agent-operations/work` 유지. `0038` DROP 없음 (이식하지 않음). `previewWork` hunk revert는 compose를 끈 뒤에만.
 
 **Unresolved risks:**
 
 - Desktop create를 preview→start로 바꾸면 start JSON이 `parseAgentWorkCreateResponse`와 어긋날 수 있다. HTTP start는 acceptWork의 `work`/`conversation`/`message`를 그대로 통과시킨다.
 - Calendar AI approve는 아직 레거시 create다. 3B는 그걸 Work Intake 필수로 만들지 않는다. 첫 사용자 `새 작업`만 preview/start를 탄다.
 - `previewWork` 없이 compose하면 Railway boot가 죽는다. 3B first RED 3번이 그 순서를 잠근다.
-- persisted envelope를 나중에 열면 그때 `0038` + 진짜 stale-envelope RED. 3B에서 테이블을 미리 만들지 않는다.
+- persisted envelope를 나중에 열면 그때 `0038` + 진짜 stale-envelope RED. 3B assemble은 `0037` active snapshot만 읽고 테이블을 미리 만들지 않는다.
+- source-empty를 “빈 이해”로 채우면 첫 사용자 거짓 GREEN이 된다. assembler RED가 citations `[]`를 잠근다.
 
 ### Wave 4 — Wiki 환류 정직
 
@@ -1217,7 +1252,7 @@ node apps/desktop/tests/playwright-first-user-folderless.cjs
 - [ ] Step 5: Wave S `source_required → collecting → review → active` + onboarding step GREEN. A5 briefing import 계속 금지.
 - [ ] Step 6: Wave 2 Calendar AI approve → agents mission handoff RED then GREEN.
 - [x] Step 7a: Wave 3A attested Work Intake library GREEN (`46f802c`).
-- [ ] Step 7b: Wave 3B HTTP preview/start compose RED then GREEN (`work-intake-http-boundary` + Desktop client). `0038` 없음.
+- [ ] Step 7b: Wave 3B HTTP preview/start compose RED then GREEN (`work-context-assembler` + `work-intake-http-boundary` + Desktop client). `0038` 없음.
 - [ ] Step 7c: Wave 3C Runner cwd/capacity/interrupt (3A 이후 3B와 독립 병렬). 배포는 3B+3C 모두 GREEN.
 - [ ] Step 8: Wave 4 folderless pending_local honesty RED then GREEN.
 - [ ] Step 9: Agent 1차 copy `새 작업`, 엔진 비노출. 관련 design/create-readiness 테스트 GREEN.
