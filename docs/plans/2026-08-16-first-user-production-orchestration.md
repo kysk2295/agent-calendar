@@ -744,7 +744,7 @@ GREEN: `App.tsx` `actOnCalendarAiDraft`만. ChatDrawer 레이아웃 재설계 �
 ### Wave 3 — Work isolation / 폴더 / 병렬
 
 **Wave 3A [SHIPPED `46f802c`]:** `WorkIntake` 모듈, ProductService `previewAgentWork`/`startAgentWork`, `acceptPreviewedWork`, `WORK_PREVIEW_ATTESTATION_REQUIRED`, unit/pool/attestation 테스트. HTTP route/composition/Desktop client/`previewWork`는 없다.  
-**다음 제품 코드는 Wave 3B만.** 3C(Runner cwd/capacity/interrupt)는 3B GREEN 뒤에 둔다.
+**3B와 3C는 3A 이후 독립이다.** 3B = HTTP preview/start compose. 3C = Runner cwd/capacity/interrupt (이미 `46f802c`부터 병렬 실행 중). 3C는 3B route/runtime compose를 기다리지 않는다. 배포 identity는 3B와 3C가 둘 다 GREEN인 SHA만 쓴다.
 
 **Depends on:** Wave 0R GREEN. Wave 2 handoff(`ece6275`)는 이미 있다. Work Intake route는 Wave 2가 열지 않았다.
 **2026-08-16 gap (clean `ece6275`):** 아래 4개 테스트와 `work-intake.js`는 clean에 **없다**. escolar untracked만 있다. `node --test`는 없는 경로를 조용히 건너뛴다. 2026-08-16 재현: `calendar-ai-work-handoff.test.mjs` + 없는 `work-intake-boundary.test.cjs` → exit 0, tests 1. Desktop만 돌리면 거짓 GREEN이다.
@@ -954,7 +954,7 @@ intake 묶음이 마지막 postgres 테스트를 실행해 `context_envelopes` /
 
 ### Wave 3B — Work Intake HTTP compose (`preview` / `start`)
 
-**Depends on:** Wave 3A GREEN `46f802c`. 3C Runner cwd/capacity는 이 Wave가 아니다.  
+**Depends on:** Wave 3A GREEN `46f802c`만. 3C와 병렬·독립. 3C GREEN을 기다리지 않는다.  
 **Work size:** Boundary. 제품 코드는 아래 Files만. runner bin dirty / 다른 Wave hunk revert 금지.
 
 **2026-08-16 evidence (`46f802c`):**
@@ -1003,7 +1003,7 @@ intake 묶음이 마지막 postgres 테스트를 실행해 `context_envelopes` /
 - `apps/desktop/src/api/hermesApi.ts` — `previewAgentWork` / `startAgentWork` POST. `createAgentWork` 레거시 경로는 유지하되 `workConversationClient.create`만 preview→start
 - `workConversationClient.ts` — `objective`→`goal`, default `workingContext: { kind: 'workspace_general' }`, raw path 필드 없음. UI/composer 변경 없음
 
-이식 금지: `0038`, `context-assembler.js`, escolar `durable-execution.js` 전체, Calendar AI handoff 재작성, Desktop 레이아웃, runner bin dirty, 3C capacity/cwd 파일.
+이식 금지: `0038`, `context-assembler.js`, escolar `durable-execution.js` 전체, Calendar AI handoff 재작성, Desktop 레이아웃, runner bin dirty, 병렬 3C capacity/cwd 파일(이미 실행 중일 수 있음 — revert 금지).
 
 **UI / no-churn:** 세션 레일 + 대화 + composer 유지. 용량/envelope/설정 벽 없음. `useAgentWorkLiveTurn` mission-keyed는 회귀만. App.tsx handoff 테스트 GREEN 유지.
 
@@ -1125,7 +1125,7 @@ node --test --test-concurrency=1 \
   apps/backend/tests/phase10-client-v1-contract.test.cjs
 ```
 
-3C 파일(`runner-capacity-boundary`, `execution-loop-work-context`)을 이 명령에 넣지 않는다.
+3C 파일(`runner-capacity-boundary`, `execution-loop-work-context`)을 이 3B 명령에 넣지 않는다. 3C는 별도 병렬 Wave다.
 
 **Rollback:** preview/start route, client-v1 op, `createPhase1Runtime` WorkIntake compose, Desktop preview/start client만 끈다. `createAgentWork` 레거시와 `POST /api/agent-operations/work` 유지. `0038` DROP 없음 (이식하지 않음). `previewWork` hunk revert는 compose를 끈 뒤에만.
 
@@ -1218,7 +1218,7 @@ node apps/desktop/tests/playwright-first-user-folderless.cjs
 - [ ] Step 6: Wave 2 Calendar AI approve → agents mission handoff RED then GREEN.
 - [x] Step 7a: Wave 3A attested Work Intake library GREEN (`46f802c`).
 - [ ] Step 7b: Wave 3B HTTP preview/start compose RED then GREEN (`work-intake-http-boundary` + Desktop client). `0038` 없음.
-- [ ] Step 7c: Wave 3C Runner cwd/capacity/interrupt (3B 이후).
+- [ ] Step 7c: Wave 3C Runner cwd/capacity/interrupt (3A 이후 3B와 독립 병렬). 배포는 3B+3C 모두 GREEN.
 - [ ] Step 8: Wave 4 folderless pending_local honesty RED then GREEN.
 - [ ] Step 9: Agent 1차 copy `새 작업`, 엔진 비노출. 관련 design/create-readiness 테스트 GREEN.
 - [ ] Step 10: `npm run backend:check` && focused backend tests.
