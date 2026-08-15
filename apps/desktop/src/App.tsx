@@ -2661,6 +2661,10 @@ export function App() {
       }
       const actionDraft = obj(payload, 'actionDraft');
       const responseDraft = Object.keys(actionDraft).length ? actionDraft : obj(payload, 'draft');
+      const receipt = obj(payload, 'receipt');
+      const approvedMissionId = action === 'approve' && draft.actionKind === 'delegate_work'
+        ? text(obj(receipt, 'result').missionId)
+        : '';
       setChatMessages((current) => current.map((message) => (
         message.actionDraft?.id === draft.id
           ? {
@@ -2674,7 +2678,23 @@ export function App() {
           }
           : message
       )));
-      if (action === 'approve') await hydrate({ blocking: false });
+      if (action === 'approve') {
+        await hydrate({ blocking: false });
+        if (approvedMissionId) {
+          try {
+            await refreshAgentOperations();
+          } catch {
+            setAgentOperationsError('최신 작업 상태를 불러오지 못했습니다.');
+          }
+          setChatOpen(false);
+          openScreen('agents');
+          window.requestAnimationFrame(() => {
+            document.querySelector<HTMLElement>(
+              `[data-work-mission="${CSS.escape(approvedMissionId)}"]`,
+            )?.click();
+          });
+        }
+      }
     } catch (error) {
       setChatMessages((current) => [...current, {
         role: 'assistant',
