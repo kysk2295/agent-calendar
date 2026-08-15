@@ -1171,28 +1171,209 @@ node --test --test-concurrency=1 \
 - persisted envelope를 나중에 열면 그때 `0038` + 진짜 stale-envelope RED. 3B assemble은 `0037` active snapshot만 읽고 테이블을 미리 만들지 않는다.
 - source-empty를 “빈 이해”로 채우면 첫 사용자 거짓 GREEN이 된다. assembler RED가 citations `[]`를 잠근다.
 
-### Wave 4 — Wiki 환류 정직
+### Wave 4 — Wiki 환류 정직 (`pending_local`)
 
-**Depends on:** Wave 3 folderless workingContext.  
-**Public seams:** completed current result만 Source Record / pending_local.  
-**Files:** `localWikiWriter.ts`, `workResultWikiProjection.ts`, `WikiScreen.tsx`, `agent-work-wiki-archive.js`, `0035`는 이 Wave RED가 calendar terminal backfill을 요구할 때만.
+**Depends on:** 완료 current result가 있는 제품 (origin/main + Wave 2). **3B/3C와 독립.** 3C Runner cwd를 기다리지 않는다.  
+**HEAD evidence (`336a531`):** 아래 파일이 **없다.** `node --test`는 없는 경로를 건너뛴다. Desktop만 돌리면 거짓 GREEN.
 
-**First RED:**
+| Seam | 관측 |
+| --- | --- |
+| `localWikiWriter.ts` / `workResultWikiProjection.ts` | 없음. escolar untracked만 |
+| `local-wiki-write-boundary.test.mjs` / `work-result-local-wiki-projection.test.mjs` / `work-result-feedback.test.cjs` | 없음 |
+| `agent-work-wiki-archive.js` | `wikiRoot` 절대경로로 Gateway가 파일을 씀. 폴더 없으면 `skipped_no_wiki` (내구성 있는 pending 아님). `buildCompletedWorkResultProjection` 없음 |
+| `PUBLIC_WIKI_ARCHIVE_STATUSES` / UI | `written` / `skipped_no_wiki` / `failed`. `pending_local` 없음. copy는 “다음 완료부터” |
+| Calendar | `projectAgentWorkCalendarState`가 `lifecycleStatus`만 넣음. `workResult`/`workResultId` 없음. `queryRange`도 노출 안 함 |
+| Desktop settings / IPC | `wikiVaultPath` / `wiki:choose-vault` / `wiki:apply-work-result-projection` **없음**. `localWikiAsk`는 `LLM_WIKI_VAULT` env |
+| `WikiScreen` | `LLM_WIKI_VAULT` 안내 잔존. `로컬 폴더 연결` / pending 한 줄 없음 |
+| `0035_agent_work_calendar_terminal_backfill.sql` | 없음. escolar은 기존 `calendar_events` lifecycleStatus **backfill**뿐 |
+| `workspace_source_records` | migration 없음. Wave S `SourceLibrary` bootstrap은 `calendar`/`mail`/`file`만. `work_result`는 bootstrap이 아님 |
+| `agent_work_current_results` | `0034`에 이미 있음 (mission→current report). 새 테이블 불필요 |
+
+**0035 / 새 migration — EXCLUDE:**
+
+- `0035`는 옛 agent-work 캘린더 row의 `lifecycleStatus` 패치다. 신규 WorkOS 계정은 row가 없고, 새 complete는 `projectAgentWorkCalendarState` hunk로 `workResult`를 넣으면 된다.
+- `workspace_source_records` / `0038`은 ContextAssembler 환류 RED가 있을 때만. Wave 4 durable pending은 **mission `wikiArchive` + calendar payload `workResult` + `0034` current report**면 충분하다. Railway에 vault path를 저장하지 않는다.
+
+**Public seams:**
+
+- 완료 + `currentResultReportId`가 가리키는 ready report만 projection. failed/cancelled/stale report → projection `null`, 캘린더에 `workResultId` 없음
+- folderless: `wikiArchive.status = 'pending_local'`. `written` 주장 금지. markdown은 잘리지 않은 `finalText` + `work_result_id`
+- identity: `workResultId` = `work_result_[a-f0-9]{28}`, `projectionId` = `work-result-wiki:${workResultId}`, `relativePath` = `5_conversation/agent-runs/${workResultId}.md`
+- Railway/API는 절대 경로·`wikiRoot`를 받지 않음. 로컬 write는 packaged Electron이 `readSettings().wikiVaultPath`만 사용
+- 폴더 연결 후 같은 identity를 `wx`로 1회 write. 같은 digest면 replay. traversal / id mismatch / digest conflict는 throw, pending 유지, 기존 파일 불변
+- Workspace/user: snapshot은 scoped. 다른 workspace pending을 hydrate하지 않음
+- UI: 기존 Wiki/대화. 새 nav/대시보드/설정 벽 없음. copy: `폴더 미연결 · 보관 대기`, `로컬 폴더 연결`. `LLM_WIKI_VAULT` 사용자 copy 삭제
+- Production: signed package + Railway + 신규 계정. Vite를 완료 증거로 쓰지 않음
+
+**Selective port (escolar 읽기 전용):**
+
+| 대상 | 이식 |
+| --- | --- |
+| create `apps/backend/tests/work-result-feedback.test.cjs` | **앞 2개 unit만** (`buildCompletedWorkResultProjection`, calendar completed-only). 마지막 ContextAssembler/source-record 테스트는 `workspace_source_records`+assembler가 없어 **Wave 4 required GREEN 제외** |
+| create `workResultWikiProjection.ts` | escolar 47줄 그대로 가능 (필터만) |
+| create `localWikiWriter.ts` | **`saveWorkResultWikiProjection` + path confine.** diary/review/Second Brain writer는 이 Wave RED가 요구할 때만 |
+| create `apps/desktop/tests/work-result-local-wiki-projection.test.mjs` | 3개 테스트 중 renderer filter + IPC wiring은 Vite/`dist-electron` 없이 **소스 assert**로 다시 쓴다. writer 함수 테스트는 모듈을 직접 import |
+| create `apps/desktop/tests/local-wiki-write-boundary.test.mjs` | work-result confine/`wx`/replay만. diary/review/Second Brain 테스트는 이 Wave 필수 아님 |
+| create `apps/desktop/tests/first-user-wiki-pending.test.mjs` | 폴더리스 copy + picker CTA + `pending_local`이 `written`이 아님 |
+| hunk `agent-work-wiki-archive.js` | `buildCompletedWorkResultProjection`. folderless는 `pending_local`이지 `skipped_no_wiki`가 아님. **Gateway `writeFile(wikiRoot)` 경로를 새 complete에 쓰지 않음** |
+| hunk `public-agent-records.js` | status `pending_local` 허용. 절대경로 필드 금지 |
+| hunk `durable-execution.js` `projectAgentWorkCalendarState` | complete일 때만 `workResult` payload. failed/cancelled는 넣지 않음 |
+| hunk `unified-calendar.js` `queryRange` | `lifecycleStatus==='completed'`일 때만 `workResultId`/`result`. 잘린 summary만으로 성공 위장 금지 |
+| hunk `wikiArchiveStatusLabel` + `AgentWorkConversationView` | `pending_local` → `폴더 미연결 · 보관 대기`. “다음 완료부터” 금지 |
+| hunk `settings.ts` / `main.ts` / `preload.ts` / `preload.cts` / `vite-env.d.ts` | `wikiVaultPath` persist, `wiki:choose-vault` (`openDirectory`), `wiki:apply-work-result-projection`. path는 main에만 |
+| hunk `App.tsx` | snapshot/calendar에서 `pendingWorkResultWikiProjections` → vault 있으면 apply. hydrate 후 같은 id replay |
+| hunk `WikiScreen.tsx` | pending 한 줄 + `로컬 폴더 연결`. `LLM_WIKI_VAULT` 삭제. 새 화면 없음 |
+
+이식 금지: `0035`, `0038`, `context-assembler.js`, escolar `localWikiWriter` 전체 중 Second Brain/diary를 강제하는 UI, runner bin dirty, 3B/3C 파일 revert.
+
+**First genuine RED (제품 코드 전, 이 순서):**
+
+1. Existence — `assert_wave4_files`가 `MISSING`. 없는 파일을 `node --test`에 넣지 않는다.
+2. `work-result-feedback.test.cjs`:
+
+```js
+test('completed Work projection preserves one current result identity, citations, artifacts, and full Markdown');
+```
+
+기대: `buildCompletedWorkResultProjection` export 없음. failed mission / stale reportId → `null`. folderless `wiki.status === 'pending_local'`. markdown에 잘리지 않은 본문 + `work_result_id`.
+
+3. 같은 파일 (calendar, ephemeral postgres **기존** `calendar_events`만):
+
+```js
+test('Unified Calendar exposes completed terminal result identity but never projects failed or cancelled as success');
+```
+
+기대: `queryRange`에 `workResultId` 없음. **`0035`를 추가해서 통과시키지 않는다.**
+
+4. `work-result-local-wiki-projection.test.mjs`:
+
+```js
+test('renderer selects only unique completed Work pending-local Wiki manifests');
+test('Desktop routes completed Work Wiki manifests through the trusted Electron writer');
+```
+
+기대: 모듈/IPC 문자열 없음. `written`/`active`/비-agent_work는 제외.
+
+5. writer + confine:
+
+```js
+test('packaged writer stores one exact completed Work result idempotently');
+```
+
+기대: `saveWorkResultWikiProjection` 없음. GREEN 때 `../escape.md` / 잘못된 `projectionId`는 throw, 기존 파일 불변.
+
+6. `first-user-wiki-pending.test.mjs`:
 
 ```js
 test('folderless workspace keeps pending_local and does not claim wiki written');
+test('Wiki folder picker uses main-process directory dialog and never posts a raw path to Railway');
 ```
 
-**Narrow command:**
+기대: UI가 `skipped_no_wiki`/LLM_WIKI_VAULT. `chooseWikiVault` 없음.
+
+**GREEN 최소:**
+
+- 완료 current result만 projection. failed/cancelled는 지식/캘린더 성공으로 안 올라감
+- folderless durable `pending_local` (재시작 후 Railway snapshot에 남음). `written`/`skipped_no_wiki` 위장 없음
+- 폴더 연결 → 같은 `workResultId`/`projectionId` 1회 write, 재시작 replay
+- Railway에 vault path 0. Electron opaque binding만
+- traversal/id mismatch/write 실패 → pending 유지, 기존 파일 불변
+- Wiki/대화 copy만. 13 nav 유지
+- packaged `file://.../app.asar` + Railway에서 신규 계정 여정 7–8단계
+
+**Existence gate + narrow commands:**
 
 ```bash
-node --test --test-concurrency=1 \
-  apps/desktop/tests/local-wiki-write-boundary.test.mjs \
+assert_wave4_files() {
+  missing=0
+  for f in "$@"; do
+    if [ ! -f "$f" ]; then echo "MISSING $f"; missing=1; fi
+  done
+  if [ "$missing" -ne 0 ]; then
+    echo "node --test skipped; missing files would false-green"
+    return 1
+  fi
+}
+```
+
+RED 0 — 지금 `336a531`에서 실패해야 함:
+
+```bash
+assert_wave4_files \
+  apps/backend/app/lib/agent-work-wiki-archive.js \
+  apps/backend/tests/work-result-feedback.test.cjs \
+  apps/desktop/src/features/knowledge/workResultWikiProjection.ts \
+  apps/desktop/electron/localWikiWriter.ts \
   apps/desktop/tests/work-result-local-wiki-projection.test.mjs \
+  apps/desktop/tests/local-wiki-write-boundary.test.mjs \
+  apps/desktop/tests/first-user-wiki-pending.test.mjs
+```
+
+(`agent-work-wiki-archive.js`는 존재. 나머지 MISSING이 RED 0.)
+
+RED/GREEN 1 — backend projection:
+
+```bash
+assert_wave4_files \
+  apps/backend/tests/work-result-feedback.test.cjs \
+  apps/backend/app/lib/agent-work-wiki-archive.js
+node --test --test-concurrency=1 --test-name-pattern='completed Work projection|never projects failed' \
   apps/backend/tests/work-result-feedback.test.cjs
 ```
 
-**Rollback:** pending_local 유지, writer route만 끈다. DROP 금지.
+RED/GREEN 2 — Desktop filter + IPC:
+
+```bash
+assert_wave4_files \
+  apps/desktop/tests/work-result-local-wiki-projection.test.mjs \
+  apps/desktop/src/features/knowledge/workResultWikiProjection.ts
+node --test --test-concurrency=1 apps/desktop/tests/work-result-local-wiki-projection.test.mjs
+```
+
+RED/GREEN 3 — writer confine:
+
+```bash
+assert_wave4_files \
+  apps/desktop/tests/local-wiki-write-boundary.test.mjs \
+  apps/desktop/electron/localWikiWriter.ts
+node --test --test-concurrency=1 --test-name-pattern='completed Work result|exact completed' \
+  apps/desktop/tests/local-wiki-write-boundary.test.mjs
+```
+
+RED/GREEN 4 — folderless honesty + picker:
+
+```bash
+assert_wave4_files apps/desktop/tests/first-user-wiki-pending.test.mjs
+node --test --test-concurrency=1 apps/desktop/tests/first-user-wiki-pending.test.mjs
+```
+
+회귀 (있는 파일만):
+
+```bash
+assert_wave4_files \
+  apps/backend/tests/agent-work-wiki-archive.test.cjs \
+  apps/desktop/tests/agent-work-wiki-archive-presentation.test.mjs \
+  apps/desktop/tests/calendar-intelligence-release-a5.test.mjs \
+  apps/desktop/tests/onboarding-readiness.test.mjs
+node --test --test-concurrency=1 \
+  apps/backend/tests/agent-work-wiki-archive.test.cjs \
+  apps/desktop/tests/agent-work-wiki-archive-presentation.test.mjs \
+  apps/desktop/tests/calendar-intelligence-release-a5.test.mjs \
+  apps/desktop/tests/onboarding-readiness.test.mjs
+```
+
+한 묶음 (모든 4 파일이 생긴 뒤에만). ContextAssembler 테스트와 `0035`를 넣지 않는다.
+
+**Rollback:** Desktop apply IPC + vault picker + `pending_local` projection hunk만 끈다. mission/calendar에 남은 `pending_local`은 유지 (DROP/`0035` 없음). 레거시 `skipped_no_wiki` 읽기는 깨지 않음. runner bin dirty 미터치.
+
+**Production acceptance:** signed package + Railway + 신규 WorkOS. 폴더 없이 완료 → 대화/캘린더에 잘리지 않은 결과 + `폴더 미연결 · 보관 대기`. 폴더 연결 → 같은 `workResultId` 파일. 앱/Gateway 재시작 후 pending 또는 written replay. Vite 금지.
+
+**Unresolved risks:**
+
+- 기존 `skipped_no_wiki` 미션은 pending으로 재작성하지 않음. 신규 complete만 `pending_local`.
+- escolar writer 테스트가 `dist-electron`을 요구하면 소스 import로 다시 쓴다. 빌드 artifact를 GREEN 증거로 쓰지 않는다.
+- Gateway `writeDelegatedWorkArchive(wikiRoot)`를 남겨 두면 Railway가 경로를 원할 수 있다. 새 complete는 그 경로를 타지 않게 한다.
+- `workspace_source_records` 없이 Second Brain이 work_result를 bootstrap하면 Wave S 계약을 깬다. 4에서 adapter를 넣지 않는다.
 
 ### Wave 5 — Playwright (로컬 렌더러, production 대체 아님)
 
@@ -1254,7 +1435,7 @@ node apps/desktop/tests/playwright-first-user-folderless.cjs
 - [x] Step 7a: Wave 3A attested Work Intake library GREEN (`46f802c`).
 - [ ] Step 7b: Wave 3B HTTP preview/start compose RED then GREEN (`work-context-assembler` + `work-intake-http-boundary` + Desktop client). `0038` 없음.
 - [ ] Step 7c: Wave 3C Runner cwd/capacity/interrupt (3A 이후 3B와 독립 병렬). 배포는 3B+3C 모두 GREEN.
-- [ ] Step 8: Wave 4 folderless pending_local honesty RED then GREEN.
+- [ ] Step 8: Wave 4 folderless `pending_local` + local write-once RED then GREEN. `0035` 없음.
 - [ ] Step 9: Agent 1차 copy `새 작업`, 엔진 비노출. 관련 design/create-readiness 테스트 GREEN.
 - [ ] Step 10: `npm run backend:check` && focused backend tests.
 - [ ] Step 11: `npm run typecheck` && `npm --workspace apps/desktop run test`.
@@ -1382,6 +1563,7 @@ node apps/desktop/tests/playwright-first-user-folderless.cjs
   - [ ] Wave G `first-user-gmail-connect` / authorize route가 예상 이유로 실패
   - [ ] Wave S source-empty `work_result` 비합성이 예상 이유로 실패
   - [ ] Wave 3B `work-intake-http-boundary` / Desktop preview-start client가 예상 이유로 실패
+  - [ ] Wave 4 `pending_local` / writer confine / folder picker가 예상 이유로 실패
   - [ ] Wave 2–4의 명시 테스트가 예상 이유로 실패
 - GREEN:
   - [x] Wave 1 skip/copy (`bda4a7c`)
