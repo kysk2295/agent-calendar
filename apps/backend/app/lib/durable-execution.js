@@ -24,6 +24,7 @@ const {
   workspaceRunnerRef,
 } = require('./workspace-agent-directory');
 const { createLeaseAuthorization } = require('./lease-authorization');
+const { buildCompletedWorkResultProjection } = require('./agent-work-wiki-archive');
 
 const OFFER_TTL_MS = 30_000;
 const LEASE_TTL_MS = 120_000;
@@ -175,6 +176,7 @@ async function projectAgentWorkCalendarState(client, {
   attemptId = '',
   reportId = '',
   resultSummary = '',
+  workResult = null,
   failureCode = '',
 } = {}) {
   if (!workspaceId || !projectionKey || !jobId || !missionId || !sessionId) return null;
@@ -211,6 +213,9 @@ async function projectAgentWorkCalendarState(client, {
     reportId,
     projectionKey,
     resultSummary,
+    ...(lifecycleStatus === 'completed' && workResult?.status === 'completed'
+      ? { workResult }
+      : {}),
     failureCode,
     date: startsAtIso.slice(0, 10),
     time: startsAtIso.slice(11, 16),
@@ -1710,8 +1715,52 @@ class DurableExecution {
         },
       });
 
+      const artifactResult = await client.query(
+        `select id, name, content_type, content, metadata, created_at
+         from execution_artifacts
+         where workspace_id = $1 and job_id = $2
+         order by created_at asc, id asc`,
+        [att.workspace_id, att.job_id],
+      );
+      const resultArtifact = artifactResult.rows.find((artifact) => (
+        /(?:^|[-_.])result(?:[-_.]|$)/i.test(String(artifact.name || ''))
+        && String(artifact.content_type || '').toLowerCase().startsWith('text/')
+      ));
+      const rawFullText = String(resultArtifact?.content || resultSummary);
+      const artifacts = artifactResult.rows.map((artifact) => ({
+        id: artifact.id,
+        name: artifact.name,
+        contentType: artifact.content_type,
+      }));
+      const citations = artifactResult.rows.flatMap((artifact) => (
+        Array.isArray(artifact.metadata?.citations) ? artifact.metadata.citations : []
+      ));
+
       // Authoritative agent report (once).
       const reportId = `report_${att.job_id}`;
+      const reportPayload = {
+        id: reportId,
+        missionId: att.mission_id,
+        sessionId: att.session_id,
+        status: 'ready',
+        title: String(att.goal || 'Work result').slice(0, 240),
+        summary: resultSummary,
+        resultSummary,
+        fullText: rawFullText,
+        citations,
+        artifacts,
+        engine: completedResolved || att.engine,
+        resolvedExecutionEngine: completedResolved || null,
+        requestedExecutionModel: String(att.requested_model || ''),
+        resolvedExecutionModel: completedModel || null,
+        jobId: att.job_id,
+        attemptId: att.id,
+        ...(!shouldProjectJobToCalendar(att.payload)
+          ? { hiddenFromAgentWork: true, systemKind: att.payload.kind }
+          : {}),
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
       await client.query(
         `insert into agent_reports (id, mission_id, session_id, status, payload, workspace_id)
          values ($1, $2, $3, 'ready', $4::jsonb, $5)
@@ -1720,28 +1769,70 @@ class DurableExecution {
           reportId,
           att.mission_id,
           att.session_id || '',
-          JSON.stringify(redactSecrets({
-            id: reportId,
-            missionId: att.mission_id,
-            sessionId: att.session_id,
-            status: 'ready',
-            summary: resultSummary,
-            resultSummary,
-            engine: completedResolved || att.engine,
-            resolvedExecutionEngine: completedResolved || null,
-            requestedExecutionModel: String(att.requested_model || ''),
-            resolvedExecutionModel: completedModel || null,
-            jobId: att.job_id,
-            attemptId: att.id,
-            ...(!shouldProjectJobToCalendar(att.payload)
-              ? { hiddenFromAgentWork: true, systemKind: att.payload.kind }
-              : {}),
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          })),
+          JSON.stringify(redactSecrets(reportPayload)),
           att.workspace_id,
         ],
       );
+      let workResult = null;
+      if (missionState.status === 'completed'
+        && !missionState.comparison
+        && !missionState.childHandoff
+        && shouldProjectJobToCalendar(att.payload)) {
+        workResult = buildCompletedWorkResultProjection({
+          workspaceId: att.workspace_id,
+          mission: {
+            id: att.mission_id,
+            workspaceId: att.workspace_id,
+            status: 'completed',
+            title: att.goal,
+            workConversationId: att.session_id,
+            currentResultReportId: reportId,
+            completedAt: nowIso,
+          },
+          report: reportPayload,
+          artifacts,
+        });
+        await client.query(
+          `insert into agent_work_current_results (
+             workspace_id, mission_id, report_id, selection_version, selected_at
+           ) values ($1,$2,$3,1,$4::timestamptz)
+           on conflict (workspace_id, mission_id) do update set
+             report_id = excluded.report_id,
+             selection_version = agent_work_current_results.selection_version + 1,
+             selected_at = excluded.selected_at`,
+          [att.workspace_id, att.mission_id, reportId, nowIso],
+        );
+        await client.query(
+          `update agent_missions
+           set payload = payload || $3::jsonb, updated_at = now()
+           where workspace_id = $1 and id = $2`,
+          [
+            att.workspace_id,
+            att.mission_id,
+            JSON.stringify({
+              currentResultReportId: reportId,
+              workResultId: workResult.workResultId,
+              wikiArchive: workResult.wiki,
+            }),
+          ],
+        );
+        await client.query(
+          `update agent_reports
+           set payload = payload || $3::jsonb, updated_at = now()
+           where workspace_id = $1 and id = $2`,
+          [
+            att.workspace_id,
+            reportId,
+            JSON.stringify({
+              fullText: workResult.finalText,
+              workResultId: workResult.workResultId,
+              citations: workResult.citations,
+              artifacts: workResult.artifacts,
+              wiki: workResult.wiki,
+            }),
+          ],
+        );
+      }
       const completedHandoffId = String(
         att.payload && typeof att.payload === 'object'
           ? att.payload.handoffId || ''
@@ -1768,7 +1859,7 @@ class DurableExecution {
       await this.#appendSessionCheckpoint(client, {
         workspaceId: att.workspace_id,
         sessionId: att.session_id,
-        text: resultSummary,
+        text: workResult?.finalText || resultSummary,
         status: 'completed',
         phase: 'result',
         attemptId: att.id,
@@ -1798,6 +1889,7 @@ class DurableExecution {
           attemptId: att.id,
           reportId,
           resultSummary,
+          workResult,
         });
       }
 
@@ -1814,6 +1906,7 @@ class DurableExecution {
             summary: resultSummary,
             calendarEventId: eventId,
             reportId,
+            workResultId: workResult?.workResultId || '',
           }),
         ],
       );
@@ -1825,6 +1918,7 @@ class DurableExecution {
         jobId: att.job_id,
         calendarEventId: eventId,
         reportId,
+        workResultId: workResult?.workResultId || '',
         summary: resultSummary,
         missionStatus: missionState.status,
       };

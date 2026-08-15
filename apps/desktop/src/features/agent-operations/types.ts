@@ -55,7 +55,7 @@ export type AgentMissionBudget = {
   readonly weekStartedAt: string;
 };
 
-export type AgentWikiArchiveStatus = 'written' | 'skipped_no_wiki' | 'failed';
+export type AgentWikiArchiveStatus = 'pending_local' | 'written' | 'skipped_no_wiki' | 'failed';
 
 export type AgentWikiArchive = {
   readonly status: AgentWikiArchiveStatus;

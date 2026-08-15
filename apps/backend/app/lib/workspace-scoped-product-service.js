@@ -14,6 +14,7 @@ const {
 } = require('./workspace-agent-directory');
 const { isOfficialProfileName } = require('./official-profiles');
 const { projectPublicDisplayEvent } = require('./public-work-conversation-event');
+const { publicWikiRelativePath } = require('./public-agent-records');
 
 const TELEGRAM_INGRESS_FRESHNESS_MS = 150_000;
 const MAX_HANDOFF_DEPTH = 3;
@@ -1683,6 +1684,16 @@ class WorkspaceScopedProductService {
         createdAt,
         updatedAt,
       };
+      const wikiArchive = asObject(payload.wikiArchive);
+      if (['pending_local', 'written', 'skipped_no_wiki', 'failed'].includes(wikiArchive.status)) {
+        work.wikiArchive = {
+          status: wikiArchive.status,
+          relativePath: publicWikiRelativePath(wikiArchive.relativePath, {
+            status: wikiArchive.status,
+          }),
+          archivedAt: String(wikiArchive.archivedAt || ''),
+        };
+      }
       const conversation = {
         id: sessionId,
         missionId: m.id,

@@ -24,6 +24,8 @@ export type PublicDesktopAuthProfile = Pick<DesktopAuthProfile, 'provider' | 'id
 
 export type DesktopSettings = {
   apiBaseUrl: string;
+  /** Main-process only. Never returned to the renderer or sent to Railway. */
+  wikiVaultPath: string;
   /** @deprecated Production authenticated routes use secure session tokens, not apiToken. */
   apiToken: string;
   theme: DesktopTheme;
@@ -38,6 +40,7 @@ export type DesktopSettings = {
 
 export type PublicDesktopSettings = {
   apiBaseUrl: string;
+  hasWikiVault: boolean;
   hasApiToken: boolean;
   hasSession: boolean;
   theme: DesktopTheme;
@@ -53,6 +56,7 @@ export type PublicDesktopSettings = {
 
 const DEFAULT_SETTINGS: DesktopSettings = {
   apiBaseUrl: DEFAULT_API_BASE_URL,
+  wikiVaultPath: '',
   apiToken: '',
   theme: 'default',
   auth: null,
@@ -123,6 +127,9 @@ function normalizeSettings(input: Partial<DesktopSettings> = {}): DesktopSetting
     : DEFAULT_SETTINGS.theme;
   return {
     apiBaseUrl: apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl,
+    wikiVaultPath: path.isAbsolute(String(input.wikiVaultPath || '').trim())
+      ? path.normalize(String(input.wikiVaultPath).trim())
+      : '',
     apiToken: String(input.apiToken || ''),
     theme,
     auth: normalizeAuthProfile(input.auth),
@@ -142,6 +149,7 @@ export function publicSettings(
   const signedIn = resolveDesktopSignedIn(Boolean(auth), sessionStatus);
   return {
     apiBaseUrl: settings.apiBaseUrl,
+    hasWikiVault: Boolean(settings.wikiVaultPath),
     hasApiToken: false, // production path does not expose/use settings apiToken
     hasSession: signedIn,
     theme: settings.theme,
@@ -191,6 +199,7 @@ export function saveSettings(next: Partial<DesktopSettings>): DesktopSettings {
   fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
   const disk = {
     apiBaseUrl: merged.apiBaseUrl,
+    wikiVaultPath: merged.wikiVaultPath,
     apiToken: '',
     theme: merged.theme,
     auth: merged.auth,

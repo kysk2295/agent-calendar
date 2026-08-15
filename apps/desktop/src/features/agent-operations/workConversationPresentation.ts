@@ -38,8 +38,9 @@ export function telegramIngressReadinessLabel(
   }
 }
 
-export function wikiArchiveStatusLabel(status: 'written' | 'skipped_no_wiki' | 'failed' | string): string {
+export function wikiArchiveStatusLabel(status: 'pending_local' | 'written' | 'skipped_no_wiki' | 'failed' | string): string {
   switch (status) {
+    case 'pending_local': return '폴더 미연결 · 보관 대기';
     case 'written': return '위키에 보관됨';
     case 'skipped_no_wiki': return '위키 미설정 · 보관 생략';
     case 'failed': return '위키 보관 실패';

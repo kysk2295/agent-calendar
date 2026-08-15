@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, safeStorage, screen, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, screen, shell } from 'electron';
 import electronUpdater from 'electron-updater';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -42,6 +42,7 @@ import {
 import { createWorkspaceSnapshotStore } from './workspaceSnapshot.js';
 import { createWorkspaceSnapshotWriteGate } from './workspaceSnapshotWriteGate.js';
 import { createQaTestSecureStorage } from './qaTestSecureStorage.js';
+import { saveWorkResultWikiProjection } from './localWikiWriter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { autoUpdater } = electronUpdater;
@@ -646,6 +647,24 @@ function startWidgetActionBridge() {
 }
 
 registerTrustedIpcHandle(ipcMain, 'settings:get', requireTrustedRenderer, () => publishSettings());
+registerTrustedIpcHandle(ipcMain, 'wiki:choose-vault', requireTrustedRenderer, async () => {
+  const options = {
+    title: '로컬 Wiki 폴더 선택',
+    properties: ['openDirectory'] as ['openDirectory'],
+  };
+  const selection = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options);
+  if (selection.canceled || !selection.filePaths[0]) {
+    return { canceled: true as const, connected: Boolean(readSettings().wikiVaultPath) };
+  }
+  saveSettings({ wikiVaultPath: selection.filePaths[0] });
+  return { canceled: false as const, connected: true as const };
+});
+registerTrustedIpcHandle(ipcMain, 'wiki:apply-work-result-projection', requireTrustedRenderer, async (_event, request: unknown) => {
+  const vaultPath = readSettings().wikiVaultPath;
+  return saveWorkResultWikiProjection(vaultPath, request);
+});
 registerTrustedIpcHandle(ipcMain, 'settings:save', requireTrustedRenderer, (_event, settings: unknown) => {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return publishSettings();
   // Strip any attempt to write apiToken / secrets from renderer.
@@ -653,6 +672,7 @@ registerTrustedIpcHandle(ipcMain, 'settings:save', requireTrustedRenderer, (_eve
   delete body.apiToken;
   delete body.accessToken;
   delete body.refreshToken;
+  delete body.wikiVaultPath;
   saveSettings(body);
   syncNativeTheme();
   return publishSettings();

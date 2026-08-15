@@ -391,6 +391,8 @@ export function AgentWorkConversationView(props: AgentWorkConversationViewProps)
               <strong>{wikiArchiveStatusLabel(props.mission.wikiArchive.status)}</strong>
               {props.mission.wikiArchive.status === 'written' && props.mission.wikiArchive.relativePath ? (
                 <code>{props.mission.wikiArchive.relativePath}</code>
+              ) : props.mission.wikiArchive.status === 'pending_local' ? (
+                <span>완료 결과는 작업 대화에 안전하게 남아 있습니다. Wiki에서 로컬 폴더를 연결하면 같은 결과를 보관합니다.</span>
               ) : props.mission.wikiArchive.status === 'skipped_no_wiki' ? (
                 <span>실행 컴퓨터(또는 Gateway)에 위키 루트가 설정되면 다음 완료부터 자동 보관됩니다.</span>
               ) : (

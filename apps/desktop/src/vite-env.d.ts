@@ -4,6 +4,7 @@ declare const __AGENT_CALENDAR_BUILD_ID__: string;
 
 type HermesDesktopSettings = {
   apiBaseUrl: string;
+  hasWikiVault?: boolean;
   hasApiToken: boolean;
   hasSession?: boolean;
   theme: 'default' | 'warm' | 'dark' | 'sage' | 'mono';
@@ -110,6 +111,19 @@ interface Window {
   hermesDesktop?: {
     getSettings(): Promise<HermesDesktopSettings>;
     saveSettings(settings: Partial<HermesDesktopSettings & { apiToken: string }>): Promise<HermesDesktopSettings>;
+    chooseWikiVault(): Promise<{ canceled: boolean; connected: boolean }>;
+    applyWorkResultWikiProjection(request: {
+      status: 'pending_local';
+      workResultId: string;
+      projectionId: string;
+      relativePath: string;
+      markdown: string;
+    }): Promise<{
+      status: 'written';
+      relativePath: string;
+      contentDigest: string;
+      replay: boolean;
+    }>;
     loginWithAuthKit(): Promise<HermesDesktopSettings>;
     cancelAuthKitLogin(): Promise<{ ok: true }>;
     connectGoogleCalendar(): Promise<{

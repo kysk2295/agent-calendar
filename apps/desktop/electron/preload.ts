@@ -3,6 +3,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('hermesDesktop', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: unknown) => ipcRenderer.invoke('settings:save', settings),
+  chooseWikiVault: () => ipcRenderer.invoke('wiki:choose-vault'),
+  applyWorkResultWikiProjection: (request: unknown) => ipcRenderer.invoke('wiki:apply-work-result-projection', request),
   loginWithAuthKit: () => ipcRenderer.invoke('auth:authkit-login'),
   cancelAuthKitLogin: () => ipcRenderer.invoke('auth:authkit-cancel'),
   connectGoogleCalendar: () => ipcRenderer.invoke('calendar:google-connect'),

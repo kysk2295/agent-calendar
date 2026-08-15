@@ -134,7 +134,7 @@ function parseDeliverable(value: unknown): AgentDeliverable {
 function parseWikiArchive(value: unknown): AgentMission['wikiArchive'] {
   if (!isRecord(value)) return null;
   const status = stringValue(value.status);
-  if (status !== 'written' && status !== 'skipped_no_wiki' && status !== 'failed') return null;
+  if (status !== 'pending_local' && status !== 'written' && status !== 'skipped_no_wiki' && status !== 'failed') return null;
   return {
     status,
     relativePath: stringValue(value.relativePath),

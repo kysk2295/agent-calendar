@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -20,6 +21,135 @@ const MAX_MEMORY_PIN_LENGTH = 200;
 function cleanText(value, maximumLength = 2_000) {
   // Archives keep redaction markers so owners still see structure without secrets/paths.
   return safePublicText(value, '', maximumLength, { preserveRedactions: true });
+}
+
+function redactWorkResultText(value) {
+  return String(value || '').normalize('NFKC')
+    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+/gi, 'Bearer [REDACTED]')
+    .replace(/\b(?:accessToken|refreshToken|runtimeToken|apiKey|api_key|clientSecret|credential|password|secret|token)\s*[:=]\s*([^\s,"'}]+)/gi, 'credential=[REDACTED]')
+    .replace(/\b(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|hf_[A-Za-z0-9]{16,}|(?:gh[pousr]_|sk-|xox[baprs]-)[A-Za-z0-9_-]{12,})\b/g, '[REDACTED]')
+    .replace(/(?:file:\/\/)?\/(?:Users|home|Volumes|private|var\/folders|tmp|Library|System|Applications|etc|opt|usr\/local)\/[^\s"'}]+/g, '[PRIVATE_PATH]');
+}
+
+function workResultCitations(citations = []) {
+  const unique = new Map();
+  for (const citation of Array.isArray(citations) ? citations : []) {
+    const handle = cleanText(citation?.handle, 400);
+    const label = cleanText(citation?.label, 240);
+    if (handle && label && !unique.has(handle)) unique.set(handle, { handle, label });
+  }
+  return [...unique.values()];
+}
+
+function workResultArtifacts(artifacts = []) {
+  return (Array.isArray(artifacts) ? artifacts : []).flatMap((artifact) => {
+    const id = cleanText(artifact?.id, 200);
+    const name = cleanText(artifact?.name, 240);
+    if (!id || !name) return [];
+    return [{
+      id,
+      name,
+      contentType: cleanText(artifact?.contentType || artifact?.content_type, 120),
+      ...(artifact?.contentDigest ? { contentDigest: cleanText(artifact.contentDigest, 128) } : {}),
+    }];
+  });
+}
+
+function completedWorkResultId(workspaceId, missionId, reportId) {
+  const identity = [workspaceId, missionId, reportId].map(String).join('\u0000');
+  return `work_result_${crypto.createHash('sha256').update(identity).digest('hex').slice(0, 28)}`;
+}
+
+function buildCompletedWorkResultProjection({
+  workspaceId = '',
+  mission = {},
+  report = {},
+  artifacts = null,
+} = {}) {
+  const missionId = cleanText(mission?.id, 200);
+  const reportId = cleanText(report?.id, 200);
+  const currentReportId = cleanText(mission?.currentResultReportId, 200);
+  if (!workspaceId
+    || !missionId
+    || mission?.status !== 'completed'
+    || !reportId
+    || report?.status !== 'ready'
+    || currentReportId !== reportId
+    || (mission?.workspaceId && mission.workspaceId !== workspaceId)
+    || (report?.workspaceId && report.workspaceId !== workspaceId)
+    || (report?.missionId && report.missionId !== missionId)) {
+    return null;
+  }
+  const workResultId = completedWorkResultId(workspaceId, missionId, reportId);
+  const title = cleanText(report.title || mission.title || missionId, 240) || 'Work result';
+  const finalText = redactWorkResultText(
+    report.fullText
+    || report.resultText
+    || report.markdown
+    || report.resultSummary
+    || report.summary
+    || '',
+  ).trim();
+  const citations = workResultCitations(report.citations);
+  const normalizedArtifacts = workResultArtifacts(artifacts || report.artifacts);
+  const workConversationId = cleanText(
+    mission.workConversationId || mission.missionThreadId || report.sessionId,
+    200,
+  );
+  const completedAt = new Date(
+    mission.completedAt || report.completedAt || report.updatedAt || report.createdAt || Date.now(),
+  ).toISOString();
+  const relativePath = `${ARCHIVE_DIR}/${workResultId}.md`;
+  const citationLines = citations.length
+    ? citations.map((citation) => `- [${citation.label}](${citation.handle})`).join('\n')
+    : '- (원본 citation 없음)';
+  const artifactLines = normalizedArtifacts.length
+    ? normalizedArtifacts.map((artifact) => `- ${artifact.name} (${artifact.id})`).join('\n')
+    : '- (artifact 없음)';
+  const markdown = [
+    '---',
+    'type: work-result',
+    `work_result_id: ${workResultId}`,
+    `mission_id: ${missionId}`,
+    `work_conversation_id: ${workConversationId}`,
+    `report_id: ${reportId}`,
+    'status: completed',
+    'source: agent-calendar',
+    '---',
+    '',
+    `# ${title}`,
+    '',
+    '## Citations',
+    '',
+    citationLines,
+    '',
+    '## Artifacts',
+    '',
+    artifactLines,
+    '',
+    '## Final result',
+    '',
+    finalText,
+  ].join('\n');
+  return {
+    workResultId,
+    missionId,
+    workConversationId,
+    reportId,
+    title,
+    status: 'completed',
+    completedAt,
+    finalText,
+    citations,
+    artifacts: normalizedArtifacts,
+    contentDigest: crypto.createHash('sha256').update(markdown).digest('hex'),
+    wiki: {
+      status: 'pending_local',
+      projectionId: `work-result-wiki:${workResultId}`,
+      relativePath,
+      markdown,
+    },
+  };
 }
 
 function listLines(items = [], maximum = 12) {
@@ -296,6 +426,7 @@ module.exports = {
   ARCHIVE_DIR,
   archiveCompletedDelegatedWork,
   archiveRelativePath,
+  buildCompletedWorkResultProjection,
   buildDelegatedWorkArchiveMarkdown,
   proposeAgentMemoryPins,
   shouldArchiveCompletedMission,

@@ -101,6 +101,10 @@ import {
 } from './domains/work-management/unifiedCalendarPresentation';
 import { DiaryScreen, NotesScreen, ReviewScreen, WikiScreen } from './features/knowledge';
 import {
+  pendingWorkResultWikiProjections,
+  type PendingWorkResultWikiProjection,
+} from './features/knowledge/workResultWikiProjection';
+import {
   APP_TIME_ZONE,
   TAXONOMY_SOURCE,
   addDaysKey,
@@ -187,7 +191,7 @@ type CompletionNotice = { task: Item; title: string } | null;
 type AutomationMutationOutcome = { approvalId?: string };
 type AuthProvider = HermesAuthProvider;
 type AuthProfileState = HermesAuthProfile;
-type DesktopSettingsState = { apiBaseUrl: string; hasApiToken: boolean; theme: HermesDesktopSettings['theme']; authProfile: AuthProfileState | null; uiPreferences: UiPreferences };
+type DesktopSettingsState = { apiBaseUrl: string; hasApiToken: boolean; hasWikiVault: boolean; theme: HermesDesktopSettings['theme']; authProfile: AuthProfileState | null; uiPreferences: UiPreferences };
 type DesktopTheme = HermesDesktopSettings['theme'];
 type NewTaskControls = {
   date: string;
@@ -595,6 +599,7 @@ function desktopSettingsState(settings: HermesDesktopSettings): DesktopSettingsS
   return {
     apiBaseUrl: settings.apiBaseUrl,
     hasApiToken: settings.hasApiToken,
+    hasWikiVault: settings.hasWikiVault === true,
     theme: settings.theme,
     authProfile: settings.authProfile || null,
     uiPreferences: settings.uiPreferences || DEFAULT_UI_PREFERENCES,
@@ -627,7 +632,7 @@ export function App() {
   const [agentSessionDetail, setAgentSessionDetail] = useState<AgentSessionDetail | null>(null);
   const [agentSessionLoading, setAgentSessionLoading] = useState(false);
   const [agentSessionMessageBusy, setAgentSessionMessageBusy] = useState(false);
-  const [settings, setSettings] = useState<DesktopSettingsState>({ apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app', hasApiToken: false, theme: 'default', authProfile: null, uiPreferences: DEFAULT_UI_PREFERENCES });
+  const [settings, setSettings] = useState<DesktopSettingsState>({ apiBaseUrl: 'https://hermes-os-production-e174.up.railway.app', hasApiToken: false, hasWikiVault: false, theme: 'default', authProfile: null, uiPreferences: DEFAULT_UI_PREFERENCES });
   const [apiError, setApiError] = useState('');
   const [desktopConnectivity, setDesktopConnectivity] = useState(INITIAL_DESKTOP_CONNECTIVITY);
   const [desktopReleaseStatus, setDesktopReleaseStatus] = useState(INITIAL_DESKTOP_RELEASE_STATUS);
@@ -637,6 +642,9 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const hasHydratedRef = useRef(false);
   const localUiPreferencesRef = useRef<UiPreferences | null>(null);
+  const hasWikiVaultRef = useRef(false);
+  const writtenWorkResultWikiProjectionIdsRef = useRef<Set<string>>(new Set());
+  const applyingWorkResultWikiProjectionIdsRef = useRef<Set<string>>(new Set());
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newDate, setNewDate] = useState('');
@@ -674,6 +682,7 @@ export function App() {
   const [wikiAsking, setWikiAsking] = useState(false);
   const [wikiSourceBusy, setWikiSourceBusy] = useState(false);
   const [wikiSourceMessage, setWikiSourceMessage] = useState('');
+  const [pendingWorkResultWiki, setPendingWorkResultWiki] = useState<readonly PendingWorkResultWikiProjection[]>([]);
   const [wikiIncludeJournal, setWikiIncludeJournal] = useState(false);
   const [wikiIncludeRaw, setWikiIncludeRaw] = useState(false);
   const [activeWikiId, setActiveWikiId] = useState('');
@@ -742,10 +751,13 @@ export function App() {
     setWikiAnswer('');
     setWikiAnswerSources([]);
     setWikiAnswerMeta({});
+    setPendingWorkResultWiki([]);
     setCompletionNotice(null);
     setDesktopConnectivity(INITIAL_DESKTOP_CONNECTIVITY);
     optimisticRunsRef.current = [];
     approvedRunIdsRef.current = new Set();
+    writtenWorkResultWikiProjectionIdsRef.current = new Set();
+    applyingWorkResultWikiProjectionIdsRef.current = new Set();
     hasHydratedRef.current = false;
   }
 
@@ -977,6 +989,7 @@ export function App() {
         const desktopSettings = await window.hermesDesktop?.getSettings();
         const proxyConnection = await window.hermesDesktop.getHermesConnection();
         if (desktopSettings && !cancelled) {
+          hasWikiVaultRef.current = desktopSettings.hasWikiVault === true;
           localUiPreferencesRef.current = readUiPreferences(desktopSettings);
           setSettings(desktopSettingsState(desktopSettings));
           const signedIn = desktopSettingsSignedIn(desktopSettings);
@@ -1137,6 +1150,43 @@ export function App() {
     }, 4_000);
     return () => window.clearTimeout(timer);
   }, [desktopConnectivity.status]);
+
+  async function writePendingWorkResultWikiProjections(
+    projections: readonly PendingWorkResultWikiProjection[],
+  ) {
+    if (!hasWikiVaultRef.current || !window.hermesDesktop?.applyWorkResultWikiProjection) return;
+    const written = new Set<string>();
+    for (const projection of projections) {
+      if (writtenWorkResultWikiProjectionIdsRef.current.has(projection.projectionId)
+        || applyingWorkResultWikiProjectionIdsRef.current.has(projection.projectionId)) continue;
+      applyingWorkResultWikiProjectionIdsRef.current.add(projection.projectionId);
+      try {
+        const result = await window.hermesDesktop.applyWorkResultWikiProjection(projection);
+        written.add(projection.projectionId);
+        writtenWorkResultWikiProjectionIdsRef.current.add(projection.projectionId);
+        if (!result.replay) setWikiSourceMessage('완료한 작업 결과를 로컬 Wiki에 자동 보관했습니다.');
+      } catch (error) {
+        setWikiSourceMessage(error instanceof Error
+          ? `완료 작업 Wiki 보관 대기: ${error.message}`
+          : '완료 작업 결과를 로컬 Wiki에 보관하지 못했습니다.');
+      } finally {
+        applyingWorkResultWikiProjectionIdsRef.current.delete(projection.projectionId);
+      }
+    }
+    if (written.size) {
+      setPendingWorkResultWiki((current) => current.filter(
+        (projection) => !written.has(projection.projectionId),
+      ));
+    }
+  }
+
+  async function applyWorkResultWikiProjections(entries: readonly unknown[]) {
+    const projections = pendingWorkResultWikiProjections(entries).filter(
+      (projection) => !writtenWorkResultWikiProjectionIdsRef.current.has(projection.projectionId),
+    );
+    setPendingWorkResultWiki(projections);
+    await writePendingWorkResultWikiProjections(projections);
+  }
 
   async function hydrate(options: { blocking?: boolean } = {}) {
     const hydrationTicket = window.hermesDesktop
@@ -1333,6 +1383,7 @@ export function App() {
       };
       setCalendarAiConversationId(nextConversationId);
       setCalendarAiMemories(nextCalendarAiMemories);
+      if (unifiedEntries) void applyWorkResultWikiProjections(unifiedEntries);
       setState(nextState);
       const hydratedOnboarding = obj(settingsPayload, 'onboarding');
       const hydratedOnboardingStatus = text(hydratedOnboarding.status);
@@ -3005,6 +3056,32 @@ export function App() {
     }
   }
 
+  async function chooseLocalWikiVault() {
+    if (wikiSourceBusy) return;
+    if (!window.hermesDesktop?.chooseWikiVault) {
+      setWikiSourceMessage('로컬 폴더 선택은 패키징된 Desktop 앱에서 사용할 수 있습니다.');
+      return;
+    }
+    setWikiSourceBusy(true);
+    setWikiSourceMessage('');
+    try {
+      const result = await window.hermesDesktop.chooseWikiVault();
+      if (result.canceled) {
+        setWikiSourceMessage('로컬 Wiki 폴더 선택을 취소했습니다.');
+        return;
+      }
+      hasWikiVaultRef.current = result.connected;
+      setSettings((current) => ({ ...current, hasWikiVault: result.connected }));
+      await writePendingWorkResultWikiProjections(pendingWorkResultWiki);
+      await hydrate({ blocking: false });
+      setWikiSourceMessage('로컬 Wiki 폴더를 연결했습니다. 대기 중인 완료 결과를 다시 확인했습니다.');
+    } catch (error) {
+      setWikiSourceMessage(error instanceof Error ? error.message : '로컬 Wiki 폴더 연결 실패');
+    } finally {
+      setWikiSourceBusy(false);
+    }
+  }
+
   async function revokeKnowledgeSource(sourceId: string) {
     if (!sourceId || wikiSourceBusy) return;
     setWikiSourceBusy(true);
@@ -3722,7 +3799,7 @@ export function App() {
             {screen === 'mail' && <MailScreen inbox={mailItems} connector={mailConnector} activeMailId={activeMailId} setActiveMailId={setActiveMailId} addTaskFromMail={(mail) => { void addTaskFromMail(mail); }} delegateMail={(mail, reply) => { setDelegateText(reply ? `아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n${itemTitle(mail, '메일')}` : `다음 메일을 처리해줘.\n\n${itemTitle(mail, '메일')}`); setModal('delegate'); }} mailLoadError={mailLoadError} reloadMail={() => { void hydrate({ blocking: false }); }} connectGoogleMail={connectGoogleMail} disconnectGoogleMail={disconnectGoogleMail} connectionBusy={onboardingPendingAction === 'mail_open'} />}
             {screen === 'notes' && <NotesScreen docs={docs} activeNoteId={activeNoteId} setActiveNoteId={setActiveNoteId} newNote={createNote} />}
             {screen === 'review' && <ReviewScreen tasks={tasks} patchTask={patchTask} generateRetroDraft={generateRetroDraft} createReviewGoal={createReviewGoal} saveRetro={saveRetro} />}
-            {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} loadDocument={loadKnowledgeDocument} knowledgeV2={state.wiki.knowledgeV2 === true} knowledgeSources={arr(state.wiki, 'sources')} sourceBusy={wikiSourceBusy} sourceMessage={wikiSourceMessage} addCloudFile={addCloudKnowledgeFile} revokeSource={revokeKnowledgeSource} resolveEvidence={resolveKnowledgeEvidence} />}
+            {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} loadDocument={loadKnowledgeDocument} knowledgeV2={state.wiki.knowledgeV2 === true} knowledgeSources={arr(state.wiki, 'sources')} sourceBusy={wikiSourceBusy} sourceMessage={wikiSourceMessage} pendingWorkResultCount={pendingWorkResultWiki.length} chooseLocalWikiVault={chooseLocalWikiVault} addCloudFile={addCloudKnowledgeFile} revokeSource={revokeKnowledgeSource} resolveEvidence={resolveKnowledgeEvidence} />}
             {screen === 'diary' && <DiaryScreen docs={diaryDocs} diaryText={diaryText} setDiaryText={setDiaryText} diaryMood={diaryMood} setDiaryMood={setDiaryMood} saveDiary={saveDiary} loadDocument={loadKnowledgeDocument} />}
             {screen === 'search' && <SearchScreen query={query} setQuery={setQuery} tasks={tasks} docs={docs} openTask={openTask} openDoc={openDoc} />}
             {screen === 'agents' && <AgentOperationsScreen state={agentOperations} agents={agentRoster} runners={automationRunners} automationJobs={hermesAutomationJobs} controlPlaneBaseUrl={settings.apiBaseUrl} error={agentOperationsError} busy={agentOperationsBusy} onRetry={retryAgentOperations} onRefreshAgentOperations={retryAgentOperations} onCreateAgent={createWorkspaceAgent} onUpdateAgent={updateWorkspaceAgent} onCreateBuilderDraft={createWorkspaceAgentBuilderDraft} onReviewBuilderDraft={reviewWorkspaceAgentBuilderDraft} onTestBuilderDraft={testWorkspaceAgentBuilderDraft} onRefreshBuilderTest={refreshWorkspaceAgentBuilderTest} onCancelBuilderTest={cancelWorkspaceAgentBuilderTest} onActivateBuilderProfile={activateWorkspaceAgentBuilderProfile} onListAgentProfileVersions={loadWorkspaceAgentProfileVersions} onRequestAgentCatalog={requestAgentCatalog} onGetAgentCatalogRequest={getAgentCatalogRequest} onImportAgentCatalogEntry={importAgentCatalogEntry} onListProviderAgentSessions={listProviderAgentSessions} onRequestProviderSessionCatalog={requestProviderSessionCatalog} onImportProviderSessionCatalogEntry={importProviderSessionCatalogEntry} onUpdateProviderAgentSession={updateProviderAgentSession} onCreateMission={createAgentMission} onPlanMission={planAgentMission} onApprovePlan={approveAgentMissionPlan} onMissionWorkAction={transitionAgentMissionWork} onTaskAction={transitionAgentOperationTask} onRunTaskNow={runAgentOperationTaskNow} onOpenSession={(sessionId) => void openAgentSession(sessionId)} onContinueSession={continueAgentSession} onReportFeedback={recordAgentReportFeedback} onFollowUpDecision={recordAgentFollowUpDecision} />}

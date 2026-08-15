@@ -835,6 +835,14 @@ class UnifiedCalendar {
         const s = parseInstant(row.starts_at);
         const e = parseInstant(p.endsAt || p.ends_at || p.end) || (s != null ? s + 3600000 : null);
         if (s == null || e == null || !(s < toMs && e > fromMs)) continue;
+        const completedWorkResult = sourceKind === 'agent_work'
+          && (p.lifecycleStatus || p.status) === 'completed'
+          && p.workResult
+          && typeof p.workResult === 'object'
+          && !Array.isArray(p.workResult)
+          && p.workResult.status === 'completed'
+          ? p.workResult
+          : null;
         entries.push({
           id: `internal:${row.id}`,
           entryId: row.id,
@@ -855,6 +863,22 @@ class UnifiedCalendar {
           freshness: p.updatedAt || null,
           status: p.status || 'confirmed',
           lifecycleStatus: sourceKind === 'agent_work' ? (p.lifecycleStatus || p.status || 'scheduled') : '',
+          ...(completedWorkResult ? {
+            workResultId: completedWorkResult.workResultId,
+            missionId: completedWorkResult.missionId,
+            workConversationId: completedWorkResult.workConversationId,
+            reportId: completedWorkResult.reportId,
+            result: {
+              finalText: completedWorkResult.finalText,
+              citations: Array.isArray(completedWorkResult.citations)
+                ? completedWorkResult.citations
+                : [],
+              artifacts: Array.isArray(completedWorkResult.artifacts)
+                ? completedWorkResult.artifacts
+                : [],
+              wiki: completedWorkResult.wiki || null,
+            },
+          } : {}),
         });
       }
 

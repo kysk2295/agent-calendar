@@ -39,13 +39,15 @@ type WikiScreenProps = {
   knowledgeSources: Item[];
   sourceBusy: boolean;
   sourceMessage: string;
+  pendingWorkResultCount: number;
+  chooseLocalWikiVault: () => Promise<void>;
   addCloudFile: (file: File) => Promise<void>;
   revokeSource: (sourceId: string) => Promise<void>;
   resolveEvidence: (handle: string) => Promise<Item>;
 };
 
 
-export function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, setReaderOpen, question, setQuestion, answer, sources, answerMeta, includeJournal, setIncludeJournal, includeRaw, setIncludeRaw, asking, ask, dismissAnswer, loadDocument, knowledgeV2, knowledgeSources, sourceBusy, sourceMessage, addCloudFile, revokeSource, resolveEvidence }: WikiScreenProps) {
+export function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOpen, setReaderOpen, question, setQuestion, answer, sources, answerMeta, includeJournal, setIncludeJournal, includeRaw, setIncludeRaw, asking, ask, dismissAnswer, loadDocument, knowledgeV2, knowledgeSources, sourceBusy, sourceMessage, pendingWorkResultCount, chooseLocalWikiVault, addCloudFile, revokeSource, resolveEvidence }: WikiScreenProps) {
   const [details, setDetails] = useState<Record<string, Item>>({});
   const [loadingPath, setLoadingPath] = useState('');
   const [graphFocusMode, setGraphFocusMode] = useState(false);
@@ -105,6 +107,14 @@ export function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOp
       <label><input type="checkbox" checked={includeJournal} onChange={(event) => setIncludeJournal(event.target.checked)} /> 일기 포함</label>
       <label><input type="checkbox" checked={includeRaw} onChange={(event) => setIncludeRaw(event.target.checked)} /> raw 포함</label>
     </div>
+    {pendingWorkResultCount > 0 && (
+      <section className="knowledge-source-panel" data-testid="pending-work-result-wiki">
+        <div className="knowledge-source-panel-head">
+          <div><strong>폴더 미연결 · 보관 대기</strong><small>완료 결과 {pendingWorkResultCount}개가 작업 대화에 안전하게 남아 있습니다.</small></div>
+          <button type="button" disabled={sourceBusy} onClick={() => { void chooseLocalWikiVault(); }}>로컬 폴더 연결</button>
+        </div>
+      </section>
+    )}
     {knowledgeV2 && <section className="knowledge-source-panel" data-testid="knowledge-source-panel">
       <div className="knowledge-source-panel-head">
         <div><strong>내 지식 소스</strong><small>각 Workspace 안에서만 검색됩니다.</small></div>
@@ -129,8 +139,8 @@ export function WikiScreen({ wiki, docs, activeWikiId, setActiveWikiId, readerOp
       <div className="knowledge-source-list">
         {knowledgeSources.length === 0 && (
           <p>
-            연결된 지식 소스가 없습니다. 파일을 추가하거나 데스크톱 실행 환경의 LLM_WIKI_VAULT에
-            실제 폴더 경로를 지정하세요. 경로가 없거나 오프라인이면 로컬 Wiki는 준비되지 않습니다.
+            연결된 지식 소스가 없습니다. 파일을 추가하거나 로컬 폴더를 연결하세요.
+            폴더가 없거나 오프라인이면 로컬 Wiki는 준비되지 않습니다.
           </p>
         )}
         {knowledgeSources.map((source, index) => {

@@ -24,7 +24,7 @@ const PUBLIC_SESSION_METADATA_KEYS = new Set([
   'resolvedExecutionEngine', 'wikiArchiveStatus', 'wikiArchiveNote', 'proposedMemoryPinCount',
 ]);
 
-const PUBLIC_WIKI_ARCHIVE_STATUSES = new Set(['written', 'skipped_no_wiki', 'failed']);
+const PUBLIC_WIKI_ARCHIVE_STATUSES = new Set(['pending_local', 'written', 'skipped_no_wiki', 'failed']);
 
 const PUBLIC_EXECUTION_ENGINES = new Set(['auto', 'hermes', 'local_llm', 'codex']);
 const PUBLIC_RESOLVED_EXECUTION_ENGINES = new Set(['hermes', 'codex', 'claude', 'grok']);
@@ -74,6 +74,21 @@ function publicStringArray(values, maximumLength = 2_000) {
 
 function publicTimestamp(value) {
   return publicText(value, '', 80);
+}
+
+function publicWikiRelativePath(value, { status = '' } = {}) {
+  const relativePath = publicText(value, '', 300).replace(/\\/g, '/');
+  if (!relativePath
+    || relativePath.startsWith('/')
+    || /^[A-Za-z]:\//.test(relativePath)
+    || relativePath.split('/').some((part) => !part || part === '.' || part === '..')) {
+    return '';
+  }
+  if (status === 'pending_local'
+    && !/^5_conversation\/agent-runs\/work_result_[a-f0-9]{28}\.md$/.test(relativePath)) {
+    return '';
+  }
+  return relativePath;
 }
 
 function publicMetadata(value, depth = 0) {
@@ -144,10 +159,10 @@ function publicMissionRecord(mission = {}) {
   if (mission.wikiArchive && typeof mission.wikiArchive === 'object') {
     const status = String(mission.wikiArchive.status || '').trim();
     if (PUBLIC_WIKI_ARCHIVE_STATUSES.has(status)) {
-      const relativePath = publicText(mission.wikiArchive.relativePath, '', 300);
+      const relativePath = publicWikiRelativePath(mission.wikiArchive.relativePath, { status });
       projected.wikiArchive = {
         status,
-        relativePath: relativePath && !relativePath.includes('..') ? relativePath : '',
+        relativePath,
         archivedAt: publicTimestamp(mission.wikiArchive.archivedAt),
       };
     }
@@ -532,6 +547,7 @@ module.exports = {
   publicDocumentRecord,
   publicMailMessageRecord,
   publicMissionRecord,
+  publicWikiRelativePath,
   publicReportRecord,
   publicSchedulerResult,
   publicSessionEventRecord,
