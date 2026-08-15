@@ -366,12 +366,14 @@ class DurableExecution {
     this.outboxHandler = typeof outboxHandler === 'function'
       ? outboxHandler
       : (sseHub ? this.#defaultOutboxHandler.bind(this) : null);
+    this.#previewedWorkInputs = new WeakSet();
     this.#reaperTimer = null;
     this.#outboxTimer = null;
   }
 
   #reaperTimer;
   #outboxTimer;
+  #previewedWorkInputs;
 
   #defaultOutboxHandler(row) {
     if (!this.sseHub || typeof this.sseHub.publishWorkspace !== 'function') {
@@ -446,6 +448,19 @@ class DurableExecution {
       && !Array.isArray(input.payload)
       ? input.payload
       : {};
+    const workIntakeMetadata = inputPayload.workIntake
+      && typeof inputPayload.workIntake === 'object'
+      && !Array.isArray(inputPayload.workIntake)
+      ? inputPayload.workIntake
+      : null;
+    const previewAttested = this.#previewedWorkInputs.delete(input);
+    if (workIntakeMetadata && !previewAttested) {
+      reject(
+        'WORK_PREVIEW_ATTESTATION_REQUIRED',
+        'Work Intake metadata must come from the preview/start boundary',
+        409,
+      );
+    }
     const hiddenSystemWork = ['calendar_ai_conversation', 'workspace_inference']
       .includes(inputPayload.kind);
     const requiredCapabilities = Array.isArray(input.requiredCapabilities)
@@ -789,6 +804,14 @@ class DurableExecution {
         },
       };
     });
+  }
+
+  acceptPreviewedWork(scope, input = {}) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      reject('WORK_INPUT_INVALID', 'Previewed Work input is invalid', 400);
+    }
+    this.#previewedWorkInputs.add(input);
+    return this.acceptWork(scope, input);
   }
 
   async requestCancel(scope, missionId) {

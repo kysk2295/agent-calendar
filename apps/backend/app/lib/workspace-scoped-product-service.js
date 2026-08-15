@@ -347,11 +347,12 @@ function requireOwner(scope) {
  * Never uses global HermesStore. Every SQL filters by workspace_id.
  */
 class WorkspaceScopedProductService {
-  constructor({ pool, useAppRole = true, env = {} } = {}) {
+  constructor({ pool, useAppRole = true, env = {}, workIntake = null } = {}) {
     if (!pool) throw new Error('WorkspaceScopedProductService requires pool');
     this.pool = pool;
     this.useAppRole = useAppRole;
     this.env = env;
+    this.workIntake = workIntake;
   }
 
   async #run(scope, fn) {
@@ -361,6 +362,16 @@ class WorkspaceScopedProductService {
     }
     await assertActiveMembership(this.pool, scope);
     return fn(this.pool, scope);
+  }
+
+  setWorkIntake(workIntake) {
+    if (!workIntake
+      || typeof workIntake.preview !== 'function'
+      || typeof workIntake.start !== 'function') {
+      throw new Error('WorkspaceScopedProductService requires a Work Intake boundary');
+    }
+    this.workIntake = workIntake;
+    return this;
   }
 
   // ── Tasks ──────────────────────────────────────────────────────────
@@ -1481,6 +1492,22 @@ class WorkspaceScopedProductService {
     const { DurableExecution } = require('./durable-execution');
     const execution = new DurableExecution({ pool: this.pool, env: this.env });
     return execution.acceptWork(scope, input);
+  }
+
+  async previewAgentWork(scope, input = {}) {
+    assertWorkspaceScope(scope);
+    if (!this.workIntake) {
+      throw scopedMutationError('work_intake_unavailable', 'Work Intake is unavailable', 503);
+    }
+    return this.workIntake.preview(scope, input);
+  }
+
+  async startAgentWork(scope, input = {}) {
+    assertWorkspaceScope(scope);
+    if (!this.workIntake) {
+      throw scopedMutationError('work_intake_unavailable', 'Work Intake is unavailable', 503);
+    }
+    return this.workIntake.start(scope, input);
   }
 
   async requestCancelAgentWork(scope, missionId) {

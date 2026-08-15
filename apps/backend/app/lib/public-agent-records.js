@@ -29,6 +29,15 @@ const PUBLIC_WIKI_ARCHIVE_STATUSES = new Set(['written', 'skipped_no_wiki', 'fai
 const PUBLIC_EXECUTION_ENGINES = new Set(['auto', 'hermes', 'local_llm', 'codex']);
 const PUBLIC_RESOLVED_EXECUTION_ENGINES = new Set(['hermes', 'codex', 'claude', 'grok']);
 const PUBLIC_DELIVERABLE_KINDS = new Set(['report', 'document', 'image', 'file']);
+const PUBLIC_EXECUTION_STATES = new Set(['idle', 'queued', 'running', 'completed', 'failed', 'cancelled']);
+
+function normalizeExecutionState(status) {
+  const raw = String(status || '').trim().toLowerCase();
+  if (['accepted', 'waiting_runner', 'offered'].includes(raw)) return 'queued';
+  if (['leased', 'running'].includes(raw)) return 'running';
+  if (PUBLIC_EXECUTION_STATES.has(raw) && raw !== 'idle') return raw;
+  return 'idle';
+}
 
 function projectExecutionContract(source = {}, projected = {}) {
   const executionEngine = String(source.executionEngine || '').trim();
@@ -103,6 +112,9 @@ function publicMissionRecord(mission = {}) {
     projected.delegationMode = delegationMode;
   }
   projected.agentId = resolveRequestedOfficialProfile({ agentId: mission.agentId });
+  projected.executionState = normalizeExecutionState(
+    mission.executionState === undefined ? mission.status : mission.executionState,
+  );
   projectExecutionContract(mission, projected);
   projected.successCriteria = publicStringArray(mission.successCriteria);
   projected.sources = publicStringArray(mission.sources, 200);
@@ -509,6 +521,7 @@ function projectUnknownPublicJson(value, key = '', depth = 0) {
 }
 
 module.exports = {
+  normalizeExecutionState,
   projectAgentOperationsResponse,
   projectUnknownPublicJson,
   publicActivitySessionRecord,
