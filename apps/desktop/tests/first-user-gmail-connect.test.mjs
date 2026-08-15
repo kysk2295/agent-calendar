@@ -110,6 +110,44 @@ test('OnboardingGuide reports the Gmail authorization attempt as a connection', 
   assert.doesNotMatch(html, /동기화 진행 중/);
 });
 
+test('MailScreen connected disconnect calls the mail IPC path and hydrates backend truth', () => {
+  let disconnectCalls = 0;
+  const tree = MailScreen({
+    inbox: [],
+    connector: 'connected',
+    activeMailId: '',
+    setActiveMailId: () => {},
+    addTaskFromMail: () => {},
+    delegateMail: () => {},
+    mailLoadError: '',
+    reloadMail: () => {},
+    connectGoogleMail: async () => {},
+    disconnectGoogleMail: async () => { disconnectCalls += 1; },
+    connectionBusy: false,
+  });
+  const buttons = [];
+  const visit = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'button') buttons.push(node);
+    visit(node.props?.children);
+  };
+  visit(tree);
+  const disconnectButton = buttons.find((button) => button.props.children === 'Google 메일 연결 해제');
+  assert.ok(disconnectButton);
+  disconnectButton.props.onClick();
+  assert.equal(disconnectCalls, 1);
+
+  assert.match(appSource, /async function disconnectGoogleMail\(\)[\s\S]*?window\.hermesDesktop\?\.disconnectGoogleMail/);
+  assert.match(appSource, /<MailScreen[\s\S]*?disconnectGoogleMail=\{disconnectGoogleMail\}/);
+  const disconnectBody = appSource.match(/async function disconnectGoogleMail\(\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+  assert.match(disconnectBody, /await hydrate\(\{ blocking: false \}\)/);
+  assert.doesNotMatch(disconnectBody, /connectGoogleCalendar|syncCalendarSources|send|delete|star/);
+});
+
 test('Onboarding and MailScreen connect through the dedicated mail IPC then hydrate backend truth', () => {
   assert.match(appSource, /async function connectGoogleMail\(\)[\s\S]*?window\.hermesDesktop\?\.connectGoogleMail/);
   assert.match(appSource, /setOnboardingPendingAction\('mail_open'\)/);

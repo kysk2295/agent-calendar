@@ -668,6 +668,7 @@ registerTrustedIpcHandle(ipcMain, 'auth:authkit-cancel', requireTrustedRenderer,
 });
 registerTrustedIpcHandle(ipcMain, 'calendar:google-connect', requireTrustedRenderer, () => googleCalendarOAuth.begin());
 registerTrustedIpcHandle(ipcMain, 'mail:google-connect', requireTrustedRenderer, () => googleMailOAuth.begin());
+registerTrustedIpcHandle(ipcMain, 'mail:google-disconnect', requireTrustedRenderer, () => googleMailOAuth.disconnect());
 // Legacy IPC names: disabled for production (AuthKit only).
 registerTrustedIpcHandle(ipcMain, 'auth:provider-login', requireTrustedRenderer, async () => {
   throw new Error('직접 Google OAuth는 비활성화되었습니다. AuthKit으로 로그인하세요.');

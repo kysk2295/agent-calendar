@@ -628,6 +628,11 @@ const PRODUCTION_ROUTES = [
     persistence: 'write', action: 'mail_google_callback', idempotent: true, role: 'member',
     notes: 'Completes user-bound Gmail read-only OAuth',
   },
+  {
+    method: 'POST', pathPattern: '/api/mail/google/disconnect', class: 'scoped_product',
+    persistence: 'write', action: 'mail_google_disconnect', idempotent: true, role: 'member',
+    notes: 'Disconnects only the authenticated user Gmail grant',
+  },
   // Mail mutations / TickTick — external connectors not safely scoped yet
   {
     method: 'POST', pathPattern: '/api/mail/accounts', class: 'production_disabled',
@@ -851,6 +856,7 @@ const DESKTOP_API_PATHS = [
   'GET /api/mail/messages',
   'POST /api/mail/google/authorize',
   'POST /api/mail/google/callback',
+  'POST /api/mail/google/disconnect',
   'GET /api/workboard',
   'GET /api/documents',
   'POST /api/documents',

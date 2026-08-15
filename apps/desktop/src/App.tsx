@@ -2858,6 +2858,26 @@ export function App() {
     }
   }
 
+  async function disconnectGoogleMail() {
+    if (onboardingBusy) return;
+    setOnboardingBusy(true);
+    setOnboardingPendingAction('mail_open');
+    setOnboardingMessage('Google 메일 연결을 해제하는 중입니다.');
+    try {
+      if (!window.hermesDesktop?.disconnectGoogleMail) {
+        throw new Error('Google 메일 연결 해제는 데스크톱 앱에서 사용할 수 있습니다.');
+      }
+      await window.hermesDesktop.disconnectGoogleMail();
+      await hydrate({ blocking: false });
+      setOnboardingMessage('Google 메일 연결을 해제했습니다. Calendar 권한과 로그인은 유지됩니다.');
+    } catch (error) {
+      setOnboardingMessage(error instanceof Error ? error.message : 'Google 메일 연결 해제에 실패했습니다.');
+    } finally {
+      setOnboardingBusy(false);
+      setOnboardingPendingAction(null);
+    }
+  }
+
   async function saveOnboardingStatus(status: 'dismissed' | 'completed') {
     if (onboardingBusy) return;
     setOnboardingBusy(true);
@@ -3622,7 +3642,7 @@ export function App() {
               setQuickText(templates[label] || '');
             }} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} />}
             {screen === 'kanban' && <KanbanScreen tasks={filteredTasks} openTask={openTask} />}
-            {screen === 'mail' && <MailScreen inbox={mailItems} connector={mailConnector} activeMailId={activeMailId} setActiveMailId={setActiveMailId} addTaskFromMail={(mail) => { void addTaskFromMail(mail); }} delegateMail={(mail, reply) => { setDelegateText(reply ? `아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n${itemTitle(mail, '메일')}` : `다음 메일을 처리해줘.\n\n${itemTitle(mail, '메일')}`); setModal('delegate'); }} mailLoadError={mailLoadError} reloadMail={() => { void hydrate({ blocking: false }); }} connectGoogleMail={connectGoogleMail} connectionBusy={onboardingPendingAction === 'mail_open'} />}
+            {screen === 'mail' && <MailScreen inbox={mailItems} connector={mailConnector} activeMailId={activeMailId} setActiveMailId={setActiveMailId} addTaskFromMail={(mail) => { void addTaskFromMail(mail); }} delegateMail={(mail, reply) => { setDelegateText(reply ? `아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n${itemTitle(mail, '메일')}` : `다음 메일을 처리해줘.\n\n${itemTitle(mail, '메일')}`); setModal('delegate'); }} mailLoadError={mailLoadError} reloadMail={() => { void hydrate({ blocking: false }); }} connectGoogleMail={connectGoogleMail} disconnectGoogleMail={disconnectGoogleMail} connectionBusy={onboardingPendingAction === 'mail_open'} />}
             {screen === 'notes' && <NotesScreen docs={docs} activeNoteId={activeNoteId} setActiveNoteId={setActiveNoteId} newNote={createNote} />}
             {screen === 'review' && <ReviewScreen tasks={tasks} patchTask={patchTask} generateRetroDraft={generateRetroDraft} createReviewGoal={createReviewGoal} saveRetro={saveRetro} />}
             {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} loadDocument={loadKnowledgeDocument} knowledgeV2={state.wiki.knowledgeV2 === true} knowledgeSources={arr(state.wiki, 'sources')} sourceBusy={wikiSourceBusy} sourceMessage={wikiSourceMessage} addCloudFile={addCloudKnowledgeFile} revokeSource={revokeKnowledgeSource} resolveEvidence={resolveKnowledgeEvidence} />}

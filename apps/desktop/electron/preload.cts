@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   loginWithAuthKit: () => ipcRenderer.invoke('auth:authkit-login'),
   connectGoogleCalendar: () => ipcRenderer.invoke('calendar:google-connect'),
   connectGoogleMail: () => ipcRenderer.invoke('mail:google-connect'),
+  disconnectGoogleMail: () => ipcRenderer.invoke('mail:google-disconnect'),
   loginWithProvider: (provider: unknown) => ipcRenderer.invoke('auth:provider-login', provider),
   signUpWithPassword: (payload: unknown) => ipcRenderer.invoke('auth:password-signup', payload),
   loginWithPassword: (payload: unknown) => ipcRenderer.invoke('auth:password-login', payload),

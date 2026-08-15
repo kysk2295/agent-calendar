@@ -182,9 +182,29 @@ export function createDesktopGoogleMailOAuth(options: DesktopGoogleMailOAuthOpti
     }
   }
 
+  async function disconnect(): Promise<DesktopGoogleMailOAuthResult> {
+    const completed = await request('/api/mail/google/disconnect', {
+      method: 'POST',
+      body: '{}',
+    }, { idempotent: true });
+    const connection = objectValue(completed.connection);
+    if (stringValue(connection.provider) !== 'google' || stringValue(connection.status) !== 'disconnected') {
+      throw new DesktopGoogleMailOAuthError(
+        'Google 메일 연결 해제 응답이 올바르지 않습니다.',
+        'GOOGLE_MAIL_DISCONNECT_INVALID',
+        502,
+      );
+    }
+    return {
+      ok: true,
+      connection: { provider: 'google', status: 'disconnected' },
+    };
+  }
+
   return {
     begin,
     cancel,
+    disconnect,
     getPendingState: () => pending?.state || null,
     handleCallback,
   };

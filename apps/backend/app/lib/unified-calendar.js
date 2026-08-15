@@ -296,6 +296,59 @@ class UnifiedCalendar {
     }
   }
 
+  async disconnectGoogleMail(scope) {
+    assertWorkspaceScope(scope);
+    const connection = await withAppRoleWorkspaceTransaction(this.pool, scope, async (client, valid) => {
+      const result = await client.query(
+        `select id, credential_ref
+         from mail_connections
+         where workspace_id = $1 and user_id = $2 and provider = 'google'
+         order by updated_at desc, id
+         limit 1`,
+        [valid.workspaceId, valid.userId],
+      );
+      return result.rows[0] || null;
+    });
+    if (!connection) {
+      return {
+        ok: true,
+        workspaceId: scope.workspaceId,
+        connection: { provider: 'google', status: 'disconnected' },
+        providerRevoked: false,
+      };
+    }
+
+    if (!this.credentialVault) {
+      this.credentialVault = createDbCredentialVault(this.pool, this.env);
+    }
+    let providerRevoked = false;
+    if (typeof this.google.revoke === 'function') {
+      try {
+        await this.google.revoke({ credentialRef: connection.credential_ref });
+        providerRevoked = true;
+      } catch {
+        // Provider revoke is best effort; local removal is authoritative for this Workspace.
+      }
+    }
+    if (typeof this.credentialVault.revoke !== 'function') {
+      reject('GOOGLE_VAULT_REVOKE_REQUIRED', 'credential vault cannot remove Gmail tokens', 503);
+    }
+    await this.credentialVault.revoke(connection.credential_ref);
+    await withAppRoleWorkspaceTransaction(this.pool, scope, async (client, valid) => {
+      await client.query(
+        `delete from mail_connections
+         where workspace_id = $1 and user_id = $2 and id = $3`,
+        [valid.workspaceId, valid.userId, connection.id],
+      );
+    });
+    return {
+      ok: true,
+      workspaceId: scope.workspaceId,
+      connection: { provider: 'google', status: 'disconnected' },
+      providerRevoked,
+    };
+  }
+
   async connectFakeGoogle(scope, {
     label = 'Google Calendar',
     calendarId = 'primary',

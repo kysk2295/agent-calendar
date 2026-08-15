@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   cancelAuthKitLogin: () => ipcRenderer.invoke('auth:authkit-cancel'),
   connectGoogleCalendar: () => ipcRenderer.invoke('calendar:google-connect'),
   connectGoogleMail: () => ipcRenderer.invoke('mail:google-connect'),
+  disconnectGoogleMail: () => ipcRenderer.invoke('mail:google-disconnect'),
   // Legacy names kept but main process rejects production use.
   loginWithProvider: (provider: unknown) => ipcRenderer.invoke('auth:provider-login', provider),
   signUpWithPassword: (payload: unknown) => ipcRenderer.invoke('auth:password-signup', payload),

@@ -142,6 +142,38 @@ test('Gmail read-only adapter returns bounded inbox metadata', async () => {
   assert.equal(urls.every(({ options }) => options.headers.authorization === 'Bearer access'), true);
 });
 
+test('Google revoke uses only the selected Gmail credential refresh token', async () => {
+  const requests = [];
+  const removedCredentials = [];
+  const adapter = createRealGoogleCalendarAdapter({
+    env: {
+      GOOGLE_OAUTH_CLIENT_ID: 'client',
+      GOOGLE_OAUTH_CLIENT_SECRET: 'secret',
+      GOOGLE_OAUTH_REDIRECT_URI: 'https://gateway.example/api/auth/google/callback',
+    },
+    credentialVault: {
+      async getTokens(credentialRef) {
+        assert.equal(credentialRef, 'cred_google_mail_a');
+        return { accessToken: 'mail-access-a', refreshToken: 'mail-refresh-a' };
+      },
+      async revoke(credentialRef) {
+        removedCredentials.push(credentialRef);
+      },
+    },
+    fetchImpl: async (url, options = {}) => {
+      requests.push({ url: String(url), options });
+      return { ok: true, status: 200, json: async () => ({}) };
+    },
+  });
+
+  await adapter.revoke({ credentialRef: 'cred_google_mail_a' });
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'https://oauth2.googleapis.com/revoke');
+  assert.equal(new URLSearchParams(requests[0].options.body).get('token'), 'mail-refresh-a');
+  assert.deepEqual(removedCredentials, ['cred_google_mail_a']);
+});
+
 test('mail list returns connector truth from the authenticated user service', async () => {
   const calls = [];
   const scope = { workspaceId: 'workspace-a', userId: 'user-a', role: 'member' };

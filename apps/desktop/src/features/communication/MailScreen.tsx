@@ -12,6 +12,7 @@ type MailScreenProps = {
   readonly mailLoadError: string;
   readonly reloadMail: () => void;
   readonly connectGoogleMail: () => Promise<void>;
+  readonly disconnectGoogleMail: () => Promise<void>;
   readonly connectionBusy: boolean;
 };
 
@@ -23,7 +24,7 @@ function mailAvatar(mail: Item): string {
   return text(mail.from || mail.sender || mail.sourceLabel, 'H').trim().slice(0, 1).toUpperCase();
 }
 
-export function MailScreen({ inbox, connector, activeMailId, setActiveMailId, addTaskFromMail, delegateMail, mailLoadError, reloadMail, connectGoogleMail, connectionBusy }: MailScreenProps) {
+export function MailScreen({ inbox, connector, activeMailId, setActiveMailId, addTaskFromMail, delegateMail, mailLoadError, reloadMail, connectGoogleMail, disconnectGoogleMail, connectionBusy }: MailScreenProps) {
   const items = inbox;
   const active = items.find((mail, index) => mailPresentation(mail, `mail-${index}`).id === activeMailId) || items[0];
   const activeId = mailPresentation(active || {}, '').id;
@@ -34,12 +35,18 @@ export function MailScreen({ inbox, connector, activeMailId, setActiveMailId, ad
       <section className="mail-connection-note">
         <strong>Google 메일 읽기 전용</strong>
         <small>Gmail 읽기 권한은 Google Calendar 권한과 별도로 연결합니다. 메일 전송이나 삭제 권한은 요청하지 않습니다.</small>
-        <button type="button" disabled={connectionBusy} onClick={() => { void connectGoogleMail(); }}>
+        <button
+          type="button"
+          disabled={connectionBusy}
+          onClick={() => { void (connector === 'connected' ? disconnectGoogleMail() : connectGoogleMail()); }}
+        >
           {connectionBusy
-            ? 'Google 연결 중...'
-            : connector === 'not_linked'
-              ? 'Google 메일 연결'
-              : 'Google 권한 다시 연결'}
+            ? connector === 'connected' ? 'Google 연결 해제 중...' : 'Google 연결 중...'
+            : connector === 'connected'
+              ? 'Google 메일 연결 해제'
+              : connector === 'not_linked'
+                ? 'Google 메일 연결'
+                : 'Google 권한 다시 연결'}
         </button>
       </section>
       <div>

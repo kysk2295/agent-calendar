@@ -93,6 +93,43 @@ test('Google Mail OAuth stays in main and uses only mail authorize/callback endp
   assert.equal(JSON.stringify(result).includes('mail-code-1'), false);
 });
 
+test('Google Mail disconnect uses only the authenticated mail disconnect endpoint', async () => {
+  const requests = [];
+  const coordinator = oauth.createDesktopGoogleMailOAuth({
+    apiBaseUrl: () => 'https://calendar.example.test',
+    getAccessToken: async () => 'workspace-access-token',
+    createRequestId: () => 'mail-disconnect-request',
+    openExternal: async () => {},
+    fetchImpl: async (url, init = {}) => {
+      const headers = new Headers(init.headers);
+      requests.push({
+        pathname: new URL(String(url)).pathname,
+        method: init.method,
+        authorization: headers.get('authorization'),
+        requestId: headers.get('x-client-request-id'),
+        idempotencyKey: headers.get('idempotency-key'),
+      });
+      return response(200, {
+        ok: true,
+        connection: { provider: 'google', status: 'disconnected' },
+        providerRevoked: false,
+      });
+    },
+  });
+
+  const result = await coordinator.disconnect();
+
+  assert.deepEqual(result.connection, { provider: 'google', status: 'disconnected' });
+  assert.deepEqual(requests, [{
+    pathname: '/api/mail/google/disconnect',
+    method: 'POST',
+    authorization: 'Bearer workspace-access-token',
+    requestId: 'mail-disconnect-request',
+    idempotencyKey: 'mail-disconnect-request',
+  }]);
+  assert.equal(requests.some(({ pathname }) => pathname.includes('calendar')), false);
+});
+
 test('Google Mail callback deep links use a distinct strict namespace', () => {
   assert.deepEqual(
     oauth.parseAgentCalendarDeepLink('agent-calendar://mail/google/callback?code=mail-code&state=mail.state'),
@@ -115,4 +152,14 @@ test('main owns the mail callback and exposes one dedicated trusted IPC', () => 
   assert.match(mainSource, /onGoogleMailCallback: \(target\) => handleGoogleMailCallbackDeepLink\(target\)/);
   assert.match(deepLinkMainSource, /target\.kind === 'google-mail-callback'[\s\S]*?onGoogleMailCallback/);
   assert.doesNotMatch(mainSource, /mail:google-connect'[\s\S]{0,160}googleCalendarOAuth\.begin/);
+});
+
+test('main and preload expose a dedicated trusted Google Mail disconnect IPC', () => {
+  assert.match(preloadSource, /disconnectGoogleMail: \(\) => ipcRenderer\.invoke\('mail:google-disconnect'\)/);
+  assert.match(preloadCtsSource, /disconnectGoogleMail: \(\) => ipcRenderer\.invoke\('mail:google-disconnect'\)/);
+  assert.match(
+    mainSource,
+    /registerTrustedIpcHandle\(ipcMain, 'mail:google-disconnect',[\s\S]*?googleMailOAuth\.disconnect\(\)\)/,
+  );
+  assert.doesNotMatch(mainSource, /mail:google-disconnect'[\s\S]{0,160}googleCalendarOAuth/);
 });

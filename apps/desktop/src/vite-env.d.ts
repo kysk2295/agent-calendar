@@ -133,6 +133,13 @@ interface Window {
         status: string;
       };
     }>;
+    disconnectGoogleMail(): Promise<{
+      ok: true;
+      connection: {
+        provider: 'google';
+        status: 'disconnected';
+      };
+    }>;
     loginWithProvider(provider: HermesAuthProvider): Promise<HermesDesktopSettings>;
     signUpWithPassword(payload: { email: string; password: string }): Promise<HermesDesktopSettings>;
     loginWithPassword(payload: { email: string; password: string }): Promise<HermesDesktopSettings>;

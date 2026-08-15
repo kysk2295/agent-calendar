@@ -869,6 +869,19 @@ async function handleScopedProductRoute({
     }
     return true;
   }
+  if (action === 'mail_google_disconnect') {
+    if (!runtime.unifiedCalendar || typeof runtime.unifiedCalendar.disconnectGoogleMail !== 'function') {
+      sendJson(res, 503, { ok: false, error: 'mail_connector_unavailable', message: 'service_unavailable' });
+      return true;
+    }
+    try {
+      sendJson(res, 200, await runtime.unifiedCalendar.disconnectGoogleMail(scope));
+    } catch (error) {
+      const status = error && error.statusHint ? error.statusHint : 400;
+      sendJson(res, status, { ok: false, error: error.code || 'disconnect_failed', message: error.message || 'bad_request' });
+    }
+    return true;
+  }
 
   // ── Usage / tools / channels / workboard empties ───────────────────
   if (action === 'usage_empty') {
