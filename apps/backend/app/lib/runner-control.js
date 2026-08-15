@@ -44,6 +44,12 @@ function reject(code, message, statusHint = 401) {
   throw error;
 }
 
+function normalizeRunnerCapacity(value) {
+  const parsed = Number.parseInt(String(value || '1'), 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return 1;
+  return Math.min(parsed, 8);
+}
+
 function normalizeRunnerCapabilities(engines, env) {
   if (engines.fake && !isFakeEngineAllowed(env)) {
     reject('FAKE_ENGINE_FORBIDDEN', 'Fake Engine is allowed only in explicit tests', 422);
@@ -288,6 +294,7 @@ async function writeConnectionEvent(client, {
 
 function publicRunnerRow(row) {
   if (!row) return null;
+  const capabilities = row.capabilities || {};
   return {
     id: row.id,
     workspaceId: row.workspace_id,
@@ -300,7 +307,10 @@ function publicRunnerRow(row) {
     connectionState: row.connection_state,
     lastSeenAt: row.last_seen_at,
     connectedAt: row.connected_at,
-    capabilities: row.capabilities || {},
+    capabilities,
+    maxConcurrentWork: Object.prototype.hasOwnProperty.call(capabilities, 'maxConcurrentWork')
+      ? normalizeRunnerCapacity(capabilities.maxConcurrentWork)
+      : null,
     lastTestAt: row.last_test_at,
     lastTestOk: row.last_test_ok,
     lastTestMessage: row.last_test_message || '',
@@ -1215,6 +1225,7 @@ class RunnerControl {
     const normalized = {
       engines: normalizeRunnerCapabilities(engines, this.env),
       catalog: normalizeRunnerCapabilityCatalog(body.catalog),
+      maxConcurrentWork: normalizeRunnerCapacity(body.maxConcurrentWork),
       // Knowledge v2 private-local: Runner reports local search capability (content stays on host).
       localKnowledge: body.localKnowledge === true || body.knowledgeSearch === true || engines.localKnowledge === true,
       knowledgeSearch: body.knowledgeSearch === true || body.localKnowledge === true || engines.knowledgeSearch === true,
@@ -1518,6 +1529,7 @@ module.exports = {
   generateEd25519Keypair,
   signEd25519,
   normalizeEngine,
+  normalizeRunnerCapacity,
   normalizeRunnerCapabilities,
   normalizeRunnerReleaseManifest,
   runnerReleaseConfigurationFromEnv,

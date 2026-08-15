@@ -248,10 +248,18 @@ class RunnerClient {
     const result = await this.deviceRequest('POST', '/api/runner/device/capabilities', {
       engines: report.engines,
       catalog: report.catalog,
+      maxConcurrentWork: report.maxConcurrentWork,
       localKnowledge,
       knowledgeSearch: localKnowledge,
     });
-    this.persist({ capabilities: result.capabilities });
+    this.persist({
+      capabilities: {
+        ...(result.capabilities && typeof result.capabilities === 'object'
+          ? result.capabilities
+          : {}),
+        maxConcurrentWork: report.maxConcurrentWork,
+      },
+    });
     return result;
   }
 

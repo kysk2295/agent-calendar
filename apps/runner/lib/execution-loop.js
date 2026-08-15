@@ -7,29 +7,153 @@
 
 const { getEngineAdapter } = require('./engines');
 const { assertAuthorizedLease, assertEffectiveConfiguration } = require('./capability-grants');
+const { normalizeMaxConcurrentWork } = require('./capabilities');
 const { listKnowledgeSources } = require('./store');
 const { isFakeEngineAllowed } = require('./runtime-policy');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const HEARTBEAT_INTERVAL_MS = Number(process.env.AGENT_CALENDAR_ATTEMPT_HEARTBEAT_MS || 15_000);
+const OPAQUE_LOCAL_FOLDER_HANDLE = /^[A-Za-z][A-Za-z0-9_-]{7,199}$/;
+const RAW_LOCAL_KEY = /^(?:path|cwd|root|wikiRoot|localPath|absolutePath)$/i;
 
-async function restoreCapturedProviderSession(client) {
-  const activeAttempt = client.state?.activeAttempt;
-  const providerSession = activeAttempt?.providerSession;
-  if (!providerSession?.id || !providerSession?.externalSessionId) return false;
-  await client.deviceRequest('POST', '/api/runner/device/provider-session/bind', {
-    providerSessionId: providerSession.id,
-    externalSessionId: providerSession.externalSessionId,
-  });
-  client.persist({
-    activeAttempt: {
-      ...activeAttempt,
-      providerSession: null,
-    },
-  });
-  return true;
+function codedError(code, message) {
+  return Object.assign(new Error(message || code), { code });
 }
 
-async function runOnce(client, {
+function stableWorkDirectory(client, lease) {
+  if (!client.stateDir) {
+    throw codedError('RUNNER_STATE_DIR_REQUIRED', 'workspace_general Work requires Runner state storage');
+  }
+  const workspaceKey = crypto.createHash('sha256')
+    .update(String(lease.workspaceId || client.state?.workspaceId || 'workspace'))
+    .digest('hex')
+    .slice(0, 24);
+  const workKey = crypto.createHash('sha256')
+    .update(String(lease.jobId || lease.missionId || lease.attemptId))
+    .digest('hex')
+    .slice(0, 24);
+  const directory = path.join(client.stateDir, 'execution-workspaces', workspaceKey, workKey);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(directory, 0o700); } catch {}
+  return fs.realpathSync(directory);
+}
+
+function resolveWorkingContext(client, offer, lease, legacyCwd) {
+  const payload = offer?.payload && typeof offer.payload === 'object' ? offer.payload : {};
+  const intake = payload.workIntake && typeof payload.workIntake === 'object'
+    ? payload.workIntake
+    : null;
+  const context = intake?.workingContext;
+  if (!context) {
+    return { kind: 'legacy', cwd: legacyCwd };
+  }
+  if (!context || typeof context !== 'object' || Array.isArray(context)) {
+    throw codedError('WORKING_CONTEXT_INVALID', 'Working context is invalid');
+  }
+  for (const key of Object.keys(context)) {
+    if (RAW_LOCAL_KEY.test(key)) {
+      throw codedError(
+        'WORKING_CONTEXT_RAW_PATH_FORBIDDEN',
+        'Working context must not contain raw local coordinates',
+      );
+    }
+  }
+  if (context.kind === 'workspace_general') {
+    return { kind: 'workspace_general', cwd: stableWorkDirectory(client, lease) };
+  }
+  if (context.kind !== 'local_folder') {
+    throw codedError('WORKING_CONTEXT_INVALID', 'Working context kind is invalid');
+  }
+  const handle = String(context.handle || '').trim();
+  if (!OPAQUE_LOCAL_FOLDER_HANDLE.test(handle)) {
+    throw codedError('LOCAL_FOLDER_HANDLE_REQUIRED', 'Local folder Work requires an opaque handle');
+  }
+  if (!client.stateDir) {
+    throw codedError('RUNNER_STATE_DIR_REQUIRED', 'Local folder Work requires Runner state storage');
+  }
+  const source = listKnowledgeSources(client.stateDir)
+    .find((candidate) => candidate.sourceId === handle);
+  if (!source) {
+    throw codedError('LOCAL_FOLDER_HANDLE_NOT_FOUND', 'Local folder handle is not registered on this Runner');
+  }
+  const resolved = fs.realpathSync(source.path);
+  if (!fs.statSync(resolved).isDirectory()) {
+    throw codedError('LOCAL_FOLDER_HANDLE_NOT_DIRECTORY', 'Local folder handle is not a directory');
+  }
+  return {
+    kind: 'local_folder',
+    handle,
+    cwd: resolved,
+  };
+}
+
+function activeAttempts(client) {
+  const attempts = client.state?.activeAttempts;
+  const normalized = attempts && typeof attempts === 'object' && !Array.isArray(attempts)
+    ? { ...attempts }
+    : {};
+  const legacy = client.state?.activeAttempt;
+  if (legacy?.attemptId && !normalized[legacy.attemptId]) {
+    normalized[legacy.attemptId] = legacy;
+  }
+  return normalized;
+}
+
+function persistActiveAttempt(client, attempt) {
+  const attempts = activeAttempts(client);
+  for (const [attemptId, current] of Object.entries(attempts)) {
+    if (attemptId !== attempt.attemptId && current?.jobId === attempt.jobId) {
+      delete attempts[attemptId];
+    }
+  }
+  attempts[attempt.attemptId] = attempt;
+  client.persist({
+    activeAttempts: attempts,
+    activeAttempt: attempt,
+  });
+}
+
+function updateActiveAttempt(client, attemptId, patchValue) {
+  const attempts = activeAttempts(client);
+  if (!attempts[attemptId]) return;
+  attempts[attemptId] = { ...attempts[attemptId], ...patchValue };
+  client.persist({
+    activeAttempts: attempts,
+    activeAttempt: client.state?.activeAttempt?.attemptId === attemptId
+      ? attempts[attemptId]
+      : client.state?.activeAttempt || attempts[attemptId],
+  });
+}
+
+function clearActiveAttempt(client, attemptId) {
+  const attempts = activeAttempts(client);
+  delete attempts[attemptId];
+  const remaining = Object.values(attempts);
+  client.persist({
+    activeAttempts: attempts,
+    activeAttempt: remaining.length ? remaining[remaining.length - 1] : null,
+  });
+}
+
+async function restoreCapturedProviderSession(client) {
+  let restored = false;
+  for (const attempt of Object.values(activeAttempts(client))) {
+    const providerSession = attempt?.providerSession;
+    if (!providerSession?.id || !providerSession?.externalSessionId) continue;
+    // eslint-disable-next-line no-await-in-loop
+    await client.deviceRequest('POST', '/api/runner/device/provider-session/bind', {
+      providerSessionId: providerSession.id,
+      externalSessionId: providerSession.externalSessionId,
+    });
+    updateActiveAttempt(client, attempt.attemptId, { providerSession: null });
+    restored = true;
+  }
+  return restored;
+}
+
+async function runSingle(client, {
   env = {},
   forceCrash = false,
   forceFail = false,
@@ -38,7 +162,6 @@ async function runOnce(client, {
   heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS,
   adapterResolver = getEngineAdapter,
 } = {}) {
-  await restoreCapturedProviderSession(client);
   const offerRes = await client.deviceRequest('POST', '/api/runner/device/next-offer', {});
   if (!offerRes.offer) {
     return { ok: true, idle: true, reason: offerRes.reason || 'no_offer' };
@@ -55,6 +178,21 @@ async function runOnce(client, {
   }
   assertEffectiveConfiguration(lease.effectiveConfiguration);
   const consumedLeaseAuthorization = assertAuthorizedLease(lease, client.state);
+  const attempt = {
+    attemptId: lease.attemptId,
+    jobId: lease.jobId,
+    leaseEpoch: lease.leaseEpoch,
+    engine: lease.engine,
+    requestedModel: String(lease.requestedModel || ''),
+    missionId: lease.missionId,
+    sessionId: lease.sessionId,
+    providerSession: lease.providerSession?.id && lease.providerSession?.externalSessionId
+      ? {
+        id: lease.providerSession.id,
+        externalSessionId: lease.providerSession.externalSessionId,
+      }
+      : null,
+  };
   client.persist({
     consumedLeaseAuthorizations: [
       ...(Array.isArray(client.state?.consumedLeaseAuthorizations)
@@ -62,22 +200,8 @@ async function runOnce(client, {
         : []),
       consumedLeaseAuthorization,
     ].slice(-128),
-    activeAttempt: {
-      attemptId: lease.attemptId,
-      jobId: lease.jobId,
-      leaseEpoch: lease.leaseEpoch,
-      engine: lease.engine,
-      requestedModel: String(lease.requestedModel || ''),
-      missionId: lease.missionId,
-      sessionId: lease.sessionId,
-      providerSession: lease.providerSession?.id && lease.providerSession?.externalSessionId
-        ? {
-          id: lease.providerSession.id,
-          externalSessionId: lease.providerSession.externalSessionId,
-        }
-        : null,
-    },
   });
+  persistActiveAttempt(client, attempt);
 
   const adapter = adapterResolver(lease.engine, { env });
   const controller = new AbortController();
@@ -117,10 +241,14 @@ async function runOnce(client, {
     // Initial heartbeat immediately after lease.
     await runHeartbeat();
 
+    const workingContext = resolveWorkingContext(client, offer, lease, cwd);
     const result = await adapter.run({
       goal: lease.goal,
       model: lease.requestedModel || '',
-      cwd,
+      cwd: workingContext.cwd,
+      workingContext: workingContext.kind === 'local_folder'
+        ? { kind: workingContext.kind, handle: workingContext.handle }
+        : { kind: workingContext.kind },
       jobPayload: offer.payload && typeof offer.payload === 'object' ? offer.payload : {},
       providerSession: lease.providerSession || offer.providerSession || null,
       knowledgeSources: client.stateDir
@@ -137,12 +265,7 @@ async function runOnce(client, {
             id: lease.providerSession.id,
             externalSessionId,
           };
-          client.persist({
-            activeAttempt: {
-              ...client.state.activeAttempt,
-              providerSession,
-            },
-          });
+          updateActiveAttempt(client, lease.attemptId, { providerSession });
           await client.deviceRequest('POST', '/api/runner/device/provider-session/bind', {
             providerSessionId: providerSession.id,
             externalSessionId: providerSession.externalSessionId,
@@ -174,7 +297,7 @@ async function runOnce(client, {
         leaseEpoch: lease.leaseEpoch,
       });
       cancelAcked = true;
-      client.persist({ activeAttempt: null });
+      clearActiveAttempt(client, lease.attemptId);
       return { ok: true, cancelled: true, lease };
     }
 
@@ -190,7 +313,7 @@ async function runOnce(client, {
           leaseEpoch: lease.leaseEpoch,
         });
         cancelAcked = true;
-        client.persist({ activeAttempt: null });
+        clearActiveAttempt(client, lease.attemptId);
         return { ok: true, cancelled: true, lease };
       }
     }
@@ -225,7 +348,7 @@ async function runOnce(client, {
           },
         } : {}),
       });
-      client.persist({ activeAttempt: null });
+      clearActiveAttempt(client, lease.attemptId);
       return { ok: false, failed: true, lease, result };
     }
 
@@ -244,7 +367,7 @@ async function runOnce(client, {
         },
       } : {}),
     });
-    client.persist({ activeAttempt: null });
+    clearActiveAttempt(client, lease.attemptId);
     return { ok: true, completed: true, lease, result };
   } catch (error) {
     clearHeartbeat();
@@ -267,7 +390,7 @@ async function runOnce(client, {
             leaseEpoch: lease.leaseEpoch,
           });
           cancelAcked = true;
-          client.persist({ activeAttempt: null });
+          clearActiveAttempt(client, lease.attemptId);
           return { ok: true, cancelled: true, lease };
         }
       } catch {
@@ -286,11 +409,32 @@ async function runOnce(client, {
     } catch {
       // ignore
     }
-    client.persist({ activeAttempt: null });
+    clearActiveAttempt(client, lease.attemptId);
     return { ok: false, error: error.code || error.message, lease };
   } finally {
     clearHeartbeat();
   }
+}
+
+async function runOnce(client, options = {}) {
+  await restoreCapturedProviderSession(client);
+  const capacity = normalizeMaxConcurrentWork(
+    options.maxConcurrentWork === undefined ? options.env : options.maxConcurrentWork,
+  );
+  if (capacity === 1) {
+    return runSingle(client, options);
+  }
+  const results = await Promise.all(
+    Array.from({ length: capacity }, () => runSingle(client, options)),
+  );
+  return {
+    ok: results.every((result) => result.ok),
+    capacity,
+    completed: results.some((result) => result.completed),
+    completedCount: results.filter((result) => result.completed).length,
+    idle: results.every((result) => result.idle),
+    results,
+  };
 }
 
 /**

@@ -28,6 +28,17 @@ const DEFAULT_PROBES = Object.freeze({
   hermes: { command: 'hermes', args: ['--version'], authArgs: ['status'] },
 });
 
+const MAX_CONCURRENT_WORK_LIMIT = 8;
+
+function normalizeMaxConcurrentWork(valueOrEnv = process.env) {
+  const raw = valueOrEnv && typeof valueOrEnv === 'object'
+    ? valueOrEnv.AGENT_CALENDAR_MAX_CONCURRENT_WORK
+    : valueOrEnv;
+  const parsed = Number.parseInt(String(raw || '1'), 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return 1;
+  return Math.min(parsed, MAX_CONCURRENT_WORK_LIMIT);
+}
+
 function assertSafeArgs(args) {
   for (const arg of args || []) {
     const s = String(arg);
@@ -294,6 +305,7 @@ async function probeAllEngines(options = {}) {
   return {
     engines,
     catalog: require('./capability-grants').runnerCapabilityCatalog(),
+    maxConcurrentWork: normalizeMaxConcurrentWork(options.env),
     reportedAt: new Date().toISOString(),
   };
 }
@@ -305,6 +317,7 @@ module.exports = {
   interpretAuthProbe,
   extractModelIds,
   extractConfiguredModel,
+  normalizeMaxConcurrentWork,
   spawnProbe,
   probeAllEngines,
 };

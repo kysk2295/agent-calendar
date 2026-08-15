@@ -302,6 +302,47 @@ async function withServiceTransaction(pool, fn) {
   }
 }
 
+function runnerCapacity(runnerRow) {
+  const parsed = Number.parseInt(String(runnerRow?.capabilities?.maxConcurrentWork || '1'), 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return 1;
+  return Math.min(parsed, 8);
+}
+
+async function acquireRunnerCapacitySlot(client, runnerRow, { includeOpenOffers = false } = {}) {
+  const capacity = runnerCapacity(runnerRow);
+  await client.query(
+    'select pg_advisory_xact_lock(hashtext($1))',
+    [String(runnerRow.id)],
+  );
+  const loadResult = includeOpenOffers
+    ? await client.query(
+      `select count(*)::int as load
+       from (
+         select id from execution_attempts
+         where workspace_id = $1 and runner_id = $2
+           and status in ('leased', 'running') and lease_expires_at > now()
+         union all
+         select id from execution_offers
+         where workspace_id = $1 and runner_id = $2
+           and status = 'open' and expires_at > now()
+       ) occupied`,
+      [runnerRow.workspace_id, runnerRow.id],
+    )
+    : await client.query(
+      `select count(*)::int as load
+       from execution_attempts
+       where workspace_id = $1 and runner_id = $2
+         and status in ('leased', 'running') and lease_expires_at > now()`,
+      [runnerRow.workspace_id, runnerRow.id],
+    );
+  const load = Number(loadResult.rows[0]?.load || 0);
+  return {
+    available: load < capacity,
+    capacity,
+    load,
+  };
+}
+
 function resolveEngine(requested, capabilities = {}, env = {}) {
   const req = String(requested || 'auto').toLowerCase() || 'auto';
   const engines = (capabilities && capabilities.engines) || capabilities || {};
@@ -926,6 +967,18 @@ class DurableExecution {
     return withServiceTransaction(this.pool, async (client) => {
       await this.#reapExpired(client, runnerRow.workspace_id, now);
 
+      const capacitySlot = await acquireRunnerCapacitySlot(client, runnerRow, {
+        includeOpenOffers: true,
+      });
+      if (!capacitySlot.available) {
+        return {
+          ok: true,
+          offer: null,
+          reason: 'runner_capacity_reached',
+          capacity: capacitySlot.capacity,
+        };
+      }
+
       const jobResult = await client.query(
         `select * from execution_jobs
          where workspace_id = $1
@@ -1064,6 +1117,10 @@ class DurableExecution {
 
     const now = this.clock();
     return withServiceTransaction(this.pool, async (client) => {
+      const capacitySlot = await acquireRunnerCapacitySlot(client, runnerRow);
+      if (!capacitySlot.available) {
+        reject('RUNNER_CAPACITY_REACHED', 'Runner execution capacity reached', 409);
+      }
       const offerResult = await client.query(
         `select o.*, j.attempt_count, j.max_attempts, j.requested_engine, j.requested_model,
                 j.goal, j.mission_id, j.session_id,
@@ -2301,6 +2358,8 @@ module.exports = {
   claimsEnabled,
   assertNoProviderSecrets,
   isPublicResolvedEngine,
+  runnerCapacity,
+  acquireRunnerCapacitySlot,
   OFFER_TTL_MS,
   LEASE_TTL_MS,
   REAPER_INTERVAL_MS,

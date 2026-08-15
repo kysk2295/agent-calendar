@@ -14,7 +14,12 @@ const {
   formatFingerprint,
   PROTOCOL_VERSION,
 } = require('../lib/crypto');
-const { assertSafeArgs, BANNED_ARGS, probeAllEngines } = require('../lib/capabilities');
+const {
+  assertSafeArgs,
+  BANNED_ARGS,
+  normalizeMaxConcurrentWork,
+  probeAllEngines,
+} = require('../lib/capabilities');
 const {
   loadOrCreateIdentity,
   defaultStateDir,
@@ -120,6 +125,35 @@ test('runner probeAllEngines uses injected probe and never banned args', async (
   assert.equal(report.engines.claude.available, false);
   assert.equal(report.engines.grok.available, false);
   assert.equal(report.engines.hermes.available, false);
+});
+
+test('Runner reports its bounded execution capacity to the Gateway', async (t) => {
+  assert.equal(normalizeMaxConcurrentWork('0'), 1);
+  assert.equal(normalizeMaxConcurrentWork('999'), 8);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-capacity-report-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const client = new RunnerClient({
+    baseUrl: 'http://127.0.0.1:1',
+    stateDir: dir,
+    env: { AGENT_CALENDAR_MAX_CONCURRENT_WORK: '999' },
+    probeRunner: async () => ({
+      available: false,
+      status: 'unavailable',
+      authStatus: 'missing',
+      message: 'fixture',
+    }),
+  });
+  let reported = null;
+  client.deviceRequest = async (_method, requestPath, body) => {
+    assert.equal(requestPath, '/api/runner/device/capabilities');
+    reported = body;
+    return { ok: true, capabilities: { engines: body.engines } };
+  };
+
+  await client.reportCapabilities();
+
+  assert.equal(reported.maxConcurrentWork, 8);
+  assert.equal(client.state.capabilities.maxConcurrentWork, 8);
 });
 
 test('enroll transcript is stable and signable', () => {
