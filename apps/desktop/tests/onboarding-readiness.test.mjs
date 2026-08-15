@@ -27,6 +27,7 @@ test('empty Workspace starts with Calendar and keeps every setup step actionable
     '캘린더 동기화',
     '기록 연결 (선택)',
     'Google 메일 (선택)',
+    '나를 이해하기',
     'Calendar AI 확인',
     '실행 컴퓨터 (선택)',
   ]);
@@ -242,11 +243,11 @@ test('Calendar AI guide CTA opens the calendar surface and conversation panel ex
   );
 });
 
-test('records, mail, and the execution computer are optional setup choices', () => {
+test('records, mail, Second Brain, and the execution computer are optional setup choices', () => {
   const result = onboarding.buildOnboardingReadiness();
   const optionalIds = result.steps.filter((step) => step.optional).map((step) => step.id);
 
-  assert.deepEqual(optionalIds, ['wiki', 'mail', 'runner']);
+  assert.deepEqual(optionalIds, ['wiki', 'mail', 'second_brain', 'runner']);
   assert.match(result.steps.find((step) => step.id === 'runner').description, /에이전트 작업/);
 });
 

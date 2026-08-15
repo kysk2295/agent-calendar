@@ -5,6 +5,8 @@ import type {
   OnboardingReadiness,
   OnboardingStepId,
 } from './onboardingReadiness';
+import { SecondBrainOnboarding } from '../second-brain/SecondBrainOnboarding';
+import type { SecondBrainDecision, SecondBrainRun } from '../second-brain/secondBrainModel';
 import './onboarding.css';
 import './onboarding-controls.css';
 
@@ -19,6 +21,9 @@ type Props = Readonly<{
   onOpenRunner: () => void;
   onOpenWiki: () => void;
   onOpenCalendarAi: () => void;
+  secondBrainRun?: SecondBrainRun | null;
+  onStartSecondBrain?: () => Promise<void>;
+  onReviewSecondBrain?: (decisions: readonly SecondBrainDecision[], activate: boolean) => Promise<void>;
   onAddKnowledgeFile: (file: File) => Promise<void>;
   onDismiss: () => Promise<void>;
   onComplete: () => Promise<void>;
@@ -35,6 +40,9 @@ export function OnboardingGuide({
   onOpenRunner,
   onOpenWiki,
   onOpenCalendarAi,
+  secondBrainRun = null,
+  onStartSecondBrain = async () => {},
+  onReviewSecondBrain = async () => {},
   onAddKnowledgeFile,
   onDismiss,
   onComplete,
@@ -71,6 +79,7 @@ export function OnboardingGuide({
       await onConnectMail();
       return;
     }
+    if (actionKind === 'second_brain_open') return;
     if (actionKind === 'runner_open') onOpenRunner();
     if (actionKind === 'wiki_open') onOpenWiki();
     if (actionKind === 'calendar_ai_open') onOpenCalendarAi();
@@ -179,7 +188,19 @@ export function OnboardingGuide({
               </dl>
             ) : null}
 
-            <div className="onboarding-detail-actions">
+            {activeStep.id === 'second_brain' ? (
+              <SecondBrainOnboarding
+                run={secondBrainRun}
+                sourceAvailable={readiness.secondBrainSourceAvailable}
+                busy={busy}
+                onStart={onStartSecondBrain}
+                onReview={onReviewSecondBrain}
+                onConnectCalendar={onConnectCalendar}
+                onOpenWiki={onOpenWiki}
+              />
+            ) : null}
+
+            {activeStep.id !== 'second_brain' ? <div className="onboarding-detail-actions">
               <button
                 type="button"
                 className="primary"
@@ -209,7 +230,7 @@ export function OnboardingGuide({
               {activeStep.id === 'wiki' && (
                 <button type="button" disabled={busy} onClick={onOpenWiki}>Wiki 전체 설정</button>
               )}
-            </div>
+            </div> : null}
           </section>
 
           <footer className="onboarding-footer">

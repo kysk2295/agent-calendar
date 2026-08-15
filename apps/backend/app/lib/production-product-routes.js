@@ -1,6 +1,28 @@
 'use strict';
 
 const { buildWorkspaceScheduleIngestDrafts } = require('./workspace-schedule-ingest');
+const { SecondBrain } = require('./second-brain');
+const { SourceLibrary } = require('./source-library');
+
+const secondBrainByRuntime = new WeakMap();
+
+function getSecondBrain(runtime) {
+  if (runtime.secondBrain) return runtime.secondBrain;
+  let service = secondBrainByRuntime.get(runtime);
+  if (!service) {
+    service = new SecondBrain({
+      pool: runtime.pool,
+      sourceLibrary: new SourceLibrary({
+        pool: runtime.pool,
+        unifiedCalendar: runtime.unifiedCalendar,
+        knowledge: runtime.knowledge,
+      }),
+      inferenceBroker: runtime.inferenceBroker,
+    });
+    secondBrainByRuntime.set(runtime, service);
+  }
+  return service;
+}
 
 /**
  * Desktop-shaped product handlers for WORKSPACE_AUTH_MODE=production.
@@ -879,6 +901,36 @@ async function handleScopedProductRoute({
     } catch (error) {
       const status = error && error.statusHint ? error.statusHint : 400;
       sendJson(res, status, { ok: false, error: error.code || 'disconnect_failed', message: error.message || 'bad_request' });
+    }
+    return true;
+  }
+
+  // ── Personal second brain ─────────────────────────────────────────
+  if (action === 'second_brain_run_create') {
+    try {
+      sendJson(res, 200, await getSecondBrain(runtime).createRun(scope, body || {}));
+    } catch (error) {
+      sendJson(res, error.statusHint || 400, { ok: false, error: error.code || 'second_brain_run_failed', message: error.message });
+    }
+    return true;
+  }
+  if (action === 'second_brain_run_get') {
+    const result = await getSecondBrain(runtime).getRun(scope, params.id);
+    if (!result) return notFound(res), true;
+    sendJson(res, 200, result);
+    return true;
+  }
+  if (action === 'second_brain_current') {
+    sendJson(res, 200, await getSecondBrain(runtime).getCurrent(scope));
+    return true;
+  }
+  if (action === 'second_brain_snapshot_review') {
+    try {
+      const result = await getSecondBrain(runtime).reviewSnapshot(scope, params.id, body || {});
+      if (!result) return notFound(res), true;
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendJson(res, error.statusHint || 400, { ok: false, error: error.code || 'second_brain_review_failed', message: error.message });
     }
     return true;
   }

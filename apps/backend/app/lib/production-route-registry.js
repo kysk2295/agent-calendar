@@ -633,6 +633,23 @@ const PRODUCTION_ROUTES = [
     persistence: 'write', action: 'mail_google_disconnect', idempotent: true, role: 'member',
     notes: 'Disconnects only the authenticated user Gmail grant',
   },
+  // Personal second brain bootstrap and evidence review.
+  {
+    method: 'POST', pathPattern: '/api/second-brain/runs', class: 'scoped_product',
+    persistence: 'write', action: 'second_brain_run_create', idempotent: true, role: 'member',
+  },
+  {
+    method: 'GET', pathPattern: '/api/second-brain/runs/:id', class: 'scoped_product',
+    persistence: 'read', action: 'second_brain_run_get', idempotent: true, role: 'member',
+  },
+  {
+    method: 'GET', pathPattern: '/api/second-brain/current', class: 'scoped_product',
+    persistence: 'read', action: 'second_brain_current', idempotent: true, role: 'member',
+  },
+  {
+    method: 'POST', pathPattern: '/api/second-brain/snapshots/:id/review', class: 'scoped_product',
+    persistence: 'write', action: 'second_brain_snapshot_review', idempotent: true, role: 'member',
+  },
   // Mail mutations / TickTick — external connectors not safely scoped yet
   {
     method: 'POST', pathPattern: '/api/mail/accounts', class: 'production_disabled',
@@ -857,6 +874,10 @@ const DESKTOP_API_PATHS = [
   'POST /api/mail/google/authorize',
   'POST /api/mail/google/callback',
   'POST /api/mail/google/disconnect',
+  'POST /api/second-brain/runs',
+  'GET /api/second-brain/runs/:id',
+  'GET /api/second-brain/current',
+  'POST /api/second-brain/snapshots/:id/review',
   'GET /api/workboard',
   'GET /api/documents',
   'POST /api/documents',

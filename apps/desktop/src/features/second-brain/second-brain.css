@@ -1,0 +1,7 @@
+.second-brain-state,.second-brain-review{display:grid;gap:10px;padding:14px;border:1px solid var(--line);border-radius:var(--radius-panel);background:var(--sidebar)}
+.second-brain-state p,.second-brain-state small,.second-brain-claim small{margin:0;color:var(--muted);font-size:10px}
+.second-brain-source-actions{display:flex;align-items:center;flex-wrap:wrap;gap:7px}
+.second-brain-review>header,.second-brain-claim{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.second-brain-claim{padding:9px;border:1px solid var(--line);border-radius:var(--radius-control);background:var(--panel)}
+.second-brain-claim>div{display:flex;flex-direction:column;gap:4px}
+.second-brain-claim button[data-selected="true"]{border-color:var(--action);color:var(--action)}

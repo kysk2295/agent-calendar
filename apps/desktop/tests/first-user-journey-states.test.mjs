@@ -21,13 +21,14 @@ after(async () => {
 
 test('every external setup choice can be explicitly skipped without synthesizing a Second Brain source', () => {
   const result = onboarding.buildOnboardingReadiness({
-    skippedStepIds: ['calendar', 'wiki', 'mail', 'calendar_ai', 'runner'],
+    skippedStepIds: ['calendar', 'wiki', 'mail', 'second_brain', 'calendar_ai', 'runner'],
   });
 
   assert.deepEqual(result.steps.map((step) => step.id), [
     'calendar',
     'wiki',
     'mail',
+    'second_brain',
     'calendar_ai',
     'runner',
   ]);
@@ -37,7 +38,7 @@ test('every external setup choice can be explicitly skipped without synthesizing
 });
 
 test('OnboardingGuide renders one explicit skip choice per unconnected setup step', () => {
-  const stepIds = ['calendar', 'wiki', 'mail', 'calendar_ai', 'runner'];
+  const stepIds = ['calendar', 'wiki', 'mail', 'second_brain', 'calendar_ai', 'runner'];
   const html = stepIds.map((activeStepId) => renderToStaticMarkup(createElement(OnboardingGuide, {
     readiness: onboarding.buildOnboardingReadiness({
       skippedStepIds: stepIds.filter((stepId) => stepId !== activeStepId),
@@ -55,7 +56,8 @@ test('OnboardingGuide renders one explicit skip choice per unconnected setup ste
   assert.match(html, /내부 캘린더로 계속/);
   assert.match(html, /폴더 없이 계속/);
   assert.match(html, /Google 메일은 나중에 연결/);
+  assert.match(html, /나중에 만들기/);
   assert.match(html, /제한된 상태로 계속/);
   assert.match(html, /실행 컴퓨터 없이 계속/);
-  assert.doesNotMatch(html, /Second Brain|파악 중/);
+  assert.doesNotMatch(html, /파악 중/);
 });

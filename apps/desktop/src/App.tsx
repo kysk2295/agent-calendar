@@ -156,6 +156,8 @@ import {
   mergeCalendarSourceTruth,
   type OnboardingActionKind,
 } from './features/onboarding/onboardingReadiness';
+import { createSecondBrainClient, pollSecondBrainRun } from './features/second-brain/secondBrainClient';
+import type { SecondBrainDecision, SecondBrainRun } from './features/second-brain/secondBrainModel';
 import {
   INITIAL_DESKTOP_CONNECTIVITY,
   beginConnectivityRetry,
@@ -701,6 +703,8 @@ export function App() {
   const [onboardingBusy, setOnboardingBusy] = useState(false);
   const [onboardingMessage, setOnboardingMessage] = useState('');
   const [onboardingPendingAction, setOnboardingPendingAction] = useState<OnboardingActionKind | null>(null);
+  const [secondBrainRun, setSecondBrainRun] = useState<SecondBrainRun | null>(null);
+  const secondBrainClient = useMemo(() => createSecondBrainClient(), []);
   const [completionNotice, setCompletionNotice] = useState<CompletionNotice>(null);
   const widgetActionDrainRef = useRef(false);
   const optimisticRunsRef = useRef<Item[]>([]);
@@ -718,6 +722,7 @@ export function App() {
     setState(EMPTY_STATE);
     setAgentOperations(EMPTY_AGENT_OPERATIONS_STATE);
     setCalendarSources([]);
+    setSecondBrainRun(null);
     setCalendarCoverageNote('');
     setConnectedAutomationSources([]);
     setAutomationRunners([]);
@@ -847,11 +852,13 @@ export function App() {
     calendarAiConversationId,
     calendarAiAvailable: state.settings.calendarAiAvailable === true,
     mailConnected: mailConnector === 'connected',
+    secondBrainStatus: secondBrainRun?.status,
   }), [
     automationRunners,
     calendarAiConversationId,
     calendarSources,
     mailConnector,
+    secondBrainRun,
     state.settings,
     state.wiki,
   ]);
@@ -1240,7 +1247,8 @@ export function App() {
           }
           return null;
         });
-      const [dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, automationSourcesPayload, automationRunnersPayload, usage, tools, settingsPayload, channels, documentsPayload, chatPayload, calendarSourcesPayload, calendarAiMemoryPayload] = await Promise.all([
+      const secondBrainRequest = secondBrainClient.getCurrent().catch(() => null);
+      const [dashboard, tasksPayload, eventsPayload, agentsPayload, wiki, inbox, automation, automationSourcesPayload, automationRunnersPayload, usage, tools, settingsPayload, channels, documentsPayload, chatPayload, calendarSourcesPayload, calendarAiMemoryPayload, currentSecondBrain] = await Promise.all([
         dashboardRequest,
         tasksRequest,
         eventsRequest,
@@ -1258,8 +1266,10 @@ export function App() {
         chatRequest,
         calendarSourcesRequest,
         calendarAiMemoryRequest,
+        secondBrainRequest,
       ]);
       if (!isHydrationCurrent()) return;
+      setSecondBrainRun(currentSecondBrain);
       const rawTasks = arr(tasksPayload, 'tasks');
       const taxonomyRecords = rawTasks.filter(isTaxonomyRecord);
       const tasks = rawTasks.filter(isTaskRecord);
@@ -2899,6 +2909,53 @@ export function App() {
     }
   }
 
+  async function startSecondBrain() {
+    if (onboardingBusy || !onboardingReadiness.secondBrainSourceAvailable) return;
+    setOnboardingBusy(true);
+    setOnboardingPendingAction('second_brain_open');
+    setOnboardingMessage('연결된 원본 자료를 확인합니다.');
+    try {
+      const run = await secondBrainClient.startRun(crypto.randomUUID());
+      setSecondBrainRun(run);
+      const current = run.status === 'running'
+        ? await pollSecondBrainRun(secondBrainClient, run.id, { onUpdate: setSecondBrainRun })
+        : run;
+      setSecondBrainRun(current);
+      setOnboardingMessage(current.status === 'source_required'
+        ? '자료를 연결한 뒤 만들기 할 수 있습니다.'
+        : current.status === 'ready_for_review'
+          ? '근거가 있는 항목만 검토해 주세요.'
+          : current.error?.message || 'Second Brain 분석을 완료하지 못했습니다.');
+    } catch (error) {
+      setOnboardingMessage(error instanceof Error ? error.message : 'Second Brain 시작 실패');
+    } finally {
+      setOnboardingBusy(false);
+      setOnboardingPendingAction(null);
+    }
+  }
+
+  async function reviewSecondBrain(decisions: readonly SecondBrainDecision[], activate: boolean) {
+    const snapshot = secondBrainRun?.snapshot;
+    if (!snapshot || onboardingBusy) return;
+    setOnboardingBusy(true);
+    setOnboardingPendingAction('second_brain_open');
+    try {
+      const next = await secondBrainClient.reviewSnapshot(snapshot.id, decisions, activate);
+      setSecondBrainRun((current) => current ? {
+        ...current,
+        status: next.status,
+        stage: next.status,
+        snapshot: next,
+      } : current);
+      setOnboardingMessage('검토 근거와 함께 개인 Second Brain을 활성화했습니다.');
+    } catch (error) {
+      setOnboardingMessage(error instanceof Error ? error.message : 'Second Brain 검토 저장 실패');
+    } finally {
+      setOnboardingBusy(false);
+      setOnboardingPendingAction(null);
+    }
+  }
+
   async function addCloudKnowledgeFile(file: File) {
     if (wikiSourceBusy) return;
     setWikiSourceBusy(true);
@@ -3681,6 +3738,9 @@ export function App() {
                   openScreen('calendar');
                   setChatOpen(true);
                 }}
+                secondBrainRun={secondBrainRun}
+                onStartSecondBrain={startSecondBrain}
+                onReviewSecondBrain={reviewSecondBrain}
                 onAddKnowledgeFile={addCloudKnowledgeFile}
                 onDismiss={() => saveOnboardingStatus('dismissed')}
                 onComplete={() => saveOnboardingStatus('completed')}

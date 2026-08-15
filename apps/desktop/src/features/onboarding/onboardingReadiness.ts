@@ -1,7 +1,7 @@
 import type { PublicRunner } from '../runner/runnerApi';
 
-export type OnboardingStepId = 'calendar' | 'wiki' | 'mail' | 'calendar_ai' | 'runner';
-export type OnboardingActionKind = 'calendar_connect' | 'calendar_sync' | 'wiki_open' | 'mail_open' | 'calendar_ai_open' | 'runner_open';
+export type OnboardingStepId = 'calendar' | 'wiki' | 'mail' | 'second_brain' | 'calendar_ai' | 'runner';
+export type OnboardingActionKind = 'calendar_connect' | 'calendar_sync' | 'wiki_open' | 'mail_open' | 'second_brain_open' | 'calendar_ai_open' | 'runner_open';
 
 export type OnboardingStep = Readonly<{
   id: OnboardingStepId;
@@ -36,6 +36,8 @@ type ReadinessInput = Readonly<{
   calendarAiConversationId?: string;
   calendarAiAvailable?: boolean;
   mailConnected?: boolean;
+  secondBrainStatus?: string;
+  sourceRequiredAcknowledged?: boolean;
   skippedStepIds?: readonly OnboardingStepId[];
 }>;
 
@@ -103,6 +105,10 @@ export function buildOnboardingReadiness(input: ReadinessInput = {}): Onboarding
   // Conversation id alone must never fake Calendar AI readiness. Runner is not required.
   const calendarAiExplicitlyAvailable = input.calendarAiAvailable === true;
   const calendarAiReady = calendarAiExplicitlyAvailable || calendarReady;
+  const secondBrainSourceAvailable = calendarReady || wikiSourceReady || mailConnected;
+  const secondBrainStatus = String(input.secondBrainStatus || '').toLowerCase();
+  const secondBrainReady = secondBrainStatus === 'active'
+    || (secondBrainStatus === 'source_required' && input.sourceRequiredAcknowledged === true);
 
   const steps: OnboardingStep[] = [
     {
@@ -147,6 +153,30 @@ export function buildOnboardingReadiness(input: ReadinessInput = {}): Onboarding
       actionLabel: mailConnected ? '메일 화면 열기' : 'Google 메일 연결',
       actionKind: 'mail_open',
       skipLabel: 'Google 메일은 나중에 연결',
+    },
+    {
+      id: 'second_brain',
+      title: '나를 이해하기',
+      description: secondBrainSourceAvailable
+        ? '연결된 원본 자료의 인용 근거를 검토한 뒤 개인 Second Brain을 활성화합니다.'
+        : 'Calendar, Google 메일 또는 파일을 연결해야 근거 있는 초안을 만들 수 있습니다.',
+      ready: secondBrainReady || skippedStepIds.has('second_brain'),
+      skipped: skippedStepIds.has('second_brain'),
+      optional: true,
+      statusLabel: skippedStepIds.has('second_brain')
+        ? '나중에 만들기'
+        : secondBrainStatus === 'active'
+          ? '검토 완료 및 활성화'
+          : secondBrainStatus === 'source_required'
+            ? '자료 연결 필요'
+            : secondBrainStatus === 'ready_for_review'
+              ? '검토 필요'
+              : secondBrainStatus === 'running'
+                ? '원본 자료 처리 중'
+                : '시작 전',
+      actionLabel: secondBrainStatus === 'ready_for_review' ? '근거 검토' : 'Second Brain 열기',
+      actionKind: 'second_brain_open',
+      skipLabel: '나중에 만들기',
     },
     {
       id: 'calendar_ai',
@@ -198,6 +228,6 @@ export function buildOnboardingReadiness(input: ReadinessInput = {}): Onboarding
     // An optional step is offered but never withholds 설정 완료.
     allReady: steps.every((step) => step.ready || step.optional === true),
     nextStepId: next.id,
-    secondBrainSourceAvailable: calendarReady || wikiSourceReady || mailConnected,
+    secondBrainSourceAvailable,
   };
 }
