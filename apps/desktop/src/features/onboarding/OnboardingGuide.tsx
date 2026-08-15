@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Check } from '@phosphor-icons/react';
 import type {
   OnboardingActionKind,
@@ -39,13 +39,23 @@ export function OnboardingGuide({
 }: Props) {
   const [activeStepId, setActiveStepId] = useState<OnboardingStepId>(readiness.nextStepId);
   const [cloudConsent, setCloudConsent] = useState(false);
+  const [skippedStepIds, setSkippedStepIds] = useState<readonly OnboardingStepId[]>([]);
+  const visibleSteps = useMemo(() => readiness.steps.map((step) => (
+    skippedStepIds.includes(step.id)
+      ? { ...step, ready: true, skipped: true, statusLabel: step.skipLabel }
+      : step
+  )), [readiness.steps, skippedStepIds]);
+  const allReady = visibleSteps.every((step) => step.ready || step.optional === true);
+  const nextStepId = visibleSteps.find((step) => !step.ready)?.id
+    || visibleSteps[visibleSteps.length - 1]?.id
+    || readiness.nextStepId;
 
   useEffect(() => {
-    const current = readiness.steps.find((step) => step.id === activeStepId);
-    if (current?.ready && !readiness.allReady) setActiveStepId(readiness.nextStepId);
-  }, [activeStepId, readiness]);
+    const current = visibleSteps.find((step) => step.id === activeStepId);
+    if (current?.ready && !allReady) setActiveStepId(nextStepId);
+  }, [activeStepId, allReady, nextStepId, visibleSteps]);
 
-  const activeStep = readiness.steps.find((step) => step.id === activeStepId) || readiness.steps[0];
+  const activeStep = visibleSteps.find((step) => step.id === activeStepId) || visibleSteps[0];
   async function runAction(actionKind: OnboardingActionKind) {
     if (actionKind === 'calendar_sync') {
       await onSyncCalendar();
@@ -65,17 +75,17 @@ export function OnboardingGuide({
       <header className="onboarding-head">
         <div>
           <strong>작업공간 준비</strong>
-          <span>캘린더와 Wiki를 연결하면 바로 시작할 수 있습니다. Runner는 에이전트 작업을 맡길 때 연결하세요.</span>
+          <span>필요한 기록만 연결하거나 각 단계를 건너뛰고 바로 시작할 수 있습니다.</span>
         </div>
         <span>
-          {readiness.steps.filter((step) => step.ready && step.optional !== true).length}
-          /{readiness.steps.filter((step) => step.optional !== true).length} 준비
+          {visibleSteps.filter((step) => step.ready && step.optional !== true).length}
+          /{visibleSteps.filter((step) => step.optional !== true).length} 준비
         </span>
       </header>
 
       <div className="onboarding-layout">
         <nav className="onboarding-steps" aria-label="시작 설정 단계">
-          {readiness.steps.map((step, index) => (
+          {visibleSteps.map((step, index) => (
             <button
               type="button"
               className="onboarding-progress-step"
@@ -84,6 +94,7 @@ export function OnboardingGuide({
               data-ready={step.ready}
               data-pending={pendingAction === step.actionKind}
               data-optional={step.optional === true}
+              data-skipped={step.skipped === true}
               aria-current={activeStep.id === step.id ? 'step' : undefined}
               onClick={() => setActiveStepId(step.id)}
             >
@@ -95,7 +106,9 @@ export function OnboardingGuide({
                 <small className="onboarding-step-state">
                   {pendingAction === step.actionKind
                     ? step.actionKind === 'calendar_connect' ? '연결 진행 중' : '동기화 진행 중'
-                    : step.ready
+                    : step.skipped
+                      ? `건너뜀 · ${step.statusLabel}`
+                      : step.ready
                       ? '준비됨'
                       : step.optional
                         ? `선택 · ${step.statusLabel}`
@@ -159,22 +172,34 @@ export function OnboardingGuide({
             ) : null}
 
             <div className="onboarding-detail-actions">
-              <button
-                type="button"
-                className="primary"
-                data-testid={`onboarding-action-${activeStep.id}`}
-                disabled={busy}
-                aria-busy={pendingAction === activeStep.actionKind || undefined}
-                onClick={() => { void runAction(activeStep.actionKind); }}
-              >
-                {pendingAction === activeStep.actionKind
-                  ? activeStep.actionKind === 'calendar_connect'
-                    ? '브라우저 승인 대기 중…'
-                    : activeStep.actionKind === 'calendar_sync'
-                      ? '동기화 확인 중…'
-                      : activeStep.actionLabel
-                  : activeStep.actionLabel}
-              </button>
+              {activeStep.actionKind !== 'mail_open' && (
+                <button
+                  type="button"
+                  className="primary"
+                  data-testid={`onboarding-action-${activeStep.id}`}
+                  disabled={busy}
+                  aria-busy={pendingAction === activeStep.actionKind || undefined}
+                  onClick={() => { void runAction(activeStep.actionKind); }}
+                >
+                  {pendingAction === activeStep.actionKind
+                    ? activeStep.actionKind === 'calendar_connect'
+                      ? '브라우저 승인 대기 중…'
+                      : activeStep.actionKind === 'calendar_sync'
+                        ? '동기화 확인 중…'
+                        : activeStep.actionLabel
+                    : activeStep.actionLabel}
+                </button>
+              )}
+              {!activeStep.ready && (
+                <button
+                  type="button"
+                  data-testid={`onboarding-skip-${activeStep.id}`}
+                  disabled={busy}
+                  onClick={() => setSkippedStepIds((current) => [...new Set([...current, activeStep.id])])}
+                >
+                  {activeStep.skipLabel}
+                </button>
+              )}
               {activeStep.id === 'wiki' && (
                 <button type="button" disabled={busy} onClick={onOpenWiki}>Wiki 전체 설정</button>
               )}
@@ -186,7 +211,7 @@ export function OnboardingGuide({
             <button
               type="button"
               className="primary"
-              disabled={busy || !readiness.allReady}
+              disabled={busy || !allReady}
               onClick={() => { void onComplete(); }}
             >
               설정 완료

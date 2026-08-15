@@ -25,13 +25,14 @@ test('empty Workspace starts with Calendar and keeps every setup step actionable
   assert.equal(result.nextStepId, 'calendar');
   assert.deepEqual(result.steps.map((step) => step.title), [
     '캘린더 동기화',
-    'Runner / 실행 컴퓨터',
-    'Wiki 지식 소스',
+    '기록 연결 (선택)',
+    'Google 메일 (선택)',
     'Calendar AI 확인',
+    '실행 컴퓨터 (선택)',
   ]);
   const runner = result.steps.find((step) => step.id === 'runner');
-  assert.equal(runner?.statusLabel, 'Runner 등록 필요');
-  assert.equal(runner?.actionLabel, 'Runner 등록 시작');
+  assert.equal(runner?.statusLabel, '실행 컴퓨터 등록 필요');
+  assert.equal(runner?.actionLabel, '실행 컴퓨터 연결');
   assert.match(runner?.description || '', /일회용 코드/);
   const calendar = result.steps.find((step) => step.id === 'calendar');
   assert.match(calendar?.description || '', /작업공간 로그인과 별도/);
@@ -52,7 +53,7 @@ test('active Workspace Runner completes only the Runner enrollment step', () => 
   assert.equal(result.completedCount, 1);
   assert.equal(result.allReady, false);
   assert.equal(result.steps.find((step) => step.id === 'runner')?.ready, true);
-  assert.equal(result.steps.find((step) => step.id === 'runner')?.statusLabel, 'Runner 등록 완료');
+  assert.equal(result.steps.find((step) => step.id === 'runner')?.statusLabel, '실행 컴퓨터 등록 완료');
   assert.equal(result.steps.find((step) => step.id === 'calendar_ai')?.ready, false);
 });
 
@@ -94,8 +95,8 @@ test('active but disconnected Runner stays actionable and asks to reconnect', ()
 
   const runner = result.steps.find((step) => step.id === 'runner');
   assert.equal(runner?.ready, true);
-  assert.equal(runner?.statusLabel, 'Runner 등록 완료 · 현재 오프라인');
-  assert.equal(runner?.actionLabel, 'Runner 연결 확인');
+  assert.equal(runner?.statusLabel, '실행 컴퓨터 등록 완료 · 현재 오프라인');
+  assert.equal(runner?.actionLabel, '연결 확인');
   assert.match(runner?.description || '', /에이전트 작업|실행 컴퓨터|Runner/);
 });
 
@@ -185,7 +186,8 @@ test('synchronized Google Calendar makes Calendar AI usable through the honest f
   assert.equal(calendarAi?.statusLabel, 'Calendar AI 사용 가능');
   assert.match(calendarAi?.description || '', /연결된 일정/);
   assert.equal(result.completedCount, 2);
-  assert.equal(result.allReady, false);
+  assert.equal(result.allReady, true);
+  assert.equal(result.secondBrainSourceAvailable, true);
 });
 
 test('explicit Calendar AI availability completes the fourth setup step and N/4 progress', () => {
@@ -211,7 +213,7 @@ test('explicit Calendar AI availability completes the fourth setup step and N/4 
   assert.equal(result.allReady, true);
 });
 
-test('local LLM_WIKI_VAULT scan can complete Wiki without fake knowledge rows', () => {
+test('a local folder can complete records without exposing a developer environment name', () => {
   const result = onboarding.buildOnboardingReadiness({
     wiki: {
       ok: true,
@@ -221,8 +223,9 @@ test('local LLM_WIKI_VAULT scan can complete Wiki without fake knowledge rows', 
   });
   const wiki = result.steps.find((step) => step.id === 'wiki');
   assert.equal(wiki?.ready, true);
-  assert.match(wiki?.statusLabel || '', /로컬 Vault/);
-  assert.match(wiki?.description || '', /LLM_WIKI_VAULT/);
+  assert.match(wiki?.statusLabel || '', /로컬 폴더/);
+  assert.doesNotMatch(wiki?.description || '', /LLM_WIKI_VAULT/);
+  assert.equal(result.secondBrainSourceAvailable, true);
 });
 
 test('placeholder knowledge rows do not complete Wiki readiness', () => {
@@ -239,16 +242,12 @@ test('Calendar AI guide CTA opens the calendar surface and conversation panel ex
   );
 });
 
-test('Runner is optional setup because Calendar AI and Wiki AI no longer need one', () => {
+test('records, mail, and the execution computer are optional setup choices', () => {
   const result = onboarding.buildOnboardingReadiness();
-  const runner = result.steps.find((step) => step.id === 'runner');
-  const others = result.steps.filter((step) => step.id !== 'runner');
+  const optionalIds = result.steps.filter((step) => step.optional).map((step) => step.id);
 
-  assert.equal(runner.optional, true, 'Runner is for Agent Work, not a precondition for AI');
-  assert.match(runner.description, /에이전트 작업/);
-  for (const step of others) {
-    assert.notEqual(step.optional, true, `${step.id} stays required`);
-  }
+  assert.deepEqual(optionalIds, ['wiki', 'mail', 'runner']);
+  assert.match(result.steps.find((step) => step.id === 'runner').description, /에이전트 작업/);
 });
 
 test('setup completes without a Runner once the required steps are ready', () => {
@@ -269,7 +268,7 @@ test('setup completes without a Runner once the required steps are ready', () =>
 
   assert.equal(result.steps.find((step) => step.id === 'runner').ready, false);
   assert.equal(result.allReady, true, 'an optional step must not block 설정 완료');
-  assert.equal(result.nextStepId, 'runner', 'the optional step is still offered');
+  assert.equal(result.nextStepId, 'mail', 'the next unconfigured optional choice is still offered');
 });
 
 test('Calendar AI readiness does not depend on a connected Runner', () => {

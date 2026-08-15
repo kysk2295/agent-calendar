@@ -29,8 +29,8 @@ export function MailScreen({ inbox, activeMailId, setActiveMailId, addTaskFromMa
     <aside className="mail-list">
       <header><strong>✉️ 받은편지함</strong><em>{unread} 안 읽음</em><button aria-label="메일 새로고침" onClick={reloadMail}>⟳</button></header>
       <section className="mail-connection-note">
-        <strong>읽기 전용</strong>
-        <small>연결된 메일을 확인하고 작업으로 추가하거나 에이전트에 위임할 수 있습니다.</small>
+        <strong>Google 메일 읽기 전용</strong>
+        <small>Gmail 읽기 권한은 Google Calendar 권한과 별도로 연결합니다. 메일 전송이나 삭제 권한은 요청하지 않습니다.</small>
       </section>
       <div>
         {mailLoadError && <div className="mail-list-empty mail-list-error" role="alert"><strong>메일을 불러오지 못했습니다.</strong><small>기존 메일 데이터는 변경하지 않았습니다.</small><button type="button" onClick={reloadMail}>메일 다시 불러오기</button></div>}
@@ -58,10 +58,10 @@ export function MailScreen({ inbox, activeMailId, setActiveMailId, addTaskFromMa
         <div className="action-row mail-actions">
           <button onClick={() => addTaskFromMail(active)}>⊕ 작업으로 추가</button>
           <button className="delegate" onClick={() => delegateMail(active)}>⚡ 에이전트에 위임</button>
-          <button onClick={() => delegateMail(active, true)}>✦ 답장 초안</button>
+          <button onClick={() => delegateMail(active, true)}>✦ 답장 초안 작업</button>
           {text(active.actionStatus) && <span>{text(active.actionStatus)}</span>}
         </div>
-        <section className="mail-body">{text(active.body || active.preview || active.snippet, '메일 내용을 작업, 위임, 답장 초안으로 전환할 수 있습니다.')}</section>
+        <section className="mail-body">{text(active.body || active.preview || active.snippet, '메일 내용을 작업, 위임, 답장 초안 작업으로 전환할 수 있습니다.')}</section>
       </div> : <div className="mail-empty">메일을 연결하면 이곳에서 내용을 확인할 수 있습니다.</div>}
     </article>
   </div>;
