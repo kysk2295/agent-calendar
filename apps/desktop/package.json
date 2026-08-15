@@ -24,7 +24,8 @@
     "test:local-updater-qa": "node --test tests/local-desktop-updater-qa.test.mjs",
     "test:ui:wiki-session-turn": "node tests/playwright-wiki-session-turn-stream.cjs",
     "test:packaged:deep-link": "node tests/packaged-deep-link-smoke.cjs",
-    "dist:mac": "npm run build && electron-builder --mac dmg zip --arm64"
+    "dist:mac": "npm run build && electron-builder --mac dmg zip --arm64",
+    "dist:mac:frozen": "test -n \"$AGENT_CALENDAR_SOURCE_SHA\" && npm run build && electron-builder --mac dmg zip --arm64 -c.extraMetadata.sourceSha=\"$AGENT_CALENDAR_SOURCE_SHA\""
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
