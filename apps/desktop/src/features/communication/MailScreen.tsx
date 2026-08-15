@@ -4,12 +4,15 @@ type Item = Record<string, unknown>;
 
 type MailScreenProps = {
   readonly inbox: Item[];
+  readonly connector: string;
   readonly activeMailId: string;
   readonly setActiveMailId: (id: string) => void;
   readonly addTaskFromMail: (mail: Item) => void;
   readonly delegateMail: (mail: Item, reply?: boolean) => void;
   readonly mailLoadError: string;
   readonly reloadMail: () => void;
+  readonly connectGoogleMail: () => Promise<void>;
+  readonly connectionBusy: boolean;
 };
 
 function text(value: unknown, fallback = ''): string {
@@ -20,7 +23,7 @@ function mailAvatar(mail: Item): string {
   return text(mail.from || mail.sender || mail.sourceLabel, 'H').trim().slice(0, 1).toUpperCase();
 }
 
-export function MailScreen({ inbox, activeMailId, setActiveMailId, addTaskFromMail, delegateMail, mailLoadError, reloadMail }: MailScreenProps) {
+export function MailScreen({ inbox, connector, activeMailId, setActiveMailId, addTaskFromMail, delegateMail, mailLoadError, reloadMail, connectGoogleMail, connectionBusy }: MailScreenProps) {
   const items = inbox;
   const active = items.find((mail, index) => mailPresentation(mail, `mail-${index}`).id === activeMailId) || items[0];
   const activeId = mailPresentation(active || {}, '').id;
@@ -31,10 +34,25 @@ export function MailScreen({ inbox, activeMailId, setActiveMailId, addTaskFromMa
       <section className="mail-connection-note">
         <strong>Google 메일 읽기 전용</strong>
         <small>Gmail 읽기 권한은 Google Calendar 권한과 별도로 연결합니다. 메일 전송이나 삭제 권한은 요청하지 않습니다.</small>
+        <button type="button" disabled={connectionBusy} onClick={() => { void connectGoogleMail(); }}>
+          {connectionBusy
+            ? 'Google 연결 중...'
+            : connector === 'not_linked'
+              ? 'Google 메일 연결'
+              : 'Google 권한 다시 연결'}
+        </button>
       </section>
       <div>
         {mailLoadError && <div className="mail-list-empty mail-list-error" role="alert"><strong>메일을 불러오지 못했습니다.</strong><small>기존 메일 데이터는 변경하지 않았습니다.</small><button type="button" onClick={reloadMail}>메일 다시 불러오기</button></div>}
-        {!items.length && !mailLoadError && <p className="mail-list-empty">연결된 메일이 없습니다.<small>계정별 OAuth 메일 연결은 준비 중입니다.</small></p>}
+        {!items.length && !mailLoadError && (
+          <p className="mail-list-empty">
+            {connector === 'connected'
+              ? '받은편지함이 비어 있습니다.'
+              : connector === 'reauthorization_required'
+                ? 'Google 메일 권한을 다시 승인해 주세요.'
+                : '연결된 메일이 없습니다.'}
+          </p>
+        )}
         {items.map((mail, index) => {
           const presentation = mailPresentation(mail, `mail-${index}`);
           return <button className="mail-item" data-active={presentation.id === activeId} data-unread={presentation.unread} key={presentation.id} onClick={() => setActiveMailId(presentation.id)}>

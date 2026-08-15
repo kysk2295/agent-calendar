@@ -828,13 +828,45 @@ async function handleScopedProductRoute({
 
   // ── Mail (hydrate-safe empty workspace mailbox) ────────────────────
   if (action === 'mail_list') {
-    sendJson(res, 200, {
-      ok: true,
-      items: [],
-      messages: [],
-      workspaceId: scope.workspaceId,
-      connector: 'not_linked',
-    });
+    const result = runtime.unifiedCalendar && typeof runtime.unifiedCalendar.listMailMessages === 'function'
+      ? await runtime.unifiedCalendar.listMailMessages(scope)
+      : {
+          ok: true,
+          items: [],
+          messages: [],
+          workspaceId: scope.workspaceId,
+          connector: 'not_linked',
+        };
+    sendJson(res, 200, result);
+    return true;
+  }
+  if (action === 'mail_google_authorize') {
+    if (!runtime.unifiedCalendar || typeof runtime.unifiedCalendar.startGoogleMailAuthorize !== 'function') {
+      sendJson(res, 503, { ok: false, error: 'mail_connector_unavailable', message: 'service_unavailable' });
+      return true;
+    }
+    try {
+      sendJson(res, 200, await runtime.unifiedCalendar.startGoogleMailAuthorize(scope));
+    } catch (error) {
+      const status = error && error.statusHint ? error.statusHint : 400;
+      sendJson(res, status, { ok: false, error: error.code || 'authorize_failed', message: error.message || 'bad_request' });
+    }
+    return true;
+  }
+  if (action === 'mail_google_callback') {
+    if (!runtime.unifiedCalendar || typeof runtime.unifiedCalendar.finalizeGoogleMailOAuth !== 'function') {
+      sendJson(res, 503, { ok: false, error: 'mail_connector_unavailable', message: 'service_unavailable' });
+      return true;
+    }
+    try {
+      sendJson(res, 200, await runtime.unifiedCalendar.finalizeGoogleMailOAuth(scope, {
+        code: body && body.code,
+        state: body && body.state,
+      }));
+    } catch (error) {
+      const status = error && error.statusHint ? error.statusHint : 400;
+      sendJson(res, status, { ok: false, error: error.code || 'callback_failed', message: error.message || 'bad_request' });
+    }
     return true;
   }
 

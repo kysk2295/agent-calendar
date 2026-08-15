@@ -246,6 +246,56 @@ class UnifiedCalendar {
     });
   }
 
+  async listMailMessages(scope, { limit = 25 } = {}) {
+    const connection = await withAppRoleWorkspaceTransaction(this.pool, scope, async (client, valid) => {
+      const result = await client.query(
+        `select id, credential_ref, status
+         from mail_connections
+         where workspace_id = $1
+           and user_id = $2
+           and provider = 'google'
+           and credential_ref is not null
+         order by updated_at desc, id
+         limit 1`,
+        [valid.workspaceId, valid.userId],
+      );
+      return result.rows[0] || null;
+    });
+    if (!connection) {
+      return { ok: true, items: [], messages: [], workspaceId: scope.workspaceId, connector: 'not_linked' };
+    }
+    if (connection.status !== 'connected') {
+      return { ok: true, items: [], messages: [], workspaceId: scope.workspaceId, connector: connection.status };
+    }
+    try {
+      const result = await this.google.listMailMessages({
+        credentialRef: connection.credential_ref,
+        limit,
+      });
+      const messages = Array.isArray(result.messages) ? result.messages : [];
+      const items = messages.map((message) => ({
+        ...message,
+        preview: message.snippet,
+        createdAt: message.receivedAt,
+        read: message.unread === false,
+      }));
+      return { ok: true, items, messages: items, workspaceId: scope.workspaceId, connector: 'connected' };
+    } catch (error) {
+      if (error && (error.status === 401 || error.status === 403)) {
+        await withAppRoleWorkspaceTransaction(this.pool, scope, async (client, valid) => {
+          await client.query(
+            `update mail_connections
+             set status = 'reauthorization_required', updated_at = now()
+             where workspace_id = $1 and user_id = $2 and id = $3`,
+            [valid.workspaceId, valid.userId, connection.id],
+          );
+        });
+        return { ok: true, items: [], messages: [], workspaceId: scope.workspaceId, connector: 'reauthorization_required' };
+      }
+      throw error;
+    }
+  }
+
   async connectFakeGoogle(scope, {
     label = 'Google Calendar',
     calendarId = 'primary',
@@ -1718,7 +1768,7 @@ class UnifiedCalendar {
       this.credentialVault = createDbCredentialVault(this.pool, this.env);
     }
     requireVaultKey(this.env);
-    const state = crypto.randomBytes(16).toString('hex');
+    const state = `calendar.${crypto.randomBytes(16).toString('hex')}`;
     const codeVerifier = crypto.randomBytes(32).toString('base64url');
     const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
     const expiresAt = new Date(this.clock() + 10 * 60_000).toISOString();
@@ -1730,8 +1780,9 @@ class UnifiedCalendar {
     const valid = scope;
     await this.pool.query(
       `insert into calendar_oauth_states (
-         id, workspace_id, user_id, state, code_verifier_digest, code_verifier_enc, redirect_uri, expires_at
-       ) values ($1,$2,$3,$4,$5,$6,$7,$8::timestamptz)`,
+         id, workspace_id, user_id, state, code_verifier_digest, code_verifier_enc,
+         redirect_uri, expires_at, payload
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8::timestamptz,$9::jsonb)`,
       [
         newId('oauth'),
         valid.workspaceId,
@@ -1741,9 +1792,10 @@ class UnifiedCalendar {
         sealedVerifier,
         String(this.env.GOOGLE_OAUTH_REDIRECT_URI || ''),
         expiresAt,
+        JSON.stringify({ purpose: 'calendar' }),
       ],
     );
-    const url = this.google.getAuthorizationUrl({ state, codeChallenge });
+    const url = this.google.getAuthorizationUrl({ state, codeChallenge, purpose: 'calendar' });
     return {
       ok: true,
       workspaceId: valid.workspaceId,
@@ -1751,6 +1803,125 @@ class UnifiedCalendar {
       authorizationUrl: url,
       url,
       expiresAt,
+    };
+  }
+
+  async startGoogleMailAuthorize(scope) {
+    assertWorkspaceScope(scope);
+    if (!externalEnabled(this.env)) reject('EXTERNAL_CALENDAR_DISABLED', 'external connector disabled', 403);
+    if (typeof this.google.getAuthorizationUrl !== 'function') {
+      reject('GOOGLE_OAUTH_NOT_CONFIGURED', 'google oauth not configured', 503);
+    }
+    if (!this.credentialVault) {
+      this.credentialVault = createDbCredentialVault(this.pool, this.env);
+    }
+    requireVaultKey(this.env);
+    const state = `mail.${crypto.randomBytes(16).toString('hex')}`;
+    const codeVerifier = crypto.randomBytes(32).toString('base64url');
+    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+    const expiresAt = new Date(this.clock() + 10 * 60_000).toISOString();
+    const sealedVerifier = this.credentialVault.sealSecret
+      ? this.credentialVault.sealSecret(codeVerifier)
+      : (() => { reject('GOOGLE_VAULT_KEY_REQUIRED', 'vault cannot seal oauth verifier', 503); })();
+    const valid = scope;
+    await this.pool.query(
+      `insert into calendar_oauth_states (
+         id, workspace_id, user_id, state, code_verifier_digest, code_verifier_enc,
+         redirect_uri, expires_at, payload
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8::timestamptz,$9::jsonb)`,
+      [
+        newId('oauth'),
+        valid.workspaceId,
+        valid.userId,
+        state,
+        digestToken(codeVerifier),
+        sealedVerifier,
+        String(this.env.GOOGLE_OAUTH_REDIRECT_URI || ''),
+        expiresAt,
+        JSON.stringify({ purpose: 'mail' }),
+      ],
+    );
+    const url = this.google.getAuthorizationUrl({ state, codeChallenge, purpose: 'mail' });
+    return {
+      ok: true,
+      workspaceId: valid.workspaceId,
+      state,
+      authorizationUrl: url,
+      url,
+      expiresAt,
+    };
+  }
+
+  async finalizeGoogleMailOAuth(scope, { code, state } = {}) {
+    assertWorkspaceScope(scope);
+    if (!externalEnabled(this.env)) reject('EXTERNAL_CALENDAR_DISABLED', 'external connector disabled', 403);
+    if (!this.credentialVault) {
+      this.credentialVault = createDbCredentialVault(this.pool, this.env);
+    }
+    requireVaultKey(this.env);
+    const valid = scope;
+    const svc = await this.pool.connect();
+    let exchanged;
+    try {
+      await svc.query('begin');
+      const st = await svc.query(
+        `select * from calendar_oauth_states
+         where workspace_id = $1 and state = $2 and user_id = $3
+         for update`,
+        [valid.workspaceId, String(state || ''), valid.userId],
+      );
+      if (!st.rowCount) reject('OAUTH_STATE_UNKNOWN', 'unknown oauth state for this user', 400);
+      const row = st.rows[0];
+      if (row.consumed_at) reject('OAUTH_STATE_CONSUMED', 'oauth state already used', 400);
+      if (Date.parse(row.expires_at) <= this.clock()) reject('OAUTH_STATE_EXPIRED', 'oauth state expired', 400);
+      if (!String(row.state || '').startsWith('mail.') || row.payload?.purpose !== 'mail') {
+        reject('OAUTH_PURPOSE_MISMATCH', 'oauth state is not for Gmail', 400);
+      }
+      const codeVerifier = this.credentialVault.openSecret
+        ? this.credentialVault.openSecret(row.code_verifier_enc)
+        : reject('GOOGLE_VAULT_KEY_REQUIRED', 'vault cannot open oauth verifier', 503);
+      exchanged = await this.google.exchangeCode({ code, codeVerifier });
+      await this.credentialVault.putTokens(exchanged.credentialRef, {
+        accessToken: exchanged._vault.accessToken,
+        refreshToken: exchanged._vault.refreshToken,
+        accessExpiresAt: exchanged._vault.accessExpiresAt,
+        workspaceId: valid.workspaceId,
+      }, { workspaceId: valid.workspaceId, provider: 'google' });
+      await svc.query(
+        `update calendar_oauth_states set consumed_at = now() where id = $1 and user_id = $2`,
+        [row.id, valid.userId],
+      );
+      await svc.query('commit');
+    } catch (error) {
+      try { await svc.query('rollback'); } catch { /* ignore */ }
+      throw error;
+    } finally {
+      svc.release();
+    }
+
+    const connectionId = newId('mailconn');
+    const result = await withAppRoleWorkspaceTransaction(this.pool, scope, async (client, v) => {
+      const saved = await client.query(
+        `insert into mail_connections (
+           id, workspace_id, user_id, provider, credential_ref, status
+         ) values ($1,$2,$3,'google',$4,'connected')
+         on conflict (workspace_id, user_id, provider) do update
+         set credential_ref = excluded.credential_ref,
+             status = 'connected',
+             updated_at = now()
+         returning provider, status, updated_at`,
+        [connectionId, v.workspaceId, v.userId, exchanged.credentialRef],
+      );
+      return saved.rows[0];
+    });
+    return {
+      ok: true,
+      workspaceId: valid.workspaceId,
+      connection: {
+        provider: result.provider,
+        status: result.status,
+        updatedAt: result.updated_at,
+      },
     };
   }
 
@@ -1778,6 +1949,9 @@ class UnifiedCalendar {
       row = st.rows[0];
       if (row.consumed_at) reject('OAUTH_STATE_CONSUMED', 'oauth state already used', 400);
       if (Date.parse(row.expires_at) <= this.clock()) reject('OAUTH_STATE_EXPIRED', 'oauth state expired', 400);
+      if (!String(row.state || '').startsWith('calendar.') || row.payload?.purpose !== 'calendar') {
+        reject('OAUTH_PURPOSE_MISMATCH', 'oauth state is not for Calendar', 400);
+      }
       const codeVerifier = this.credentialVault.openSecret
         ? this.credentialVault.openSecret(row.code_verifier_enc)
         : reject('GOOGLE_VAULT_KEY_REQUIRED', 'vault cannot open oauth verifier', 503);

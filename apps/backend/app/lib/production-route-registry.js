@@ -612,11 +612,21 @@ const PRODUCTION_ROUTES = [
     persistence: 'none', action: 'agent_ops_tick_disabled', idempotent: false, role: 'owner',
   },
 
-  // Mail list is a required Desktop hydrate read — scoped empty inbox until connector cutover.
+  // Per-user Gmail read-only connector.
   {
     method: 'GET', pathPattern: '/api/mail/messages', class: 'scoped_product',
     persistence: 'read', action: 'mail_list', idempotent: true, role: 'member',
-    notes: 'Returns workspace-empty mailbox; does not call external mail providers',
+    notes: 'Returns bounded Gmail metadata through the authenticated user grant',
+  },
+  {
+    method: 'POST', pathPattern: '/api/mail/google/authorize', class: 'scoped_product',
+    persistence: 'write', action: 'mail_google_authorize', idempotent: false, role: 'member',
+    notes: 'Starts user-bound Gmail read-only OAuth',
+  },
+  {
+    method: 'POST', pathPattern: '/api/mail/google/callback', class: 'scoped_product',
+    persistence: 'write', action: 'mail_google_callback', idempotent: true, role: 'member',
+    notes: 'Completes user-bound Gmail read-only OAuth',
   },
   // Mail mutations / TickTick — external connectors not safely scoped yet
   {
@@ -839,6 +849,8 @@ const DESKTOP_API_PATHS = [
   'PATCH /api/calendar/events/:id',
   'DELETE /api/calendar/events/:id',
   'GET /api/mail/messages',
+  'POST /api/mail/google/authorize',
+  'POST /api/mail/google/callback',
   'GET /api/workboard',
   'GET /api/documents',
   'POST /api/documents',

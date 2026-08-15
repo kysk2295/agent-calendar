@@ -15,10 +15,17 @@ export type AgentCalendarGoogleCallbackDeepLink = Readonly<{
   state: string;
 }>;
 
+export type AgentCalendarGoogleMailCallbackDeepLink = Readonly<{
+  kind: 'google-mail-callback';
+  code: string;
+  state: string;
+}>;
+
 export type AgentCalendarDeepLink =
   | AgentCalendarSessionDeepLink
   | AgentCalendarAuthCallbackDeepLink
-  | AgentCalendarGoogleCallbackDeepLink;
+  | AgentCalendarGoogleCallbackDeepLink
+  | AgentCalendarGoogleMailCallbackDeepLink;
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 const OAUTH_VALUE_PATTERN = /^[A-Za-z0-9._~-]{1,512}$/;
@@ -117,9 +124,30 @@ export function parseAgentCalendarGoogleCallbackDeepLink(
   return { kind: 'google-calendar-callback', code, state };
 }
 
+export function parseAgentCalendarGoogleMailCallbackDeepLink(
+  value: unknown,
+): AgentCalendarGoogleMailCallbackDeepLink | null {
+  if (typeof value !== 'string' || !URL.canParse(value)) return null;
+  const url = new URL(value);
+  if (url.protocol !== 'agent-calendar:') return null;
+  if (url.username || url.password || url.port || url.hash) return null;
+  const path = url.pathname.startsWith('/') ? url.pathname : `/${url.pathname}`;
+  if (url.hostname !== 'mail' || (path !== '/google/callback' && path !== '/google/callback/')) return null;
+  if (hasDuplicateQueryKeys(url.search)) return null;
+  const keys = [...url.searchParams.keys()];
+  if (keys.length !== 2) return null;
+  const keySet = new Set(keys);
+  if (!keySet.has('code') || !keySet.has('state')) return null;
+  const code = url.searchParams.get('code') || '';
+  const state = url.searchParams.get('state') || '';
+  if (!OAUTH_VALUE_PATTERN.test(code) || !OAUTH_VALUE_PATTERN.test(state)) return null;
+  return { kind: 'google-mail-callback', code, state };
+}
+
 export function parseAgentCalendarDeepLink(value: unknown): AgentCalendarDeepLink | null {
   return parseAgentCalendarAuthCallbackDeepLink(value)
     || parseAgentCalendarGoogleCallbackDeepLink(value)
+    || parseAgentCalendarGoogleMailCallbackDeepLink(value)
     || parseAgentCalendarSessionDeepLink(value);
 }
 
@@ -147,3 +175,12 @@ export {
   type DesktopGoogleCalendarOAuthResult,
   type PublicGoogleCalendarSource,
 } from './calendarOAuth.js';
+
+export {
+  createDesktopGoogleMailOAuth,
+  DesktopGoogleMailOAuthError,
+  type DesktopGoogleMailOAuth,
+  type DesktopGoogleMailOAuthOptions,
+  type DesktopGoogleMailOAuthResult,
+  type GoogleMailOAuthCallback,
+} from './mailOAuth.js';

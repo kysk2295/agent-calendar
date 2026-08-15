@@ -126,6 +126,13 @@ interface Window {
         error?: string;
       };
     }>;
+    connectGoogleMail(): Promise<{
+      ok: true;
+      connection: {
+        provider: 'google';
+        status: string;
+      };
+    }>;
     loginWithProvider(provider: HermesAuthProvider): Promise<HermesDesktopSettings>;
     signUpWithPassword(payload: { email: string; password: string }): Promise<HermesDesktopSettings>;
     loginWithPassword(payload: { email: string; password: string }): Promise<HermesDesktopSettings>;

@@ -32,6 +32,17 @@ test('a valid Google redirect becomes the Desktop deep link the app parses', () 
   assert.equal(result.location, 'agent-calendar://auth/callback?code=abc-123&state=xyz_456');
 });
 
+test('server-issued state prefixes route Calendar and Gmail to separate Desktop deep links', () => {
+  assert.equal(
+    resolve('code=calendar-code&state=calendar.state-1').location,
+    'agent-calendar://calendar/google/callback?code=calendar-code&state=calendar.state-1',
+  );
+  assert.equal(
+    resolve('code=mail-code&state=mail.state-2').location,
+    'agent-calendar://mail/google/callback?code=mail-code&state=mail.state-2',
+  );
+});
+
 test('the destination scheme is fixed and can never come from the request', () => {
   // A caller controlling the redirect target would turn the gateway into an open redirect.
   const result = resolve('code=abc&state=xyz&redirect_uri=https://evil.example/steal');

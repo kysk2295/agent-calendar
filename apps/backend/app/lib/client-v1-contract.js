@@ -94,6 +94,8 @@ const clientV1ContractManifest = deepFreeze({
       operation('workspace.task-update', 'PATCH', '/api/tasks/:id', 'tasks_update', 'scoped_product', 'write', true, 'member'),
       operation('workspace.task-delete', 'DELETE', '/api/tasks/:id', 'tasks_delete', 'scoped_product', 'write', true, 'member'),
       operation('workspace.mail-list', 'GET', '/api/mail/messages', 'mail_list', 'scoped_product', 'read', true, 'member'),
+      operation('workspace.mail-google-authorize', 'POST', '/api/mail/google/authorize', 'mail_google_authorize', 'scoped_product', 'write', false, 'member'),
+      operation('workspace.mail-google-callback', 'POST', '/api/mail/google/callback', 'mail_google_callback', 'scoped_product', 'write', true, 'member'),
       operation('workspace.workboard-list', 'GET', '/api/workboard', 'workboard_list', 'scoped_product', 'read', true, 'member'),
       operation('workspace.documents-list', 'GET', '/api/documents', 'documents_list', 'scoped_product', 'read', true, 'member'),
       operation('workspace.document-create', 'POST', '/api/documents', 'documents_create', 'scoped_product', 'write', true, 'member'),

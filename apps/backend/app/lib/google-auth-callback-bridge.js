@@ -15,7 +15,9 @@
  */
 
 const CALLBACK_PATH = '/api/auth/google/callback';
-const DEEP_LINK_BASE = 'agent-calendar://auth/callback';
+const AUTH_DEEP_LINK_BASE = 'agent-calendar://auth/callback';
+const CALENDAR_DEEP_LINK_BASE = 'agent-calendar://calendar/google/callback';
+const MAIL_DEEP_LINK_BASE = 'agent-calendar://mail/google/callback';
 /** Mirrors OAUTH_VALUE_PATTERN in apps/desktop/electron/deepLink.ts. */
 const OAUTH_VALUE = /^[A-Za-z0-9._~-]{1,512}$/;
 
@@ -45,7 +47,12 @@ function resolveGoogleAuthCallback(params) {
   const state = singleValue(params, 'state');
   if (!OAUTH_VALUE.test(code) || !OAUTH_VALUE.test(state)) return reject('invalid_request');
 
-  const location = new URL(DEEP_LINK_BASE);
+  const destination = state.startsWith('calendar.')
+    ? CALENDAR_DEEP_LINK_BASE
+    : state.startsWith('mail.')
+      ? MAIL_DEEP_LINK_BASE
+      : AUTH_DEEP_LINK_BASE;
+  const location = new URL(destination);
   location.searchParams.set('code', code);
   location.searchParams.set('state', state);
   return { ok: true, location: location.toString() };

@@ -663,6 +663,7 @@ export function App() {
   const [placingTaskId, setPlacingTaskId] = useState('');
   const [activeMailId, setActiveMailId] = useState('');
   const [mailLoadError, setMailLoadError] = useState('');
+  const [mailConnector, setMailConnector] = useState('not_linked');
   const [activeNoteId, setActiveNoteId] = useState('');
   const [wikiQuestion, setWikiQuestion] = useState('');
   const [wikiAnswer, setWikiAnswer] = useState('');
@@ -732,6 +733,7 @@ export function App() {
     setOnboardingBusy(false);
     setOnboardingMessage('');
     setOnboardingPendingAction(null);
+    setMailConnector('not_linked');
     setWikiAnswer('');
     setWikiAnswerSources([]);
     setWikiAnswerMeta({});
@@ -844,10 +846,12 @@ export function App() {
       : undefined,
     calendarAiConversationId,
     calendarAiAvailable: state.settings.calendarAiAvailable === true,
+    mailConnected: mailConnector === 'connected',
   }), [
     automationRunners,
     calendarAiConversationId,
     calendarSources,
+    mailConnector,
     state.settings,
     state.wiki,
   ]);
@@ -1185,19 +1189,19 @@ export function App() {
           return payload;
         })
         .catch((error) => {
-          if (!isHydrationCurrent()) return { ok: false, items: state.inbox };
+          if (!isHydrationCurrent()) return { ok: false, items: state.inbox, connector: mailConnector };
           const code = error && typeof error === 'object' && 'code' in error
             ? String((error as { code?: string }).code || '')
             : '';
           // Production Workspace mode disables mail connectors explicitly — do not block hydrate.
           if (code === 'production_disabled') {
             setMailLoadError('');
-            return { ok: false, items: [], productionDisabled: true };
+            return { ok: false, items: [], connector: 'not_linked', productionDisabled: true };
           }
           const message = error instanceof Error ? error.message : '메일함 불러오기 실패';
           setMailLoadError(message);
           setApiError(message);
-          return { ok: false, items: state.inbox };
+          return { ok: false, items: state.inbox, connector: mailConnector };
         });
       const documentsRequest = optionalRequest('문서', hermesApi.getDocuments());
       const automationRequest = optionalRequest(
@@ -1291,6 +1295,7 @@ export function App() {
       });
       const docs = arr(documentsPayload, 'documents');
       const inboxItems = arr(inbox, 'items', 'commands', 'commandRows');
+      setMailConnector(text(inbox.connector, 'not_linked'));
       const remoteChat = arr(chatPayload, 'messages', 'chatMessages');
       const scheduleChat = remoteChat.filter((message) => text(message.target) === 'calendar');
       const normalizedScheduleChat = normalizeCalendarChatHistory(remoteChat);
@@ -2825,6 +2830,34 @@ export function App() {
     }
   }
 
+  async function connectGoogleMail() {
+    if (onboardingBusy) return;
+    const previousConnector = mailConnector;
+    setOnboardingBusy(true);
+    setOnboardingPendingAction('mail_open');
+    setMailConnector('authorizing');
+    setOnboardingMessage('브라우저에서 Gmail 읽기 권한을 승인하세요. Calendar 권한은 변경하지 않습니다.');
+    try {
+      if (!window.hermesDesktop?.connectGoogleMail) {
+        throw new Error('Google 메일 연결은 데스크톱 앱에서 사용할 수 있습니다.');
+      }
+      await window.hermesDesktop.connectGoogleMail();
+      await hydrate({ blocking: false });
+      setOnboardingMessage('Google 메일 연결 상태를 확인했습니다.');
+    } catch (error) {
+      setMailConnector(previousConnector);
+      const raw = error instanceof Error ? error.message : 'Google 메일 연결에 실패했습니다.';
+      setOnboardingMessage(
+        raw.includes('Google 메일 연결을 사용할 수 없습니다')
+          ? 'Google 메일 연결을 사용할 수 없습니다. 관리자 설정을 확인하세요.'
+          : raw,
+      );
+    } finally {
+      setOnboardingBusy(false);
+      setOnboardingPendingAction(null);
+    }
+  }
+
   async function saveOnboardingStatus(status: 'dismissed' | 'completed') {
     if (onboardingBusy) return;
     setOnboardingBusy(true);
@@ -3589,7 +3622,7 @@ export function App() {
               setQuickText(templates[label] || '');
             }} openTask={openTask} toggleTask={toggleTask} patchTask={patchTask} />}
             {screen === 'kanban' && <KanbanScreen tasks={filteredTasks} openTask={openTask} />}
-            {screen === 'mail' && <MailScreen inbox={mailItems} activeMailId={activeMailId} setActiveMailId={setActiveMailId} addTaskFromMail={(mail) => { void addTaskFromMail(mail); }} delegateMail={(mail, reply) => { setDelegateText(reply ? `아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n${itemTitle(mail, '메일')}` : `다음 메일을 처리해줘.\n\n${itemTitle(mail, '메일')}`); setModal('delegate'); }} mailLoadError={mailLoadError} reloadMail={() => { void hydrate({ blocking: false }); }} />}
+            {screen === 'mail' && <MailScreen inbox={mailItems} connector={mailConnector} activeMailId={activeMailId} setActiveMailId={setActiveMailId} addTaskFromMail={(mail) => { void addTaskFromMail(mail); }} delegateMail={(mail, reply) => { setDelegateText(reply ? `아래 메일에 대한 정중한 답장 초안을 작성해줘.\n\n${itemTitle(mail, '메일')}` : `다음 메일을 처리해줘.\n\n${itemTitle(mail, '메일')}`); setModal('delegate'); }} mailLoadError={mailLoadError} reloadMail={() => { void hydrate({ blocking: false }); }} connectGoogleMail={connectGoogleMail} connectionBusy={onboardingPendingAction === 'mail_open'} />}
             {screen === 'notes' && <NotesScreen docs={docs} activeNoteId={activeNoteId} setActiveNoteId={setActiveNoteId} newNote={createNote} />}
             {screen === 'review' && <ReviewScreen tasks={tasks} patchTask={patchTask} generateRetroDraft={generateRetroDraft} createReviewGoal={createReviewGoal} saveRetro={saveRetro} />}
             {screen === 'wiki' && <WikiScreen wiki={state.wiki} docs={docs} activeWikiId={activeWikiId} setActiveWikiId={setActiveWikiId} readerOpen={wikiReaderOpen} setReaderOpen={setWikiReaderOpen} question={wikiQuestion} setQuestion={setWikiQuestion} answer={wikiAnswer} sources={wikiAnswerSources} answerMeta={wikiAnswerMeta} includeJournal={wikiIncludeJournal} setIncludeJournal={setWikiIncludeJournal} includeRaw={wikiIncludeRaw} setIncludeRaw={setWikiIncludeRaw} asking={wikiAsking} ask={askWiki} dismissAnswer={dismissWikiAnswer} loadDocument={loadKnowledgeDocument} knowledgeV2={state.wiki.knowledgeV2 === true} knowledgeSources={arr(state.wiki, 'sources')} sourceBusy={wikiSourceBusy} sourceMessage={wikiSourceMessage} addCloudFile={addCloudKnowledgeFile} revokeSource={revokeKnowledgeSource} resolveEvidence={resolveKnowledgeEvidence} />}
@@ -3620,6 +3653,7 @@ export function App() {
                 message={onboardingMessage || wikiSourceMessage}
                 pendingAction={onboardingPendingAction}
                 onConnectCalendar={connectGoogleCalendar}
+                onConnectMail={connectGoogleMail}
                 onSyncCalendar={syncCalendarSources}
                 onOpenRunner={() => openScreen('runner')}
                 onOpenWiki={() => openScreen('wiki')}

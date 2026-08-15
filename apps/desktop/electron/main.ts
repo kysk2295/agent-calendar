@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDesktopAuthKitLogin } from './auth.js';
 import { createDesktopGoogleCalendarOAuth } from './calendarOAuth.js';
+import { createDesktopGoogleMailOAuth } from './mailOAuth.js';
 import {
   createDesktopCrashRecoveryController,
   type RendererGoneDetails,
@@ -145,6 +146,13 @@ const googleCalendarOAuth = createDesktopGoogleCalendarOAuth({
     ? async () => undefined
     : openExternalBrowser,
 });
+const googleMailOAuth = createDesktopGoogleMailOAuth({
+  apiBaseUrl: () => readSettings().apiBaseUrl,
+  getAccessToken: () => sessionManager.getAccessToken(),
+  openExternal: e2eAuthMode
+    ? async () => undefined
+    : openExternalBrowser,
+});
 
 function profileFromSession(session: AppSessionTokens): DesktopAuthProfile {
   return {
@@ -247,10 +255,35 @@ async function handleGoogleCalendarCallbackDeepLink(target: {
   }
 }
 
+async function handleGoogleMailCallbackDeepLink(target: {
+  kind: 'google-mail-callback';
+  code: string;
+  state: string;
+}) {
+  try {
+    const result = await googleMailOAuth.handleCallback(target);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    return result;
+  } catch (error) {
+    logLifecycle('google-mail-callback-failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    throw error;
+  }
+}
+
 const deepLinks = createAgentCalendarDeepLinkMain(process.argv, {
   authorizeRenderer: requireTrustedRenderer,
   onAuthCallback: (target) => handleAuthCallbackDeepLink(target),
   onGoogleCalendarCallback: (target) => handleGoogleCalendarCallbackDeepLink(target),
+  onGoogleMailCallback: (target) => handleGoogleMailCallbackDeepLink(target),
 });
 
 if (e2eAuthMode) {
@@ -634,6 +667,7 @@ registerTrustedIpcHandle(ipcMain, 'auth:authkit-cancel', requireTrustedRenderer,
   return { ok: true as const };
 });
 registerTrustedIpcHandle(ipcMain, 'calendar:google-connect', requireTrustedRenderer, () => googleCalendarOAuth.begin());
+registerTrustedIpcHandle(ipcMain, 'mail:google-connect', requireTrustedRenderer, () => googleMailOAuth.begin());
 // Legacy IPC names: disabled for production (AuthKit only).
 registerTrustedIpcHandle(ipcMain, 'auth:provider-login', requireTrustedRenderer, async () => {
   throw new Error('직접 Google OAuth는 비활성화되었습니다. AuthKit으로 로그인하세요.');
@@ -646,6 +680,7 @@ registerTrustedIpcHandle(ipcMain, 'auth:password-login', requireTrustedRenderer,
 });
 registerTrustedIpcHandle(ipcMain, 'auth:logout', requireTrustedRenderer, async () => {
   googleCalendarOAuth.cancel('로그아웃되어 Google Calendar 연결이 취소되었습니다.');
+  googleMailOAuth.cancel('로그아웃되어 Google 메일 연결이 취소되었습니다.');
   await sessionManager.logoutRemote();
   saveSettings({ auth: null });
   return publishSettings();

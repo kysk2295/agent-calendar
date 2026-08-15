@@ -14,6 +14,7 @@ type Props = Readonly<{
   message?: string;
   pendingAction?: OnboardingActionKind | null;
   onConnectCalendar: () => Promise<void>;
+  onConnectMail: () => Promise<void>;
   onSyncCalendar: () => Promise<void>;
   onOpenRunner: () => void;
   onOpenWiki: () => void;
@@ -29,6 +30,7 @@ export function OnboardingGuide({
   message = '',
   pendingAction = null,
   onConnectCalendar,
+  onConnectMail,
   onSyncCalendar,
   onOpenRunner,
   onOpenWiki,
@@ -63,6 +65,10 @@ export function OnboardingGuide({
     }
     if (actionKind === 'calendar_connect') {
       await onConnectCalendar();
+      return;
+    }
+    if (actionKind === 'mail_open') {
+      await onConnectMail();
       return;
     }
     if (actionKind === 'runner_open') onOpenRunner();
@@ -105,7 +111,9 @@ export function OnboardingGuide({
                 <strong>{step.title}</strong>
                 <small className="onboarding-step-state">
                   {pendingAction === step.actionKind
-                    ? step.actionKind === 'calendar_connect' ? '연결 진행 중' : '동기화 진행 중'
+                    ? step.actionKind === 'calendar_connect' || step.actionKind === 'mail_open'
+                      ? '연결 진행 중'
+                      : '동기화 진행 중'
                     : step.skipped
                       ? `건너뜀 · ${step.statusLabel}`
                       : step.ready
@@ -172,24 +180,22 @@ export function OnboardingGuide({
             ) : null}
 
             <div className="onboarding-detail-actions">
-              {activeStep.actionKind !== 'mail_open' && (
-                <button
-                  type="button"
-                  className="primary"
-                  data-testid={`onboarding-action-${activeStep.id}`}
-                  disabled={busy}
-                  aria-busy={pendingAction === activeStep.actionKind || undefined}
-                  onClick={() => { void runAction(activeStep.actionKind); }}
-                >
-                  {pendingAction === activeStep.actionKind
-                    ? activeStep.actionKind === 'calendar_connect'
-                      ? '브라우저 승인 대기 중…'
-                      : activeStep.actionKind === 'calendar_sync'
-                        ? '동기화 확인 중…'
-                        : activeStep.actionLabel
-                    : activeStep.actionLabel}
-                </button>
-              )}
+              <button
+                type="button"
+                className="primary"
+                data-testid={`onboarding-action-${activeStep.id}`}
+                disabled={busy}
+                aria-busy={pendingAction === activeStep.actionKind || undefined}
+                onClick={() => { void runAction(activeStep.actionKind); }}
+              >
+                {pendingAction === activeStep.actionKind
+                  ? activeStep.actionKind === 'calendar_connect' || activeStep.actionKind === 'mail_open'
+                    ? '브라우저 승인 대기 중…'
+                    : activeStep.actionKind === 'calendar_sync'
+                      ? '동기화 확인 중…'
+                      : activeStep.actionLabel
+                  : activeStep.actionLabel}
+              </button>
               {!activeStep.ready && (
                 <button
                   type="button"

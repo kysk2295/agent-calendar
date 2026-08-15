@@ -29,6 +29,9 @@ export type DeepLinkMainOptions = {
   onGoogleCalendarCallback?: (
     target: Extract<AgentCalendarDeepLink, { kind: 'google-calendar-callback' }>,
   ) => void | Promise<unknown>;
+  onGoogleMailCallback?: (
+    target: Extract<AgentCalendarDeepLink, { kind: 'google-mail-callback' }>,
+  ) => void | Promise<unknown>;
   onSessionDeepLink?: (target: Extract<AgentCalendarDeepLink, { kind: 'session' }>) => void;
 };
 
@@ -61,6 +64,10 @@ export function createAgentCalendarDeepLinkMain(
     }
     if (target.kind === 'google-calendar-callback') {
       const result = options.onGoogleCalendarCallback?.(target);
+      return result === undefined ? target : result;
+    }
+    if (target.kind === 'google-mail-callback') {
+      const result = options.onGoogleMailCallback?.(target);
       return result === undefined ? target : result;
     }
     deliverSession(target);
@@ -97,6 +104,11 @@ export function createAgentCalendarDeepLinkMain(
       if (result instanceof Promise) void result.catch(() => undefined);
       return;
     }
+    if (found.kind === 'google-mail-callback') {
+      const result = options.onGoogleMailCallback?.(found);
+      if (result instanceof Promise) void result.catch(() => undefined);
+      return;
+    }
     deliverSession(found);
     if (activeWindow && !activeWindow.isDestroyed()) {
       activeWindow.show();
@@ -117,6 +129,7 @@ export function createAgentCalendarDeepLinkMain(
       && (
         pending.kind === 'auth-callback'
         || pending.kind === 'google-calendar-callback'
+        || pending.kind === 'google-mail-callback'
       )
     ) {
       pending = null;

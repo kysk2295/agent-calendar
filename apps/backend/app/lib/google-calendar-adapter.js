@@ -10,6 +10,7 @@ const crypto = require('node:crypto');
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
+const GOOGLE_GMAIL_API = 'https://gmail.googleapis.com/gmail/v1';
 const GOOGLE_REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 
 function newId(prefix) {
@@ -187,6 +188,9 @@ function createFakeGoogleCalendarAdapter({ clock = () => Date.now(), pageSize = 
     async listCalendars({ credentialRef }) {
       const g = grant(credentialRef);
       return { ok: true, calendars: g.calendars.map((c) => ({ ...c })) };
+    },
+    async listMailMessages() {
+      return { ok: true, messages: [] };
     },
     async seedEvents({ credentialRef, calendarId = 'primary', events = [] }) {
       const g = grant(credentialRef);
@@ -545,13 +549,16 @@ function createRealGoogleCalendarAdapter({
     id: 'real-google',
     fetchImpl,
     credentialVault,
-    getAuthorizationUrl({ state, codeChallenge }) {
+    getAuthorizationUrl({ state, codeChallenge, purpose = 'calendar' }) {
       assertConfigured();
+      const scope = purpose === 'mail'
+        ? 'https://www.googleapis.com/auth/gmail.readonly'
+        : 'https://www.googleapis.com/auth/calendar';
       const u = new URL('https://accounts.google.com/o/oauth2/v2/auth');
       u.searchParams.set('client_id', clientId);
       u.searchParams.set('redirect_uri', redirectUri);
       u.searchParams.set('response_type', 'code');
-      u.searchParams.set('scope', 'https://www.googleapis.com/auth/calendar');
+      u.searchParams.set('scope', scope);
       u.searchParams.set('access_type', 'offline');
       u.searchParams.set('prompt', 'consent');
       u.searchParams.set('state', state);
@@ -599,6 +606,35 @@ function createRealGoogleCalendarAdapter({
       assertVault();
       const json = await authedJson(`${GOOGLE_CALENDAR_API}/users/me/calendarList`, { credentialRef });
       return { ok: true, calendars: json.items || [] };
+    },
+    async listMailMessages({ credentialRef, limit = 25 } = {}) {
+      assertConfigured();
+      assertVault();
+      const boundedLimit = Math.min(50, Math.max(1, Number(limit) || 25));
+      const listUrl = new URL(`${GOOGLE_GMAIL_API}/users/me/messages`);
+      listUrl.searchParams.set('maxResults', String(boundedLimit));
+      listUrl.searchParams.set('q', 'in:inbox');
+      const listed = await authedJson(listUrl.toString(), { credentialRef });
+      const references = Array.isArray(listed.messages) ? listed.messages.slice(0, boundedLimit) : [];
+      const messages = await Promise.all(references.map(async (reference) => {
+        const detailUrl = new URL(`${GOOGLE_GMAIL_API}/users/me/messages/${encodeURIComponent(reference.id)}`);
+        detailUrl.searchParams.set('format', 'metadata');
+        for (const header of ['From', 'Subject', 'Date']) detailUrl.searchParams.append('metadataHeaders', header);
+        const message = await authedJson(detailUrl.toString(), { credentialRef });
+        const headers = Array.isArray(message.payload?.headers) ? message.payload.headers : [];
+        const header = (name) => String(headers.find((item) => String(item.name).toLowerCase() === name.toLowerCase())?.value || '');
+        const receivedMs = Number(message.internalDate) || Date.parse(header('Date'));
+        return {
+          id: String(message.id || reference.id || ''),
+          threadId: String(message.threadId || reference.threadId || ''),
+          from: header('From'),
+          subject: header('Subject') || '(제목 없음)',
+          snippet: String(message.snippet || ''),
+          receivedAt: Number.isFinite(receivedMs) ? new Date(receivedMs).toISOString() : '',
+          unread: Array.isArray(message.labelIds) && message.labelIds.includes('UNREAD'),
+        };
+      }));
+      return { ok: true, messages };
     },
     async listEvents({
       credentialRef,
@@ -773,5 +809,6 @@ module.exports = {
   isAllowedGoogleEventId,
   expandSeriesLocal,
   GOOGLE_CALENDAR_API,
+  GOOGLE_GMAIL_API,
   GOOGLE_EVENT_ID_RE,
 };
