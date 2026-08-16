@@ -132,14 +132,19 @@ test('Google Mail disconnect uses only the authenticated mail disconnect endpoin
 
 test('Google Mail callback deep links use a distinct strict namespace', () => {
   assert.deepEqual(
-    oauth.parseAgentCalendarDeepLink('agent-calendar://mail/google/callback?code=mail-code&state=mail.state'),
-    { kind: 'google-mail-callback', code: 'mail-code', state: 'mail.state' },
+    oauth.parseAgentCalendarDeepLink(
+      'agent-calendar://mail/google/callback?code=4%2F0Acv-mail-code&state=mail.state',
+    ),
+    { kind: 'google-mail-callback', code: '4/0Acv-mail-code', state: 'mail.state' },
   );
   for (const invalid of [
     'agent-calendar://calendar/google/callback?code=mail-code&state=mail.state',
     'agent-calendar://mail/google/callback?code=mail-code&state=mail.state&extra=1',
     'agent-calendar://mail/google/callback?code=mail-code&state=mail.state#fragment',
     'agent-calendar://mail/google/callback?code=mail-code&code=other&state=mail.state',
+    'agent-calendar://mail/google/callback?code=mail-code&state=mail%2Fstate',
+    'agent-calendar://user:pass@mail/google/callback?code=mail-code&state=mail.state',
+    'agent-calendar://mail:443/google/callback?code=mail-code&state=mail.state',
   ]) {
     assert.notEqual(oauth.parseAgentCalendarDeepLink(invalid)?.kind, 'google-mail-callback');
   }

@@ -18,8 +18,9 @@ const CALLBACK_PATH = '/api/auth/google/callback';
 const AUTH_DEEP_LINK_BASE = 'agent-calendar://auth/callback';
 const CALENDAR_DEEP_LINK_BASE = 'agent-calendar://calendar/google/callback';
 const MAIL_DEEP_LINK_BASE = 'agent-calendar://mail/google/callback';
-/** Mirrors OAUTH_VALUE_PATTERN in apps/desktop/electron/deepLink.ts. */
-const OAUTH_VALUE = /^[A-Za-z0-9._~-]{1,512}$/;
+/** Mirrors the separate code/state patterns in apps/desktop/electron/deepLink.ts. */
+const OAUTH_CODE = /^[A-Za-z0-9._~\/-]{1,512}$/;
+const OAUTH_STATE = /^[A-Za-z0-9._~-]{1,512}$/;
 
 function isGoogleAuthCallbackPath(pathname = '') {
   return pathname === CALLBACK_PATH;
@@ -38,14 +39,14 @@ function resolveGoogleAuthCallback(params) {
   const reject = (error) => ({ ok: false, status: 400, error });
 
   const error = singleValue(params, 'error');
-  if (error) return reject(OAUTH_VALUE.test(error) ? error : 'invalid_request');
+  if (error) return reject(OAUTH_STATE.test(error) ? error : 'invalid_request');
 
   if (params.getAll('code').length > 1 || params.getAll('state').length > 1) {
     return reject('duplicate_parameter');
   }
   const code = singleValue(params, 'code');
   const state = singleValue(params, 'state');
-  if (!OAUTH_VALUE.test(code) || !OAUTH_VALUE.test(state)) return reject('invalid_request');
+  if (!OAUTH_CODE.test(code) || !OAUTH_STATE.test(state)) return reject('invalid_request');
 
   const destination = state.startsWith('calendar.')
     ? CALENDAR_DEEP_LINK_BASE

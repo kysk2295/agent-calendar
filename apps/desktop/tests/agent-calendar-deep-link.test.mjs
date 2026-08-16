@@ -43,8 +43,10 @@ test('session deep links accept one bounded public session identifier and reject
 
 test('auth callback deep links accept only code+state on agent-calendar://auth/callback', () => {
   assert.deepEqual(
-    deepLinkModule.parseAgentCalendarDeepLink('agent-calendar://auth/callback?code=abc123&state=xyz789'),
-    { kind: 'auth-callback', code: 'abc123', state: 'xyz789' },
+    deepLinkModule.parseAgentCalendarDeepLink(
+      'agent-calendar://auth/callback?code=4%2F0Acv-google-code&state=xyz789',
+    ),
+    { kind: 'auth-callback', code: '4/0Acv-google-code', state: 'xyz789' },
   );
 
   const rejected = [
@@ -52,6 +54,7 @@ test('auth callback deep links accept only code+state on agent-calendar://auth/c
     'agent-calendar://auth/callback?code=abc',
     'agent-calendar://auth/callback?state=xyz',
     'agent-calendar://auth/callback?code=abc&state=xyz&code=dup',
+    'agent-calendar://auth/callback?code=abc&state=has%2Fslash',
     'agent-calendar://user:pass@auth/callback?code=abc&state=xyz',
     'agent-calendar://auth:443/callback?code=abc&state=xyz',
     'agent-calendar://auth/callback?code=abc&state=xyz#frag',
@@ -66,11 +69,11 @@ test('auth callback deep links accept only code+state on agent-calendar://auth/c
 test('Google Calendar callback deep links use a distinct strict namespace', () => {
   assert.deepEqual(
     deepLinkModule.parseAgentCalendarDeepLink(
-      'agent-calendar://calendar/google/callback?code=calendar-code-1&state=calendar-state-1',
+      'agent-calendar://calendar/google/callback?code=4%2F0Acv-calendar-code&state=calendar-state-1',
     ),
     {
       kind: 'google-calendar-callback',
-      code: 'calendar-code-1',
+      code: '4/0Acv-calendar-code',
       state: 'calendar-state-1',
     },
   );
@@ -80,6 +83,7 @@ test('Google Calendar callback deep links use a distinct strict namespace', () =
     'agent-calendar://calendar/google/callback?code=abc',
     'agent-calendar://calendar/google/callback?state=xyz',
     'agent-calendar://calendar/google/callback?code=abc&state=xyz&state=dup',
+    'agent-calendar://calendar/google/callback?code=abc&state=has%2Fslash',
     'agent-calendar://user:pass@calendar/google/callback?code=abc&state=xyz',
     'agent-calendar://calendar:443/google/callback?code=abc&state=xyz',
     'agent-calendar://calendar/google/callback?code=abc&state=xyz#frag',
@@ -125,4 +129,16 @@ test('desktop packaging and renderer bridge own both cold and running deep-link 
   assert.match(integration, /getPendingDeepLink/);
   assert.match(integration, /onDeepLink/);
   assert.match(integration, /useAgentCalendarDeepLink/);
+});
+
+test('OAuth callback handling logs only callback shape, never raw code or state', () => {
+  const sensitiveSources = [
+    source('electron/deepLink.ts'),
+    source('electron/deepLinkMain.ts'),
+    source('../backend/app/lib/google-auth-callback-bridge.js'),
+  ].join('\n');
+  assert.doesNotMatch(
+    sensitiveSources,
+    /console\.(?:log|info|debug)\([^)]*(?:rawUrl|code|state|location)/s,
+  );
 });

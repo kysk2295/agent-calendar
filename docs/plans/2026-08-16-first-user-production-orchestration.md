@@ -1516,7 +1516,24 @@ curl -fsS "$GW/api/gateway-status"
 
 `/api/ready`가 200이 아니면 **가짜 200으로 바꾸지 않음.** 필요한 production operations 설정을 끝내거나 freeze를 `EXTERNAL_BLOCKED`로 남긴다.
 
-**Rollback:** Railway traffic를 `db44d33` / `8f9af9ba-5097-4a12-88e1-9795d6a21d42`에 둔다. 새 DMG를 배포하지 않음. `scripts/railway-release-gate.cjs` rollback 경로 사용.
+**Rollback:** Railway traffic를 `e211f10` / `409f4bde-37da-486c-8ce9-1d1583520c48`에 둔다. 새 DMG를 배포하지 않음. `scripts/railway-release-gate.cjs` rollback 경로 사용.
+
+### Wave 6B — 실제 Google 인증 코드 callback 복구
+
+**2026-08-16 production 증거:** Google 인증은 성공해 Gateway callback에 73자 `code`와 `state`가 모두 도착했지만, 실제 code의 `4/…` 형식에 포함된 `/`를 Gateway와 Desktop의 공통 정규식이 거부했다. code 원문은 로그·receipt에 남기지 않고 길이, slash 포함 여부, 기존 규칙 일치 여부만 진단했다.
+
+**경계:** OAuth `code`와 `state`를 분리 검증한다. code는 Google이 발급하는 bounded `4/…` 형식을 허용하지만 state는 기존 strict 문자 집합을 유지한다. exact host/path, code+state 두 키, 중복/미지/credential/port/hash 거부 계약은 그대로다. Login, Calendar, Gmail deep link 세 경로가 같은 code 계약을 사용한다.
+
+**First RED:** 실제 모양의 `code=4%2F0Acv-…`가 `google-auth-callback-bridge`와 `parseAgentCalendarAuthCallbackDeepLink`에서 거부되는 것을 재현한다.
+
+**Acceptance:**
+
+- `apps/backend/tests/google-auth-callback-bridge.test.cjs` — real-shaped code 전달, state slash/중복/미지 파라미터 거부
+- `apps/desktop/tests/agent-calendar-deep-link.test.mjs` — Login/Calendar code slash 허용, state slash 거부
+- `apps/desktop/tests/google-mail-oauth.test.mjs` — Gmail code slash 허용, state slash 거부
+- production Railway + 같은 SHA packaged app에서 신규 사용자가 로그인 완료 후 sidebar에 진입
+
+**Rollback:** 새 callback 커밋을 승격하지 않고 현재 `e211f10` deployment를 유지한다. 다만 `e211f10`은 실제 Google code를 거부하므로 로그인 검증 PASS 후보로 재사용하지 않는다.
 
 ### Wave 7 — Live production QA (코드 수정 없는 dispatch)
 

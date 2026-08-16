@@ -28,7 +28,8 @@ export type AgentCalendarDeepLink =
   | AgentCalendarGoogleMailCallbackDeepLink;
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
-const OAUTH_VALUE_PATTERN = /^[A-Za-z0-9._~-]{1,512}$/;
+const OAUTH_CODE_PATTERN = /^[A-Za-z0-9._~\/-]{1,512}$/;
+const OAUTH_STATE_PATTERN = /^[A-Za-z0-9._~-]{1,512}$/;
 
 function hasDuplicateQueryKeys(search: string): boolean {
   const raw = search.startsWith('?') ? search.slice(1) : search;
@@ -97,7 +98,7 @@ export function parseAgentCalendarAuthCallbackDeepLink(value: unknown): AgentCal
 
   const code = url.searchParams.get('code') || '';
   const state = url.searchParams.get('state') || '';
-  if (!OAUTH_VALUE_PATTERN.test(code) || !OAUTH_VALUE_PATTERN.test(state)) return null;
+  if (!OAUTH_CODE_PATTERN.test(code) || !OAUTH_STATE_PATTERN.test(state)) return null;
   return { kind: 'auth-callback', code, state };
 }
 
@@ -120,7 +121,7 @@ export function parseAgentCalendarGoogleCallbackDeepLink(
   if (!keySet.has('code') || !keySet.has('state')) return null;
   const code = url.searchParams.get('code') || '';
   const state = url.searchParams.get('state') || '';
-  if (!OAUTH_VALUE_PATTERN.test(code) || !OAUTH_VALUE_PATTERN.test(state)) return null;
+  if (!OAUTH_CODE_PATTERN.test(code) || !OAUTH_STATE_PATTERN.test(state)) return null;
   return { kind: 'google-calendar-callback', code, state };
 }
 
@@ -140,7 +141,7 @@ export function parseAgentCalendarGoogleMailCallbackDeepLink(
   if (!keySet.has('code') || !keySet.has('state')) return null;
   const code = url.searchParams.get('code') || '';
   const state = url.searchParams.get('state') || '';
-  if (!OAUTH_VALUE_PATTERN.test(code) || !OAUTH_VALUE_PATTERN.test(state)) return null;
+  if (!OAUTH_CODE_PATTERN.test(code) || !OAUTH_STATE_PATTERN.test(state)) return null;
   return { kind: 'google-mail-callback', code, state };
 }
 

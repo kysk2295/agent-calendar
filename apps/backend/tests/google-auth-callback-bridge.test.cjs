@@ -27,19 +27,24 @@ test('only the exact callback path is claimed', () => {
 });
 
 test('a valid Google redirect becomes the Desktop deep link the app parses', () => {
-  const result = resolve('code=abc-123&state=xyz_456');
+  const code = `4/${'A'.repeat(71)}`;
+  assert.equal(code.length, 73);
+  const result = resolve(`code=${encodeURIComponent(code)}&state=xyz_456`);
   assert.equal(result.ok, true);
-  assert.equal(result.location, 'agent-calendar://auth/callback?code=abc-123&state=xyz_456');
+  const destination = new URL(result.location);
+  assert.equal(destination.searchParams.get('code'), code);
+  assert.equal(destination.searchParams.get('state'), 'xyz_456');
+  assert.match(result.location, /code=4%2F/);
 });
 
 test('server-issued state prefixes route Calendar and Gmail to separate Desktop deep links', () => {
   assert.equal(
-    resolve('code=calendar-code&state=calendar.state-1').location,
-    'agent-calendar://calendar/google/callback?code=calendar-code&state=calendar.state-1',
+    resolve('code=4%2Fcalendar-code&state=calendar.state-1').location,
+    'agent-calendar://calendar/google/callback?code=4%2Fcalendar-code&state=calendar.state-1',
   );
   assert.equal(
-    resolve('code=mail-code&state=mail.state-2').location,
-    'agent-calendar://mail/google/callback?code=mail-code&state=mail.state-2',
+    resolve('code=4%2Fmail-code&state=mail.state-2').location,
+    'agent-calendar://mail/google/callback?code=4%2Fmail-code&state=mail.state-2',
   );
 });
 
